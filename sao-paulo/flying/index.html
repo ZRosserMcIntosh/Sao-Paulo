@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <base href="/sao-paulo/flying/">
 <title>Flight Test Bed</title>
-<meta name="description" content="Fly the 172 over São Paulo World in the browser: the Aviation Dynamics flight core compiled to WebAssembly, with real instruments, from Campo de Marte.">
+<meta name="description" content="Fly the 172 or the Top G business jet over São Paulo World in the browser: the Aviation Dynamics flight core compiled to WebAssembly, with real instruments, from Campo de Marte.">
 <meta property="og:title" content="São Paulo World · Flight Test Bed">
-<meta property="og:description" content="Fly the 172 over São Paulo, in your browser: take off from Campo de Marte and fly over the city.">
+<meta property="og:description" content="Fly the 172 or the Top G jet over São Paulo, in your browser: take off from Campo de Marte and fly over the city.">
 <meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -38,7 +38,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .top button:hover{background:rgba(10,17,28,.9)}
 .plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px 5px;text-decoration:none}
 .plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
-.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px;white-space:nowrap}
 .panel{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:12px}
 #side{position:fixed;right:12px;top:66px;width:310px;max-height:calc(100% - 78px);overflow:auto;z-index:3}
 #side[hidden]{display:none}
@@ -90,6 +90,9 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   #tFu{right:calc(92px + env(safe-area-inset-right));bottom:calc(120px + env(safe-area-inset-bottom))}
   #tFd{right:calc(92px + env(safe-area-inset-right));bottom:calc(68px + env(safe-area-inset-bottom))}
   #tBr{right:calc(92px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom))}
+  #tGear{right:calc(156px + env(safe-area-inset-right));bottom:calc(68px + env(safe-area-inset-bottom))}
+  #tSpd{right:calc(156px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom))}
+  .tb[hidden]{display:none}
   #instr{bottom:auto;top:calc(60px + env(safe-area-inset-top));height:96px}
   #hud{top:auto;bottom:calc(180px + env(safe-area-inset-bottom));left:calc(12px + env(safe-area-inset-left))}
   #hud .read,#hud .levers{display:none}
@@ -105,7 +108,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 <canvas id="labels" aria-hidden="true"></canvas>
 
 <div class="top">
-  <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span>Flight test bed</span></a>
+  <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span id="plateSub">Flight test bed</span></a>
   <div class="row">
     <button id="bCam" title="Camera (C)">Camera</button>
     <button id="bInstr" title="Instruments (I)" aria-pressed="true">Instruments</button>
@@ -115,6 +118,13 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 </div>
 
 <aside id="side" class="panel" aria-label="Settings">
+  <h2>Aircraft</h2>
+  <div class="row" role="group" aria-label="Aircraft">
+    <button data-aircraft="c172" aria-pressed="true">172 <small style="font-weight:500;opacity:.7">· piston single</small></button>
+    <button data-aircraft="topg" aria-pressed="false">Top G <small style="font-weight:500;opacity:.7">· twin jet</small></button>
+  </div>
+  <p class="note jetonly" hidden>The Top G flies on the G650ER's published figures: two 75 kN turbofans with thrust lapse and spool lag, a swept supercritical wing with Mach drag rise, Fowler flaps, speedbrakes and retractable gear. Mmo 0.925, Vmo 340 kt.</p>
+
   <h2>Start</h2>
   <div class="starts" id="starts"></div>
   <div class="row" style="margin-top:8px"><button id="bQuick" title="Run the Quick Start checklist through the cockpit switches">Quick Start (from cold and dark)</button></div>
@@ -157,13 +167,15 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <span><kbd>,</kbd> <kbd>.</kbd></span><span>Flaps up / down a notch (0–10–20–30°)</span>
     <span><kbd>[</kbd> <kbd>]</kbd></span><span>Elevator trim nose down / up</span>
     <span><kbd>B</kbd> · <kbd>P</kbd></span><span>Brakes · parking brake</span>
+    <span class="jetonly" hidden><kbd>G</kbd> · <kbd>/</kbd></span><span class="jetonly" hidden>Landing gear · speedbrake (RET, half, full)</span>
+    <span><kbd>K</kbd></span><span>Cage the attitude indicator (wings level)</span>
     <span><kbd>C</kbd> · <kbd>I</kbd> · <kbd>R</kbd></span><span>Camera · instruments · restart</span>
     <span><kbd>H</kbd> · <kbd>M</kbd> · <kbd>Space</kbd></span><span>Panel · sound · pause</span>
     <span>Mouse</span><span>Drag to look around (free camera), scroll to zoom</span>
     <span>Gamepad</span><span>Left stick pitch/roll, right stick rudder, RT/LT throttle, RB/LB flaps, A brakes, D-pad trim, Y restart, View camera</span>
   </div>
   <p class="note">Take-off: full throttle, keep it straight with <kbd>Q</kbd>/<kbd>E</kbd>, ease back at 55 knots. Climb at 75. Land at 65 with flaps down, idle over the runway, flare gently.</p>
-  <p class="note">Physics: the Aviation Dynamics core (the C++ the game will use, <a href="https://github.com/ZRosserMcIntosh/Aviation-Dynamics" style="color:var(--ink)">github.com/ZRosserMcIntosh/Aviation-Dynamics</a>) compiled to WebAssembly, stepping at 240 Hz: strip-theory wings, a blade-element propeller, a piston engine, fuel, electrics and instruments, validated against the 172's published handbook performance. The ground is flat at Campo de Marte's elevation (722 m) under the São Paulo World map; real terrain and buildings arrive with the world tile export.</p>
+  <p class="note">Physics: the Aviation Dynamics core (the C++ the game will use, <a href="https://github.com/ZRosserMcIntosh/Aviation-Dynamics" style="color:var(--ink)">github.com/ZRosserMcIntosh/Aviation-Dynamics</a>) compiled to WebAssembly, stepping at 240 Hz: strip-theory wings, a blade-element propeller and piston engine (172) or two-spool turbofans (Top G), fuel, electrics and instruments; the 172 is validated against its published handbook performance, the Top G against the G650ER's published figures. The ground is flat at Campo de Marte's elevation (722 m) under the São Paulo World map; real terrain and buildings arrive with the world tile export.</p>
 </aside>
 
 <div id="hud">
@@ -177,7 +189,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <div class="panel read" id="hRead"></div>
   <div class="panel levers">
     <div><div class="lev"><i id="lThr"></i></div>THR</div>
-    <div><div class="lev mix"><i id="lMix"></i></div>MIX</div>
+    <div><div class="lev mix"><i id="lMix"></i></div><span id="lMixLbl">MIX</span></div>
     <div><div class="lev flp"><i id="lFlp"></i></div>FLAPS</div>
   </div>
 </div>
@@ -191,6 +203,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <div class="tb" id="tFu">FL−</div>
   <div class="tb" id="tFd">FL+</div>
   <div class="tb" id="tBr">BRK</div>
+  <div class="tb jetonly" id="tGear" hidden>GEAR</div>
+  <div class="tb jetonly" id="tSpd" hidden>SPD</div>
 </div>
 
 <div id="loading"><div class="panel"><div class="eyebrow">Loading flight physics</div><p id="loadMsg" style="margin:10px 0 0">Starting the WebAssembly flight core and the city map…</p></div></div>

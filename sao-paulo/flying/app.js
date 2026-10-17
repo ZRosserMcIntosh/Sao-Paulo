@@ -1,14 +1,17 @@
 // São Paulo World · flight test bed.
-// The Aviation Dynamics flight core (C++20 → WebAssembly) flies the 172; this file
-// only draws it and passes the pilot's inputs in. Every number on screen comes from
+// The Aviation Dynamics flight core (C++20 → WebAssembly) flies the 172 or the Top G;
+// this file only draws them and passes the pilot's inputs in. Every number on screen comes from
 // the simulation: the HUD from avd_state, the instruments from avd_cockpit.
 // World frame: ENU metres (x east, y north, z up) from MASP; three.js: (east, up, −north).
 import * as THREE from 'three';
 import createAvdModule from './avd.mjs';
 import { buildAircraft } from './model.js';
+import { buildJet, skin as jetSkin } from './jetmodel.js';
 import { K, markingsFrom, drawPanel } from './panel.js';
+import { drawJetStrip } from './glass.js';
 import { buildCabin } from './cabin.js';
-import { FlightAudio } from './audio.js';
+import { buildJetCabin } from './jetcabin.js';
+import { FlightAudio, JetAudio } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -34,18 +37,40 @@ const toastEl = $('toast');
 let toastT = 0;
 function toast(msg, sec = 3.5) { toastEl.textContent = msg; toastEl.classList.add('on'); toastT = sec; }
 
+// ---------- Aircraft ----------
+// Chase distance, camera target and pilot's eye in body FLU metres from each datum.
+const PROFILES = {
+  c172: { id: 'c172', name: '172', file: './172.json', jet: false, chase: 15, zoom: [7, 120], target: [-1.4, 0, 0.4], eye: [-1.38, 0.27, 0.84], tower: 22, shadow: 9 },
+  topg: { id: 'topg', name: 'Top G', file: './top_g.json', jet: true, chase: 50, zoom: [20, 260], target: [-15, 0, 0.6], eye: [-3.62, 0.52, 0.4], tower: 48, shadow: 24 },
+};
+const hashPick = { '#topg': 'topg', '#172': 'c172' }[location.hash.toLowerCase()];
+let P = PROFILES[hashPick || store.get('aircraft', 'c172')] || PROFILES.c172;
+const jsonCache = {};
+const fetchDef = async (p) => {
+  if (!jsonCache[p.id]) {
+    const r = await fetch(p.file);
+    if (!r.ok) throw new Error(`${p.file} ${r.status}`);
+    jsonCache[p.id] = await r.text();
+  }
+  return jsonCache[p.id];
+};
+
 // ---------- Simulation ----------
-let A, def;
-try {
-  const [mod, json] = await Promise.all([createAvdModule(), fetch('./172.json').then((r) => { if (!r.ok) throw new Error('172.json ' + r.status); return r.text(); })]);
-  A = mod; def = JSON.parse(json);
+let A, def, M;
+function loadInto(json) {
   const errors = A.load(json);
   if (errors.length) throw new Error(errors.join('; '));
+  def = JSON.parse(json);
+  M = markingsFrom(A.markings());
+}
+try {
+  const [mod, json] = await Promise.all([createAvdModule(), fetchDef(P)]);
+  A = mod;
+  loadInto(json);
 } catch (e) {
   loadMsg('The flight core could not start: ' + e.message);
   throw e;
 }
-const M = markingsFrom(A.markings());
 const RW = A.runway();  // [threshold east, threshold north, elevation, true heading, length, width] of runway 12
 const ELEV = RW[2];
 const rwDir = [Math.sin(RW[3] * DEG), Math.cos(RW[3] * DEG)];
@@ -180,20 +205,33 @@ new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/m
   for (let i = 0; i < 4; ++i) box(30, 26, 9, 60 + i * 42, 150, i % 2 ? '#b9b3a4' : '#c9c3b2');
 }
 
-// ---------- The airplane ----------
-const aircraft = buildAircraft(def);
+// ---------- The airplanes ----------
+// Each aircraft: exterior model, cabin (seen only from the left seat) and the
+// pilot's eye, all in body FLU from its datum; built on first use.
 const acGroup = new THREE.Group();
-acGroup.add(aircraft.root);
 scene.add(acGroup);
 const qM = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);  // ENU → three
 const qBody = new THREE.Quaternion();
-const eye = new THREE.Object3D();  // pilot's eye, left seat (FLU from the datum), looking forward
-eye.position.set(-1.38, 0.27, 0.84);
-eye.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0)));
-aircraft.root.add(eye);
-// The cabin, seen only from the left seat.
-const cabin = buildCabin({ mobile: MOBILE, maxAniso: renderer.capabilities.getMaxAnisotropy() });
-aircraft.root.add(cabin.root);
+const rigs = {};
+let aircraft, cabin, eye;
+function useRig(p) {
+  if (!rigs[p.id]) {
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
+    const model = p.jet ? buildJet(def) : buildAircraft(def);
+    const cab = p.jet ? buildJetCabin({ mobile: MOBILE, maxAniso, skin: jetSkin }) : buildCabin({ mobile: MOBILE, maxAniso });
+    const e = new THREE.Object3D();
+    e.position.set(...p.eye);
+    e.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0)));
+    model.root.add(e, cab.root);
+    acGroup.add(model.root);
+    rigs[p.id] = { model, cab, eye: e };
+  }
+  for (const [id, r] of Object.entries(rigs)) r.model.root.visible = id === p.id;
+  ({ model: aircraft, cab: cabin, eye } = rigs[p.id]);
+  Object.assign(sun.shadow.camera, { left: -p.shadow, right: p.shadow, top: p.shadow, bottom: -p.shadow });
+  sun.shadow.camera.updateProjectionMatrix();
+}
+useRig(P);
 const bodyPoint = (x, y, z) => acGroup.localToWorld(new THREE.Vector3(x, y, z));
 
 // ---------- State ----------
@@ -202,11 +240,11 @@ const ui = {
   start: 0, paused: false, crashed: false, sound: false, vol: store.get('vol', 80),
 };
 const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0 };
-let s = new Float64Array(64), c = new Float64Array(96);
+let s = new Float64Array(64), c = new Float64Array(96), j = new Float64Array(32);
 const failed = { fuel: false, 0: false, 1: false, 2: false, 3: false };
 let parkHint = false;
 
-const STARTS = [
+const PISTON_STARTS = [
   { name: 'Runway 12', sub: 'engine running', go: () => A.avd_reset(1), thr: 0.1 },
   { name: 'Cold and dark', sub: 'runway 12', go: () => A.avd_reset(0), thr: 0.1 },
   { name: 'Final 12', sub: '3 km, flaps 20', go: () => A.avd_reset(2), trim: true },
@@ -216,13 +254,28 @@ const STARTS = [
   { name: 'Ibirapuera', sub: 'park and Obelisco', go: () => A.avd_reset_air(-2000, -4500, 400, 50, 100, 0), trim: true },
   { name: 'Ponte Estaiada', sub: 'Pinheiros river', go: () => A.avd_reset_air(-3800, -8500, 300, 345, 95, 0), trim: true },
 ];
+const JET_STARTS = [
+  { name: 'Runway 12', sub: 'engines at idle', go: () => A.avd_reset(1), thr: 0 },
+  { name: 'Cold and dark', sub: 'runway 12', go: () => A.avd_reset(0), thr: 0 },
+  { name: 'Final 12', sub: '6 km, 125 kt, flaps 39', go: () => A.avd_reset(2), trim: true },
+  { name: 'Downwind 12', sub: '2000 ft, 180 kt', go: () => A.avd_reset_air(rwMid[0] - rwRight[0] * 2500, rwMid[1] - rwRight[1] * 2500, 610, (RW[3] + 180) % 360, 180, 1), trim: true },
+  { name: 'Avenida Paulista', sub: 'low pass, 220 kt', go: () => A.avd_reset_air(3200, -2200, 600, 305, 220, 0), trim: true },
+  { name: 'Centro', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(2100, -3000, 600, 0, 220, 0), trim: true },
+  { name: 'Ibirapuera', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(-4000, -7000, 600, 40, 220, 0), trim: true },
+  { name: 'Cruise FL410', sub: 'Mach 0.85 over the city', go: () => A.avd_reset_air(0, -9000, 12497 - ELEV, 340, 240, 0), trim: true },
+];
+let STARTS = P.jet ? JET_STARTS : PISTON_STARTS;
 const startsEl = $('starts');
-STARTS.forEach((st, i) => {
-  const b = document.createElement('button');
-  b.innerHTML = `<span>${st.name}</span><small>${st.sub}</small>`;
-  b.addEventListener('click', () => { restart(i); b.blur(); });
-  startsEl.appendChild(b);
-});
+function buildStarts() {
+  startsEl.innerHTML = '';
+  STARTS.forEach((st, i) => {
+    const b = document.createElement('button');
+    b.innerHTML = `<span>${st.name}</span><small>${st.sub}</small>`;
+    b.addEventListener('click', () => { restart(i); b.blur(); });
+    startsEl.appendChild(b);
+  });
+}
+buildStarts();
 
 function applyWeather() {
   const kt = +$('wind').value, dir = +$('windDir').value, turb = +$('turb').value, temp = +$('temp').value;
@@ -249,7 +302,8 @@ function restart(i = ui.start) {
   A.events();  // drop the reset's own events
   [...startsEl.children].forEach((b, k) => b.setAttribute('aria-pressed', String(k === i)));
   snapCamera = true;
-  if (i === 0) toast(`Runway 12: full throttle (${MOBILE ? 'slide THR up' : '+ or X'}), keep straight, ease back at 55 kt.`, 6);
+  if (i === 0 && P.jet) toast(`Runway 12: full thrust (${MOBILE ? 'slide THR up' : '+ or X'}), rotate at 125 kt, gear up (${MOBILE ? 'GEAR' : 'G'}) once climbing.`, 7);
+  else if (i === 0) toast(`Runway 12: full throttle (${MOBILE ? 'slide THR up' : '+ or X'}), keep straight, ease back at 55 kt.`, 6);
   else if (i === 1) toast('Cold and dark: run the Quick Start in Settings, or work the switches.', 6);
   else toast(`${st.name}: trimmed and level, ${st.sub}.`);
 }
@@ -264,6 +318,17 @@ const keyMap = {
   BracketLeft: 'trimDown', BracketRight: 'trimUp',
 };
 const flaps = (dir) => setControl('flaps.lever', controlPos('flaps.lever') + dir);
+function toggleGear() {
+  if (!P.jet) { toast('The 172 has fixed gear.', 1.5); return; }
+  const down = controlPos('gear.lever') ? 0 : 1;
+  if (!down && s[28]) { toast('Weight on wheels: the gear stays down.', 2); return; }
+  setControl('gear.lever', down); toast(down ? 'Gear down' : 'Gear up', 1.5);
+}
+function cycleSpeedbrake() {
+  if (!P.jet) return;
+  const n = A.cockpit().find((x) => x.id === 'speedbrake.lever')?.positions.length || 3;
+  setControl('speedbrake.lever', (controlPos('speedbrake.lever') + 1) % n);
+}
 addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, select, textarea')) return;
   if (keyMap[e.code]) { keys.add(keyMap[e.code]); e.preventDefault(); }
@@ -272,6 +337,9 @@ addEventListener('keydown', (e) => {
     case 'Comma': flaps(-1); break;
     case 'Period': flaps(1); break;
     case 'KeyP': setControl('brakes.parking', controlPos('brakes.parking') ? 0 : 1); break;
+    case 'KeyG': toggleGear(); break;
+    case 'Slash': cycleSpeedbrake(); e.preventDefault(); break;
+    case 'KeyK': A.avd_ai_cage(); toast('Attitude indicator caged (do it wings level).', 2); break;
     case 'KeyC': cycleCam(); break;
     case 'KeyI': toggleInstr(); break;
     case 'KeyR': restart(); break;
@@ -303,6 +371,8 @@ const touch = { x: 0, y: 0, id: null, thrId: null, brake: false };
   thr.addEventListener('pointerdown', (e) => { touch.thrId = e.pointerId; thr.setPointerCapture(e.pointerId); setThr(e); });
   thr.addEventListener('pointermove', (e) => { if (e.pointerId === touch.thrId) setThr(e); });
   thr.addEventListener('pointerup', () => { touch.thrId = null; });
+  $('tGear').addEventListener('pointerdown', () => toggleGear());
+  $('tSpd').addEventListener('pointerdown', () => cycleSpeedbrake());
   $('tFu').addEventListener('pointerdown', () => flaps(-1));
   $('tFd').addEventListener('pointerdown', () => flaps(1));
   const br = $('tBr');
@@ -365,7 +435,7 @@ document.querySelectorAll('[data-assist]').forEach((b) => b.addEventListener('cl
 document.querySelectorAll('[data-fail]').forEach((b) => b.addEventListener('click', () => {
   const k = b.dataset.fail, on = !failed[k];
   failed[k] = on; b.setAttribute('aria-pressed', String(on));
-  if (k === 'fuel') setControl('fuel.shutoff', on ? 0 : 1);
+  if (k === 'fuel') setControl(P.jet ? 'engine1.fuel' : 'fuel.shutoff', on ? 0 : 1);
   else A.avd_failure(+k, on ? 1 : 0);
   toast(`${b.textContent}: ${on ? (k === 'fuel' ? 'closed' : 'failed') : 'restored'}.`);
   b.blur();
@@ -373,13 +443,14 @@ document.querySelectorAll('[data-fail]').forEach((b) => b.addEventListener('clic
 
 $('bQuick').addEventListener('click', (e) => {
   if (STARTS[ui.start].trim || s[30]) restart(1);
-  A.avd_quick_start(); toast('Quick Start: working through the checklist…'); e.currentTarget.blur();
+  A.avd_quick_start(); toast(P.jet ? 'Quick Start: battery and generators on, starting engine 1, then engine 2…' : 'Quick Start: working through the checklist…'); e.currentTarget.blur();
 });
 
-const audio = new FlightAudio();
-audio.setVolume(ui.vol / 100);
+const audios = { piston: new FlightAudio(), jet: new JetAudio() };
+let audio = P.jet ? audios.jet : audios.piston;
+for (const a of Object.values(audios)) a.setVolume(ui.vol / 100);
 $('vol').value = ui.vol;
-$('vol').addEventListener('input', (e) => { ui.vol = +e.target.value; audio.setVolume(ui.vol / 100); store.set('vol', ui.vol); });
+$('vol').addEventListener('input', (e) => { ui.vol = +e.target.value; for (const a of Object.values(audios)) a.setVolume(ui.vol / 100); store.set('vol', ui.vol); });
 function toggleSound() {
   ui.sound = !ui.sound;
   if (ui.sound) audio.start(); else audio.stop();
@@ -404,7 +475,7 @@ if (MOBILE || innerWidth < 900) togglePanel(false);
 function togglePause() { ui.paused = !ui.paused; toast(ui.paused ? 'Paused (Space to resume)' : 'Resumed', ui.paused ? 1e9 : 1.2); }
 
 // Mouse: drag to look around, wheel to zoom.
-const look = { yaw: 0, pitch: 0, dist: 15, drag: false, x: 0, y: 0, held: false };
+const look = { yaw: 0, pitch: 0, dist: P.chase, drag: false, x: 0, y: 0, held: false };
 canvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch' && e.isPrimary === false) return; look.drag = true; look.held = true; look.x = e.clientX; look.y = e.clientY; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', (e) => {
   if (!look.drag) return;
@@ -413,7 +484,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 const endDrag = () => { look.drag = false; look.held = false; };
 canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
-canvas.addEventListener('wheel', (e) => { look.dist = clamp(look.dist * (1 + Math.sign(e.deltaY) * 0.1), 7, 120); e.preventDefault(); }, { passive: false });
+canvas.addEventListener('wheel', (e) => { look.dist = clamp(look.dist * (1 + Math.sign(e.deltaY) * 0.1), P.zoom[0], P.zoom[1]); e.preventDefault(); }, { passive: false });
 
 // ---------- Instrument panel ----------
 const panelCv = $('panelCv'), pctx = panelCv.getContext('2d');
@@ -442,6 +513,7 @@ resize();
 const hRead = $('hRead');
 const fmt = (v, d = 0) => (Number.isFinite(v) ? v.toFixed(d) : '—');
 function hud() {
+  if (P.jet) { jetHud(); return; }
   $('hIas').innerHTML = `${fmt(Math.max(0, c[K.ias]))}<small>KIAS</small>`;
   $('hAlt').innerHTML = `${fmt(c[K.alt])}<small>FT MSL</small>`;
   const hdg = String(Math.round(((c[K.dg] % 360) + 360) % 360) || 360).padStart(3, '0');
@@ -459,12 +531,42 @@ function hud() {
   if (MOBILE) $('thr').querySelector('i').style.top = `${(1 - input.throttle) * (170 - 34) + 2}px`;
 }
 
+function jetHud() {
+  $('hIas').innerHTML = `${fmt(Math.max(0, c[K.ias]))}<small>KIAS</small>`;
+  $('hAlt').innerHTML = `${fmt(c[K.alt])}<small>FT MSL</small>`;
+  const hdg = String(Math.round(((c[K.dg] % 360) + 360) % 360) || 360).padStart(3, '0');
+  const gear = j[1] > 0.999 ? 'down' : j[1] < 0.001 ? 'up' : 'in transit';
+  const rows = [
+    ['Mach', j[5] > 0.2 ? fmt(j[5], 3) : '—'], ['Ground speed', `${fmt(s[12])} kt`], ['Vertical', `${fmt(c[K.vsi])} fpm`],
+    ['Heading', `${hdg}°`], ['Above field', `${fmt(Math.max(0, s[14]))} ft`],
+    ['N1 L / R', `${fmt(j[8], 1)} / ${fmt(j[16], 1)} %`], ['Fuel flow', `${fmt(j[7] * 2.20462 / 10) * 10 || 0} lb/h`],
+    ['Fuel', `${fmt(j[6] * 2.20462)} lb`], ['Flaps', `${fmt(j[27])}°`], ['Gear', gear], ['Speedbrake', j[3] > 0.02 ? `${fmt(j[3] * 100)} %` : 'retracted'],
+    ['Load', `${fmt(s[18], 2)} g`], ['Brakes', s[49] ? 'PARKING SET' : input.brake ? 'on' : 'off'],
+  ];
+  hRead.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
+  $('lThr').style.height = `${input.throttle * 100}%`;
+  $('lMix').style.height = `${j[3] * 100}%`;
+  $('lFlp').style.height = `${clamp(j[27] / 39, 0, 1) * 100}%`;
+  if (MOBILE) $('thr').querySelector('i').style.top = `${(1 - input.throttle) * (170 - 34) + 2}px`;
+}
+const FMA = ['EASY · WING LEVEL · AUTO TRIM', 'SPORT · AUTO COORD', 'MANUAL'];
+function jetData() {
+  return {
+    ias: c[K.ias], alt: c[K.alt], baro: c[K.kollsman], vsi: c[K.vsi], pitch: c[K.aiPitch], roll: c[K.aiRoll], hdg: c[K.dg], bug: c[K.bug],
+    ball: c[K.ball], stall: c[K.stall] > 0.5, mach: j[5], gs: s[12], tas: j[26], agl: Math.max(0, s[14]), vmo: j[25], mmo: j[24],
+    assist: FMA[ui.assist], n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
+    run: [j[13], j[21]], starting: [j[14], j[22]], fuelSw: [j[15], j[23]], n1cmd: 22 + 78 * input.throttle,
+    fuelKg: j[6], gear: j[1], spd: j[3], flaps: j[27], wow: j[29], park: s[49],
+    x: s[0], y: s[1], trueHdg: s[9], rangeNm: 10, runway: RW, points: LANDMARKS,
+  };
+}
+
 // ---------- Cameras ----------
 let snapCamera = true;
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
 const TOWER = enu(rwMid[0] + rwDir[0] * -120 + rwRight[0] * 140, rwMid[1] + rwDir[1] * -120 + rwRight[1] * 140, ELEV + 26);
 function updateCamera(dt) {
-  const target = bodyPoint(-1.4, 0, 0.4);
+  const target = bodyPoint(...P.target);
   const inside = ui.cam === 1;
   cabin.root.visible = inside;
   aircraft.glass.opacity = inside ? 0.06 : 0.88;
@@ -478,7 +580,7 @@ function updateCamera(dt) {
     camera.fov = innerWidth < innerHeight ? 82 : 70;
   } else if (ui.cam === 3) {
     camera.position.copy(TOWER); camera.lookAt(target);
-    camera.fov = clamp(Math.atan2(22, TOWER.distanceTo(target)) * 2 / DEG, 2, 60);
+    camera.fov = clamp(Math.atan2(P.tower, TOWER.distanceTo(target)) * 2 / DEG, 2, 60);
   } else {
     // Chase follows the track (heading when slow); orbit is fully mouse-driven.
     const h = (ui.cam === 0 ? s[9] * DEG : 0) + look.yaw, el = (ui.cam === 0 ? 0.2 : 0.35) + look.pitch;
@@ -534,6 +636,8 @@ function handleEvents() {
     if (e.startsWith('Touchdown')) {
       const fpm = Math.abs(+(e.match(/(-?\d+) fpm/)?.[1] || 0));
       toast(fpm > 600 ? `Hard landing: ${fpm} fpm` : fpm > 300 ? `Touchdown: ${fpm} fpm, firm` : `Touchdown: ${fpm} fpm, smooth`);
+    } else if (/tail/.test(e)) {
+      toast('Tail strike! Rotate less steeply.', 3);
     } else if (e.startsWith('PROPELLER STRIKE') || e.startsWith('Airframe ground contact')) {
       ui.crashed = true; toast(`${e}. Press R to restart.`, 1e9);
     } else if (!e.includes(' -> ')) toast(e);
@@ -541,7 +645,43 @@ function handleEvents() {
   if (s[48] && !ui.crashed) { ui.crashed = true; toast('The airplane is damaged beyond flight. Press R to restart.', 1e9); }
 }
 
+// ---------- Aircraft selection ----------
+function applyProfileUi() {
+  document.querySelectorAll('[data-aircraft]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aircraft === P.id)));
+  $('lMixLbl').textContent = P.jet ? 'SPD BRK' : 'MIX';
+  document.querySelector('[data-fail="fuel"]').textContent = P.jet ? 'Engine 1 cut-off' : 'Fuel shutoff';
+  document.querySelector('[data-fail="2"]').hidden = P.jet;
+  document.querySelector('[data-fail="3"]').textContent = P.jet ? 'Generators' : 'Alternator';
+  document.querySelectorAll('.jetonly').forEach((el) => { el.hidden = !P.jet; });
+  document.querySelectorAll('.pistononly').forEach((el) => { el.hidden = P.jet; });
+  $('plateSub').textContent = `Flight test bed · ${P.name}`;
+  document.title = `Flight Test Bed · ${P.name}`;
+}
+async function selectAircraft(id) {
+  if (P.id === id) return;
+  const next = PROFILES[id];
+  try {
+    loadInto(await fetchDef(next));
+  } catch (e) { toast('Could not load the aircraft: ' + e.message, 6); return; }
+  audio.stop();
+  P = next;
+  store.set('aircraft', P.id);
+  try { history.replaceState(null, '', P.jet ? '#topg' : '#172'); } catch { /* sandboxed */ }
+  audio = P.jet ? audios.jet : audios.piston;
+  if (ui.sound) audio.start();
+  useRig(P);
+  look.dist = P.chase;
+  STARTS = P.jet ? JET_STARTS : PISTON_STARTS;
+  buildStarts();
+  applyProfileUi();
+  setAssist(ui.assist);
+  restart(0);
+  sizePanel();
+}
+document.querySelectorAll('[data-aircraft]').forEach((b) => b.addEventListener('click', () => { selectAircraft(b.dataset.aircraft); b.blur(); }));
+
 // ---------- Loop ----------
+applyProfileUi();
 setAssist(ui.assist);
 restart(0);
 $('loading').hidden = true;
@@ -572,12 +712,13 @@ function frame() {
     A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, 0);
     A.avd_advance(dt);
   }
-  s = A.state().slice(); c = A.cockpitState().slice();
+  s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
   handleEvents();
   // Airplane pose: datum position and body FLU → ENU attitude.
   acGroup.position.copy(enu(s[0], s[1], s[2]));
   acGroup.quaternion.copy(qM).multiply(qBody.set(s[4], s[5], s[6], s[3]));
-  aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1 }, ui.paused ? 0 : dt);
+  if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]) }, ui.paused ? 0 : dt);
+  else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1 }, ui.paused ? 0 : dt);
   acGroup.updateMatrixWorld(true);
   updateCamera(dt);
   renderer.render(scene, camera);
@@ -586,14 +727,21 @@ function frame() {
   hud();
   panelT += dt; cabinT += dt; swT += dt;
   if (swT > 0.2) { swT = 0; readSwitches(); }
-  cabin.update({ elev: s[46], ail: s[45], rud: s[47], trim: s[27], thr: input.throttle, mix: input.mixture, flapLever: sw.flaps, fuelSel: sw.fuelSel });
-  if (ui.cam === 1 && cabinT > 1 / 30) { cabinT = 0; cabin.redraw(c, M, sw, s, c[K.compass]); }
+  if (P.jet) {
+    cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2] });
+    if (ui.cam === 1 && cabinT > 1 / 20) { cabinT = 0; cabin.redraw(jetData()); }
+  } else {
+    cabin.update({ elev: s[46], ail: s[45], rud: s[47], trim: s[27], thr: input.throttle, mix: input.mixture, flapLever: sw.flaps, fuelSel: sw.fuelSel });
+    if (ui.cam === 1 && cabinT > 1 / 30) { cabinT = 0; cabin.redraw(c, M, sw, s, c[K.compass]); }
+  }
   if (ui.instr && ui.cam !== 1 && panelT > 1 / 30) {
     panelT = 0;
     const r = panelCv.getBoundingClientRect();
-    drawPanel(pctx, r.width, r.height, c, M, panelLayout);
+    if (P.jet) drawJetStrip(pctx, r.width, r.height, jetData());
+    else drawPanel(pctx, r.width, r.height, c, M, panelLayout);
   }
-  audio.update(ui.paused ? 0 : s[19], s[20], s[11], c[K.stall] > 0.5, ui.cam === 1);
+  if (P.jet) audio.update(ui.paused ? [0, 0] : [j[8], j[16]], ui.paused ? [0, 0] : [j[9], j[17]], (j[12] + j[20]) / 150, j[26], c[K.stall] > 0.5, ui.cam === 1);
+  else audio.update(ui.paused ? 0 : s[19], s[20], s[11], c[K.stall] > 0.5, ui.cam === 1);
   if (toastT > 0 && (toastT -= dt) <= 0) toastEl.classList.remove('on');
 }
 requestAnimationFrame(frame);

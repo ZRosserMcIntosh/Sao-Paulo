@@ -9,11 +9,11 @@
 import * as THREE from 'three';
 
 const DEG = Math.PI / 180;
-const flu = ([x, y, z]) => new THREE.Vector3(x, -y, -z);
+export const flu = ([x, y, z]) => new THREE.Vector3(x, -y, -z);
 
 // Simple cambered section (fraction of chord from the leading edge, upper
 // first then lower), scaled by chord and thickness ratio.
-function sectionPoints(chord, t) {
+export function sectionPoints(chord, t) {
   const xs = [0, 0.03, 0.1, 0.25, 0.45, 0.7, 1.0];
   const up = xs.map((u) => [u, (t * 5 * (0.2969 * Math.sqrt(u) - 0.126 * u - 0.3516 * u * u + 0.2843 * u ** 3 - 0.1036 * u ** 4) + 0.03 * Math.sin(Math.PI * u)) * chord]);
   const lo = xs.slice(1, -1).reverse().map((u) => [u, (-t * 5 * (0.2969 * Math.sqrt(u) - 0.126 * u - 0.3516 * u * u + 0.2843 * u ** 3 - 0.1036 * u ** 4) + 0.03 * Math.sin(Math.PI * u)) * chord]);
@@ -22,7 +22,7 @@ function sectionPoints(chord, t) {
 
 // A tapered panel between two sections. `le0`/`le1`: leading-edge points (FLU);
 // chords along -x; `up`: the section's thickness direction (unit, FLU).
-function panelGeometry(le0, c0, le1, c1, t, up) {
+export function panelGeometry(le0, c0, le1, c1, t, up) {
   const s0 = sectionPoints(c0, t), s1 = sectionPoints(c1, t), n = s0.length;
   const pos = [], idx = [];
   const put = (le, s) => { for (const [u, z] of s) pos.push(le.x - u, le.y + up.y * z, le.z + up.z * z); };
@@ -41,14 +41,14 @@ function panelGeometry(le0, c0, le1, c1, t, up) {
   return g;
 }
 
-// Lofted fuselage through rounded-rectangle stations [x, halfWidth, zTop, zBottom].
-function loft(stations, segs = 20) {
+// Lofted fuselage through rounded-rectangle stations [x, halfWidth, zTop, zBottom];
+// `e` is the superellipse exponent (2 = ellipse, higher = boxier).
+export function loft(stations, segs = 20, e = 2.6) {
   const pos = [], idx = [];
   for (const [x, hw, zt, zb] of stations) {
     const zc = (zt + zb) / 2, hh = Math.max((zt - zb) / 2, 1e-3);
     for (let k = 0; k < segs; ++k) {
       const a = (k / segs) * 2 * Math.PI, c = Math.cos(a), s = Math.sin(a);
-      const e = 2.6;  // superellipse exponent: boxy cabin, round nose
       const sx = Math.sign(c) * Math.abs(c) ** (2 / e), sz = Math.sign(s) * Math.abs(s) ** (2 / e);
       pos.push(x, hw * sx, zc + hh * sz);
     }
@@ -65,7 +65,7 @@ function loft(stations, segs = 20) {
   return g;
 }
 
-function cylinderBetween(a, b, r, mat) {
+export function cylinderBetween(a, b, r, mat) {
   const d = new THREE.Vector3().subVectors(b, a), len = d.length();
   const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 8), mat);
   m.position.copy(a).addScaledVector(d, 0.5);
