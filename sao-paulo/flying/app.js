@@ -12,6 +12,7 @@ import { drawJetStrip } from './glass.js';
 import { buildCabin } from './cabin.js';
 import { buildJetCabin } from './jetcabin.js';
 import { FlightAudio, JetAudio } from './audio.js';
+import { buildFlow } from './flow.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -40,8 +41,8 @@ function toast(msg, sec = 3.5) { toastEl.textContent = msg; toastEl.classList.ad
 // ---------- Aircraft ----------
 // Chase distance, camera target and pilot's eye in body FLU metres from each datum.
 const PROFILES = {
-  c172: { id: 'c172', name: '172', file: './172.json', jet: false, chase: 15, zoom: [7, 120], target: [-1.4, 0, 0.4], eye: [-1.38, 0.27, 0.84], tower: 22, shadow: 9 },
-  topg: { id: 'topg', name: 'Top G', file: './top_g.json', jet: true, chase: 50, zoom: [20, 260], target: [-15, 0, 0.6], eye: [-3.62, 0.52, 0.4], tower: 48, shadow: 24 },
+  c172: { id: 'c172', name: '172', file: './172.json', jet: false, fuse: { xNose: 1.02, xTail: -6.25, R: 0.55, z: 0.0 }, chase: 15, zoom: [7, 120], target: [-1.4, 0, 0.4], eye: [-1.38, 0.27, 0.84], tower: 22, shadow: 9 },
+  topg: { id: 'topg', name: 'Top G', file: './top_g.json', jet: true, fuse: { xNose: 0, xTail: -30.4, R: 1.31, z: 0.0 }, chase: 50, zoom: [20, 260], target: [-15, 0, 0.6], eye: [-3.62, 0.52, 0.4], tower: 48, shadow: 24 },
 };
 const hashPick = { '#topg': 'topg', '#172': 'c172' }[location.hash.toLowerCase()];
 let P = PROFILES[hashPick || store.get('aircraft', 'c172')] || PROFILES.c172;
@@ -232,6 +233,8 @@ function useRig(p) {
   sun.shadow.camera.updateProjectionMatrix();
 }
 useRig(P);
+const flow = buildFlow({ mobile: MOBILE });
+acGroup.add(flow.group);
 const bodyPoint = (x, y, z) => acGroup.localToWorld(new THREE.Vector3(x, y, z));
 
 // ---------- State ----------
@@ -339,6 +342,7 @@ addEventListener('keydown', (e) => {
     case 'KeyP': setControl('brakes.parking', controlPos('brakes.parking') ? 0 : 1); break;
     case 'KeyG': toggleGear(); break;
     case 'Slash': cycleSpeedbrake(); e.preventDefault(); break;
+    case 'KeyV': cycleFlow(); break;
     case 'KeyK': A.avd_ai_cage(); toast('Attitude indicator caged (do it wings level).', 2); break;
     case 'KeyC': cycleCam(); break;
     case 'KeyI': toggleInstr(); break;
@@ -600,7 +604,8 @@ function updateCamera(dt) {
   sun.target.position.copy(target);
   sun.position.copy(target).addScaledVector(SUN_DIR, agl / SUN_DIR.y + 60);
   sun.shadow.camera.far = agl / SUN_DIR.y + 120; sun.shadow.camera.updateProjectionMatrix();
-  scene.fog.near = 2500 + agl * 3; scene.fog.far = 22000 + agl * 12;
+  if (ui.flow === 2) { scene.fog.near = 1.5 * P.chase; scene.fog.far = 7 * P.chase; }
+  else { scene.fog.near = 2500 + agl * 3; scene.fog.far = 22000 + agl * 12; }
 }
 
 // ---------- Landmark labels ----------
@@ -645,6 +650,26 @@ function handleEvents() {
   if (s[48] && !ui.crashed) { ui.crashed = true; toast('The airplane is damaged beyond flight. Press R to restart.', 1e9); }
 }
 
+// ---------- Airflow view ----------
+const FLOW = ['Airflow', 'Airflow: on', 'Wind tunnel'];
+ui.flow = 0;
+const DARK = new THREE.Color('#05080d');
+function cycleFlow() {
+  ui.flow = (ui.flow + 1) % 3;
+  flow.group.visible = ui.flow > 0;
+  flow.reset();
+  $('bFlow').textContent = FLOW[ui.flow];
+  $('bFlow').setAttribute('aria-pressed', String(ui.flow > 0));
+  $('flowLegend').hidden = ui.flow === 0;
+  const tunnel = ui.flow === 2;
+  scene.background = tunnel ? DARK : SKY;
+  scene.fog.color.copy(tunnel ? DARK : SKY);
+  skyDome.visible = !tunnel;
+  if (ui.flow === 1) toast('Airflow: streamlines from the lift the physics is making, coloured by pressure. Orbit camera recommended (C).', 5);
+  if (tunnel) toast('Wind tunnel: the world goes dark so the flow stands out. V again to turn it off.', 4);
+}
+$('bFlow').addEventListener('click', (e) => { cycleFlow(); e.currentTarget.blur(); });
+
 // ---------- Aircraft selection ----------
 function applyProfileUi() {
   document.querySelectorAll('[data-aircraft]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aircraft === P.id)));
@@ -670,6 +695,7 @@ async function selectAircraft(id) {
   audio = P.jet ? audios.jet : audios.piston;
   if (ui.sound) audio.start();
   useRig(P);
+  flow.reset();
   look.dist = P.chase;
   STARTS = P.jet ? JET_STARTS : PISTON_STARTS;
   buildStarts();
@@ -719,6 +745,10 @@ function frame() {
   acGroup.quaternion.copy(qM).multiply(qBody.set(s[4], s[5], s[6], s[3]));
   if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]) }, ui.paused ? 0 : dt);
   else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1 }, ui.paused ? 0 : dt);
+  if (ui.flow) {
+    const fr = flow.update(A.flow(), ui.paused ? 0 : dt, { ...P, span: def.reference.span_m });
+    $('flowStall').textContent = fr.stalled ? `${fr.stalled} strip${fr.stalled > 1 ? 's' : ''} stalled` : 'no stalled strips';
+  }
   acGroup.updateMatrixWorld(true);
   updateCamera(dt);
   renderer.render(scene, camera);

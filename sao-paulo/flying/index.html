@@ -36,6 +36,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .top>*{pointer-events:auto}
 .top button{background:rgba(10,17,28,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .top button:hover{background:rgba(10,17,28,.9)}
+.top button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
 .plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px 5px;text-decoration:none}
 .plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
 .plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px;white-space:nowrap}
@@ -69,6 +70,16 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .lev.flp i{background:var(--hot)}
 #warn{position:fixed;left:50%;top:70px;transform:translateX(-50%);font:900 26px/1 var(--display);letter-spacing:.06em;color:#fff;background:var(--bad);border-radius:6px;padding:6px 14px;z-index:2;display:none;pointer-events:none}
 #warn.on{display:block}
+#flowLegend{position:fixed;right:12px;bottom:174px;z-index:2;width:250px;display:grid;gap:7px;pointer-events:none}
+#flowLegend[hidden]{display:none}
+#flowLegend .lg{display:grid;gap:3px;font:500 11px var(--mono);color:var(--mute)}
+#flowLegend .bar{display:block;height:8px;border-radius:4px;background:linear-gradient(90deg,#30123b,#4662d7,#36aaf9,#1ae4b6,#72fe5e,#c8ef34,#faba39,#f66b19,#ca2a04,#7a0403)}
+#flowLegend .bar.half{background:linear-gradient(90deg,#1ae4b6,#72fe5e,#c8ef34,#faba39,#f66b19,#ca2a04,#7a0403)}
+#flowLegend .ends{display:flex;justify-content:space-between}
+#flowLegend b{color:var(--ink);font-weight:600}
+#flowLegend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+#flowLegend .sw.hot{background:#ff8c26}#flowLegend .sw.stall{background:#ff19e6}
+@media (max-width:760px){#flowLegend{bottom:auto;top:calc(176px + env(safe-area-inset-top));right:8px;width:200px}}
 #instr{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:2;padding:6px;width:min(1000px,calc(100% - 24px));height:150px}
 #instr[hidden]{display:none}
 #instr canvas{width:100%;height:100%;display:block}
@@ -110,6 +121,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 <div class="top">
   <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span id="plateSub">Flight test bed</span></a>
   <div class="row">
+    <button id="bFlow" title="Airflow view (V): off, on, wind tunnel" aria-pressed="false">Airflow</button>
     <button id="bCam" title="Camera (C)">Camera</button>
     <button id="bInstr" title="Instruments (I)" aria-pressed="true">Instruments</button>
     <button id="bReset" title="Restart (R)">Restart</button>
@@ -169,6 +181,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <span><kbd>B</kbd> · <kbd>P</kbd></span><span>Brakes · parking brake</span>
     <span class="jetonly" hidden><kbd>G</kbd> · <kbd>/</kbd></span><span class="jetonly" hidden>Landing gear · speedbrake (RET, half, full)</span>
     <span><kbd>K</kbd></span><span>Cage the attitude indicator (wings level)</span>
+    <span><kbd>V</kbd></span><span>Airflow view: off, on, wind tunnel</span>
     <span><kbd>C</kbd> · <kbd>I</kbd> · <kbd>R</kbd></span><span>Camera · instruments · restart</span>
     <span><kbd>H</kbd> · <kbd>M</kbd> · <kbd>Space</kbd></span><span>Panel · sound · pause</span>
     <span>Mouse</span><span>Drag to look around (free camera), scroll to zoom</span>
@@ -194,6 +207,12 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   </div>
 </div>
 <div id="warn">STALL</div>
+<div id="flowLegend" class="panel" hidden>
+  <div class="eyebrow">Airflow · from the physics</div>
+  <div class="lg"><span>Pressure Cp</span><i class="bar"></i><span class="ends"><b>−0.15 fast</b><b>+0.15 slow</b></span></div>
+  <div class="lg"><span>Wing strips α/α<sub>stall</sub></span><i class="bar half"></i><span class="ends"><b>0</b><b>stall</b></span></div>
+  <div class="lg"><span><i class="sw hot"></i> jet exhaust</span><span><i class="sw stall"></i> <b id="flowStall">no stalled strips</b></span></div>
+</div>
 <div id="instr" class="panel" aria-label="Instrument panel"><canvas id="panelCv"></canvas></div>
 <div id="toast" role="status" aria-live="polite"></div>
 
