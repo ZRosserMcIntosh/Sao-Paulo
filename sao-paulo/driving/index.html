@@ -73,6 +73,13 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .timers span{color:var(--mute)}
 #zone{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:900 italic 26px/1 var(--display);text-shadow:0 2px 8px rgba(0,0,0,.9);color:#fff;pointer-events:none;z-index:1;opacity:0;transition:opacity .4s;white-space:nowrap}
 #zone.on{opacity:1}
+#drift{position:fixed;left:50%;top:44px;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:1;opacity:0;transition:opacity .25s;text-shadow:0 2px 10px rgba(0,0,0,.85)}
+#drift.on{opacity:1}
+#drift b{display:block;font:900 italic 46px/1 var(--display);color:#fff;font-variant-numeric:tabular-nums}
+#drift i{font:900 italic 24px/1 var(--display);color:var(--hot);font-style:italic;margin-left:6px}
+#drift small{display:block;font:600 12px var(--mono);color:#dfe6ef;margin-top:4px;letter-spacing:.06em}
+#drift.bank b{color:var(--good)}#drift.fail b{color:var(--bad)}
+@media (max-width:640px){#drift b{font-size:34px}#drift i{font-size:18px}}
 #toast{position:fixed;left:50%;top:50px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:3;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
 #toast.on{opacity:1}
 #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:5;background:var(--bg)}
@@ -161,6 +168,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <button data-preset="0" aria-pressed="true">Fun</button>
     <button data-preset="1" aria-pressed="false">Sport</button>
     <button data-preset="2" aria-pressed="false">Simulation</button>
+    <button data-preset="3" aria-pressed="false">Drift</button>
   </div>
   <p class="note">Presets only change the driver aids. Grip, power and weight are identical in all three.</p>
 
@@ -170,8 +178,9 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <button id="aTcs" title="T">TCS: full</button>
     <button id="aEsc" title="Y">ESC: full</button>
     <button id="aBox" aria-pressed="true" title="G">Auto gearbox</button>
+    <button id="aDrift" aria-pressed="false" title="X">Drift assist</button>
   </div>
-  <p class="note">Drifts, donuts and burnouts: switch TCS off (<kbd>T</kbd>) or pick Simulation (<kbd>3</kbd>). Fun keeps traction and stability control on, so it trims power when the wheels spin.</p>
+  <p class="note"><b>Drifting:</b> pick Drift (<kbd>4</kbd>). Throw the car sideways (handbrake, or lift and turn), keep the throttle in, then steer where you want to go: centred holds about 20°, into the corner opens the angle, the other way straightens it. The drift assist countersteers for you and only ever trims power. Donuts and burnouts: TCS off (<kbd>T</kbd>) or Simulation (<kbd>3</kbd>).</p>
 
   <h2>World</h2>
   <div class="row"><button id="wCity">São Paulo · MASP</button><button id="wTrack">Test track</button></div>
@@ -190,7 +199,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <span><kbd>A</kbd><kbd>D</kbd> <kbd>←</kbd><kbd>→</kbd></span><span>Steer</span>
     <span><kbd>Space</kbd></span><span>Handbrake</span>
     <span><kbd>+</kbd> / <kbd>−</kbd> · <kbd>E</kbd> / <kbd>Q</kbd></span><span>Shift up / down (switches to manual; <kbd>G</kbd> back to automatic)</span>
-    <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span>Fun / Sport / Simulation</span>
+    <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></span><span>Fun / Sport / Simulation / Drift</span>
+    <span><kbd>X</kbd></span><span>Drift assist on / off (any preset)</span>
     <span><kbd>R</kbd> · <kbd>C</kbd> · <kbd>H</kbd></span><span>Reset · camera · panel</span>
     <span><kbd>M</kbd></span><span>Sound on / off</span>
     <span>Mouse</span><span>Drag the view to orbit the car (free camera), scroll to zoom</span>
@@ -207,7 +217,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <div class="speed" id="hSpeed">0<small>KM/H</small></div>
       <div class="gear" id="hGear" style="display:none">1</div>
     </div>
-    <div class="aids"><span id="iAbs">ABS</span><span id="iTcs">TCS</span><span id="iEsc">ESC</span><span id="iCs">CS</span></div>
+    <div class="aids"><span id="iAbs">ABS</span><span id="iTcs">TCS</span><span id="iEsc">ESC</span><span id="iCs">CS</span><span id="iDrift">DRIFT</span></div>
   </div>
   <div class="panel wheels" id="hWheels" aria-label="Per-wheel load and slip"></div>
   <div class="panel"><svg class="gg" id="gg" viewBox="-50 -50 100 100" aria-label="g-g diagram"></svg></div>
@@ -215,6 +225,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 </div>
 
 <div id="zone"></div>
+<div id="drift" aria-hidden="true"><b><span id="dScore">0</span><i id="dMult">×1</i></b><small id="dInfo"></small></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="drop">Drop the .glb to drive it</div>
 

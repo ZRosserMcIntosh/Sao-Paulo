@@ -46,13 +46,14 @@ function switchWorld(w) { store.set('world', w); const u = new URL(location.href
 const settings = {
   car: store.get('stellaPhysics', false) ? store.get('car', 5) : 5, // the Stella's own physics is the default
   preset: store.get('preset', 0),
-  abs: true, tcs: 2, esc: 2, auto: true,
+  abs: true, tcs: 2, esc: 2, auto: true, drift: 0,
   cam: store.get('cam', 0),
 };
 function presetAids(p) {
-  if (p === 0) return { abs: true, tcs: 2, esc: 2, auto: true };
-  if (p === 1) return { abs: true, tcs: 1, esc: 0, auto: true };
-  return { abs: false, tcs: 0, esc: 0, auto: false };
+  if (p === 0) return { abs: true, tcs: 2, esc: 2, auto: true, drift: 0 };
+  if (p === 1) return { abs: true, tcs: 1, esc: 0, auto: true, drift: 0 };
+  if (p === 3) return { abs: true, tcs: 0, esc: 0, auto: true, drift: 1 };
+  return { abs: false, tcs: 0, esc: 0, auto: false, drift: 0 };
 }
 Object.assign(settings, presetAids(settings.preset));
 
@@ -656,23 +657,27 @@ for (const [w, label] of [['city', 'São Paulo · MASP'], ['track', 'Test track'
 function applyAids() {
   M._ord_set_preset(settings.preset);
   M._ord_set_aids(settings.abs ? 1 : 0, settings.tcs, settings.esc, settings.auto ? 1 : 0);
+  M._ord_set_drift_assist?.(settings.drift);
+  $('aDrift').setAttribute('aria-pressed', settings.drift > 0);
+  $('iDrift').classList.toggle('on', settings.drift > 0);
   const lv = ['off', 'sport', 'full'];
   $('aAbs').setAttribute('aria-pressed', settings.abs);
   $('aTcs').textContent = 'TCS: ' + lv[settings.tcs]; $('aTcs').setAttribute('aria-pressed', settings.tcs > 0);
   $('aEsc').textContent = 'ESC: ' + lv[settings.esc]; $('aEsc').setAttribute('aria-pressed', settings.esc > 0);
   $('aBox').textContent = settings.auto ? 'Auto gearbox' : 'Manual gearbox'; $('aBox').setAttribute('aria-pressed', settings.auto);
   document.querySelectorAll('[data-preset]').forEach((b) => b.setAttribute('aria-pressed', +b.dataset.preset === settings.preset));
-  $('hPreset').textContent = ['Fun', 'Sport', 'Simulation'][settings.preset] + (customised() ? ' · custom' : '');
+  $('hPreset').textContent = ['Fun', 'Sport', 'Simulation', 'Drift'][settings.preset] + (customised() ? ' · custom' : '');
   $('iAbs').classList.toggle('on', settings.abs); $('iTcs').classList.toggle('on', settings.tcs > 0);
   $('iEsc').classList.toggle('on', settings.esc > 0); $('iCs').classList.toggle('on', settings.preset < 2);
 }
-function customised() { const d = presetAids(settings.preset); return d.abs !== settings.abs || d.tcs !== settings.tcs || d.esc !== settings.esc || d.auto !== settings.auto; }
-function setPreset(p) { settings.preset = p; Object.assign(settings, presetAids(p)); store.set('preset', p); applyAids(); toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)'][p]); }
+function customised() { const d = presetAids(settings.preset); return d.abs !== settings.abs || d.tcs !== settings.tcs || d.esc !== settings.esc || d.auto !== settings.auto || d.drift !== settings.drift; }
+function setPreset(p) { settings.preset = p; Object.assign(settings, presetAids(p)); store.set('preset', p); applyAids(); toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT: throw it sideways, keep the throttle in, steer where you want to go'][p]); }
 document.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => setPreset(+b.dataset.preset)));
 $('aAbs').onclick = () => { settings.abs = !settings.abs; applyAids(); };
 $('aTcs').onclick = () => { settings.tcs = (settings.tcs + 1) % 3; applyAids(); };
 $('aEsc').onclick = () => { settings.esc = (settings.esc + 1) % 3; applyAids(); };
 $('aBox').onclick = () => { settings.auto = !settings.auto; applyAids(); };
+$('aDrift').onclick = () => { settings.drift = settings.drift > 0 ? 0 : 1; applyAids(); toast(settings.drift ? 'Drift assist on: in a slide, steering sets the drift angle' : 'Drift assist off'); };
 // Paddle shifts (+ / − keys, the on-screen − / + buttons): the first press switches the box to
 // manual, like pulling a paddle on a dual-clutch car. G (or the Auto gearbox button) goes back.
 function paddle(dir) {
@@ -714,7 +719,8 @@ addEventListener('keydown', (e) => {
   if (k === 'r') placeAt(ZONES[0]);
   if (k === 'c') cycleCam();
   if (k === 'h') togglePanel();
-  if (k === '1' || k === '2' || k === '3') setPreset(+k - 1);
+  if (k === '1' || k === '2' || k === '3' || k === '4') setPreset(+k - 1);
+  if (k === 'x') $('aDrift').click();
   if (k === 'b') $('aAbs').click();
   if (k === 't') $('aTcs').click();
   if (k === 'y') $('aEsc').click();
@@ -768,7 +774,7 @@ function readInput(dt, gear, speed) {
     if (pressed(4) && !was(4)) shiftDown = true;
     if (pressed(3) && !was(3)) placeAt(ZONES[0]);
     if (pressed(8) && !was(8)) cycleCam();
-    if (pressed(9) && !was(9)) setPreset((settings.preset + 1) % 3);
+    if (pressed(9) && !was(9)) setPreset((settings.preset + 1) % 4);
     pad.prev = gp.buttons.map((b) => b.pressed);
   }
   if (Math.abs(touch.steer) > Math.abs(steer)) steer = touch.steer;
@@ -934,6 +940,7 @@ function updateHud(dt, inp) {
   $('iTcs').classList.toggle('act', S(18) > 0.02);
   $('iEsc').classList.toggle('act', esc);
   $('iCs').classList.toggle('act', Math.abs(S(19)) > 0.004);
+  $('iDrift').classList.toggle('act', S(32) > 0);
   // g-g
   const k = 1 - Math.exp(-dt * 12);
   latF += (S(12) / G - latF) * k; lonF += (S(11) / G - lonF) * k;
@@ -1079,6 +1086,100 @@ function updateSkids() {
 window.__spwSkid = skid; // debugging
 function resetSkidTrail() { skid.last = [null, null, null, null]; }
 
+// ---------- Drift score ----------
+// Points flow while the car is sideways at speed: (angle - 5 deg) x speed, times a multiplier that
+// grows every 2.5 s of unbroken drifting (up to x5). A drift banks 1.2 s after it ends; hitting a
+// wall or spinning out loses the unbanked points.
+const drift = { combo: 0, time: 0, grace: 0, total: 0, best: store.get('driftBest', 0), flash: 0, cls: '' };
+function driftMult() { return Math.min(5, 1 + Math.floor(drift.time / 2.5)); }
+function updateDrift(dt) {
+  const vx = S(7), vy = S(8), speed = Math.hypot(vx, vy);
+  const angle = Math.abs(S(10)) * 180 / Math.PI;
+  const rearDown = W(2, 11) > 0 || W(3, 11) > 0;
+  const sideways = angle > 10 && angle < 100 && speed > 6 && vx > 0 && rearDown;
+  const el = $('drift');
+  if (S(31) > 3 || (angle > 100 && drift.combo > 0) || (speed < 1.5 && drift.combo > 0 && angle > 50)) {
+    if (drift.combo > 50) { drift.flash = 1.2; drift.cls = 'fail'; $('dScore').textContent = 'Wipeout'; $('dMult').textContent = ''; $('dInfo').textContent = `lost ${Math.round(drift.combo).toLocaleString()}`; }
+    drift.combo = 0; drift.time = 0; drift.grace = 0;
+  } else if (sideways) {
+    drift.time += dt; drift.grace = 0;
+    drift.combo += dt * (angle - 5) * speed * 0.6 * driftMult();
+  } else if (drift.combo > 0) {
+    drift.grace += dt;
+    if (drift.grace > 1.2) {
+      const pts = Math.round(drift.combo);
+      drift.total += pts;
+      if (pts > drift.best) { drift.best = pts; store.set('driftBest', pts); }
+      drift.flash = 1.4; drift.cls = 'bank';
+      $('dScore').textContent = '+' + pts.toLocaleString(); $('dMult').textContent = '';
+      $('dInfo').textContent = `total ${drift.total.toLocaleString()} · best drift ${drift.best.toLocaleString()}`;
+      drift.combo = 0; drift.time = 0; drift.grace = 0;
+    }
+  }
+  if (drift.combo > 0) {
+    $('dScore').textContent = Math.round(drift.combo).toLocaleString();
+    $('dMult').textContent = '×' + driftMult();
+    $('dInfo').textContent = `${angle.toFixed(0)}° · ${(speed * 3.6).toFixed(0)} km/h` + (S(32) > 0 ? ` · holding ${(Math.abs(S(33)) * 180 / Math.PI).toFixed(0)}°` : '');
+    el.className = 'on'; drift.flash = 0;
+  } else if (drift.flash > 0) {
+    drift.flash -= dt; el.className = 'on ' + drift.cls;
+  } else el.className = '';
+}
+
+// ---------- Tyre smoke ----------
+// Soft billboard puffs from wheels that are sliding fast (drifts, burnouts, lock-ups).
+const SMOKE_N = MOBILE ? 260 : 700;
+const smoke = { pos: new Float32Array(SMOKE_N * 3), alpha: new Float32Array(SMOKE_N), size: new Float32Array(SMOKE_N),
+  vel: new Float32Array(SMOKE_N * 3), age: new Float32Array(SMOKE_N).fill(99), life: new Float32Array(SMOKE_N), a0: new Float32Array(SMOKE_N), i: 0, acc: [0, 0, 0, 0] };
+const smokeGeo = new THREE.BufferGeometry();
+smokeGeo.setAttribute('position', new THREE.BufferAttribute(smoke.pos, 3).setUsage(THREE.DynamicDrawUsage));
+smokeGeo.setAttribute('alpha', new THREE.BufferAttribute(smoke.alpha, 1).setUsage(THREE.DynamicDrawUsage));
+smokeGeo.setAttribute('size', new THREE.BufferAttribute(smoke.size, 1).setUsage(THREE.DynamicDrawUsage));
+const smokeMat = new THREE.ShaderMaterial({
+  uniforms: { uScale: { value: 400 } },
+  vertexShader: `attribute float alpha; attribute float size; varying float vA; uniform float uScale;
+    void main(){ vA = alpha; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size * uScale / max(0.5, -mv.z); gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `varying float vA; void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.0) discard;
+    gl_FragColor = vec4(vec3(0.86, 0.87, 0.88), vA * (1.0 - r) * (1.0 - r)); }`,
+  transparent: true, depthWrite: false,
+});
+const smokePts = new THREE.Points(smokeGeo, smokeMat);
+smokePts.frustumCulled = false;
+scene.add(smokePts);
+const _sp = new THREE.Vector3();
+function updateSmoke(dt, worldVel) {
+  smokeMat.uniforms.uScale.value = renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360));
+  const v = S(7);
+  for (let w = 0; w < 4; ++w) {
+    if (!(W(w, 11) > 0)) { smoke.acc[w] = 0; continue; }
+    const kappa = Math.abs(W(w, 7)), alpha = Math.abs(W(w, 8));
+    const slipSpeed = Math.hypot(W(w, 5) * W(w, 3) - v, Math.tan(Math.min(1.4, alpha)) * Math.abs(v));
+    const intensity = Math.min(1, Math.max(0, (Math.max(kappa, alpha) / 0.12 - 1.6) / 2.5)) * Math.min(1, Math.max(0, (slipSpeed - 2.5) / 6));
+    if (intensity <= 0) { smoke.acc[w] = 0; continue; }
+    smoke.acc[w] += dt * intensity * (MOBILE ? 22 : 45);
+    while (smoke.acc[w] >= 1) {
+      smoke.acc[w] -= 1;
+      const k = smoke.i; smoke.i = (smoke.i + 1) % SMOKE_N;
+      _sp.copy(v3(W(w, 0), W(w, 1), W(w, 2) - W(w, 3) * 0.6));
+      carRoot.localToWorld(_sp);
+      smoke.pos.set([_sp.x + (Math.random() - 0.5) * 0.3, _sp.y, _sp.z + (Math.random() - 0.5) * 0.3], k * 3);
+      smoke.vel.set([worldVel.x * 0.15 + (Math.random() - 0.5) * 1.2, 0.5 + Math.random() * 0.6, worldVel.z * 0.15 + (Math.random() - 0.5) * 1.2], k * 3);
+      smoke.age[k] = 0; smoke.life[k] = 1.8 + Math.random() * 1.4; smoke.a0[k] = 0.22 + 0.28 * intensity;
+    }
+  }
+  for (let k = 0; k < SMOKE_N; ++k) {
+    if (smoke.age[k] >= smoke.life[k]) { smoke.alpha[k] = 0; continue; }
+    smoke.age[k] += dt;
+    const u = smoke.age[k] / smoke.life[k];
+    const drag = Math.exp(-dt * 1.6);
+    smoke.vel[k * 3] *= drag; smoke.vel[k * 3 + 1] *= drag; smoke.vel[k * 3 + 2] *= drag;
+    smoke.pos[k * 3] += smoke.vel[k * 3] * dt; smoke.pos[k * 3 + 1] += smoke.vel[k * 3 + 1] * dt; smoke.pos[k * 3 + 2] += smoke.vel[k * 3 + 2] * dt;
+    smoke.size[k] = 0.7 + 3.2 * Math.sqrt(u);
+    smoke.alpha[k] = smoke.a0[k] * Math.min(1, u * 8) * (1 - u);
+  }
+  smokeGeo.attributes.position.needsUpdate = true; smokeGeo.attributes.alpha.needsUpdate = true; smokeGeo.attributes.size.needsUpdate = true;
+}
+
 // ---------- Mobile niceties ----------
 {
   const el = document.documentElement;
@@ -1202,6 +1303,8 @@ function frame(now) {
   updateHud(dt, inp);
   updateLights(S(15) === -1 ? 0 : inp.brake);
   updateSkids();
+  updateDrift(dt);
+  updateSmoke(dt, worldVel);
   try { audio.update({ dt, rpm: S(14), load: S(17), limiter: LIMITER[settings.car], gear: S(15), speed: S(7), tyre: tyreState(), interior: settings.cam === 2 }); } catch (e) { console.warn('audio update', e); }
   recordRow();
   const z = zoneAt(S(0), S(1));
