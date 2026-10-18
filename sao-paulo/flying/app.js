@@ -13,6 +13,7 @@ import { buildCabin } from './cabin.js';
 import { buildJetCabin } from './jetcabin.js';
 import { FlightAudio, JetAudio } from './audio.js';
 import { buildFlow } from './flow.js';
+import { mountLoadSheet } from './loadsheet.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -57,6 +58,9 @@ const fetchDef = async (p) => {
 };
 
 // ---------- Simulation ----------
+// Spawn airport: 1 Congonhas (runway 35L, the default) or 0 Campo de Marte
+// (runway 12). The world is built around it, so changing it reloads the page.
+const AIRPORT = store.get('airport', 1) === 0 ? 0 : 1;
 let A, def, M;
 function loadInto(json) {
   const errors = A.load(json);
@@ -67,16 +71,18 @@ function loadInto(json) {
 try {
   const [mod, json] = await Promise.all([createAvdModule(), fetchDef(P)]);
   A = mod;
+  A.avd_set_airport(AIRPORT);  // before the first load: every reset uses it
   loadInto(json);
 } catch (e) {
   loadMsg('The flight core could not start: ' + e.message);
   throw e;
 }
-const RW = A.runway();  // [threshold east, threshold north, elevation, true heading, length, width] of runway 12
+const RW = A.runway();  // [paved start east, north, elevation, true heading, length, width] of the runway in use
+const AP = A.airport();  // { icao, name, runway, reciprocal }
 const ELEV = RW[2];
 const rwDir = [Math.sin(RW[3] * DEG), Math.cos(RW[3] * DEG)];
 const rwMid = [RW[0] + rwDir[0] * RW[4] / 2, RW[1] + rwDir[1] * RW[4] / 2];
-const rwRight = [rwDir[1], -rwDir[0]];  // right of runway 12, looking down it
+const rwRight = [rwDir[1], -rwDir[0]];  // right of the runway, looking down it
 const controlIndex = (id) => A.cockpit().findIndex((c) => c.id === id);
 function setControl(id, target) {
   const i = controlIndex(id); if (i < 0) return;
@@ -167,7 +173,7 @@ new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/m
   mapMat.map = t; mapMat.needsUpdate = true;
 });
 
-// Runway 12/30, drawn from avd_runway: asphalt, threshold bars, numbers, centreline.
+// The runway in use, drawn from avd_runway: asphalt, threshold bars, numbers, centreline.
 {
   const W = 128, H = 4096, c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d'), pxm = H / RW[4];
@@ -184,7 +190,7 @@ new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/m
     if (flip) { g.translate(W, H); g.rotate(Math.PI); }
     for (let i = 0; i < 8; ++i) { const x = 8 + i * 14 + (i >= 4 ? 4 : 0); g.fillRect(x, H - 8 - 30 * pxm, 8, 30 * pxm); }
     g.font = `900 ${Math.round(8 * pxm)}px Arial`; g.textAlign = 'center'; g.textBaseline = 'bottom';
-    g.save(); g.translate(W / 2, H - 44 * pxm); g.scale(0.8, 1.6); g.fillText(flip ? '30' : '12', 0, 0); g.restore();
+    g.save(); g.translate(W / 2, H - 44 * pxm); g.scale(0.8, 1.6); g.fillText(flip ? AP.reciprocal : AP.runway, 0, 0); g.restore();
     g.restore();
   };
   end(false); end(true);
@@ -249,20 +255,20 @@ const failed = { fuel: false, 0: false, 1: false, 2: false, 3: false };
 let parkHint = false;
 
 const PISTON_STARTS = [
-  { name: 'Runway 12', sub: 'engine running', go: () => A.avd_reset(1), thr: 0.1 },
-  { name: 'Cold and dark', sub: 'runway 12', go: () => A.avd_reset(0), thr: 0.1 },
-  { name: 'Final 12', sub: '3 km, flaps 20', go: () => A.avd_reset(2), trim: true },
-  { name: 'Downwind 12', sub: '1000 ft, 90 kt', go: () => A.avd_reset_air(rwMid[0] - rwRight[0] * 1000, rwMid[1] - rwRight[1] * 1000, 305, (RW[3] + 180) % 360, 90, 0), trim: true },
+  { name: `Runway ${AP.runway}`, sub: 'engine running', go: () => A.avd_reset(1), thr: 0.1 },
+  { name: 'Cold and dark', sub: `runway ${AP.runway}`, go: () => A.avd_reset(0), thr: 0.1 },
+  { name: `Final ${AP.runway}`, sub: '3 km, flaps 20', go: () => A.avd_reset(2), trim: true },
+  { name: `Downwind ${AP.runway}`, sub: '1000 ft, 90 kt', go: () => A.avd_reset_air(rwMid[0] - rwRight[0] * 1000, rwMid[1] - rwRight[1] * 1000, 305, (RW[3] + 180) % 360, 90, 0), trim: true },
   { name: 'Avenida Paulista', sub: 'toward MASP', go: () => A.avd_reset_air(1600, -1100, 450, 305, 100, 0), trim: true },
   { name: 'Centro', sub: 'Sé, Martinelli, Luz', go: () => A.avd_reset_air(2100, -1000, 400, 0, 100, 0), trim: true },
   { name: 'Ibirapuera', sub: 'park and Obelisco', go: () => A.avd_reset_air(-2000, -4500, 400, 50, 100, 0), trim: true },
   { name: 'Ponte Estaiada', sub: 'Pinheiros river', go: () => A.avd_reset_air(-3800, -8500, 300, 345, 95, 0), trim: true },
 ];
 const JET_STARTS = [
-  { name: 'Runway 12', sub: 'engines at idle', go: () => A.avd_reset(1), thr: 0 },
-  { name: 'Cold and dark', sub: 'runway 12', go: () => A.avd_reset(0), thr: 0 },
-  { name: 'Final 12', sub: '6 km, 125 kt, flaps 39', go: () => A.avd_reset(2), trim: true },
-  { name: 'Downwind 12', sub: '2000 ft, 180 kt', go: () => A.avd_reset_air(rwMid[0] - rwRight[0] * 2500, rwMid[1] - rwRight[1] * 2500, 610, (RW[3] + 180) % 360, 180, 1), trim: true },
+  { name: `Runway ${AP.runway}`, sub: 'engines at idle', go: () => A.avd_reset(1), thr: 0 },
+  { name: 'Cold and dark', sub: `runway ${AP.runway}`, go: () => A.avd_reset(0), thr: 0 },
+  { name: `Final ${AP.runway}`, sub: '6 km, 125 kt, flaps 39', go: () => A.avd_reset(2), trim: true },
+  { name: `Downwind ${AP.runway}`, sub: '2000 ft, 180 kt', go: () => A.avd_reset_air(rwMid[0] - rwRight[0] * 2500, rwMid[1] - rwRight[1] * 2500, 610, (RW[3] + 180) % 360, 180, 1), trim: true },
   { name: 'Avenida Paulista', sub: 'low pass, 220 kt', go: () => A.avd_reset_air(3200, -2200, 330, 305, 220, 0), trim: true },
   { name: 'Centro', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(2100, -3000, 600, 0, 220, 0), trim: true },
   { name: 'Ibirapuera', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(-4000, -7000, 600, 40, 220, 0), trim: true },
@@ -306,8 +312,8 @@ function restart(i = ui.start) {
   A.events();  // drop the reset's own events
   [...startsEl.children].forEach((b, k) => b.setAttribute('aria-pressed', String(k === i)));
   snapCamera = true;
-  if (i === 0 && P.jet) toast(`Runway 12: full thrust (${MOBILE ? 'slide THR up' : '+ or X'}), rotate at 125 kt, gear up (${MOBILE ? 'GEAR' : 'G'}) once climbing.`, 7);
-  else if (i === 0) toast(`Runway 12: full throttle (${MOBILE ? 'slide THR up' : '+ or X'}), keep straight, ease back at 55 kt.`, 6);
+  if (i === 0 && P.jet) toast(`Runway ${AP.runway}: full thrust (${MOBILE ? 'slide THR up' : '+ or X'}), rotate at 125 kt, gear up (${MOBILE ? 'GEAR' : 'G'}) once climbing.`, 7);
+  else if (i === 0) toast(`Runway ${AP.runway}: full throttle (${MOBILE ? 'slide THR up' : '+ or X'}), keep straight, ease back at 55 kt.`, 6);
   else if (i === 1) toast('Cold and dark: run the Quick Start in Settings, or work the switches.', 6);
   else toast(`${st.name}: trimmed and level, ${st.sub}.`);
 }
@@ -443,6 +449,27 @@ function setAssist(n) {
   $('hAssist').textContent = ASSIST[n];
 }
 document.querySelectorAll('[data-assist]').forEach((b) => b.addEventListener('click', () => { setAssist(+b.dataset.assist); b.blur(); }));
+// Airport: the world is built around it, so a change reloads the page.
+document.querySelectorAll('[data-airport]').forEach((b) => {
+  b.setAttribute('aria-pressed', String(+b.dataset.airport === AIRPORT));
+  b.addEventListener('click', () => { if (+b.dataset.airport !== AIRPORT) { store.set('airport', +b.dataset.airport); location.reload(); } });
+});
+// Speed units: the instruments stay in knots; readouts add km/h or mph.
+ui.units = store.get('units', 'kt');
+const UNIT = { kmh: [1.852, 'km/h'], mph: [1.150779, 'mph'] };
+function setUnits(u) {
+  ui.units = UNIT[u] ? u : 'kt'; store.set('units', ui.units);
+  document.querySelectorAll('[data-units]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.units === ui.units)));
+}
+document.querySelectorAll('[data-units]').forEach((b) => b.addEventListener('click', () => { setUnits(b.dataset.units); b.blur(); }));
+setUnits(ui.units);
+// A speed in knots, with the chosen extra unit.
+const spd = (kt) => (UNIT[ui.units] ? `${fmt(kt)} kt · ${fmt(kt * UNIT[ui.units][0])} ${UNIT[ui.units][1]}` : `${fmt(kt)} kt`);
+const iasHtml = () => {
+  const kt = Math.max(0, c[K.ias]);
+  return UNIT[ui.units] ? `${fmt(kt)}<small>KIAS · ${fmt(kt * UNIT[ui.units][0])} ${UNIT[ui.units][1].toUpperCase()}</small>` : `${fmt(kt)}<small>KIAS</small>`;
+};
+
 // Auto-trim (the core's straight-and-level hold), on top of any assist mode.
 ui.level = store.get('level', false);
 function setLevel(on, announce) {
@@ -544,11 +571,11 @@ const fmt = (v, d = 0) => (Number.isFinite(v) ? v.toFixed(d) : '—');
 function hud() {
   $('hAssist').textContent = assistStatus();
   if (P.jet) { jetHud(); return; }
-  $('hIas').innerHTML = `${fmt(Math.max(0, c[K.ias]))}<small>KIAS</small>`;
+  $('hIas').innerHTML = iasHtml();
   $('hAlt').innerHTML = `${fmt(c[K.alt])}<small>FT MSL</small>`;
   const hdg = String(Math.round(((c[K.dg] % 360) + 360) % 360) || 360).padStart(3, '0');
   const rows = [
-    ['Ground speed', `${fmt(s[12])} kt`], ['Vertical', `${fmt(c[K.vsi])} fpm`], ['Heading', `${hdg}°`],
+    ['Ground speed', spd(s[12])], ['Vertical', `${fmt(c[K.vsi])} fpm`], ['Heading', `${hdg}°`],
     ['Above field', `${fmt(Math.max(0, s[14]))} ft`], ['Engine', s[30] ? `${fmt(s[19])} rpm` : 'stopped'],
     ['Manifold', `${fmt(s[20], 1)} inHg`], ['Fuel', `${fmt(s[52])} L`], ['Flaps', `${fmt(s[26])}°`],
     ['Trim', `${fmt(s[27] * 100)} %`], ['Load', `${fmt(s[18], 2)} g`], ['α', s[11] > 25 ? `${fmt(s[16], 1)}°` : '—'],
@@ -562,12 +589,12 @@ function hud() {
 }
 
 function jetHud() {
-  $('hIas').innerHTML = `${fmt(Math.max(0, c[K.ias]))}<small>KIAS</small>`;
+  $('hIas').innerHTML = iasHtml();
   $('hAlt').innerHTML = `${fmt(c[K.alt])}<small>FT MSL</small>`;
   const hdg = String(Math.round(((c[K.dg] % 360) + 360) % 360) || 360).padStart(3, '0');
   const gear = j[1] > 0.999 ? 'down' : j[1] < 0.001 ? 'up' : 'in transit';
   const rows = [
-    ['Mach', j[5] > 0.2 ? fmt(j[5], 3) : '—'], ['Ground speed', `${fmt(s[12])} kt`], ['Vertical', `${fmt(c[K.vsi])} fpm`],
+    ['Mach', j[5] > 0.2 ? fmt(j[5], 3) : '—'], ['Ground speed', spd(s[12])], ['Vertical', `${fmt(c[K.vsi])} fpm`],
     ['Heading', `${hdg}°`], ['Above field', `${fmt(Math.max(0, s[14]))} ft`],
     ['N1 L / R', `${fmt(j[8], 1)} / ${fmt(j[16], 1)} %`], ['Fuel flow', `${fmt(j[7] * 2.20462 / 10) * 10 || 0} lb/h`],
     ['Fuel', `${fmt(j[6] * 2.20462)} lb`], ['Flaps', `${fmt(j[27])}°`], ['Gear', gear], ['Speedbrake', j[3] > 0.02 ? `${fmt(j[3] * 100)} %` : 'retracted'],
@@ -588,7 +615,7 @@ function jetData() {
     assist: FMA[ui.assist] + (s[58] ? ' · UNDERSPD' : s[55] ? ' · ALT HDG HOLD' : ''), n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
     run: [j[13], j[21]], starting: [j[14], j[22]], fuelSw: [j[15], j[23]], n1cmd: 22 + 78 * input.throttle,
     fuelKg: j[6], gear: j[1], spd: j[3], flaps: j[27], wow: j[29], park: s[49],
-    x: s[0], y: s[1], trueHdg: s[9], runway: RW, points: LANDMARKS,
+    x: s[0], y: s[1], trueHdg: s[9], runway: RW, airport: AP.icao, points: LANDMARKS,
     rangeNm: agl < 4000 ? 5 : agl < 15000 ? 10 : agl < 28000 ? 20 : 40,
     trend: iasAcc * 10, vs1g: j[32], vsTO: j[33], vsLDG: j[34], gw: j[35], fpa: j[36], drift: ((j[37] - s[9] + 540) % 360) - 180,
     windDir: j[38], windKt: j[39], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
@@ -640,7 +667,7 @@ function updateCamera(dt) {
 }
 
 // ---------- Landmark labels ----------
-const labelPts = [...LANDMARKS.map(([n, x, y]) => [n, x, y, 60]), ['Campo de Marte', rwMid[0], rwMid[1], 40]];
+const labelPts = [...LANDMARKS.filter(([n]) => n !== AP.name).map(([n, x, y]) => [n, x, y, 60]), [AP.name, rwMid[0], rwMid[1], 40]];
 const v = new THREE.Vector3();
 // In the cockpit a label hides behind the panel, glareshield and frames: a
 // short ray from the eye toward it against the flight deck (refreshed every
@@ -717,6 +744,7 @@ function cycleFlow() {
 $('bFlow').addEventListener('click', (e) => { cycleFlow(); e.currentTarget.blur(); });
 
 // ---------- Aircraft selection ----------
+let loadSheet = null;
 function applyProfileUi() {
   document.querySelectorAll('[data-aircraft]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aircraft === P.id)));
   $('lMixLbl').textContent = P.jet ? 'SPD BRK' : 'MIX';
@@ -728,6 +756,7 @@ function applyProfileUi() {
   document.body.classList.toggle('jet', P.jet);
   sizePanel();  // the jet's strip is taller
   $('plateSub').textContent = `Flight test bed · ${P.name}`;
+  loadSheet = mountLoadSheet($('loadPanel'), { A, id: P.id, jet: P.jet, store, onApply: () => { restart(ui.start); toast('Restarted with the planned load.', 2); } });
   document.title = `Flight Test Bed · ${P.name}`;
 }
 async function selectAircraft(id) {
