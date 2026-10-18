@@ -10,6 +10,10 @@
 // vortices, and the starting vortex left behind when the lift changes. (Without
 // the wake, each strip falls back to a steady horseshoe vortex.) The
 // fuselage is a Rankine body (a source at the nose, a sink at the tail); the
+// extended gear legs and deployed spoiler panels (avd_bodies) are bluff
+// bodies, each leaving a wake whose momentum deficit carries exactly its drag
+// (a Gaussian deficit spreading downstream) and shedding a Karman street at a
+// Strouhal number of 0.2; the
 // propeller slipstream and jet exhausts come from the core's momentum-theory
 // values. The atmosphere's own motion comes on top: the core samples its wind
 // field (turbulence, thermals, shear, microbursts) on a grid around the
@@ -28,7 +32,7 @@
 // Structural frame (x forward, y right, z down) inside; rendered in body FLU.
 import * as THREE from 'three';
 
-const STRIDE = 16;
+const STRIDE = 18;
 
 // Turbo colormap (Google, polynomial approximation), t in [0, 1].
 function turbo(t, out) {
@@ -84,6 +88,12 @@ export function buildFlow({ mobile }) {
   const U = [0, 0, 0];
   let Umag = 0;
   let fuse = null, engines = [];
+  // Bluff bodies (gear legs, spoiler panels): position, unit axis across the
+  // flow, lateral unit (across both), diameter, half length, drag per length.
+  const MAXB = 32;
+  const bP = new Float64Array(MAXB * 3), bA = new Float64Array(MAXB * 3), bN = new Float64Array(MAXB * 3);
+  const bD = new Float64Array(MAXB), bH = new Float64Array(MAXB), bC = new Float64Array(MAXB), bK = new Uint8Array(MAXB);
+  let nBody = 0;
   const col = [0, 0, 0];
 
   // The wind around the aircraft minus the wind at the CG (body axes), on a
@@ -143,6 +153,34 @@ export function buildFlow({ mobile }) {
         vx += f * dx; vy += f * dy; vz += f * dz;
       }
     }
+    for (let b = 0; b < nBody; ++b) {
+      // Wake of a bluff body: the momentum deficit that carries its drag,
+      // q CdA = rho U int(u) dA, as a 2-D Gaussian across the body's length
+      // (half width s = d/2 (1 + 0.4 sqrt(x/d))), and a Karman street: the
+      // lateral velocity of vortices shed alternately at St = 0.2, convecting
+      // at 0.85 U. Upstream of the body, nothing (the blockage is local).
+      const b3 = b * 3, d = bD[b];
+      const px = x - bP[b3], py = y - bP[b3 + 1], pz = z - bP[b3 + 2];
+      const xd = (px * U[0] + py * U[1] + pz * U[2]) / Umag;  // downstream distance
+      if (xd < -0.3 * d || xd > 80 * d) continue;
+      const xs = Math.max(xd, 0);
+      const sg = 0.5 * d * (1 + 0.4 * Math.sqrt(xs / d));
+      const s = px * bA[b3] + py * bA[b3 + 1] + pz * bA[b3 + 2];
+      const eta = px * bN[b3] + py * bN[b3 + 1] + pz * bN[b3 + 2];
+      const over = Math.max(0, Math.abs(s) - bH[b]);
+      const g = Math.exp(-(eta * eta + over * over) / (2 * sg * sg));
+      if (g < 1e-3) continue;
+      const ramp = Math.min(1, (xd + 0.3 * d) / (0.6 * d));
+      const umax = Math.min(0.8, bC[b] / (2 * Math.sqrt(2 * Math.PI) * sg)) * Umag;
+      const du = umax * g * ramp;
+      vx -= du * U[0] / Umag; vy -= du * U[1] / Umag; vz -= du * U[2] / Umag;
+      // Karman: a travelling wave of lateral velocity, strongest a body width
+      // either side of the centreline and fading over ~40 diameters.
+      const k = 2 * Math.PI * 0.2 / (0.85 * d);
+      const fade = Math.exp(-xs / (40 * d)) * Math.min(1, xs / d);
+      const vl = 0.35 * umax * fade * g * Math.sin(k * (xs - 0.85 * Umag * flowT) + b * 1.3);
+      vx += vl * bN[b3]; vy += vl * bN[b3 + 1]; vz += vl * bN[b3 + 2];
+    }
     let hot = 0;
     for (const e of engines) {
       // Behind the disc / nozzle: axial jet with momentum-theory increment, spreading and decaying.
@@ -196,7 +234,7 @@ export function buildFlow({ mobile }) {
       seed[0] = tip[0]; seed[1] = side * tip[1] + Math.cos(a) * r; seed[2] = tip[2] + Math.sin(a) * r;
       return true;
     }
-    if (f < 0.62 && nEng) {
+    if (f < 0.6 && nEng) {
       // Into the engines: a ring inside each disc or inlet.
       const e = engines[i % nEng], a = j * 2 * Math.PI, r = e.r * (0.15 + 0.75 * Math.sqrt(m));
       // Two axes across the disc.
@@ -206,7 +244,13 @@ export function buildFlow({ mobile }) {
       seed[0] = fx + e.ax * e.r * 2.5; seed[1] = fy + e.ay * e.r * 2.5; seed[2] = fz + e.az * e.r * 2.5;
       return false;
     }
-    if (f < 0.7) {
+    if (f < 0.7 && nBody) {
+      // Onto the bodies: across each leg or panel, just upstream.
+      const b = i % nBody, b3 = b * 3, t = (j * 2 - 1) * (bH[b] + 0.5 * bD[b]), l = (m * 2 - 1) * 1.6 * bD[b], back = 1.5 * bD[b];
+      for (let c = 0; c < 3; ++c) seed[c] = bP[b3 + c] + bA[b3 + c] * t + bN[b3 + c] * l - U[c] / Umag * back;
+      return false;
+    }
+    if (f < 0.76) {
       // Around the nose: the fuselage parting the air.
       const a = j * 2 * Math.PI, r = (fuse ? Math.sqrt(fuse.Q / (Math.PI * Umag)) : 1) * (1.05 + 1.2 * m);
       return upstream(centre[0] + 0.5 * L, Math.cos(a) * r, centre[2] + Math.sin(a) * r);
@@ -404,6 +448,27 @@ export function buildFlow({ mobile }) {
       if (f[o + 7] <= 0.1) continue;
       engines.push({ x: f[o], y: f[o + 1], z: f[o + 2], ax: f[o + 3], ay: f[o + 4], az: f[o + 5], r: f[o + 6], inc: f[o + 7], jet: f[o + 9] > 0.5 });
     }
+    // Bluff bodies (structural frame): the axis made square to the flow, the
+    // lateral direction across both.
+    nBody = 0;
+    const bd = opts.bodies;
+    if (bd) {
+      for (let k = 0; k < bd.n && nBody < MAXB; ++k) {
+        const o = k * 10, b3 = nBody * 3;
+        let ax = bd.b[o + 3], ay = bd.b[o + 4], az = bd.b[o + 5];
+        const ad = ax * ux + ay * uy + az * uz;
+        ax -= ad * ux; ay -= ad * uy; az -= ad * uz;
+        const am = Math.hypot(ax, ay, az);
+        if (am < 0.2 || bd.b[o + 8] <= 0) continue;
+        ax /= am; ay /= am; az /= am;
+        const len = Math.max(bd.b[o + 7], 0.05) * am;
+        bP[b3] = bd.b[o]; bP[b3 + 1] = bd.b[o + 1]; bP[b3 + 2] = bd.b[o + 2];
+        bA[b3] = ax; bA[b3 + 1] = ay; bA[b3 + 2] = az;
+        bN[b3] = uy * az - uz * ay; bN[b3 + 1] = uz * ax - ux * az; bN[b3 + 2] = ux * ay - uy * ax;
+        bD[nBody] = Math.max(bd.b[o + 6], 0.05); bH[nBody] = 0.5 * len; bC[nBody] = bd.b[o + 8] / len; bK[nBody] = bd.b[o + 9];
+        ++nBody;
+      }
+    }
     updateTufts(f, n, opts.light);
     if (!lines.visible) return { stalled };
     // Re-trace a share of the lines each frame (a third at a time right after
@@ -456,7 +521,7 @@ export function buildFlow({ mobile }) {
       const c = f[o + 9], q = f[o + 13];
       let Cx = Sy * Nz - Sz * Ny, Cy = Sz * Nx - Sx * Nz, Cz = Sx * Ny - Sy * Nx;
       if (Cx < 0) { Cx = -Cx; Cy = -Cy; Cz = -Cz; }
-      const r = f[o + 12] / Math.max(f[o + 14], 0.02);
+      const r = f[o + 12] / Math.max(f[o + 14], 0.02), att = f[o + 16];
       for (const at of [0.1, 0.5]) {  // aft of the quarter chord: 35 % and 75 % chord
         const k = 2 * i + (at > 0.3 ? 1 : 0);
         const h = 0.05 * c + 0.02;
@@ -469,9 +534,11 @@ export function buildFlow({ mobile }) {
         const m = Math.hypot(dx, dy, dz) || 1;
         dx /= m; dy /= m; dz /= m;
         let len = Math.max(0.12 * c, 0.1), lift = 0;
-        const flutter = q > 1 ? Math.min(1, Math.max(0, (r - 0.85) / 0.15)) : 0;
+        // Near the stall, or behind a raised spoiler (the core's attached
+        // fraction: separated flow over the panel's span).
+        const flutter = q > 1 ? Math.min(1, Math.max(0, (r - 0.85) / 0.15, (0.9 - att) / 0.3)) : 0;
         let ang = flutter * 0.55 * Math.sin(clockT * (17 + (k % 5)) + k * 1.7);
-        const sep = q > 1 && r > 1;
+        const sep = q > 1 && (r > 1 || att < 0.55);
         if (sep) { ang = Math.PI * (0.62 + 0.38 * Math.sin(clockT * (9 + (k % 7)) + k)) * (k % 2 ? 1 : -1); len *= 0.85; lift = 0.45 * (0.5 + 0.5 * Math.sin(clockT * 13 + k)); }
         // Rotate about the surface normal: d cos + (N x d) sin.
         const ca = Math.cos(ang), sa = Math.sin(ang);
@@ -490,5 +557,7 @@ export function buildFlow({ mobile }) {
     tuftGeo.attributes.position.needsUpdate = true; tuftGeo.attributes.color.needsUpdate = true;
   }
   function reset() { traced = 0; ln.fill(0); grid = null; gridAge = 1e9; }
-  return { group, update, reset };
+  // The field at a point (structural frame): [air velocity, undisturbed air].
+  const probe = (x, y, z) => { velocity(x, y, z); return [...out, ...still]; };
+  return { group, update, reset, probe };
 }
