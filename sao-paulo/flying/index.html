@@ -70,7 +70,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .lev.flp i{background:var(--hot)}
 #warn{position:fixed;left:50%;top:70px;transform:translateX(-50%);font:900 26px/1 var(--display);letter-spacing:.06em;color:#fff;background:var(--bad);border-radius:6px;padding:6px 14px;z-index:2;display:none;pointer-events:none}
 #warn.on{display:block}
-#flowLegend{position:fixed;right:12px;bottom:174px;z-index:2;width:250px;display:grid;gap:7px;pointer-events:none}
+#flowLegend{position:fixed;right:12px;bottom:calc(var(--instr-h,150px) + 24px);z-index:2;width:250px;display:grid;gap:7px;pointer-events:none}
 #flowLegend[hidden]{display:none}
 #flowLegend .lg{display:grid;gap:3px;font:500 11px var(--mono);color:var(--mute)}
 #flowLegend .bar{display:block;height:8px;border-radius:4px;background:linear-gradient(90deg,#30123b,#4662d7,#36aaf9,#1ae4b6,#72fe5e,#c8ef34,#faba39,#f66b19,#ca2a04,#7a0403)}
@@ -78,11 +78,19 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #flowLegend .ends{display:flex;justify-content:space-between}
 #flowLegend b{color:var(--ink);font-weight:600}
 #flowLegend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
-#flowLegend .sw.hot{background:#ff8c26}#flowLegend .sw.stall{background:#ff19e6}
+#flowLegend .sw.hot{background:#ff8c26}#flowLegend .sw.air{background:#8c8c8c}#flowLegend .sw.stall{background:#ff19e6}
 @media (max-width:760px){#flowLegend{bottom:auto;top:calc(176px + env(safe-area-inset-top));right:8px;width:200px}}
-#instr{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:2;padding:6px;width:min(1000px,calc(100% - 24px));height:150px}
+#instr{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:2;padding:6px;width:min(1000px,calc(100% - 24px));height:var(--instr-h,150px)}
 #instr[hidden]{display:none}
 #instr canvas{width:100%;height:100%;display:block}
+/* The jet's glass strip (PFD, map, engines) is drawn from its height: at
+   least twice the 172's, and wide enough for all three displays. The lever
+   card is left out for the jet; the engine display shows thrust, flaps and
+   speedbrake, and the strip needs the room. */
+body.jet{--instr-h:clamp(300px,37vh,420px)}
+body.jet #instr{width:min(1500px,calc(100% - 24px))}
+body.jet #hud .levers{display:none}
+@media (max-height:820px) and (pointer:fine){body.jet #hud .read{display:none}}
 #toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
 #toast.on{opacity:1}
 #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:5;background:var(--bg)}
@@ -104,16 +112,18 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   #tGear{right:calc(156px + env(safe-area-inset-right));bottom:calc(68px + env(safe-area-inset-bottom))}
   #tSpd{right:calc(156px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom))}
   .tb[hidden]{display:none}
-  #instr{bottom:auto;top:calc(60px + env(safe-area-inset-top));height:96px}
+  #instr{bottom:auto;top:calc(60px + env(safe-area-inset-top));height:var(--instr-h,96px)}
+  body.jet{--instr-h:min(192px,45vh)}
   #hud{top:auto;bottom:calc(180px + env(safe-area-inset-bottom));left:calc(12px + env(safe-area-inset-left))}
   #hud .read,#hud .levers{display:none}
   .big div{font-size:30px}
   #side{width:min(310px,calc(100% - 24px));touch-action:pan-y}
 }
-@media (max-width:760px){#instr{height:110px}.read{display:none}}
+@media (max-width:760px){#instr{height:var(--instr-h,110px)}body.jet{--instr-h:min(220px,45vh)}.read{display:none}}
 /* Desktop: with the settings panel open, the strip and legend make room for it. */
 @media (min-width:900px) and (pointer:fine){
   body.side-open #instr{left:calc(50% - 161px);width:min(1000px,calc(100% - 358px))}
+  body.jet.side-open #instr{width:min(1500px,calc(100% - 358px))}
   body.side-open #flowLegend{right:334px}
 }
 #sideClose{display:none;position:sticky;top:-12px;margin:-12px -12px 8px auto;float:right;z-index:1}
@@ -228,7 +238,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 <div id="warn">STALL</div>
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>
-  <div class="lg"><span>Pressure Cp</span><i class="bar"></i><span class="ends"><b>−0.15 fast</b><b>+0.15 slow</b></span></div>
+  <div class="lg"><span>Streamlines · local speed / free stream</span><i class="bar"></i><span class="ends"><b>0.85 slower</b><b>1.15 faster</b></span><span><i class="sw air"></i> grey: air the aircraft leaves alone</span></div>
   <div class="lg"><span>Wing strips α/α<sub>stall</sub></span><i class="bar half"></i><span class="ends"><b>0</b><b>stall</b></span></div>
   <div class="lg"><span><i class="sw hot"></i> jet exhaust</span><span><i class="sw stall"></i> <b id="flowStall">no stalled strips</b></span></div>
 </div>

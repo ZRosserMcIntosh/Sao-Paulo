@@ -684,7 +684,7 @@ function handleEvents() {
 // ---------- Airflow view ----------
 const FLOW = ['Airflow', 'Airflow: on', 'Wind tunnel'];
 ui.flow = 0;
-const DARK = new THREE.Color('#05080d');
+const STUDIO = new THREE.Color('#dde1e6');  // wind tunnel: a plain light backdrop, as CFD renders are shown
 function cycleFlow() {
   ui.flow = (ui.flow + 1) % 3;
   flow.group.visible = ui.flow > 0;
@@ -693,11 +693,11 @@ function cycleFlow() {
   $('bFlow').setAttribute('aria-pressed', String(ui.flow > 0));
   $('flowLegend').hidden = ui.flow === 0;
   const tunnel = ui.flow === 2;
-  scene.background = tunnel ? DARK : SKY;
-  scene.fog.color.copy(tunnel ? DARK : SKY);
+  scene.background = tunnel ? STUDIO : SKY;
+  scene.fog.color.copy(tunnel ? STUDIO : SKY);
   skyDome.visible = !tunnel;
-  if (ui.flow === 1) toast('Airflow: streamlines from the lift the physics is making, coloured by pressure. Orbit camera recommended (C).', 5);
-  if (tunnel) toast('Wind tunnel: the world goes dark so the flow stands out. V again to turn it off.', 4);
+  if (ui.flow === 1) toast('Airflow: streamlines through the field the physics is making, coloured by local speed (grey: undisturbed). Orbit camera recommended (C).', 5);
+  if (tunnel) toast('Wind tunnel: the world fades so the flow stands out. V again to turn it off.', 4);
 }
 $('bFlow').addEventListener('click', (e) => { cycleFlow(); e.currentTarget.blur(); });
 
@@ -710,6 +710,8 @@ function applyProfileUi() {
   document.querySelector('[data-fail="3"]').textContent = P.jet ? 'Generators' : 'Alternator';
   document.querySelectorAll('.jetonly').forEach((el) => { el.hidden = !P.jet; });
   document.querySelectorAll('.pistononly').forEach((el) => { el.hidden = P.jet; });
+  document.body.classList.toggle('jet', P.jet);
+  sizePanel();  // the jet's strip is taller
   $('plateSub').textContent = `Flight test bed · ${P.name}`;
   document.title = `Flight Test Bed · ${P.name}`;
 }
@@ -783,7 +785,7 @@ function frame() {
   if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]) }, ui.paused ? 0 : dt);
   else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1 }, ui.paused ? 0 : dt);
   if (ui.flow) {
-    const fr = flow.update(A.flow(), ui.paused ? 0 : dt, { ...P, span: def.reference.span_m });
+    const fr = flow.update(A.flow(), ui.paused ? 0 : dt, { ...P, span: def.reference.span_m }, { light: ui.flow === 2 });
     $('flowStall').textContent = fr.stalled ? `${fr.stalled} strip${fr.stalled > 1 ? 's' : ''} stalled` : 'no stalled strips';
   }
   acGroup.updateMatrixWorld(true);
