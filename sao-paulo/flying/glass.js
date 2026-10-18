@@ -185,7 +185,6 @@ export function drawPFD(ctx, x, y, w, h, d) {
     ctx.fillStyle = C.amber; ctx.fillRect(bx + bw * 0.25, yA, bw * 0.5, Math.max(0, yS - yA));
     for (let yy = yS; yy < sy + sh; yy += u * 2) { ctx.fillStyle = Math.floor((yy - yS) / (u * 2)) % 2 ? C.black : C.red; ctx.fillRect(bx, yy, bw, u * 2); }
   }
-  // V-speed bugs.
   // Speed trend: where the speed will be in 10 seconds.
   if (Math.abs(d.trend || 0) > 2 && d.ias > 30) {
     const yt = clamp(ys(v + d.trend), sy, sy + sh), xt = sx + sw - u * 0.6;

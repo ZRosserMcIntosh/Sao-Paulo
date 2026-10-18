@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/sao-paulo/golf/">
+<title>Golf Ball Aerodynamics</title>
+<meta name="description" content="A slow-motion wind tunnel for a golf ball: why dimples halve the drag, how backspin makes lift, and how far a smooth ball would really go. Driven by published drag and lift models and a discrete-vortex wake.">
+<meta property="og:title" content="São Paulo World · Golf Ball Aerodynamics">
+<meta property="og:description" content="A slow-motion wind tunnel: dimples, the drag crisis, backspin and the Magnus effect, and the carry of smooth vs dimpled balls.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#070b12; --bg2:#0b111b; --panel:rgba(12,19,31,.86); --card:#0d1521; --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --plate-ink:#fff; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b; --cool:#8fd8ff;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--body);overflow-x:hidden}
+a{color:var(--ink)}
+button{font:600 12px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:7px 10px;cursor:pointer;touch-action:manipulation}
+button:hover{background:rgba(255,255,255,.12)}
+button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+button:focus-visible,input:focus-visible,a:focus-visible,canvas:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+input[type=range]{accent-color:var(--hot);width:100%;margin:0;height:28px;touch-action:pan-y}
+kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:rgba(255,255,255,.05);white-space:nowrap}
+.eyebrow{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none;flex:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px;white-space:nowrap}
+/* masthead */
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:16px;padding:10px 16px;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));background:rgba(7,11,18,.86);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.bar .ttl{min-width:0;flex:1}
+.bar h1{margin:0;font:900 26px/.95 var(--display);text-transform:uppercase;letter-spacing:.01em;white-space:nowrap}
+.bar .ttl .eyebrow{margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar nav{display:flex;gap:6px;flex:none}
+.bar nav a{font:600 12px var(--body);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:7px 10px;background:rgba(255,255,255,.04);white-space:nowrap}
+.bar nav a:hover{background:rgba(255,255,255,.12)}
+/* layout */
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;padding:12px 16px 28px;max-width:1720px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;min-width:0}
+.tunnel{align-self:start;position:relative;overflow:hidden;display:flex;flex-direction:column;background:#04070c}
+#tv{display:block;width:100%;height:clamp(440px,calc(100svh - 150px),780px);touch-action:pan-y;cursor:crosshair}
+.legend{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;padding:9px 14px;border-top:1px solid var(--line);font:500 11px/1.3 var(--mono);color:var(--mute)}
+.legend .lg{display:grid;grid-template-columns:auto 150px auto;gap:8px;align-items:center}
+.legend i.bar{display:block;height:8px;border-radius:4px;background:linear-gradient(90deg,#30123b,#4662d7,#36aaf9,#1ae4b6,#72fe5e,#c8ef34,#faba39,#f66b19,#ca2a04,#7a0403)}
+.legend b{color:var(--ink);font-weight:600}
+.legend .sw{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.legend .clock{margin-left:auto;color:var(--ink)}
+/* controls */
+.controls{padding:14px;display:flex;flex-direction:column;gap:2px;align-self:start}
+.controls h2,.card h2{font:800 16px/1 var(--display);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 8px}
+.controls h2:first-child{margin-top:0}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.seg button{padding:9px 6px}
+.ctl{display:grid;grid-template-columns:96px 1fr;gap:2px 10px;align-items:center;margin-top:6px;font-size:12px;color:var(--mute)}
+.ctl output{font:600 13px var(--mono);color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+.ctl .lbl{display:flex;justify-content:space-between;grid-column:1/-1;align-items:baseline}
+.ctl input{grid-column:1/-1}
+.ctl .sub{grid-column:1/-1;font:500 11px var(--mono);color:var(--mute);margin-top:-2px}
+.ctl .sub.warn{color:var(--warn)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chips button{padding:6px 9px;font-weight:500}
+.chips button[aria-pressed="true"]{font-weight:600}
+table.cmp{width:100%;border-collapse:collapse;font:500 12px/1.35 var(--mono);font-variant-numeric:tabular-nums}
+table.cmp th{font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mute);text-align:right;padding:4px 0 6px;border-bottom:1px solid var(--line)}
+table.cmp th:first-child,table.cmp td:first-child{text-align:left;color:var(--mute)}
+table.cmp td{text-align:right;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+table.cmp .s{color:var(--cool)} table.cmp .d{color:var(--hot)}
+.note{color:var(--mute);font-size:12px;margin:8px 0 0}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:12px;color:var(--mute);align-items:center}
+/* lower cards */
+.lower{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,3fr) minmax(0,7fr);gap:12px}
+.chart{padding:14px 14px 10px;display:flex;flex-direction:column}
+.chart h2{margin-top:0}
+.chart canvas{display:block;width:100%;height:280px}
+.chart .cap{font-size:12px;color:var(--mute);margin:6px 0 0}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+.stat{border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+.stat .k{font:800 13px/1 var(--display);letter-spacing:.06em;text-transform:uppercase}
+.stat .big{font:900 34px/1 var(--display);font-variant-numeric:tabular-nums;margin-top:6px}
+.stat .big small{font:600 12px var(--mono);color:var(--mute);margin-left:4px}
+.stat .read{display:grid;grid-template-columns:auto auto;gap:1px 10px;font:500 11px/1.45 var(--mono);color:var(--mute);margin-top:4px}
+.stat .read b{color:var(--ink);font-weight:600;text-align:right}
+.stat.s .k{color:var(--cool)} .stat.d .k{color:var(--hot)}
+.text{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.prose{padding:16px 18px}
+.prose h2{margin-top:0}
+.prose h3{font:800 13px/1.2 var(--display);letter-spacing:.06em;text-transform:uppercase;margin:16px 0 4px;color:var(--ink)}
+.prose p,.prose li{color:#c4cdd8;font-size:13.5px;max-width:72ch}
+.prose p{margin:0 0 8px}
+.prose ul{margin:0 0 8px;padding-left:18px}
+.prose li{margin:3px 0}
+.tag{display:inline-block;font:600 9.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:3px 5px;border-radius:4px;vertical-align:1px;margin-right:4px}
+.tag.m{background:rgba(54,196,131,.16);color:#7fe0b0}
+.tag.e{background:rgba(240,180,58,.16);color:#f5c96c}
+.tag.i{background:rgba(143,216,255,.14);color:#a9e2ff}
+.refs li{font-size:12.5px}
+.refs i{color:var(--ink)}
+footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
+@media (max-width:1180px){
+  .lower{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .lower .traj{grid-column:1/-1}
+}
+@media (max-width:900px){
+  main{grid-template-columns:minmax(0,1fr);padding:10px 10px 24px;padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}
+  #tv{height:clamp(380px,62svh,620px)}
+  .tunnel{align-self:stretch}
+  .text{grid-template-columns:minmax(0,1fr)}
+  .controls{align-self:stretch}
+}
+@media (max-width:640px){
+  .bar{flex-wrap:wrap;gap:8px 10px;padding-top:8px;padding-bottom:8px;position:relative}
+  .plate b{font-size:16px}.plate span{font-size:8px}
+  #tv{height:clamp(340px,54svh,520px)}
+  .bar .ttl{order:3;flex-basis:100%}
+  .bar h1{font-size:24px}
+  .bar nav{margin-left:auto}
+  .bar nav a{padding:6px 8px;font-size:11px}
+  .lower{grid-template-columns:minmax(0,1fr)}
+  .legend{gap:6px 14px;padding:8px 10px}
+  .legend .lg{grid-template-columns:auto minmax(60px,1fr) auto;flex:1 1 100%}
+  .legend .clock{margin-left:0}
+  .chart canvas{height:240px}
+  .stat .big{font-size:28px}
+}
+@media (max-width:380px){.plate b{font-size:14px}.bar nav a{padding:5px 6px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="plate" href="../" title="Back to São Paulo World"><b>São Paulo World</b><span>Golf aerodynamics</span></a>
+  <div class="ttl">
+    <h1>Golf Ball Aerodynamics</h1>
+    <div class="eyebrow">Slow-motion wind tunnel · dimples · drag crisis · Magnus lift</div>
+  </div>
+  <nav aria-label="Site">
+    <a href="../flying/">Flight test bed</a>
+    <a href="../">São Paulo World</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card tunnel" aria-label="Wind tunnel">
+    <canvas id="tv" tabindex="0" aria-label="Slow-motion wind tunnel: smoke streaklines flowing left to right around a golf ball. Tap or click the ball's edge to move the boundary-layer close-up."></canvas>
+    <div class="legend" aria-hidden="false">
+      <span class="lg"><span>Smoke · speed |V|/V<sub>∞</sub></span><i class="bar"></i><span><b id="lgV0">0</b> → <b id="lgV1">1.8 (126 m/s)</b></span></span>
+      <span class="lg" id="lgSkin"><span>Skin · pressure C<sub>p</sub></span><i class="bar"></i><span><b>−1.2</b> → <b>+1</b></span></span>
+      <span><span class="sw" style="background:#fff;box-shadow:0 0 6px #fff"></span>separation point</span>
+      <span class="clock" id="clock">1/1000× · t = 0.0 ms</span>
+    </div>
+  </section>
+
+  <aside class="card controls" aria-label="Controls">
+    <h2>Ball</h2>
+    <div class="seg" role="group" aria-label="Ball surface">
+      <button data-mode="smooth" aria-pressed="false" title="Smooth ball (1)">Smooth</button>
+      <button data-mode="dimpled" aria-pressed="true" title="Dimpled ball (2)">Dimpled</button>
+      <button data-mode="split" aria-pressed="false" title="Side by side (3)">Split view</button>
+    </div>
+
+    <label class="ctl"><span class="lbl"><span>Ball speed <kbd>←</kbd><kbd>→</kbd></span><output id="oV">70 m/s</output></span>
+      <input id="iV" type="range" min="10" max="120" step="1" value="70" aria-label="Ball speed, metres per second">
+      <span class="sub" id="sV">157 mph · Re 1.99×10⁵</span></label>
+    <label class="ctl"><span class="lbl"><span>Backspin <kbd>↑</kbd><kbd>↓</kbd></span><output id="oW">2800 rpm</output></span>
+      <input id="iW" type="range" min="0" max="8000" step="50" value="2800" aria-label="Backspin, revolutions per minute">
+      <span class="sub" id="sW">S = ωr/V = 0.089</span></label>
+    <label class="ctl"><span class="lbl"><span>Launch angle</span><output id="oA">11.0°</output></span>
+      <input id="iA" type="range" min="4" max="30" step="0.5" value="11" aria-label="Launch angle, degrees">
+      <span class="sub">for the trajectory below</span></label>
+    <label class="ctl"><span class="lbl"><span>Slow motion <kbd>[</kbd><kbd>]</kbd></span><output id="oS">1/1000×</output></span>
+      <input id="iS" type="range" min="0" max="5" step="1" value="2" aria-label="Slow-motion factor">
+      <span class="sub" id="sS">1 s on screen = 1.0 ms of real flow</span></label>
+    <div class="row" style="margin-top:10px">
+      <button id="bPause" aria-pressed="false" title="Pause (Space)">Pause</button>
+      <button id="bReset" title="Restart the flow (R)">Restart flow</button>
+    </div>
+
+    <h2>Shots</h2>
+    <div class="row" role="group" aria-label="Presets">
+      <button data-preset="driver" title="70 m/s, 11°, 2800 rpm">Driver</button>
+      <button data-preset="iron" title="54 m/s, 16°, 6500 rpm">7-iron</button>
+      <button data-preset="wedge" title="45 m/s, 26°, 8000 rpm (spin clamped)">Wedge</button>
+      <button data-preset="knuckle" title="70 m/s, 11°, no spin">No spin</button>
+    </div>
+
+    <h2>Layers</h2>
+    <div class="row chips" role="group" aria-label="Layers">
+      <button data-layer="smoke" aria-pressed="true" title="S">Smoke</button>
+      <button data-layer="tracers" aria-pressed="true" title="T">Tracers</button>
+      <button data-layer="skin" aria-pressed="true" title="P">Pressure skin</button>
+      <button data-layer="inset" aria-pressed="true" title="B">Boundary layer</button>
+      <button data-layer="forces" aria-pressed="true" title="F">Forces</button>
+      <button data-layer="labels" aria-pressed="true" title="L">Labels</button>
+    </div>
+
+    <h2>Smooth vs dimpled, now</h2>
+    <table class="cmp" aria-live="off">
+      <thead><tr><th></th><th class="s">Smooth</th><th class="d">Dimpled</th></tr></thead>
+      <tbody id="cmp"></tbody>
+    </table>
+    <p class="note">At this speed and spin. Forces are for one ball in still air at sea level (ρ = 1.225 kg/m³).</p>
+
+    <h2>Keys</h2>
+    <div class="keys">
+      <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span>Smooth · dimpled · split</span>
+      <span><kbd>Space</kbd> <kbd>R</kbd></span><span>Pause · restart flow</span>
+      <span><kbd>S</kbd><kbd>T</kbd><kbd>P</kbd><kbd>B</kbd><kbd>F</kbd><kbd>L</kbd></span><span>Toggle layers</span>
+      <span>Click / tap</span><span>the ball's edge to move the boundary-layer close-up</span>
+    </div>
+  </aside>
+
+  <div class="lower">
+    <section class="card chart" aria-label="Drag coefficient versus Reynolds number">
+      <h2>Drag crisis · C<sub>d</sub> vs Re</h2>
+      <canvas id="cdc" aria-label="Chart of drag coefficient against Reynolds number for a smooth sphere and a golf ball"></canvas>
+      <p class="cap">No-spin curves. The golf ball's crisis comes at Re ≈ 5×10⁴ (≈ 18 m/s); a smooth sphere's at ≈ 3.3×10⁵ (≈ 116 m/s), faster than any golfer can hit. Dots: current speed; rings: with spin.</p>
+    </section>
+    <section class="card chart" aria-label="Lift coefficient versus spin parameter">
+      <h2>Magnus lift · C<sub>l</sub> vs S</h2>
+      <canvas id="clc" aria-label="Chart of lift coefficient against spin parameter"></canvas>
+      <p class="cap">S = ωr/V. Dimpled: C<sub>l</sub> = 0.54 S<sup>0.4</sup>. Smooth: estimated at half. Shaded: beyond the fitted range.</p>
+    </section>
+    <section class="card chart traj" aria-label="Trajectory">
+      <h2>Flight · same launch, smooth vs dimpled</h2>
+      <canvas id="trc" aria-label="Side view of the two ball flights"></canvas>
+      <div class="stats" id="stats"></div>
+    </section>
+  </div>
+
+  <div class="text">
+    <section class="card prose" id="seeing">
+      <h2>What you're seeing</h2>
+      <p>Air flows left to right past a ball held still, as in a wind tunnel, slowed about a thousand times. Lines of smoke are released from a rake on the left; each line is a <em>streakline</em>, the path a puff of smoke takes, coloured by the local air speed.</p>
+      <h3>The lesson: where the air lets go</h3>
+      <p>Air slides around the front of the ball, speeds up over the shoulders, and then has to slow down and climb back to high pressure on the back. A thin <em>boundary layer</em> next to the surface does not have the energy to do that for long. Where it gives up, it <em>separates</em> (white dots), leaving a low-pressure wake that pulls the ball backwards. That is most of a golf ball's drag.</p>
+      <p><b>Smooth ball:</b> its boundary layer stays laminar, orderly but feeble, and separates at about 82° from the front. The wake is wider than the ball and the drag coefficient is about 0.48.</p>
+      <p><b>Dimpled ball:</b> the dimples trip the boundary layer into turbulence. Turbulent mixing pulls fast outer air down to the wall, so it hangs on until about 113°. The wake is roughly half as wide and C<sub>d</sub> falls to about 0.25: the <em>drag crisis</em>, moved from Re ≈ 3×10⁵ down to ≈ 5×10⁴, inside the speeds golfers actually hit.</p>
+      <h3>Backspin</h3>
+      <p>A ball struck with backspin turns so its top moves with the air and its bottom against it. The flow stays attached longer over the top and lets go sooner underneath, so the wake is thrown downward. Pushing air down pushes the ball up: Magnus lift, the force arrow pointing up, often bigger than the ball's weight off the tee.</p>
+      <h3>The close-up</h3>
+      <p>The circle magnifies the boundary layer at one point (click the ball's edge to move it; the default, 100°, is between the two separation angles). It shows the velocity profile: laminar (Pohlhausen) or turbulent (1/7-power), and, past separation, the reversed flow next to the wall. On the dimpled ball, little eddies trapped in each dimple and shed from its rim keep stirring the layer.</p>
+    </section>
+    <section class="card prose" id="model">
+      <h2>How this is modelled</h2>
+      <p><span class="tag m">model</span> physics models or measured fits &nbsp; <span class="tag e">estimate</span> our estimate, plausible but not from a single source &nbsp; <span class="tag i">illustrative</span> drawn to explain, not computed</p>
+      <ul>
+        <li><span class="tag m">model</span><b>C<sub>d</sub>(Re)</b>: a subcritical sphere curve blended into a post-crisis curve in log Re; smooth crisis at 3.3×10⁵ with minimum ≈ 0.07 (Achenbach 1972); golf ball crisis at 5×10⁴, then ≈ 0.24 rising slowly (Bearman &amp; Harvey 1976; Choi, Jeon &amp; Choi 2006). The curve shapes are smooth fits to those data, not the data themselves.</li>
+        <li><span class="tag m">model</span><b>Spin</b>: C<sub>l</sub> = 0.54 S<sup>0.4</sup> and C<sub>d</sub> += 0.18 S, the power-law form of Smits &amp; Smith (1994), fitted for S ≈ 0.08–0.3; outside that range it is extrapolated (flagged in amber). <span class="tag e">estimate</span> smooth-ball lift = half of that: real smooth spheres can even lift the wrong way near their crisis (Kim et al. 2014).</li>
+        <li><span class="tag m">model</span><b>Separation angle</b> 82° laminar, 113° dimpled-turbulent, 120° smooth-supercritical (Achenbach 1972; Choi et al. 2006), switched by the same crisis curve. <span class="tag e">estimate</span> the top/bottom shift with spin (up to ±20°, saturating with S) and the wake width (from the separation line's angle).</li>
+        <li><span class="tag m">model</span><b>The flow</b> is a 2-D cross-section: free stream + doublet (the ball) + bound circulation sized from C<sub>l</sub>, plus a <em>discrete-vortex</em> wake. Vortex blobs are released at the imposed separation points at the rate the boundary layer feeds vorticity (½U<sub>e</sub>², reduced ×0.6 as is customary), with mirror images inside the ball so no air goes through it, and every blob moves with the velocity all the others induce (Clements 1973). The shedding, the wake width, its downward tilt with spin and the Kármán-street rhythm (Strouhal ≈ 0.2) come out of that model, not out of an animation.</li>
+        <li><span class="tag m">model</span><b>Surface C<sub>p</sub></b>: attached sin² shape to a pressure minimum, recovery, then constant base pressure; shaped after Achenbach's measurements and tuned so its pressure-drag integral matches the C<sub>d</sub> above (0.47 vs 0.48 smooth, 0.24 vs 0.25 dimpled).</li>
+        <li><span class="tag e">estimate</span><b>Boundary layer</b> thicknesses use flat-plate correlations along the surface (δ ≈ 5x/√Re<sub>x</sub> laminar, 0.37x/Re<sub>x</sub><sup>0.2</sup> turbulent). In the main view the layer is drawn about 5× thicker than life so you can see it slow the smoke.</li>
+        <li><span class="tag i">illustrative</span> small-scale jitter in the wake and turbulent layer, the eddies in the close-up, and the dimple pattern on the ball. A 2-D model cannot resolve real dimples or 3-D sphere wakes, which form helical vortex loops rather than a flat street.</li>
+        <li><span class="tag m">model</span><b>Trajectory</b>: point mass, gravity + drag + Magnus lift (RK4), C<sub>d</sub> and C<sub>l</sub> recomputed every step from the current speed and spin; no wind, sea level. <span class="tag e">estimate</span> spin decays with a 25 s time constant.</li>
+      </ul>
+      <h2 style="margin-top:18px">About the physics · sources</h2>
+      <ul class="refs">
+        <li>E. Achenbach (1972), <i>Experiments on the flow past spheres at very high Reynolds numbers</i>, J. Fluid Mech. 54, 565–575.</li>
+        <li>P. W. Bearman &amp; J. K. Harvey (1976), <i>Golf ball aerodynamics</i>, Aeronautical Quarterly 27, 112–122.</li>
+        <li>J. Choi, W.-P. Jeon &amp; H. Choi (2006), <i>Mechanism of drag reduction by dimples on a sphere</i>, Physics of Fluids 18, 041702.</li>
+        <li>A. J. Smits &amp; D. R. Smith (1994), <i>A new aerodynamic model of a golf ball in flight</i>, Science and Golf II, 340–347.</li>
+        <li>J. Kim, H. Choi, H. Park &amp; J. Y. Yoo (2014), <i>Inverse Magnus effect on a rotating sphere: when and why</i>, J. Fluid Mech. 754, R2.</li>
+        <li>R. R. Clements (1973), <i>An inviscid model of two-dimensional vortex shedding</i>, J. Fluid Mech. 57, 321–336.</li>
+        <li>R. D. Mehta (1985), <i>Aerodynamics of sports balls</i>, Annu. Rev. Fluid Mech. 17, 151–189.</li>
+        <li>H. Schlichting &amp; K. Gersten, <i>Boundary-Layer Theory</i> (Pohlhausen profiles, 1/7-power law).</li>
+      </ul>
+      <p class="note">Coefficients are as commonly quoted from these works and smoothed for display; treat the curves as representative of a typical modern ball, not of any one ball. Ball: D = 42.67 mm, m = 45.93 g; air ν = 1.5×10⁻⁵ m²/s.</p>
+    </section>
+  </div>
+  <footer>São Paulo World · a side experiment from the <a href="../flying/">flight test bed</a>.</footer>
+</main>
+<script type="module" src="golf.js"></script>
+</body>
+</html>
