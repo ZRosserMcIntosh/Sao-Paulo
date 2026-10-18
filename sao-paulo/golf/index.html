@@ -6,9 +6,22 @@
 <base href="/sao-paulo/golf/">
 <title>Golf Ball Aerodynamics</title>
 <meta name="description" content="A slow-motion wind tunnel for a golf ball: why dimples halve the drag, how backspin makes lift, and how far a smooth ball would really go. Driven by published drag and lift models and a discrete-vortex wake.">
-<meta property="og:title" content="São Paulo World · Golf Ball Aerodynamics">
-<meta property="og:description" content="A slow-motion wind tunnel: dimples, the drag crisis, backspin and the Magnus effect, and the carry of smooth vs dimpled balls.">
-<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<link rel="canonical" href="https://zrossermcintosh.com/sao-paulo/golf/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="São Paulo World">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/golf/">
+<meta property="og:title" content="Golf Ball Aerodynamics · São Paulo World">
+<meta property="og:description" content="Why dimples halve the drag: a 2000× slow-motion wind tunnel from the instant of impact, with the drag crisis, backspin and Magnus lift, checked against tour data.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/golf/og.jpg">
+<meta property="og:image:secure_url" content="https://zrossermcintosh.com/sao-paulo/golf/og.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A dimpled golf ball in a wind tunnel: smoke lines bend around it and a glowing wake trails behind, under the title Golf Ball Aerodynamics.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Golf Ball Aerodynamics · São Paulo World">
+<meta name="twitter:description" content="Why dimples halve the drag: a 2000× slow-motion wind tunnel from the instant of impact.">
+<meta name="twitter:image" content="https://zrossermcintosh.com/sao-paulo/golf/og.jpg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -153,7 +166,7 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
       <span class="lg"><span>Smoke · speed |V|/V<sub>∞</sub></span><i class="bar"></i><span><b id="lgV0">0</b> → <b id="lgV1">1.8 (126 m/s)</b></span></span>
       <span class="lg" id="lgSkin"><span>Skin · pressure C<sub>p</sub></span><i class="bar"></i><span><b>−1.2</b> → <b>+1</b></span></span>
       <span><span class="sw" style="background:#fff;box-shadow:0 0 6px #fff"></span>separation point</span>
-      <span class="clock" id="clock">1/2000× · t = −0.500 ms · club approaching</span>
+      <span class="clock" id="clock">1/2000× · t = 0.000 ms · contact · compressing</span>
     </div>
   </section>
 
@@ -179,7 +192,7 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
       <span class="sub" id="sS">1 s on screen = 0.5 ms of real flow</span></label>
     <div class="row" style="margin-top:10px">
       <button id="bPause" aria-pressed="false" title="Pause (Space)">Pause</button>
-      <button id="bReset" title="Restart the shot: club, impact, then flight (R)">Restart shot</button>
+      <button id="bReset" title="Restart the shot from the instant of impact (R)">Restart shot</button>
     </div>
 
     <h2>Shots</h2>
@@ -237,7 +250,7 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
   <div class="text">
     <section class="card prose" id="seeing">
       <h2>What you're seeing</h2>
-      <p>Each shot starts with the club: for about a second on screen the face closes on the ball, squashes it for roughly half a millisecond, and throws it off with speed and backspin. From then on the camera rides with the ball, so the air flows left to right past it as in a wind tunnel, slowed two thousand times. Before the strike the smoke hangs still; the ball's start sets it moving and the wake grows from nothing. Lines of smoke are released from a rake on the left; each line is a <em>streakline</em>, the path a puff of smoke takes, coloured by the local air speed.</p>
+      <p>Each shot starts at the instant the clubface strikes: the ball flattens by several millimetres and springs back over about half a millisecond (close to a second on screen), leaving with its speed and backspin. From then on the camera rides with the ball, so the air flows left to right past it as in a wind tunnel, slowed two thousand times. At the strike the smoke hangs still; the ball's start sets it moving and the wake grows from nothing. Lines of smoke are released from a rake on the left; each line is a <em>streakline</em>, the path a puff of smoke takes, coloured by the local air speed.</p>
       <h3>The lesson: where the air lets go</h3>
       <p>Air slides around the front of the ball, speeds up over the shoulders, and then has to slow down and climb back to high pressure on the back. A thin <em>boundary layer</em> next to the surface does not have the energy to do that for long. Where it gives up, it <em>separates</em> (white dots), leaving a low-pressure wake that pulls the ball backwards. That is most of a golf ball's drag.</p>
       <p><b>Smooth ball:</b> its boundary layer stays laminar, orderly but feeble, and separates at about 82° from the front. The wake is wider than the ball and the drag coefficient is about 0.48.</p>

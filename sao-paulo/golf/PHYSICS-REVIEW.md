@@ -219,9 +219,10 @@ strike a knuckleball.
 
 `shot.t` is real time from first contact.
 
-- **Approach.** It always lasts about 1 s on screen, whatever the slow-motion
-  setting, so the club covers V × 1 s / slowdown: 2.6 cm at 1/2000×.
-- **Contact.** It then plays at true speed: 0.9 s on screen at 1/2000× and
+- **Start.** Every shot (page load, Restart, presets) starts at first
+  contact. The club itself is not drawn; its effect is the ball's
+  deformation and launch.
+- **Contact.** It plays at true speed: 0.9 s on screen at 1/2000× and
   0.11 s at 1/250×.
 - **The flow.** The air past the ball is zero before contact. During the
   contact it ramps with the delivered impulse, so the tunnel's
@@ -230,7 +231,7 @@ strike a knuckleball.
   started sphere growing from nothing.
 - **Before the strike.** The smoke hangs still.
 
-The clock reads, in turn: approaching, compressing, restoring, in flight.
+The clock reads, in turn: compressing, restoring, in flight.
 
 ## 7. What remains approximate
 

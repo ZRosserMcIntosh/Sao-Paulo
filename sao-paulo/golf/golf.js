@@ -26,12 +26,10 @@ const state = {
   inspect: { th: 100, side: 1 },
 };
 
-// The shot: the club approaches, strikes, the ball leaves the face, then the
-// air flows. shot.t is real time from first contact (negative before it).
-// The approach always lasts about PRE_SCREEN seconds on screen, whatever the
-// slow motion, so the club covers V x PRE_SCREEN / slow before contact.
-const PRE_SCREEN = 1.0;
-const shot = { imp: null, t: 0, T0: 0 };
+// The shot starts at the instant of impact: the ball is squashed by the
+// strike, springs back as it leaves, then the air flows past it. shot.t is
+// real time from first contact.
+const shot = { imp: null, t: 0 };
 function solveShot() { shot.imp = P.solveImpact(P.CLUBS[state.club], state.V, state.ang, state.rpm); }
 // Fraction of the final ball speed reached t seconds after first contact.
 function flowFraction(t) { return t <= 0 || !shot.imp ? (shot.imp ? 0 : 1) : P.impulseFraction(shot.imp, t); }
@@ -189,7 +187,7 @@ class Lane {
     this.ts = new Float32Array(this.NT); this.tage = new Float32Array(this.NT);
     this.thead = 0;
     for (let i = 0; i < this.NT; ++i) this.respawnTracer(i, true);
-    if (shot.imp && shot.t < 0) this.prefillStill(); else this.prefill();
+    if (shot.imp && shot.t <= 0) this.prefillStill(); else this.prefill();
     if (this.texR !== Math.round(R)) { this.texS = window.devicePixelRatio > 1 ? 2 : 1; this.tex = ballTexture(this.kind, R * this.texS); this.texR = Math.round(R); }
   }
   respawnTracer(i, scatter) {
@@ -202,8 +200,8 @@ class Lane {
     for (let k = 0; k < this.TL; ++k) { this.tx[i * this.TL + k] = x; this.ty[i * this.TL + k] = y; }
     this.tage[i] = 0;
   }
-  // Before the impact the air is still: the smoke hangs in straight lines
-  // (none inside the ball). The ball's start sets it moving.
+  // At the instant of impact the air is still: the smoke hangs in straight
+  // lines (none inside the ball). The ball's start sets it moving.
   prefillStill() {
     const C = this.C;
     this.alive.fill(0);
@@ -911,11 +909,9 @@ function draw(vis) {
     drawLaneBackground(L);
     if (state.layers.smoke) { drawVortices(L); drawSmoke(L); }
     if (state.layers.tracers) drawTracers(L);
-    drawGround(L);
-    if (flying) drawWakeBracket(L);
+    if (flying && state.layers.labels) drawWakeBracket(L);
     if (flying && state.layers.skin) drawSkin(L);
     drawBall(L);
-    drawClub(L);
     if (flying) drawSeparation(L);
     if (flying && state.layers.forces) drawForces(L);
     drawHud(L, split);
@@ -935,13 +931,12 @@ function fmtT(t) {
 function phaseText() {
   const imp = shot.imp;
   if (!imp) return 'flow';
-  if (shot.t < 0) return 'club approaching';
   if (shot.t < imp.tc) return 'contact · compressing';
   if (shot.t < imp.tau) return 'contact · restoring';
   return 'ball in flight';
 }
 
-// ---------------------------------------------------------------- the club, the tee and the impact
+// ---------------------------------------------------------------- the impact
 // World frame: x toward the target, y up, origin at the ball centre. The
 // tunnel shows the ball's own frame with the flight path along -x, so the
 // world is mirrored and turned by the launch angle.
@@ -949,120 +944,6 @@ function toTunnel(v) {
   const L = (shot.imp.launch * Math.PI) / 180, c = Math.cos(L), s = Math.sin(L), x = -v[0], y = v[1];
   return [c * x - s * y, s * x + c * y];
 }
-const toCanvas = (L, v) => { const k = L.R / P.R, q = toTunnel(v); return [L.cx + q[0] * k, L.cy - q[1] * k]; };
-// Ball displacement along its flight path since first contact (m).
-const ballTravel = () => (shot.imp ? Math.hypot(...shot.imp.ball) * flowIntegral(0, Math.max(0, shot.t)) : 0);
-
-// Head outlines in face coordinates (a along the face normal, b up the
-// face), metres, origin at the contact point. Sole at b = -(h + CG height).
-const HEADS = {
-  wood(cl) {
-    const s = -(cl.h + 0.025), top = s + cl.face, bc = (s + top) / 2, roll = 0.3;
-    const face = []; for (let i = 0; i <= 8; ++i) { const b = s + (i / 8) * (top - s); face.push([-((b - bc) ** 2) / (2 * roll), b]); }
-    return { body: [...face, [-0.03, top + 0.004], [-0.07, top - 0.006], [-0.103, s + 0.032], [-0.113, s + 0.013], [-0.096, s + 0.002], [-0.02, s - 0.001]],
-             face, hosel: [-0.012, top - 0.002], sole: s, grooves: [] };
-  },
-  iron(cl) {
-    const s = -(cl.h + 0.018), top = s + cl.face;
-    const grooves = []; for (let b = s + 0.006; b < top - 0.006; b += 0.0036) grooves.push(b);
-    return { body: [[0, s], [0, top], [-0.006, top + 0.001], [-0.008, top - 0.012], [-0.011, s + 0.024], [-0.019, s + 0.014], [-0.023, s + 0.004], [-0.019, s - 0.001]],
-             face: [[0, s], [0, top]], hosel: [-0.004, top], sole: s, grooves };
-  },
-};
-
-// Club position relative to the ball: the contact point on the face, the
-// face normal and up-the-face directions, and the head's rotation since release.
-function clubPose() {
-  const imp = shot.imp, cl = P.CLUBS[state.club], d = (imp.loft * Math.PI) / 180;
-  const n = [Math.cos(d), Math.sin(d)], tt = [-Math.sin(d), Math.cos(d)];
-  const t = shot.t;
-  let pos = [-P.R * n[0], -P.R * n[1]], rot = 0;
-  if (t < 0) { pos[0] += imp.club0[0] * t; pos[1] += imp.club0[1] * t; }
-  else if (t < imp.tau) { const dl = P.deflection(imp, t); pos[0] += n[0] * dl; pos[1] += n[1] * dl; }
-  else {
-    const dt = t - imp.tau;
-    pos[0] += (imp.club1[0] - imp.ball[0]) * dt; pos[1] += (imp.club1[1] - imp.ball[1]) * dt;
-    rot = imp.dOmega * dt;
-  }
-  // Rotation about the head's CG (b behind the face, h below the contact).
-  const cg = [pos[0] - cl.b * n[0] - cl.h * tt[0], pos[1] - cl.b * n[1] - cl.h * tt[1]];
-  const cr = Math.cos(rot), sr = Math.sin(rot);
-  const at = (a, b) => {
-    const x = pos[0] + a * n[0] + b * tt[0] - cg[0], y = pos[1] + a * n[1] + b * tt[1] - cg[1];
-    return [cg[0] + cr * x - sr * y, cg[1] + sr * x + cr * y];
-  };
-  return { at, cl, n, tt, rot };
-}
-
-function drawClub(L) {
-  if (!shot.imp) return;
-  // Once the ball has gone the club drifts slowly out of the ball's frame;
-  // fade it after a couple of seconds on screen so the wake stays readable.
-  const after = (shot.t - shot.imp.tau) * SLOWS[state.slow];
-  const alpha = after < 2 ? 1 : Math.max(0, 1 - (after - 2) / 1.5);
-  if (alpha <= 0) return;
-  const { at, cl, rot } = clubPose();
-  const g = HEADS[cl.kind](cl);
-  const pts = g.body.map(([a, b]) => toCanvas(L, at(a, b)));
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  // Shaft: from the hosel, straight up in the world (with the head's rotation).
-  const hz = at(g.hosel[0], g.hosel[1]);
-  const lean = cl.kind === 'iron' ? 0.07 : 0.0, up = [Math.sin(lean) , Math.cos(lean)];
-  const ur = [up[0] * Math.cos(rot) - up[1] * Math.sin(rot), up[0] * Math.sin(rot) + up[1] * Math.cos(rot)];
-  const [sx0, sy0] = toCanvas(L, hz), [sx1, sy1] = toCanvas(L, [hz[0] + ur[0] * 1.2, hz[1] + ur[1] * 1.2]);
-  const k = L.R / P.R;
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = 'rgba(10,14,22,.8)'; ctx.lineWidth = Math.max(3, 0.0105 * k);
-  ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(sx1, sy1); ctx.stroke();
-  ctx.strokeStyle = cl.kind === 'iron' ? '#c3ccd8' : '#2c3440'; ctx.lineWidth = Math.max(2, 0.0085 * k);
-  ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(sx1, sy1); ctx.stroke();
-  // Head
-  ctx.beginPath();
-  pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  ctx.closePath();
-  const [ax, ay] = pts[0], [bx, by] = pts[Math.floor(pts.length / 2)];
-  const gr = ctx.createLinearGradient(ax, ay, bx, by);
-  if (cl.kind === 'iron') { gr.addColorStop(0, '#e9eef4'); gr.addColorStop(0.5, '#9aa6b5'); gr.addColorStop(1, '#5b6676'); }
-  else { gr.addColorStop(0, '#3a4350'); gr.addColorStop(0.4, '#1b2029'); gr.addColorStop(1, '#0c0f14'); }
-  ctx.fillStyle = gr; ctx.fill();
-  ctx.strokeStyle = 'rgba(220,230,245,.55)'; ctx.lineWidth = 1; ctx.stroke();
-  // Face
-  ctx.strokeStyle = cl.kind === 'iron' ? '#f4f7fb' : '#b9c3d0'; ctx.lineWidth = Math.max(2, 0.0018 * k);
-  ctx.beginPath();
-  g.face.forEach(([a, b], i) => { const [x, y] = toCanvas(L, at(a, b)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
-  // Grooves
-  ctx.strokeStyle = 'rgba(40,50,64,.9)'; ctx.lineWidth = 1;
-  for (const b of g.grooves) { const [x0, y0] = toCanvas(L, at(0, b)), [x1, y1] = toCanvas(L, at(-0.0012, b)); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
-  ctx.restore();
-}
-
-// Ground (and the tee for the driver), left behind as the ball flies.
-function drawGround(L) {
-  if (!shot.imp) return;
-  const cl = P.CLUBS[state.club], wood = cl.kind === 'wood';
-  const gy = -P.R - (wood ? 0.020 : 0.004);
-  const s = ballTravel(), u = shot.imp.ball, um = Math.hypot(u[0], u[1]);
-  const off = [(-u[0] / um) * s, (-u[1] / um) * s];
-  const p = (x, y) => toCanvas(L, [x + off[0], y + off[1]]);
-  const span = 4;
-  const [ax, ay] = p(-span, gy), [bx, by] = p(span, gy), [cx2, cy2] = p(span, gy - 1), [dx, dy] = p(-span, gy - 1);
-  ctx.save();
-  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx2, cy2); ctx.lineTo(dx, dy); ctx.closePath();
-  ctx.fillStyle = 'rgba(30,70,40,.35)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(110,200,130,.55)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-  if (wood) {
-    // Tee: cup under the ball, peg into the ground.
-    const t0 = p(0, -P.R + 0.002), t1 = p(0, gy - 0.03), l = p(-0.004, -P.R + 0.002), r = p(0.004, -P.R + 0.002);
-    ctx.strokeStyle = 'rgba(240,240,230,.85)'; ctx.lineWidth = Math.max(2, (0.0025 * L.R) / P.R);
-    ctx.beginPath(); ctx.moveTo(t0[0], t0[1]); ctx.lineTo(t1[0], t1[1]); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(l[0], l[1]); ctx.lineTo(t0[0], t0[1] + 3); ctx.lineTo(r[0], r[1]); ctx.stroke();
-  }
-  ctx.restore();
-}
-
 function drawImpactPanel(L, split) {
   const imp = shot.imp, cl = P.CLUBS[state.club];
   const narrow = L.narrow, fs = narrow ? 9.5 : 11, lh = fs + 5;
@@ -1284,13 +1165,12 @@ $('#iS').addEventListener('input', (e) => { state.slow = +e.target.value; update
 document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
 function togglePause() { state.paused = !state.paused; $('#bPause').setAttribute('aria-pressed', String(state.paused)); $('#bPause').textContent = state.paused ? 'Play' : 'Pause'; }
 $('#bPause').addEventListener('click', togglePause);
-// Restart the shot: the club approaches for ~1 s on screen, strikes, and the
-// air starts to flow as the ball leaves the face (an impulsively started
-// sphere: the wake grows from nothing).
+// Restart the shot at the instant of impact: the ball flattens and recovers
+// (about half a millisecond), and the air starts to flow as it leaves the
+// face (an impulsively started sphere: the wake grows from nothing).
 function startShot() {
   solveShot();
-  shot.T0 = PRE_SCREEN / SLOWS[state.slow];
-  shot.t = -shot.T0;
+  shot.t = 0;
   physT = shot.t;
   for (const L of Object.values(lanes)) { L.ready = false; L.ins.eddies = []; L.ins.b = null; L.spinAng = 0; }
   layout();
