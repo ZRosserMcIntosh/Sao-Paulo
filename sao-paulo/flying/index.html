@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <base href="/sao-paulo/flying/">
 <title>Flight Test Bed</title>
-<meta name="description" content="Fly the 172 or the Top G business jet over São Paulo World in the browser: the Aviation Dynamics flight core compiled to WebAssembly, with real instruments, from Campo de Marte.">
+<meta name="description" content="Fly the 172 or the Top G business jet over São Paulo World in the browser: the Aviation Dynamics flight core compiled to WebAssembly, with real instruments, from Congonhas or Campo de Marte.">
 <meta property="og:title" content="São Paulo World · Flight Test Bed">
-<meta property="og:description" content="Fly the 172 or the Top G jet over São Paulo, in your browser: take off from Campo de Marte and fly over the city.">
+<meta property="og:description" content="Fly the 172 or the Top G jet over São Paulo, in your browser: take off from Congonhas or Campo de Marte and fly over the city.">
 <meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -52,6 +52,15 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .ctl{display:grid;grid-template-columns:86px 1fr 64px;gap:8px;align-items:center;font-size:12px;color:var(--mute);margin-top:6px}
 .ctl output{font:500 11px var(--mono);color:var(--ink);text-align:right}
 .starts{display:grid;gap:5px}
+#loadPanel .ctl{grid-template-columns:1fr auto;grid-template-areas:"name val" "bar bar";gap:2px 8px;margin-top:8px}
+#loadPanel .ctl span{grid-area:name}
+#loadPanel .ctl output{grid-area:val}
+#loadPanel .ctl input{grid-area:bar;width:100%}
+#loadPanel .ctl.over output,#loadPanel .ctl.over span{color:var(--bad)}
+#loadPanel .sheet{min-width:0}
+#loadPanel .sheet b.bad,#loadPanel .note.bad{color:var(--bad)}
+#loadPanel .sheet small{color:var(--mute);font-weight:500}
+#loadPanel .envelope{display:block;width:100%;height:auto;margin-top:10px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:6px}
 .starts button{text-align:left;display:flex;justify-content:space-between;gap:8px}
 .starts button small{color:var(--mute);font-weight:500}
 .starts button[aria-pressed="true"] small{color:#33445e}
@@ -164,9 +173,18 @@ body.jet #hud .levers{display:none}
   </div>
   <p class="note jetonly" hidden>The Top G flies on the G650ER's published figures: two 75 kN turbofans with thrust lapse and spool lag, a swept supercritical wing with Mach drag rise, Fowler flaps, speedbrakes and retractable gear. Mmo 0.925, Vmo 340 kt.</p>
 
+  <h2>Airport</h2>
+  <div class="row" role="group" aria-label="Airport">
+    <button data-airport="1" aria-pressed="false">Congonhas · 35L</button>
+    <button data-airport="0" aria-pressed="false">Campo de Marte · 12</button>
+  </div>
+
   <h2>Start</h2>
   <div class="starts" id="starts"></div>
   <div class="row" style="margin-top:8px"><button id="bQuick" title="Run the Quick Start checklist through the cockpit switches">Quick Start (from cold and dark)</button></div>
+
+  <h2>Weight &amp; fuel</h2>
+  <div id="loadPanel"></div>
 
   <h2>Flying</h2>
   <div class="row" role="group" aria-label="Assistance">
@@ -176,6 +194,14 @@ body.jet #hud .levers{display:none}
   </div>
   <div class="row" style="margin-top:8px"><button id="bLevel" aria-pressed="false" title="L">Auto-trim: hold straight and level</button></div>
   <p class="note">Assists only move the controls, as a skilled pilot would: Easy levels the wings, coordinates turns, trims and guards the stall; Simulation is the raw airplane. Lift, thrust and weight are identical in all three. Auto-trim (any mode): let go of the stick and it levels the wings, stops the climb or descent, then holds that heading and altitude and trims for you; near the stall it gives up height rather than speed. It never touches the throttle.</p>
+
+  <h2>Display</h2>
+  <div class="row" role="group" aria-label="Speed units">
+    <button data-units="kt" aria-pressed="true">Knots</button>
+    <button data-units="kmh" aria-pressed="false">+ km/h</button>
+    <button data-units="mph" aria-pressed="false">+ mph</button>
+  </div>
+  <p class="note">The instruments stay in knots, as in the airplane; the readouts add km/h or mph.</p>
 
   <h2>Sound</h2>
   <div class="row"><button id="bSound" aria-pressed="false" title="M">Sound off</button>
@@ -219,7 +245,7 @@ body.jet #hud .levers{display:none}
     <span>Gamepad</span><span>Left stick pitch/roll, right stick rudder, RT/LT throttle, RB/LB flaps, A brakes, D-pad trim, Y restart, View camera</span>
   </div>
   <p class="note">Take-off: full throttle, keep it straight with <kbd>Q</kbd>/<kbd>E</kbd>, ease back at 55 knots. Climb at 75. Land at 65 with flaps down, idle over the runway, flare gently.</p>
-  <p class="note">Physics: the Aviation Dynamics core (the C++ the game will use, <a href="https://github.com/ZRosserMcIntosh/Aviation-Dynamics" style="color:var(--ink)">github.com/ZRosserMcIntosh/Aviation-Dynamics</a>) compiled to WebAssembly, stepping at 240 Hz: strip-theory wings, a blade-element propeller and piston engine (172) or two-spool turbofans (Top G), fuel, electrics and instruments; the 172 is validated against its published handbook performance, the Top G against the G650ER's published figures. The ground is flat at Campo de Marte's elevation (722 m) under the São Paulo World map; real terrain and buildings arrive with the world tile export.</p>
+  <p class="note">Physics: the Aviation Dynamics core (the C++ the game will use, <a href="https://github.com/ZRosserMcIntosh/Aviation-Dynamics" style="color:var(--ink)">github.com/ZRosserMcIntosh/Aviation-Dynamics</a>) compiled to WebAssembly, stepping at 240 Hz: strip-theory wings, a blade-element propeller and piston engine (172) or two-spool turbofans (Top G), fuel, electrics and instruments; the 172 is validated against its published handbook performance, the Top G against the G650ER's published figures. The ground is flat at the airport's elevation (Congonhas 802 m, Campo de Marte 722 m) under the São Paulo World map; real terrain and buildings arrive with the world tile export.</p>
 </aside>
 
 <div id="hud">

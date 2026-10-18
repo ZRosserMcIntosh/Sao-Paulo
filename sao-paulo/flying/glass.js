@@ -441,9 +441,9 @@ export function drawND(ctx, x, y, w, h, d) {
     const ex = e0 - Math.sin(hdgRw * DEG) * 10 * 1852, ny = n0 - Math.cos(hdgRw * DEG) * 10 * 1852;
     const [fx, fy] = put(ex, ny);
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(fx, fy); ctx.stroke(); ctx.setLineDash([]);
-    text(ctx, 'SBMT', ax + u * 3, ay, u * 2.8, C.cyan, 'left');
+    text(ctx, d.airport || 'SBMT', ax + u * 3, ay, u * 2.8, C.cyan, 'left');
     const brg = (Math.atan2(e0 - d.x, n0 - d.y) / DEG - d.trueHdg + hdg + 720) % 360;
-    rwInfo = `SBMT ${String(Math.round(brg) % 360 || 360).padStart(3, '0')}° ${(dist / 1852).toFixed(1)} NM`;
+    rwInfo = `${d.airport || 'SBMT'} ${String(Math.round(brg) % 360 || 360).padStart(3, '0')}° ${(dist / 1852).toFixed(1)} NM`;
   }
   for (const [name, e, n] of d.points || []) {
     const [px, py, dist] = put(e, n);
