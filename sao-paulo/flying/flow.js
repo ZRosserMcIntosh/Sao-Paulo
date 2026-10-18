@@ -8,7 +8,9 @@
 // ahead of it, and the tip vortices that roll up off the wingtips. The
 // fuselage is a Rankine body (a source at the nose, a sink at the tail); the
 // propeller slipstream and jet exhausts come from the core's momentum-theory
-// values.
+// values. The atmosphere's own motion comes on top: the core samples its wind
+// field (turbulence, thermals, shear, microbursts) on a grid around the
+// aircraft (avd_wind_grid), and the lines bend with those eddies.
 //
 // That field is drawn as streamlines, the way CFD shows it: rakes of lines
 // released upstream (densest along the wing plane, around the wingtips and
@@ -67,10 +69,34 @@ export function buildFlow({ mobile }) {
   let fuse = null, engines = [];
   const col = [0, 0, 0];
 
+  // The wind around the aircraft minus the wind at the CG (body axes), on a
+  // grid of GN points over +-GH metres about the CG (structural frame).
+  const GN = mobile ? [8, 6, 4] : [12, 10, 6];
+  const GH = [0, 0, 0], GC = [0, 0, 0];
+  let grid = null, gridAge = 1e9;
+  function windDelta(x, y, z) {
+    if (!grid) return false;
+    const [nx, ny, nz] = GN;
+    const fx = (x - GC[0] + GH[0]) / (2 * GH[0]) * (nx - 1), fy = (y - GC[1] + GH[1]) / (2 * GH[1]) * (ny - 1), fz = (z - GC[2] + GH[2]) / (2 * GH[2]) * (nz - 1);
+    if (fx < 0 || fy < 0 || fz < 0 || fx > nx - 1 || fy > ny - 1 || fz > nz - 1) return false;
+    const i = Math.min(nx - 2, fx | 0), j = Math.min(ny - 2, fy | 0), k = Math.min(nz - 2, fz | 0);
+    const u = fx - i, v = fy - j, w = fz - k;
+    wd[0] = wd[1] = wd[2] = 0;
+    for (let c = 0; c < 8; ++c) {
+      const di = c & 1, dj = (c >> 1) & 1, dk = c >> 2;
+      const wt = (di ? u : 1 - u) * (dj ? v : 1 - v) * (dk ? w : 1 - w);
+      const o = 3 * ((i + di) + nx * ((j + dj) + ny * (k + dk)));
+      wd[0] += wt * grid[o]; wd[1] += wt * grid[o + 1]; wd[2] += wt * grid[o + 2];
+    }
+    return true;
+  }
+  const wd = [0, 0, 0];
+
   // Velocity of the air relative to the aircraft at (x, y, z), structural frame.
   const out = [0, 0, 0];
   function velocity(x, y, z) {
     let vx = U[0], vy = U[1], vz = U[2];
+    if (windDelta(x, y, z)) { vx += wd[0]; vy += wd[1]; vz += wd[2]; }
     for (let k = 0; k < nSeg; ++k) {
       const k3 = k * 3;
       const r1x = x - sA[k3], r1y = y - sA[k3 + 1], r1z = z - sA[k3 + 2];
@@ -288,6 +314,14 @@ export function buildFlow({ mobile }) {
     // Fuselage and engines.
     const fu = prof.fuse;
     L = fu.xNose - fu.xTail; span = prof.span; centre = [(fu.xNose + fu.xTail) / 2, 0, fu.z];
+    // The atmosphere around the aircraft, refreshed about ten times a second.
+    gridAge += dt;
+    if (opts.windGrid && gridAge > 0.1) {
+      gridAge = 0;
+      GC[0] = f[6]; GC[1] = f[7]; GC[2] = f[8];
+      GH[0] = 1.4 * L; GH[1] = span; GH[2] = 0.6 * span;
+      grid = Float32Array.from(opts.windGrid(GH[0], GH[1], GH[2], GN[0], GN[1], GN[2]));
+    }
     const Q = tas * Math.PI * fu.R * fu.R;
     fuse = { src: fu.xNose - fu.R * 0.5, snk: fu.xTail + fu.R * 0.5, z: fu.z, Q, core: (fu.R * 0.3) ** 2 };
     engines = [];
@@ -333,6 +367,6 @@ export function buildFlow({ mobile }) {
     lineGeo.attributes.position.needsUpdate = true; lineGeo.attributes.color.needsUpdate = true;
     return { stalled };
   }
-  function reset() { traced = 0; ln.fill(0); }
+  function reset() { traced = 0; ln.fill(0); grid = null; gridAge = 1e9; }
   return { group, update, reset };
 }

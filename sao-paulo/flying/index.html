@@ -52,6 +52,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .ctl{display:grid;grid-template-columns:86px 1fr 64px;gap:8px;align-items:center;font-size:12px;color:var(--mute);margin-top:6px}
 .ctl output{font:500 11px var(--mono);color:var(--ink);text-align:right}
 .starts{display:grid;gap:5px}
+.ctl select{width:100%;min-width:0;background:rgba(255,255,255,.06);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 4px;font:inherit}
 #loadPanel .ctl{grid-template-columns:1fr auto;grid-template-areas:"name val" "bar bar";gap:2px 8px;margin-top:8px}
 #loadPanel .ctl span{grid-area:name}
 #loadPanel .ctl output{grid-area:val}
@@ -214,6 +215,11 @@ body.jet #hud .levers{display:none}
   <label class="ctl">From <input id="windDir" type="range" min="0" max="350" step="10" value="120"><output id="windDirV">120°</output></label>
   <label class="ctl">Turbulence <input id="turb" type="range" min="0" max="4" step="0.2" value="0"><output id="turbV">none</output></label>
   <label class="ctl">Temperature <input id="temp" type="range" min="-25" max="25" value="0"><output id="tempV">ISA</output></label>
+  <label class="ctl">Turbulence class <select id="turbClass"><option value="0">none</option><option value="1">light</option><option value="2">moderate</option><option value="3">severe</option></select><output></output></label>
+  <label class="ctl">Thermals <select id="thermals"><option value="0">none</option><option value="1.5">weak (w* 1.5 m/s)</option><option value="2.5">good (w* 2.5 m/s)</option><option value="3.5">strong (w* 3.5 m/s)</option></select><output></output></label>
+  <label class="ctl">Hazard <select id="hazard"><option value="0">none</option><option value="1">microburst on final</option><option value="2">gust front from the SW</option></select><output></output></label>
+  <label class="ctl">Runway <select id="rwyWater"><option value="0">dry</option><option value="1">wet</option><option value="6">standing water (6 mm)</option><option value="13">flooded (13 mm)</option></select><output></output></label>
+  <p class="note">The wind is the airfield report: it grows and backs with height and brings its own gusts over the city. Turbulence follows MIL-HDBK-1797; a wet runway brakes like the certification wet-runway curve, and in standing water the tyres hydroplane above 9·√(tyre psi) kt (about 124 kt for the Top G, 55 kt for the 172).</p>
 
   <h2>Failures</h2>
   <div class="row">

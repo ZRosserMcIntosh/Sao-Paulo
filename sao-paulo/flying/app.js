@@ -290,12 +290,25 @@ buildStarts();
 function applyWeather() {
   const kt = +$('wind').value, dir = +$('windDir').value, turb = +$('turb').value, temp = +$('temp').value;
   A.avd_set_weather(kt * 0.5144, dir, turb, temp, 0.6);
+  A.avd_set_wind_detail(+$('turbClass').value, +$('thermals').value, 1500);
+  A.avd_set_runway_water(+$('rwyWater').value);
   $('windV').textContent = kt ? `${kt} kt` : 'calm';
   $('windDirV').textContent = `${String(dir).padStart(3, '0')}°`;
   $('turbV').textContent = turb ? `${turb.toFixed(1)} m/s` : 'none';
   $('tempV').textContent = temp ? `ISA ${temp > 0 ? '+' : '−'}${Math.abs(temp)} °C` : 'ISA';
 }
 for (const id of ['wind', 'windDir', 'turb', 'temp']) $(id).addEventListener('input', applyWeather);
+// Turbulence class, thermals, hazard and runway: kept across reloads.
+for (const id of ['turbClass', 'thermals', 'hazard', 'rwyWater']) {
+  $(id).value = String(store.get(`wx:${id}`, $(id).value));
+  $(id).addEventListener('change', (e) => {
+    store.set(`wx:${id}`, e.target.value);
+    if (id === 'hazard') { A.avd_set_wind_hazard(+e.target.value); toast(+e.target.value ? `${e.target.selectedOptions[0].textContent}: placed now, around ${AP.name}.` : 'Hazard cleared.', 3); }
+    else applyWeather();
+    e.target.blur();
+  });
+}
+A.avd_set_wind_hazard(+$('hazard').value);
 
 function restart(i = ui.start) {
   ui.start = i;
@@ -568,6 +581,14 @@ resize();
 // ---------- HUD ----------
 const hRead = $('hRead');
 const fmt = (v, d = 0) => (Number.isFinite(v) ? v.toFixed(d) : '—');
+// Wind (smoothed by the core), ground track and drift, once moving.
+const deg3 = (v) => String(Math.round(((v % 360) + 360) % 360) || 360).padStart(3, '0');
+function windRows() {
+  const rows = [['Wind', s[60] >= 1 ? `${deg3(s[59])}° / ${spd(s[60])}` : 'calm']];
+  if (s[12] > 20 && !s[28]) rows.push(['Track · drift', `${deg3(s[61])}° · ${s[62] >= 0 ? 'R' : 'L'} ${fmt(Math.abs(s[62]))}°`]);
+  if (s[63] > 0) rows.push(['Runway', s[63] >= 3 ? `standing water ${fmt(s[63])} mm` : 'wet']);
+  return rows;
+}
 function hud() {
   $('hAssist').textContent = assistStatus();
   if (P.jet) { jetHud(); return; }
@@ -575,7 +596,7 @@ function hud() {
   $('hAlt').innerHTML = `${fmt(c[K.alt])}<small>FT MSL</small>`;
   const hdg = String(Math.round(((c[K.dg] % 360) + 360) % 360) || 360).padStart(3, '0');
   const rows = [
-    ['Ground speed', spd(s[12])], ['Vertical', `${fmt(c[K.vsi])} fpm`], ['Heading', `${hdg}°`],
+    ['Ground speed', spd(s[12])], ['Vertical', `${fmt(c[K.vsi])} fpm`], ['Heading', `${hdg}°`], ...windRows(),
     ['Above field', `${fmt(Math.max(0, s[14]))} ft`], ['Engine', s[30] ? `${fmt(s[19])} rpm` : 'stopped'],
     ['Manifold', `${fmt(s[20], 1)} inHg`], ['Fuel', `${fmt(s[52])} L`], ['Flaps', `${fmt(s[26])}°`],
     ['Trim', `${fmt(s[27] * 100)} %`], ['Load', `${fmt(s[18], 2)} g`], ['α', s[11] > 25 ? `${fmt(s[16], 1)}°` : '—'],
@@ -595,7 +616,7 @@ function jetHud() {
   const gear = j[1] > 0.999 ? 'down' : j[1] < 0.001 ? 'up' : 'in transit';
   const rows = [
     ['Mach', j[5] > 0.2 ? fmt(j[5], 3) : '—'], ['Ground speed', spd(s[12])], ['Vertical', `${fmt(c[K.vsi])} fpm`],
-    ['Heading', `${hdg}°`], ['Above field', `${fmt(Math.max(0, s[14]))} ft`],
+    ['Heading', `${hdg}°`], ...windRows(), ['Above field', `${fmt(Math.max(0, s[14]))} ft`],
     ['N1 L / R', `${fmt(j[8], 1)} / ${fmt(j[16], 1)} %`], ['Fuel flow', `${fmt(j[7] * 2.20462 / 10) * 10 || 0} lb/h`],
     ['Fuel', `${fmt(j[6] * 2.20462)} lb`], ['Flaps', `${fmt(j[27])}°`], ['Gear', gear], ['Speedbrake', j[3] > 0.02 ? `${fmt(j[3] * 100)} %` : 'retracted'],
     ['Load', `${fmt(s[18], 2)} g`], ['Brakes', s[49] ? 'PARKING SET' : input.brake ? 'on' : 'off'],
@@ -618,7 +639,7 @@ function jetData() {
     x: s[0], y: s[1], trueHdg: s[9], runway: RW, airport: AP.icao, points: LANDMARKS,
     rangeNm: agl < 4000 ? 5 : agl < 15000 ? 10 : agl < 28000 ? 20 : 40,
     trend: iasAcc * 10, vs1g: j[32], vsTO: j[33], vsLDG: j[34], gw: j[35], fpa: j[36], drift: ((j[37] - s[9] + 540) % 360) - 180,
-    windDir: j[38], windKt: j[39], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
+    windDir: s[59], windKt: s[60], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
     vfe: j[47], vle: j[48], toFlap: j[49], ldgFlap: j[50], trim: j[28], thrLever: input.throttle, crashed: ui.crashed, pusher: !!j[51],
   };
 }
@@ -764,6 +785,7 @@ async function selectAircraft(id) {
   const next = PROFILES[id];
   try {
     loadInto(await fetchDef(next));
+    A.avd_set_wind_hazard(+$('hazard').value);  // a new aircraft starts a fresh sim
   } catch (e) { toast('Could not load the aircraft: ' + e.message, 6); return; }
   audio.stop();
   P = next;
@@ -831,7 +853,7 @@ function frame() {
   if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]) }, ui.paused ? 0 : dt);
   else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1 }, ui.paused ? 0 : dt);
   if (ui.flow) {
-    const fr = flow.update(A.flow(), ui.paused ? 0 : dt, { ...P, span: def.reference.span_m }, { light: ui.flow === 2 });
+    const fr = flow.update(A.flow(), ui.paused ? 0 : dt, { ...P, span: def.reference.span_m }, { light: ui.flow === 2, windGrid: A.windGrid });
     $('flowStall').textContent = fr.stalled ? `${fr.stalled} strip${fr.stalled > 1 ? 's' : ''} stalled` : 'no stalled strips';
   }
   acGroup.updateMatrixWorld(true);
