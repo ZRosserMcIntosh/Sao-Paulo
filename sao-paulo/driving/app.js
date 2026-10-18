@@ -776,7 +776,7 @@ function customised() { const d = presetAids(settings.preset); return d.abs !== 
 function setPreset(p) {
   settings.preset = p; Object.assign(settings, presetAids(p)); store.set('preset', p); applyAids();
   if (isBike()) toast(['FUN: ABS, traction and wheelie control, the rider leans for you', 'SPORT: ABS only', 'SIMULATION: no aids (L for bar-torque steering)', 'WHEELIE: open the throttle, the assist holds the front up'][p]);
-  else toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT: throw it sideways, keep the throttle in, hold the turn to drift, let go to straighten'][p]);
+  else toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT: throw it sideways (handbrake), keep the throttle in, hold the turn to drift, let go to straighten. Donuts: full lock + full throttle from a crawl'][p]);
 }
 document.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => setPreset(+b.dataset.preset)));
 $('aAbs').onclick = () => { settings.abs = !settings.abs; applyAids(); };
