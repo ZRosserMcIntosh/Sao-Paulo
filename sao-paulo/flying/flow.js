@@ -197,8 +197,9 @@ export function buildFlow({ mobile }) {
     for (let i = 0; i < n; ++i) {
       const o = 16 + i * STRIDE;
       const a = f[o + 12], sa = f[o + 14], q = f[o + 13];
-      let r = q > 1 ? a / Math.max(sa, 0.02) : 0;
-      if (r > 1) { ++stalled; const pulse = 0.5 + 0.5 * Math.sin(clockT * 12); col[0] = 1; col[1] = 0.1 * pulse; col[2] = 0.9 * pulse + 0.1; }
+      const r = a / Math.max(sa, 0.02);
+      if (q <= 1) { col[0] = 0.13; col[1] = 0.15; col[2] = 0.18; }  // no airflow over it: unlit
+      else if (r > 1) { ++stalled; const pulse = 0.5 + 0.5 * Math.sin(clockT * 12); col[0] = 1; col[1] = 0.1 * pulse; col[2] = 0.9 * pulse + 0.1; }
       else turbo(0.5 + 0.5 * r, col);
       for (let k = 0; k < 12; ++k) sc.array.set(col, (i * 12 + k) * 3);
     }

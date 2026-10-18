@@ -42,7 +42,7 @@ function toast(msg, sec = 3.5) { toastEl.textContent = msg; toastEl.classList.ad
 // Chase distance, camera target and pilot's eye in body FLU metres from each datum.
 const PROFILES = {
   c172: { id: 'c172', name: '172', file: './172.json', jet: false, fuse: { xNose: 1.02, xTail: -6.25, R: 0.55, z: 0.0 }, chase: 15, zoom: [7, 120], target: [-1.4, 0, 0.4], eye: [-1.38, 0.27, 0.84], tower: 22, shadow: 9 },
-  topg: { id: 'topg', name: 'Top G', file: './top_g.json', jet: true, fuse: { xNose: 0, xTail: -30.4, R: 1.31, z: 0.0 }, chase: 50, zoom: [20, 260], target: [-15, 0, 0.6], eye: [-3.62, 0.52, 0.4], tower: 48, shadow: 24 },
+  topg: { id: 'topg', name: 'Top G', file: './top_g.json', jet: true, fuse: { xNose: 0, xTail: -30.4, R: 1.31, z: 0.0 }, chase: 50, zoom: [20, 260], target: [-15, 0, 0.6], eye: [-3.4, 0.52, 0.42], tower: 48, shadow: 24 },
 };
 const hashPick = { '#topg': 'topg', '#172': 'c172' }[location.hash.toLowerCase()];
 let P = PROFILES[hashPick || store.get('aircraft', 'c172')] || PROFILES.c172;
@@ -243,7 +243,8 @@ const ui = {
   start: 0, paused: false, crashed: false, sound: false, vol: store.get('vol', 80),
 };
 const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0 };
-let s = new Float64Array(64), c = new Float64Array(96), j = new Float64Array(32);
+let s = new Float64Array(64), c = new Float64Array(96), j = new Float64Array(64);
+let lastIas = 0, iasAcc = 0;  // speed trend (kt/s, filtered)
 const failed = { fuel: false, 0: false, 1: false, 2: false, 3: false };
 let parkHint = false;
 
@@ -262,10 +263,10 @@ const JET_STARTS = [
   { name: 'Cold and dark', sub: 'runway 12', go: () => A.avd_reset(0), thr: 0 },
   { name: 'Final 12', sub: '6 km, 125 kt, flaps 39', go: () => A.avd_reset(2), trim: true },
   { name: 'Downwind 12', sub: '2000 ft, 180 kt', go: () => A.avd_reset_air(rwMid[0] - rwRight[0] * 2500, rwMid[1] - rwRight[1] * 2500, 610, (RW[3] + 180) % 360, 180, 1), trim: true },
-  { name: 'Avenida Paulista', sub: 'low pass, 220 kt', go: () => A.avd_reset_air(3200, -2200, 600, 305, 220, 0), trim: true },
+  { name: 'Avenida Paulista', sub: 'low pass, 220 kt', go: () => A.avd_reset_air(3200, -2200, 330, 305, 220, 0), trim: true },
   { name: 'Centro', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(2100, -3000, 600, 0, 220, 0), trim: true },
   { name: 'Ibirapuera', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(-4000, -7000, 600, 40, 220, 0), trim: true },
-  { name: 'Cruise FL410', sub: 'Mach 0.85 over the city', go: () => A.avd_reset_air(0, -9000, 12497 - ELEV, 340, 240, 0), trim: true },
+  { name: 'Cruise FL410', sub: 'Mach 0.85 over the city', go: () => A.avd_reset_air(0, -9000, 12497 - ELEV, 340, 253, 0), trim: true },
 ];
 let STARTS = P.jet ? JET_STARTS : PISTON_STARTS;
 const startsEl = $('starts');
@@ -343,7 +344,13 @@ addEventListener('keydown', (e) => {
     case 'KeyG': toggleGear(); break;
     case 'Slash': cycleSpeedbrake(); e.preventDefault(); break;
     case 'KeyV': cycleFlow(); break;
-    case 'KeyK': A.avd_ai_cage(); toast('Attitude indicator caged (do it wings level).', 2); break;
+    case 'KeyK': A.avd_ai_cage(); toast(P.jet ? 'Attitude reference re-aligned (do it wings level).' : 'Attitude indicator caged (do it wings level).', 2); break;
+    case 'KeyF': A.avd_dg_sync(); toast(P.jet ? 'Heading re-synced to the magnetometer.' : 'Heading indicator set to the compass.', 2); break;
+    case 'Semicolon': case 'Quote': {
+      const step = (e.code === 'Quote' ? 1 : -1) * (e.shiftKey ? 1 : 5);
+      A.avd_heading_bug((Math.round(c[K.bug]) + step + 360) % 360); break;
+    }
+    case 'KeyO': A.avd_altimeter_adjust(e.shiftKey ? -1 : 1); break;
     case 'KeyC': cycleCam(); break;
     case 'KeyI': toggleInstr(); break;
     case 'KeyR': restart(); break;
@@ -473,9 +480,13 @@ $('bReset').addEventListener('click', (e) => { restart(); e.currentTarget.blur()
 function togglePanel(force) {
   const side = $('side'), show = force ?? side.hidden;
   side.hidden = !show; $('bPanel').setAttribute('aria-expanded', String(show));
+  document.body.classList.toggle('side-open', show);
+  requestAnimationFrame(sizePanel);
 }
 $('bPanel').addEventListener('click', (e) => { togglePanel(); e.currentTarget.blur(); });
+$('sideClose').addEventListener('click', () => togglePanel(false));
 if (MOBILE || innerWidth < 900) togglePanel(false);
+else document.body.classList.add('side-open');
 function togglePause() { ui.paused = !ui.paused; toast(ui.paused ? 'Paused (Space to resume)' : 'Resumed', ui.paused ? 1e9 : 1.2); }
 
 // Mouse: drag to look around, wheel to zoom.
@@ -555,13 +566,18 @@ function jetHud() {
 }
 const FMA = ['EASY · WING LEVEL · AUTO TRIM', 'SPORT · AUTO COORD', 'MANUAL'];
 function jetData() {
+  const agl = Math.max(0, s[14]);
   return {
     ias: c[K.ias], alt: c[K.alt], baro: c[K.kollsman], vsi: c[K.vsi], pitch: c[K.aiPitch], roll: c[K.aiRoll], hdg: c[K.dg], bug: c[K.bug],
     ball: c[K.ball], stall: c[K.stall] > 0.5, mach: j[5], gs: s[12], tas: j[26], agl: Math.max(0, s[14]), vmo: j[25], mmo: j[24],
     assist: FMA[ui.assist], n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
     run: [j[13], j[21]], starting: [j[14], j[22]], fuelSw: [j[15], j[23]], n1cmd: 22 + 78 * input.throttle,
     fuelKg: j[6], gear: j[1], spd: j[3], flaps: j[27], wow: j[29], park: s[49],
-    x: s[0], y: s[1], trueHdg: s[9], rangeNm: 10, runway: RW, points: LANDMARKS,
+    x: s[0], y: s[1], trueHdg: s[9], runway: RW, points: LANDMARKS,
+    rangeNm: agl < 4000 ? 5 : agl < 15000 ? 10 : agl < 28000 ? 20 : 40,
+    trend: iasAcc * 10, vs1g: j[32], vsTO: j[33], vsLDG: j[34], gw: j[35], fpa: j[36], drift: ((j[37] - s[9] + 540) % 360) - 180,
+    windDir: j[38], windKt: j[39], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
+    vfe: j[47], vle: j[48], toFlap: j[49], ldgFlap: j[50], trim: j[28], thrLever: input.throttle, crashed: ui.crashed, pusher: !!j[51],
   };
 }
 
@@ -611,10 +627,17 @@ function updateCamera(dt) {
 // ---------- Landmark labels ----------
 const labelPts = [...LANDMARKS.map(([n, x, y]) => [n, x, y, 60]), ['Campo de Marte', rwMid[0], rwMid[1], 40]];
 const v = new THREE.Vector3();
+// In the cockpit a label hides behind the panel, glareshield and frames: a
+// short ray from the eye toward it against the flight deck (refreshed every
+// few frames; the deck is a few metres across, so the ray stops at 8 m).
+const occRay = new THREE.Raycaster(), occDir = new THREE.Vector3(), occluded = new Map();
+let occFrame = 0;
 function drawLabels() {
   const w = innerWidth, h = innerHeight;
   lctx.clearRect(0, 0, w, h);
   if (ui.cam === 1 && innerHeight < 500) return;
+  const inside = ui.cam === 1, refresh = inside && (occFrame++ % 6 === 0);
+  occRay.far = 8;
   lctx.font = `600 ${MOBILE ? 11 : 12}px "Public Sans",system-ui,sans-serif`;
   lctx.textAlign = 'center';
   for (const [name, x, y, up] of labelPts) {
@@ -622,6 +645,14 @@ function drawLabels() {
     if (dist > 14000 || dist < 150) continue;
     v.set(x, ELEV + up, -y).project(camera);
     if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) continue;
+    if (inside) {
+      if (refresh || !occluded.has(name)) {
+        occDir.set(x, ELEV + up, -y).sub(camera.position).normalize();
+        occRay.set(camera.position, occDir);
+        occluded.set(name, occRay.intersectObject(cabin.root, true).length > 0);
+      }
+      if (occluded.get(name)) continue;
+    }
     const px = (v.x + 1) / 2 * w, py = (1 - v.y) / 2 * h;
     const a = clamp(1.4 - dist / 10000, 0.35, 1);
     lctx.globalAlpha = a;
@@ -701,6 +732,7 @@ async function selectAircraft(id) {
   buildStarts();
   applyProfileUi();
   setAssist(ui.assist);
+  ui.paused = false;
   restart(0);
   sizePanel();
 }
@@ -739,6 +771,11 @@ function frame() {
     A.avd_advance(dt);
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
+  if (!ui.paused && dt > 0) {
+    const a = clamp((c[K.ias] - lastIas) / dt, -15, 15);
+    iasAcc += (a - iasAcc) * (1 - Math.exp(-dt / 1.2));
+  }
+  lastIas = c[K.ias];
   handleEvents();
   // Airplane pose: datum position and body FLU → ENU attitude.
   acGroup.position.copy(enu(s[0], s[1], s[2]));

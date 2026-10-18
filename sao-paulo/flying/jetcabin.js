@@ -28,11 +28,13 @@ export function buildJetCabin({ mobile, maxAniso, skin }) {
   {
     const inWindshield = (x, a) => {
       const sa = Math.sin(a);
-      return a > 20 * DEG && a < 160 * DEG && x <= -1.98 - 0.45 * (1 - sa) && x >= -2.98 - 0.25 * (1 - sa);
+      return a > 16 * DEG && a < 164 * DEG && x <= -1.98 - 0.45 * (1 - sa) && x >= -2.98 - 0.25 * (1 - sa);
     };
-    const inSide = (x, a) => x <= -3.12 && x >= -3.87 && ((a > 14 * DEG && a < 52 * DEG) || (a > 128 * DEG && a < 166 * DEG));
+    // Side windows: a large sliding-window-sized pane beside each seat.
+    const inSide = (x, a) => x <= -3.06 && x >= -3.9 && ((a > 8 * DEG && a < 56 * DEG) || (a > 124 * DEG && a < 172 * DEG));
     const pos = [], idx = [];
-    const nx = 48, na = 72, x0 = -1.75, x1 = -5.6;
+    // From the windshield's forward edge aft (~2.5 cm cells keep the glazing edges clean).
+    const nx = 145, na = 240, x0 = -1.98, x1 = -5.6;
     for (let i = 0; i <= nx; ++i)
       for (let j = 0; j <= na; ++j) {
         const p = skin(x0 + (x1 - x0) * i / nx, j / na * 2 * Math.PI, -0.05);

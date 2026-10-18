@@ -111,6 +111,22 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   #side{width:min(310px,calc(100% - 24px));touch-action:pan-y}
 }
 @media (max-width:760px){#instr{height:110px}.read{display:none}}
+/* Desktop: with the settings panel open, the strip and legend make room for it. */
+@media (min-width:900px) and (pointer:fine){
+  body.side-open #instr{left:calc(50% - 161px);width:min(1000px,calc(100% - 358px))}
+  body.side-open #flowLegend{right:334px}
+}
+#sideClose{display:none;position:sticky;top:-12px;margin:-12px -12px 8px auto;float:right;z-index:1}
+/* Phones: compact top bar; settings as a sheet over everything, with its own close button. */
+@media (max-width:760px){
+  .top{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));gap:6px}
+  .top .row{gap:4px;justify-content:flex-end}
+  .top button{padding:5px 7px;font-size:11px}
+  .plate{padding:4px 8px}.plate b{font-size:15px}.plate span{font-size:8px}
+  #toast{top:calc(64px + env(safe-area-inset-top))}
+  #side{z-index:6;left:8px;right:8px;width:auto;top:calc(8px + env(safe-area-inset-top));max-height:calc(100% - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
+  #sideClose{display:block}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -130,6 +146,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 </div>
 
 <aside id="side" class="panel" aria-label="Settings">
+  <button id="sideClose" aria-label="Close settings">✕ Close</button>
   <h2>Aircraft</h2>
   <div class="row" role="group" aria-label="Aircraft">
     <button data-aircraft="c172" aria-pressed="true">172 <small style="font-weight:500;opacity:.7">· piston single</small></button>
@@ -152,7 +169,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <h2>Sound</h2>
   <div class="row"><button id="bSound" aria-pressed="false" title="M">Sound off</button>
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)">Volume <input id="vol" type="range" min="0" max="100" value="80" style="width:110px"></label></div>
-  <p class="note">Synthesized from the simulation: firing pulses at the engine rpm, louder with manifold pressure, wind from the airspeed, and the stall-warning reed horn.</p>
+  <p class="note pistononly">Synthesized from the simulation: firing pulses at the engine rpm, louder with manifold pressure, wind from the airspeed, and the stall-warning reed horn.</p>
+  <p class="note jetonly" hidden>Synthesized from the simulation: fan tone and core whine from each engine's N1 and N2, roar with thrust, wind from the airspeed, and the stall warning.</p>
 
   <h2>Weather</h2>
   <label class="ctl">Wind <input id="wind" type="range" min="0" max="30" value="0"><output id="windV">calm</output></label>
@@ -180,7 +198,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <span><kbd>[</kbd> <kbd>]</kbd></span><span>Elevator trim nose down / up</span>
     <span><kbd>B</kbd> · <kbd>P</kbd></span><span>Brakes · parking brake</span>
     <span class="jetonly" hidden><kbd>G</kbd> · <kbd>/</kbd></span><span class="jetonly" hidden>Landing gear · speedbrake (RET, half, full)</span>
-    <span><kbd>K</kbd></span><span>Cage the attitude indicator (wings level)</span>
+    <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level) · sync the heading to the compass</span>
+    <span><kbd>;</kbd> <kbd>'</kbd> · <kbd>O</kbd></span><span>Heading bug left / right (Shift: 1°) · altimeter +0.01 inHg (Shift: −)</span>
     <span><kbd>V</kbd></span><span>Airflow view: off, on, wind tunnel</span>
     <span><kbd>C</kbd> · <kbd>I</kbd> · <kbd>R</kbd></span><span>Camera · instruments · restart</span>
     <span><kbd>H</kbd> · <kbd>M</kbd> · <kbd>Space</kbd></span><span>Panel · sound · pause</span>
