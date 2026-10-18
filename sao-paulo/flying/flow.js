@@ -1,11 +1,14 @@
 // São Paulo World · flight test bed: airflow, as the physics sees it.
 //
 // Every frame the flight core reports each lifting strip's lift coefficient,
-// angle of attack, stall angle and local dynamic pressure (avd_flow). Each
-// strip becomes a horseshoe vortex of circulation Gamma = 0.5 V c cl
-// (Kutta-Joukowski), so the induced field below is the one implied by the
-// lift the simulation is actually producing: downwash behind the wing, upwash
-// ahead of it, and the tip vortices that roll up off the wingtips. The
+// angle of attack, stall angle and local dynamic pressure (avd_flow), and its
+// wake (avd_wake): the bound vortex of every strip's lift (Kutta-Joukowski)
+// and every vortex the surfaces have shed into the air since, rolling up into
+// the tip-vortex pair, sinking and decaying where it was shed. So the induced
+// field below is the one implied by the lift the simulation is producing, and
+// by its history: downwash behind the wing, upwash ahead of it, the tip
+// vortices, and the starting vortex left behind when the lift changes. (Without
+// the wake, each strip falls back to a steady horseshoe vortex.) The
 // fuselage is a Rankine body (a source at the nose, a sink at the tail); the
 // propeller slipstream and jet exhausts come from the core's momentum-theory
 // values. The atmosphere's own motion comes on top: the core samples its wind
@@ -18,7 +21,9 @@
 // Undisturbed air stays grey; where the aircraft changes the flow the lines
 // take the local speed (turbo: slow blue to fast red), exhaust glows orange,
 // and a faint pulse travels along every line in the flow direction. The
-// strips themselves glow by how close each is to its stall angle.
+// strips themselves glow by how close each is to its stall angle, and wool
+// tufts on them lie down with the surface flow, flutter near the stall and
+// stand up or point forward where the flow has separated.
 //
 // Structural frame (x forward, y right, z down) inside; rendered in body FLU.
 import * as THREE from 'three';
@@ -60,9 +65,20 @@ export function buildFlow({ mobile }) {
   // Strip heat map (rebuilt when the aircraft changes).
   let stripMesh = null, stripCount = -1, stripKey = '';
   const stripMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
+  // Tufts: two a strip (35 % and 75 % chord) on the lifting side, drawn as
+  // short lines in the body frame.
+  const MAXT = 64 * 2;
+  const tuftPos = new Float32Array(MAXT * 6), tuftCol = new Float32Array(MAXT * 6);
+  const tuftGeo = new THREE.BufferGeometry();
+  tuftGeo.setAttribute('position', new THREE.BufferAttribute(tuftPos, 3).setUsage(THREE.DynamicDrawUsage));
+  tuftGeo.setAttribute('color', new THREE.BufferAttribute(tuftCol, 3).setUsage(THREE.DynamicDrawUsage));
+  const tufts = new THREE.LineSegments(tuftGeo, new THREE.LineBasicMaterial({ vertexColors: true }));
+  tufts.frustumCulled = false;
+  tufts.renderOrder = 3;
+  group.add(tufts);
 
   // Vortex segments for this frame.
-  const MAXS = 64 * 3;
+  const MAXS = 900;
   const sA = new Float64Array(MAXS * 3), sB = new Float64Array(MAXS * 3), sG = new Float64Array(MAXS), sR = new Float64Array(MAXS);
   let nSeg = 0;
   const U = [0, 0, 0];
@@ -151,6 +167,7 @@ export function buildFlow({ mobile }) {
   }
 
   let L = 8, span = 11, centre = [0, 0, 0];
+  const va = new THREE.Vector3(), vb = new THREE.Vector3();
   const tip = [0, 5, 0, 0.5];  // right wingtip trailing point (x, |y|, z) and vortex core radius
   const wing = [0, 0];         // main wing plane: x of the quarter chord, z
   // Seed of line i (structural frame) and whether it is traced from that point
@@ -283,8 +300,9 @@ export function buildFlow({ mobile }) {
     sc.needsUpdate = true;
     stripMesh.visible = opts.strips !== false;
 
-    if (tas < 6) { lines.visible = false; return { stalled }; }
-    lines.visible = true;
+    if (tas < 6) { lines.visible = false; tufts.visible = false; return { stalled }; }
+    lines.visible = opts.lines !== false;
+    tufts.visible = true;
     // Free stream relative to the aircraft (structural frame): minus the body velocity through the air.
     const ca = Math.cos(alpha), cb = Math.cos(beta);
     U[0] = -tas * ca * cb; U[1] = -tas * Math.sin(beta); U[2] = -tas * Math.sin(alpha) * cb;
@@ -292,37 +310,69 @@ export function buildFlow({ mobile }) {
     const ux = U[0] / tas, uy = U[1] / tas, uz = U[2] / tas;
     W[0] = f[10]; W[1] = f[11]; W[2] = f[12];
     CG[0] = f[6]; CG[1] = f[7]; CG[2] = f[8];
-    // Horseshoe vortices from the strips' lift.
-    nSeg = 0;
-    tip[1] = 0;
-    let wx = 0, wz = 0, wn = 0;
-    const far = 4 * L;
-    for (let i = 0; i < n; ++i) {
-      const o = 16 + i * STRIDE;
-      const q = f[o + 13], cl = f[o + 11], c = f[o + 9], b = f[o + 10] / Math.max(c, 1e-3);
-      if (q < 1 || Math.abs(cl) < 1e-4) continue;
-      const V = Math.sqrt(2 * q / rho), G = 0.5 * V * c * cl;
-      let lx = f[o + 3], ly = f[o + 4], lz = f[o + 5];
-      const nx = f[o + 6], ny = f[o + 7], nz = f[o + 8];
-      // Bound-vortex sense: lift = rho U x Gamma along the strip's normal for cl > 0.
-      const kx = uy * lz - uz * ly, ky = uz * lx - ux * lz, kz = ux * ly - uy * lx;
-      if (kx * nx + ky * ny + kz * nz < 0) { lx = -lx; ly = -ly; lz = -lz; }
-      const P1 = [f[o] - lx * b / 2, f[o + 1] - ly * b / 2, f[o + 2] - lz * b / 2];
-      const P2 = [f[o] + lx * b / 2, f[o + 1] + ly * b / 2, f[o + 2] + lz * b / 2];
-      const rc = Math.max(0.22 * c, 0.15), rc2 = rc * rc;
-      if (f[o + 15] === 0) { wx += f[o] * b; wz += f[o + 2] * b; wn += b; }
-      if (f[o + 15] === 0 && Math.abs(P2[1]) > tip[1] * 0.999) { tip[0] = P2[0] - 0.75 * c; tip[1] = Math.abs(P2[1]); tip[2] = P2[2]; tip[3] = rc; }
-      if (f[o + 15] === 0 && Math.abs(P1[1]) > tip[1] * 0.999) { tip[0] = P1[0] - 0.75 * c; tip[1] = Math.abs(P1[1]); tip[2] = P1[2]; tip[3] = rc; }
-      const seg = (a, bb, g, r2) => { const k = nSeg * 3; sA[k] = a[0]; sA[k + 1] = a[1]; sA[k + 2] = a[2]; sB[k] = bb[0]; sB[k + 1] = bb[1]; sB[k + 2] = bb[2]; sG[nSeg] = g; sR[nSeg] = r2; ++nSeg; };
-      seg([P1[0] + ux * far, P1[1] + uy * far, P1[2] + uz * far], P1, G, rc2);
-      seg(P1, P2, G, rc2 * 1.5);
-      seg(P2, [P2[0] + ux * far, P2[1] + uy * far, P2[2] + uz * far], G, rc2);
-      if (nSeg >= MAXS - 3) break;
-    }
-    if (wn > 0) { wing[0] = wx / wn; wing[1] = wz / wn; }
-    // Fuselage and engines.
+    // Fuselage and engines; sizes for the rakes.
     const fu = prof.fuse;
     L = fu.xNose - fu.xTail; span = prof.span; centre = [(fu.xNose + fu.xTail) / 2, 0, fu.z];
+    // The main wing's plane and tips (rake seeds).
+    tip[1] = 0;
+    let wx = 0, wz = 0, wn = 0;
+    for (let i = 0; i < n; ++i) {
+      const o = 16 + i * STRIDE;
+      if (f[o + 15] !== 0) continue;
+      const c = f[o + 9], b = f[o + 10] / Math.max(c, 1e-3);
+      wx += f[o] * b; wz += f[o + 2] * b; wn += b;
+      for (const k of [-1, 1]) {
+        const y = f[o + 1] + k * f[o + 4] * b / 2;
+        if (Math.abs(y) > tip[1] * 0.999) {
+          tip[0] = f[o] + k * f[o + 3] * b / 2 - 0.75 * c; tip[1] = Math.abs(y); tip[2] = f[o + 2] + k * f[o + 5] * b / 2;
+          tip[3] = Math.max(0.22 * c, 0.15);
+        }
+      }
+    }
+    nSeg = 0;
+    const seg = (ax, ay, az, bx, by, bz, g, r2) => {
+      const k = nSeg * 3;
+      sA[k] = ax; sA[k + 1] = ay; sA[k + 2] = az; sB[k] = bx; sB[k + 1] = by; sB[k + 2] = bz; sG[nSeg] = g; sR[nSeg] = r2; ++nSeg;
+    };
+    const wk = opts.wake;
+    if (wk && wk.n > 0 && opts.inv) {
+      // The core's wake, from the world (ENU) into the structural frame:
+      // three (e, u, -n), the aircraft's inverse world matrix to body FLU,
+      // then (x, -y, -z). The segments that matter for lines this close.
+      const sg = wk.seg, inv = opts.inv, tiny = 0.02 * wk.gmax, lim2 = (3 * Math.max(span, L)) ** 2;
+      for (let k = 0; k < wk.n && nSeg < MAXS; ++k) {
+        const o = k * 9, g = sg[o + 6];
+        if (Math.abs(g) < tiny) continue;
+        va.set(sg[o], sg[o + 2], -sg[o + 1]).applyMatrix4(inv);
+        vb.set(sg[o + 3], sg[o + 5], -sg[o + 4]).applyMatrix4(inv);
+        const dA = (va.x - centre[0]) ** 2 + va.y ** 2 + (va.z + centre[2]) ** 2;
+        const dB = (vb.x - centre[0]) ** 2 + vb.y ** 2 + (vb.z + centre[2]) ** 2;
+        if (dA > lim2 && dB > lim2) continue;
+        const rc = Math.max(sg[o + 7], 0.08);
+        seg(va.x, -va.y, -va.z, vb.x, -vb.y, -vb.z, g, rc * rc);
+      }
+    } else {
+      // Steady horseshoes from the strips' lift.
+      const far = 4 * L;
+      for (let i = 0; i < n && nSeg < MAXS - 3; ++i) {
+        const o = 16 + i * STRIDE;
+        const q = f[o + 13], cl = f[o + 11], c = f[o + 9], b = f[o + 10] / Math.max(c, 1e-3);
+        if (q < 1 || Math.abs(cl) < 1e-4) continue;
+        const V = Math.sqrt(2 * q / rho), G = 0.5 * V * c * cl;
+        let lx = f[o + 3], ly = f[o + 4], lz = f[o + 5];
+        const nx = f[o + 6], ny = f[o + 7], nz = f[o + 8];
+        // Bound-vortex sense: lift = rho U x Gamma along the strip's normal for cl > 0.
+        const kx = uy * lz - uz * ly, ky = uz * lx - ux * lz, kz = ux * ly - uy * lx;
+        if (kx * nx + ky * ny + kz * nz < 0) { lx = -lx; ly = -ly; lz = -lz; }
+        const P1 = [f[o] - lx * b / 2, f[o + 1] - ly * b / 2, f[o + 2] - lz * b / 2];
+        const P2 = [f[o] + lx * b / 2, f[o + 1] + ly * b / 2, f[o + 2] + lz * b / 2];
+        const rc = Math.max(0.22 * c, 0.15), rc2 = rc * rc;
+        seg(P1[0] + ux * far, P1[1] + uy * far, P1[2] + uz * far, P1[0], P1[1], P1[2], G, rc2);
+        seg(P1[0], P1[1], P1[2], P2[0], P2[1], P2[2], G, rc2 * 1.5);
+        seg(P2[0], P2[1], P2[2], P2[0] + ux * far, P2[1] + uy * far, P2[2] + uz * far, G, rc2);
+      }
+    }
+    if (wn > 0) { wing[0] = wx / wn; wing[1] = wz / wn; }
     // The atmosphere around the aircraft, refreshed about ten times a second.
     gridAge += dt;
     if (opts.windGrid && gridAge > 0.1) {
@@ -340,6 +390,8 @@ export function buildFlow({ mobile }) {
       if (f[o + 7] <= 0.1) continue;
       engines.push({ x: f[o], y: f[o + 1], z: f[o + 2], ax: f[o + 3], ay: f[o + 4], az: f[o + 5], r: f[o + 6], inc: f[o + 7], jet: f[o + 9] > 0.5 });
     }
+    updateTufts(f, n, opts.light);
+    if (!lines.visible) return { stalled };
     // Re-trace a share of the lines each frame (a third at a time right after
     // a reset); the field changes smoothly, so a full refresh every ~20 frames (a third of a second)
     // keeps the picture current at a fraction of the cost.
@@ -376,6 +428,52 @@ export function buildFlow({ mobile }) {
     }
     lineGeo.attributes.position.needsUpdate = true; lineGeo.attributes.color.needsUpdate = true;
     return { stalled };
+  }
+  // Tufts: along the local surface flow (the field just above the strip,
+  // its component in the surface); fluttering from 85 % of the stall angle,
+  // reversed and thrashing where the strip is stalled.
+  const td = [0, 0, 0];
+  function updateTufts(f, n, light) {
+    let t = 0;
+    const base = light ? [0.1, 0.1, 0.12] : [0.95, 0.95, 0.9];
+    for (let i = 0; i < n && t < MAXT; ++i) {
+      const o = 16 + i * STRIDE;
+      const Sx = f[o + 3], Sy = f[o + 4], Sz = f[o + 5], Nx = f[o + 6], Ny = f[o + 7], Nz = f[o + 8];
+      const c = f[o + 9], q = f[o + 13];
+      let Cx = Sy * Nz - Sz * Ny, Cy = Sz * Nx - Sx * Nz, Cz = Sx * Ny - Sy * Nx;
+      if (Cx < 0) { Cx = -Cx; Cy = -Cy; Cz = -Cz; }
+      const r = f[o + 12] / Math.max(f[o + 14], 0.02);
+      for (const at of [0.1, 0.5]) {  // aft of the quarter chord: 35 % and 75 % chord
+        const k = 2 * i + (at > 0.3 ? 1 : 0);
+        const h = 0.05 * c + 0.02;
+        const x = f[o] - Cx * at * c + Nx * h, y = f[o + 1] - Cy * at * c + Ny * h, z = f[o + 2] - Cz * at * c + Nz * h;
+        velocity(x, y, z);
+        let dx = out[0], dy = out[1], dz = out[2];
+        if (q <= 1) { dx = -Cx; dy = -Cy; dz = -Cz; }
+        const dn = dx * Nx + dy * Ny + dz * Nz;
+        dx -= dn * Nx; dy -= dn * Ny; dz -= dn * Nz;
+        const m = Math.hypot(dx, dy, dz) || 1;
+        dx /= m; dy /= m; dz /= m;
+        let len = Math.max(0.12 * c, 0.1), lift = 0;
+        const flutter = q > 1 ? Math.min(1, Math.max(0, (r - 0.85) / 0.15)) : 0;
+        let ang = flutter * 0.55 * Math.sin(clockT * (17 + (k % 5)) + k * 1.7);
+        const sep = q > 1 && r > 1;
+        if (sep) { ang = Math.PI * (0.62 + 0.38 * Math.sin(clockT * (9 + (k % 7)) + k)) * (k % 2 ? 1 : -1); len *= 0.85; lift = 0.45 * (0.5 + 0.5 * Math.sin(clockT * 13 + k)); }
+        // Rotate about the surface normal: d cos + (N x d) sin.
+        const ca = Math.cos(ang), sa = Math.sin(ang);
+        td[0] = dx * ca + (Ny * dz - Nz * dy) * sa; td[1] = dy * ca + (Nz * dx - Nx * dz) * sa; td[2] = dz * ca + (Nx * dy - Ny * dx) * sa;
+        const ex = x + (td[0] + Nx * lift) * len, ey = y + (td[1] + Ny * lift) * len, ez = z + (td[2] + Nz * lift) * len;
+        const w6 = t * 6;
+        tuftPos[w6] = x; tuftPos[w6 + 1] = -y; tuftPos[w6 + 2] = -z;
+        tuftPos[w6 + 3] = ex; tuftPos[w6 + 4] = -ey; tuftPos[w6 + 5] = -ez;
+        const cr = sep ? [1, 0.18, 0.12] : flutter > 0 ? [1, 0.75, 0.2] : base;
+        tuftCol.set(cr, w6); tuftCol.set(cr, w6 + 3);
+        ++t;
+      }
+    }
+    tuftPos.fill(0, t * 6);
+    tuftGeo.setDrawRange(0, t * 2);
+    tuftGeo.attributes.position.needsUpdate = true; tuftGeo.attributes.color.needsUpdate = true;
   }
   function reset() { traced = 0; ln.fill(0); grid = null; gridAge = 1e9; }
   return { group, update, reset };

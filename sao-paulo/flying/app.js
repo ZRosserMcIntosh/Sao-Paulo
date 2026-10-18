@@ -13,6 +13,7 @@ import { buildCabin } from './cabin.js';
 import { buildJetCabin } from './jetcabin.js';
 import { FlightAudio, JetAudio } from './audio.js';
 import { buildFlow } from './flow.js';
+import { buildSmoke } from './smoke.js';
 import { mountLoadSheet } from './loadsheet.js';
 
 const $ = (id) => document.getElementById(id);
@@ -241,6 +242,10 @@ function useRig(p) {
 useRig(P);
 const flow = buildFlow({ mobile: MOBILE });
 acGroup.add(flow.group);
+const smoke = buildSmoke({ renderer, mobile: MOBILE });
+scene.add(smoke.group);
+const invM = new THREE.Matrix4();
+let smokeT = 0;
 const bodyPoint = (x, y, z) => acGroup.localToWorld(new THREE.Vector3(x, y, z));
 
 // ---------- State ----------
@@ -312,6 +317,7 @@ A.avd_set_wind_hazard(+$('hazard').value);
 
 function restart(i = ui.start) {
   ui.start = i;
+  smoke.reset();
   const st = STARTS[i];
   applyWeather();
   st.go();
@@ -745,22 +751,27 @@ function handleEvents() {
 }
 
 // ---------- Airflow view ----------
-const FLOW = ['Airflow', 'Airflow: on', 'Wind tunnel'];
+const FLOW = ['Airflow', 'Airflow: on', 'Wind tunnel', 'Smoke'];
 ui.flow = 0;
 const STUDIO = new THREE.Color('#dde1e6');  // wind tunnel: a plain light backdrop, as CFD renders are shown
 function cycleFlow() {
-  ui.flow = (ui.flow + 1) % 3;
+  ui.flow = (ui.flow + 1) % 4;
+  if (ui.flow === 3 && !smoke.ok) { ui.flow = 0; toast('Smoke needs WebGL2 with float render targets, which this browser does not offer.', 4); }
   flow.group.visible = ui.flow > 0;
+  smoke.group.visible = ui.flow === 3;
   flow.reset();
+  smoke.reset();
   $('bFlow').textContent = FLOW[ui.flow];
   $('bFlow').setAttribute('aria-pressed', String(ui.flow > 0));
   $('flowLegend').hidden = ui.flow === 0;
+  $('flowLegend').classList.toggle('smoke', ui.flow === 3);
   const tunnel = ui.flow === 2;
   scene.background = tunnel ? STUDIO : SKY;
   scene.fog.color.copy(tunnel ? STUDIO : SKY);
   skyDome.visible = !tunnel;
   if (ui.flow === 1) toast('Airflow: streamlines through the field the physics is making, coloured by local speed (grey: undisturbed). Orbit camera recommended (C).', 5);
-  if (tunnel) toast('Wind tunnel: the world fades so the flow stands out. V again to turn it off.', 4);
+  if (tunnel) toast('Wind tunnel: the world fades so the flow stands out. V again for smoke.', 4);
+  if (ui.flow === 3) toast('Smoke: from the wingtips, the trailing edge and the engines. It stays in the air, winds into the tip vortices, sinks with them and drifts with the wind. Orbit camera (C).', 6);
 }
 $('bFlow').addEventListener('click', (e) => { cycleFlow(); e.currentTarget.blur(); });
 
@@ -853,7 +864,17 @@ function frame() {
   if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]) }, ui.paused ? 0 : dt);
   else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1 }, ui.paused ? 0 : dt);
   if (ui.flow) {
-    const fr = flow.update(A.flow(), ui.paused ? 0 : dt, { ...P, span: def.reference.span_m }, { light: ui.flow === 2, windGrid: A.windGrid });
+    acGroup.updateMatrixWorld(true);
+    const wk = A.wake();
+    wk.seg = wk.seg.slice();  // a copy: later calls may move the module's memory
+    const fl = A.flow();
+    const fdt = ui.paused ? 0 : dt;
+    const fr = flow.update(fl, fdt, { ...P, span: def.reference.span_m },
+      { light: ui.flow === 2, windGrid: A.windGrid, wake: wk, inv: invM.copy(acGroup.matrixWorld).invert(), lines: ui.flow !== 3 });
+    // Smoke runs on the simulation's clock (it may run behind the wall clock).
+    const sdt = Math.min(Math.max(s[42] - smokeT, 0), 0.25);
+    smokeT = s[42];
+    if (ui.flow === 3) smoke.update(fl, sdt, acGroup, wk, A.windBox, s, { camera, turbulence: +$('turb').value + [0, 0.8, 1.6, 3.2][+$('turbClass').value || 0] });
     $('flowStall').textContent = fr.stalled ? `${fr.stalled} strip${fr.stalled > 1 ? 's' : ''} stalled` : 'no stalled strips';
   }
   acGroup.updateMatrixWorld(true);
