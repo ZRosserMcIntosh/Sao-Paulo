@@ -89,6 +89,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #flowLegend b{color:var(--ink);font-weight:600}
 #flowLegend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
 #flowLegend .sw.hot{background:#ff8c26}#flowLegend .sw.air{background:#8c8c8c}#flowLegend .sw.stall{background:#ff19e6}
+#flowLegend .sw.tip{background:#f7f7fa}#flowLegend .sw.te{background:#b8e0ff}#flowLegend .sw.tuft{background:#f2f2e6}#flowLegend .sw.amber{background:#ffbf33}
+#flowLegend.smoke .lines,#flowLegend:not(.smoke) .smokeLg{display:none}
 @media (max-width:760px){#flowLegend{bottom:auto;top:calc(176px + env(safe-area-inset-top));right:8px;width:200px}}
 #instr{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:2;padding:6px;width:min(1000px,calc(100% - 24px));height:var(--instr-h,150px)}
 #instr[hidden]{display:none}
@@ -157,7 +159,7 @@ body.jet #hud .levers{display:none}
 <div class="top">
   <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span id="plateSub">Flight test bed</span></a>
   <div class="row">
-    <button id="bFlow" title="Airflow view (V): off, on, wind tunnel" aria-pressed="false">Airflow</button>
+    <button id="bFlow" title="Airflow view (V): off, streamlines, wind tunnel, smoke" aria-pressed="false">Airflow</button>
     <button id="bCam" title="Camera (C)">Camera</button>
     <button id="bInstr" title="Instruments (I)" aria-pressed="true">Instruments</button>
     <button id="bReset" title="Restart (R)">Restart</button>
@@ -244,7 +246,7 @@ body.jet #hud .levers{display:none}
     <span class="jetonly" hidden><kbd>G</kbd> · <kbd>/</kbd></span><span class="jetonly" hidden>Landing gear · speedbrake (RET, half, full)</span>
     <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level) · sync the heading to the compass</span>
     <span><kbd>;</kbd> <kbd>'</kbd> · <kbd>O</kbd></span><span>Heading bug left / right (Shift: 1°) · altimeter +0.01 inHg (Shift: −)</span>
-    <span><kbd>V</kbd></span><span>Airflow view: off, on, wind tunnel</span>
+    <span><kbd>V</kbd></span><span>Airflow view: off, streamlines, wind tunnel, smoke</span>
     <span><kbd>C</kbd> · <kbd>I</kbd> · <kbd>R</kbd></span><span>Camera · instruments · restart</span>
     <span><kbd>H</kbd> · <kbd>M</kbd> · <kbd>Space</kbd></span><span>Panel · sound · pause</span>
     <span>Mouse</span><span>Drag to look around (free camera), scroll to zoom</span>
@@ -272,8 +274,10 @@ body.jet #hud .levers{display:none}
 <div id="warn">STALL</div>
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>
-  <div class="lg"><span>Streamlines · local speed / free stream</span><i class="bar"></i><span class="ends"><b>0.85 slower</b><b>1.15 faster</b></span><span><i class="sw air"></i> grey: air the aircraft leaves alone</span></div>
+  <div class="lg lines"><span>Streamlines · local speed / free stream</span><i class="bar"></i><span class="ends"><b>0.85 slower</b><b>1.15 faster</b></span><span><i class="sw air"></i> grey: air the aircraft leaves alone</span></div>
   <div class="lg"><span>Wing strips α/α<sub>stall</sub></span><i class="bar half"></i><span class="ends"><b>0</b><b>stall</b></span></div>
+  <div class="lg smokeLg"><span>Smoke · <i class="sw tip"></i>wingtips <i class="sw te"></i>trailing edge <i class="sw air"></i>exhaust</span><span>It stays in the air: the wake rolls up, sinks and drifts with the wind.</span></div>
+  <div class="lg"><span>Tufts · <i class="sw tuft"></i>attached <i class="sw amber"></i>near the stall <i class="sw stall"></i>separated</span></div>
   <div class="lg"><span><i class="sw hot"></i> jet exhaust</span><span><i class="sw stall"></i> <b id="flowStall">no stalled strips</b></span></div>
 </div>
 <div id="instr" class="panel" aria-label="Instrument panel"><canvas id="panelCv"></canvas></div>
