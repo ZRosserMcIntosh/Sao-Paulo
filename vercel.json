@@ -22,6 +22,11 @@
       "permanent": true
     },
     {
+      "source": "/sao-paulo/golf",
+      "destination": "/sao-paulo/golf/",
+      "permanent": true
+    },
+    {
       "source": "/sao-paulo/physics",
       "destination": "/sao-paulo/physics/",
       "permanent": true
