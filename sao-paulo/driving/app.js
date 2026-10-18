@@ -671,13 +671,13 @@ function applyAids() {
   $('iEsc').classList.toggle('on', settings.esc > 0); $('iCs').classList.toggle('on', settings.preset < 2);
 }
 function customised() { const d = presetAids(settings.preset); return d.abs !== settings.abs || d.tcs !== settings.tcs || d.esc !== settings.esc || d.auto !== settings.auto || d.drift !== settings.drift; }
-function setPreset(p) { settings.preset = p; Object.assign(settings, presetAids(p)); store.set('preset', p); applyAids(); toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT: throw it sideways, keep the throttle in, steer where you want to go'][p]); }
+function setPreset(p) { settings.preset = p; Object.assign(settings, presetAids(p)); store.set('preset', p); applyAids(); toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT: throw it sideways, keep the throttle in, hold the turn to drift, let go to straighten'][p]); }
 document.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => setPreset(+b.dataset.preset)));
 $('aAbs').onclick = () => { settings.abs = !settings.abs; applyAids(); };
 $('aTcs').onclick = () => { settings.tcs = (settings.tcs + 1) % 3; applyAids(); };
 $('aEsc').onclick = () => { settings.esc = (settings.esc + 1) % 3; applyAids(); };
 $('aBox').onclick = () => { settings.auto = !settings.auto; applyAids(); };
-$('aDrift').onclick = () => { settings.drift = settings.drift > 0 ? 0 : 1; applyAids(); toast(settings.drift ? 'Drift assist on: in a slide, steering sets the drift angle' : 'Drift assist off'); };
+$('aDrift').onclick = () => { settings.drift = settings.drift > 0 ? 0 : 1; applyAids(); toast(settings.drift ? 'Drift assist on: in a slide, hold the turn to drift, let go to straighten' : 'Drift assist off'); };
 // Paddle shifts (+ / − keys, the on-screen − / + buttons): the first press switches the box to
 // manual, like pulling a paddle on a dual-clutch car. G (or the Auto gearbox button) goes back.
 function paddle(dir) {
