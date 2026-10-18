@@ -87,6 +87,12 @@
    "kind": "estimated",
    "source": "EST",
    "note": "Oleo stiffness and damping sized for static deflection ~0.14 m and ~0.4 critical damping at MTOW."
+  },
+  {
+   "field": "gear.nose.steering",
+   "kind": "estimated",
+   "source": "EST",
+   "note": "Hydraulic nose-wheel steering: tiller +-80 deg (typical of large business jets; G650 figure not public), rudder pedals +-10 deg. Actuator slew 20 deg/s, estimated."
   }
  ],
  "mass": {
@@ -649,6 +655,8 @@
    "rolling_resistance": 0.02,
    "brake_group": "none",
    "max_steer_deg": 10,
+   "tiller_steer_deg": 80,
+   "steer_rate_deg_per_s": 20,
    "cornering_stiffness_n_per_rad": 120000,
    "relaxation_length_m": 0.5,
    "longitudinal_stiffness_n_per_m": 500000
