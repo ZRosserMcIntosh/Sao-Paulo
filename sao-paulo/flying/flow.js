@@ -43,6 +43,7 @@ export function buildFlow({ mobile }) {
   const lp = new Float32Array(NL * NPT * 3);   // points (structural frame)
   const lc = new Float32Array(NL * NPT * 3);   // base colour at each point
   const ln = new Uint16Array(NL);              // points in each line
+  const lt = new Float32Array(NL * NPT);       // time of flight to each point (s)
   const lphase = new Float32Array(NL).map(() => Math.random());
   const segPos = new Float32Array(NL * (NPT - 1) * 6), segCol = new Float32Array(NL * (NPT - 1) * 8);
   const lineGeo = new THREE.BufferGeometry();
@@ -92,10 +93,14 @@ export function buildFlow({ mobile }) {
   }
   const wd = [0, 0, 0];
 
-  // Velocity of the air relative to the aircraft at (x, y, z), structural frame.
+  // Velocity of the air relative to the aircraft at (x, y, z), structural
+  // frame: the free stream at the CG, minus the aircraft's own rotation
+  // (omega x r about the CG), plus the induced and atmospheric fields.
   const out = [0, 0, 0];
+  const W = [0, 0, 0], CG = [0, 0, 0];
   function velocity(x, y, z) {
-    let vx = U[0], vy = U[1], vz = U[2];
+    const rx = x - CG[0], ry = y - CG[1], rz = z - CG[2];
+    let vx = U[0] - (W[1] * rz - W[2] * ry), vy = U[1] - (W[2] * rx - W[0] * rz), vz = U[2] - (W[0] * ry - W[1] * rx);
     if (windDelta(x, y, z)) { vx += wd[0]; vy += wd[1]; vz += wd[2]; }
     for (let k = 0; k < nSeg; ++k) {
       const k3 = k * 3;
@@ -195,7 +200,7 @@ export function buildFlow({ mobile }) {
     const fromTip = seedLine(i);
     const ds = (fromTip ? 1.3 : 2.1) * L / NPT;
     const ux = U[0] / Umag, uy = U[1] / Umag, uz = U[2] / Umag;
-    let x = seed[0], y = seed[1], z = seed[2], k = 0;
+    let x = seed[0], y = seed[1], z = seed[2], k = 0, tof = 0;
     const base = i * NPT * 3;
     for (; k < NPT; ++k) {
       const hot = velocity(x, y, z);
@@ -212,6 +217,8 @@ export function buildFlow({ mobile }) {
       const o = base + k * 3;
       lp[o] = x; lp[o + 1] = y; lp[o + 2] = z;
       lc[o] = r; lc[o + 1] = gg; lc[o + 2] = b;
+      lt[i * NPT + k] = tof;
+      tof += ds / sp;  // time the air takes over the next step
       // Midpoint step along the unit flow direction.
       const mx = x + vx / sp * ds * 0.5, my = y + vy / sp * ds * 0.5, mz = z + vz / sp * ds * 0.5;
       velocity(mx, my, mz);
@@ -283,6 +290,8 @@ export function buildFlow({ mobile }) {
     U[0] = -tas * ca * cb; U[1] = -tas * Math.sin(beta); U[2] = -tas * Math.sin(alpha) * cb;
     Umag = tas;
     const ux = U[0] / tas, uy = U[1] / tas, uz = U[2] / tas;
+    W[0] = f[10]; W[1] = f[11]; W[2] = f[12];
+    CG[0] = f[6]; CG[1] = f[7]; CG[2] = f[8];
     // Horseshoe vortices from the strips' lift.
     nSeg = 0;
     tip[1] = 0;
@@ -339,19 +348,20 @@ export function buildFlow({ mobile }) {
     traced += per;
     // Draw: segments between consecutive points; the ends fade in and out, and
     // a pulse travels along each line at the (slowed) speed of the flow.
-    flowT += dt * Math.min(1, (opts.speed || 1) * 0.55 * L / tas) * tas;  // metres of air travelled, slowed
-    const lambda = 0.45 * L, opacity = opts.light ? 0.85 : 0.7;
+    // Pulsed smoke: the pulses ride with the air (phase = time of flight), so
+    // they bunch up at the stagnation point and race over the upper surface.
+    // Slow motion: about half an aircraft length per second on screen.
+    flowT += dt * Math.min(1, (opts.speed || 1) * 0.55 * L / tas);
+    const period = 0.45 * L / tas, opacity = opts.light ? 0.85 : 0.7;
     let w = 0, cw = 0;
     for (let i = 0; i < NL; ++i) {
       const n = ln[i], base = i * NPT * 3;
-      const ds = 2.1 * L / NPT;
       for (let k = 0; k < NPT - 1; ++k) {
         if (k < n - 1) {
           const oa = base + k * 3, ob = oa + 3;
           for (const [o, kk] of [[oa, k], [ob, k + 1]]) {
             segPos[w++] = lp[o]; segPos[w++] = -lp[o + 1]; segPos[w++] = -lp[o + 2];
-            const s0 = kk * ds;
-            const pulse = 0.5 + 0.5 * Math.cos(2 * Math.PI * ((s0 - flowT) / lambda + lphase[i]));
+            const pulse = 0.5 + 0.5 * Math.cos(2 * Math.PI * ((lt[i * NPT + kk] - flowT) / period + lphase[i]));
             const dn = (lp[o] - centre[0]) * ux + lp[o + 1] * uy + (lp[o + 2] - centre[2]) * uz;
             const fade = Math.min(1, kk / 8, (n - 1 - kk) / 12, Math.max(0, (1.2 * L - dn) / (0.6 * L)));
             const bright = 0.78 + 0.32 * pulse * pulse;
