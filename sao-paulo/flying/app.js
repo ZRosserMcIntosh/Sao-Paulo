@@ -258,14 +258,17 @@ function groundPlane(h) {
   const n = [gUp.x, -gUp.y, -gUp.z];
   return [n[0], n[1], n[2], n[0] * gPt.x - n[1] * gPt.y - n[2] * gPt.z];
 }
-let smokeT = 0;
 const bodyPoint = (x, y, z) => acGroup.localToWorld(new THREE.Vector3(x, y, z));
 
 // ---------- State ----------
 const ui = {
   assist: store.get('assist', 0), cam: store.get('cam', 0), instr: store.get('instr', true),
-  start: 0, paused: false, crashed: false, sound: false, vol: store.get('vol', 80),
+  start: 0, paused: false, crashed: false, sound: false, vol: store.get('vol', 80), slow: 0,
 };
+// Slow motion: the whole simulation (flight, airflow, smoke, propeller) runs
+// this many times slower than real time, as in the golf ball's wind tunnel.
+const SLOWS = [1, 10, 100, 1000, 5000];
+let propPhase = 0, simClock = 0, stepPos = null, stepT = 0, stepVel = new THREE.Vector3();
 const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0 };
 let s = new Float64Array(64), c = new Float64Array(96), j = new Float64Array(64);
 let lastIas = 0, iasAcc = 0;  // speed trend (kt/s, filtered)
@@ -382,6 +385,7 @@ addEventListener('keydown', (e) => {
     case 'KeyG': toggleGear(); break;
     case 'Slash': cycleSpeedbrake(); e.preventDefault(); break;
     case 'KeyV': cycleFlow(); break;
+    case 'KeyT': setSlow(ui.slow + (e.shiftKey ? -1 : 1)); break;
     case 'KeyK': A.avd_ai_cage(); toast(P.jet ? 'Attitude reference re-aligned (do it wings level).' : 'Attitude indicator caged (do it wings level).', 2); break;
     case 'KeyF': A.avd_dg_sync(); toast(P.jet ? 'Heading re-synced to the magnetometer.' : 'Heading indicator set to the compass.', 2); break;
     case 'Semicolon': case 'Quote': {
@@ -560,6 +564,14 @@ $('bPanel').addEventListener('click', (e) => { togglePanel(); e.currentTarget.bl
 $('sideClose').addEventListener('click', () => togglePanel(false));
 if (MOBILE || innerWidth < 900) togglePanel(false);
 else document.body.classList.add('side-open');
+function setSlow(i) {
+  ui.slow = clamp(i, 0, SLOWS.length - 1);
+  const S = SLOWS[ui.slow];
+  const txt = S === 1 ? 'real time' : `1/${S}× · 1 s on screen = ${S >= 1000 ? `${(1000 / S).toFixed(1)} ms` : `${(1000 / S).toFixed(0)} ms`} of flight`;
+  $('slowR').value = ui.slow;
+  $('slowO').textContent = S === 1 ? 'real time' : `1/${S}×`;
+  toast(S === 1 ? 'Real time' : `Slow motion ${txt}`, 2);
+}
 function togglePause() { ui.paused = !ui.paused; toast(ui.paused ? 'Paused (Space to resume)' : 'Resumed', ui.paused ? 1e9 : 1.2); }
 
 // Mouse: drag to look around, wheel to zoom.
@@ -584,6 +596,40 @@ function sizePanel() {
   panelCv.width = Math.round(r.width * dpr); panelCv.height = Math.round(r.height * dpr);
   pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   panelLayout = 'row';
+}
+// The instrument panel's size: drag a grip at its corner (double-click resets).
+// Kept per aircraft in this browser; the flow legend sits above it.
+function applyInstrSize() {
+  const el = $('instr'), z = store.get('instrSize.' + P.id, null);
+  if (z && z.w > 0 && z.h > 0) {
+    el.style.width = `${Math.round(Math.min(z.w, innerWidth - 24))}px`;
+    document.body.style.setProperty('--instr-h', `${Math.round(Math.min(z.h, innerHeight * 0.85))}px`);
+  } else { el.style.width = ''; document.body.style.removeProperty('--instr-h'); }
+  sizePanel();
+}
+for (const g of document.querySelectorAll('#instr .grip')) {
+  let start = null;
+  g.addEventListener('pointerdown', (e) => {
+    const r = $('instr').getBoundingClientRect();
+    start = { x: e.clientX, y: e.clientY, w: r.width, h: r.height, side: g.classList.contains('l') ? -1 : 1, up: getComputedStyle(g).top.startsWith('-') ? 1 : -1 };
+    g.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation();
+  });
+  g.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    const w = clamp(start.w + 2 * start.side * (e.clientX - start.x), 300, innerWidth - 24);
+    const h = clamp(start.h + start.up * (start.y - e.clientY), 70, innerHeight * 0.85);
+    $('instr').style.width = `${Math.round(w)}px`;
+    document.body.style.setProperty('--instr-h', `${Math.round(h)}px`);
+    sizePanel();
+  });
+  const end = () => {
+    if (!start) return;
+    start = null;
+    const r = $('instr').getBoundingClientRect();
+    store.set('instrSize.' + P.id, { w: Math.round(r.width), h: Math.round(r.height) });
+  };
+  g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
+  g.addEventListener('dblclick', () => { store.set('instrSize.' + P.id, null); applyInstrSize(); toast('Instrument panel: default size', 1.5); });
 }
 function resize() {
   const w = innerWidth, h = innerHeight;
@@ -787,6 +833,7 @@ function cycleFlow() {
   if (ui.flow === 3) toast('Smoke: from the wingtips, the trailing edge and the engines. It stays in the air, winds into the tip vortices, sinks with them and drifts with the wind. Orbit camera (C).', 6);
 }
 $('bFlow').addEventListener('click', (e) => { cycleFlow(); e.currentTarget.blur(); });
+$('slowR').addEventListener('input', (e) => { setSlow(+e.target.value); e.target.blur(); });
 
 // ---------- Aircraft selection ----------
 let loadSheet = null;
@@ -799,7 +846,7 @@ function applyProfileUi() {
   document.querySelectorAll('.jetonly').forEach((el) => { el.hidden = !P.jet; });
   document.querySelectorAll('.pistononly').forEach((el) => { el.hidden = P.jet; });
   document.body.classList.toggle('jet', P.jet);
-  sizePanel();  // the jet's strip is taller
+  applyInstrSize();  // the jet's strip is taller; each aircraft keeps its own size
   $('plateSub').textContent = `Flight test bed · ${P.name}`;
   loadSheet = mountLoadSheet($('loadPanel'), { A, id: P.id, jet: P.jet, store, onApply: () => { restart(ui.start); toast('Restarted with the planned load.', 2); } });
   document.title = `Flight Test Bed · ${P.name}`;
@@ -854,7 +901,9 @@ function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.1);
   if (!document.hidden) adaptRes(dt);
-  if (!ui.paused && !ui.crashed) {
+  const S = SLOWS[ui.slow], running = !ui.paused && !ui.crashed;
+  const simDt = running ? dt / S : 0;
+  if (running) {
     readInputs(dt);
     // Parking brake: Easy releases it for you when you open the throttle.
     if (s[49] && s[28] && input.throttle > 0.35) {
@@ -862,9 +911,13 @@ function frame() {
       else if (!parkHint) { parkHint = true; toast('The parking brake is set: P releases it.'); }
     }
     A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, 0);
-    A.avd_advance(dt);
+    A.avd_advance(simDt);
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
+  // The propeller's blade angle (about the thrust axis, right-handed; the
+  // flow view's blades and tip vortices use the same angle).
+  const spin = P.jet ? 0 : (def.engines?.[0]?.clockwise_from_behind === false ? -1 : 1);
+  propPhase = (propPhase + spin * s[19] * Math.PI / 30 * simDt) % (2 * Math.PI);
   if (!ui.paused && dt > 0) {
     const a = clamp((c[K.ias] - lastIas) / dt, -15, 15);
     iasAcc += (a - iasAcc) * (1 - Math.exp(-dt / 1.2));
@@ -873,9 +926,21 @@ function frame() {
   handleEvents();
   // Airplane pose: datum position and body FLU → ENU attitude.
   acGroup.position.copy(enu(s[0], s[1], s[2]));
+  // In slow motion the 240 Hz physics steps come seconds apart on screen:
+  // carry the aircraft along its velocity between them.
+  simClock += simDt;
+  if (s[42] !== stepT) {
+    const p = enu(s[0], s[1], s[2]);
+    if (stepPos && s[42] > stepT && s[42] - stepT < 0.05) stepVel.copy(p).sub(stepPos).divideScalar(s[42] - stepT);
+    else stepVel.set(0, 0, 0);
+    stepPos = p; stepT = s[42];
+  }
+  const lag = simClock - s[42];
+  if (lag < 0 || lag > 0.02) simClock = s[42];
+  else if (S > 1) acGroup.position.addScaledVector(stepVel, lag);
   acGroup.quaternion.copy(qM).multiply(qBody.set(s[4], s[5], s[6], s[3]));
-  if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]) }, ui.paused ? 0 : dt);
-  else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1 }, ui.paused ? 0 : dt);
+  if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]) }, simDt);
+  else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1, phase: propPhase, slow: S }, simDt);
   if (ui.flow) {
     acGroup.updateMatrixWorld(true);
     const wk = A.wake();
@@ -885,11 +950,12 @@ function frame() {
     const fl = A.flow();
     const fdt = ui.paused ? 0 : dt;
     const fr = flow.update(fl, fdt, { ...P, span: def.reference.span_m },
-      { light: ui.flow === 2, windGrid: A.windGrid, wake: wk, bodies: bd, inv: invM.copy(acGroup.matrixWorld).invert(), lines: ui.flow !== 3, ground: groundPlane(wk.ground) });
+      { light: ui.flow === 2, windGrid: A.windGrid, wake: wk, bodies: bd, inv: invM.copy(acGroup.matrixWorld).invert(), lines: ui.flow !== 3, ground: groundPlane(wk.ground),
+        slow: S, prop: { phase: propPhase, resolved: !P.jet && s[19] * Math.PI / 30 / S < 0.6 } });
     // Smoke runs on the simulation's clock (it may run behind the wall clock).
-    const sdt = Math.min(Math.max(s[42] - smokeT, 0), 0.25);
-    smokeT = s[42];
-    if (ui.flow === 3) smoke.update(fl, sdt, acGroup, wk, A.windBox, s, { camera, bodies: bd, turbulence: +$('turb').value + [0, 0.8, 1.6, 3.2][+$('turbClass').value || 0] });
+    const sdt = simDt;
+    if (ui.flow === 3) smoke.update(fl, sdt, acGroup, wk, A.windBox, s, { camera, bodies: bd, slow: S, length: P.fuse.xNose - P.fuse.xTail,
+      prop: P.jet ? null : { phase: propPhase, blades: def.engines[0].propeller.blades || 2, radius: def.engines[0].propeller.diameter_m / 2, resolved: s[19] * Math.PI / 30 * simDt < 0.6 }, turbulence: +$('turb').value + [0, 0.8, 1.6, 3.2][+$('turbClass').value || 0] });
     $('flowStall').textContent = fr.stalled ? `${fr.stalled} strip${fr.stalled > 1 ? 's' : ''} stalled` : 'no stalled strips';
   }
   acGroup.updateMatrixWorld(true);
@@ -913,8 +979,8 @@ function frame() {
     if (P.jet) drawJetStrip(pctx, r.width, r.height, jetData());
     else drawPanel(pctx, r.width, r.height, c, M, panelLayout);
   }
-  if (P.jet) audio.update(ui.paused ? [0, 0] : [j[8], j[16]], ui.paused ? [0, 0] : [j[9], j[17]], (j[12] + j[20]) / 150, j[26], c[K.stall] > 0.5, ui.cam === 1);
-  else audio.update(ui.paused ? 0 : s[19], s[20], s[11], c[K.stall] > 0.5, ui.cam === 1);
+  if (P.jet) audio.update(ui.paused || S > 1 ? [0, 0] : [j[8], j[16]], ui.paused || S > 1 ? [0, 0] : [j[9], j[17]], (j[12] + j[20]) / 150, j[26], c[K.stall] > 0.5, ui.cam === 1);
+  else audio.update(ui.paused || S > 1 ? 0 : s[19], s[20], s[11], c[K.stall] > 0.5, ui.cam === 1);
   if (toastT > 0 && (toastT -= dt) <= 0) toastEl.classList.remove('on');
 }
 requestAnimationFrame(frame);

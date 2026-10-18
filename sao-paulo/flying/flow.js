@@ -8,7 +8,10 @@
 // field below is the one implied by the lift the simulation is producing, and
 // by its history: downwash behind the wing, upwash ahead of it, the tip
 // vortices, and the starting vortex left behind when the lift changes. (Without
-// the wake, each strip falls back to a steady horseshoe vortex.) The
+// the wake, each strip falls back to a steady horseshoe vortex.) In slow
+// motion the propeller is resolved: each blade's bound vortex and its tip
+// vortex trailing as a helix in the slipstream (drawn as vortex cores), with
+// the circulation that carries the core's slipstream increment. The
 // fuselage is a Rankine body (a source at the nose, a sink at the tail); the
 // extended gear legs and deployed spoiler panels (avd_bodies) are bluff
 // bodies, each leaving a wake whose momentum deficit carries exactly its drag
@@ -32,7 +35,7 @@
 // Structural frame (x forward, y right, z down) inside; rendered in body FLU.
 import * as THREE from 'three';
 
-const STRIDE = 18;
+const STRIDE = 20, ESTRIDE = 14;
 
 // Turbo colormap (Google, polynomial approximation), t in [0, 1].
 function turbo(t, out) {
@@ -68,7 +71,7 @@ export function buildFlow({ mobile }) {
 
   // Strip heat map (rebuilt when the aircraft changes).
   let stripMesh = null, stripCount = -1, stripKey = '';
-  const stripMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
+  const stripMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
   // Tufts: two a strip (35 % and 75 % chord) on the lifting side, drawn as
   // short lines in the body frame.
   const MAXT = 64 * 2;
@@ -80,10 +83,25 @@ export function buildFlow({ mobile }) {
   tufts.frustumCulled = false;
   tufts.renderOrder = 3;
   group.add(tufts);
+  // Vortex cores of the resolved propeller (slow motion): the blades' bound
+  // vortices and the tip helices, drawn where the computation puts them.
+  const MAXC = 700;
+  const corePos = new Float32Array(MAXC * 6), coreCol = new Float32Array(MAXC * 6);
+  const coreGeo = new THREE.BufferGeometry();
+  coreGeo.setAttribute('position', new THREE.BufferAttribute(corePos, 3).setUsage(THREE.DynamicDrawUsage));
+  coreGeo.setAttribute('color', new THREE.BufferAttribute(coreCol, 3).setUsage(THREE.DynamicDrawUsage));
+  const cores = new THREE.LineSegments(coreGeo, new THREE.LineBasicMaterial({ vertexColors: true }));
+  cores.frustumCulled = false;
+  cores.renderOrder = 4;
+  group.add(cores);
 
   // Vortex segments for this frame.
-  const MAXS = 900;
+  const MAXS = 1600, MAXWAKE = 1000;  // the core's wake first, then the propeller's helices
   const sA = new Float64Array(MAXS * 3), sB = new Float64Array(MAXS * 3), sG = new Float64Array(MAXS), sR = new Float64Array(MAXS);
+  // Segments past nNear (the propeller's) only count within sCut of their
+  // midpoint sM: a helix's distant turns add next to nothing.
+  const sM = new Float64Array(MAXS * 3), sCut = new Float64Array(MAXS);
+  let nNear = 0;
   let nSeg = 0;
   const U = [0, 0, 0];
   let Umag = 0;
@@ -133,6 +151,10 @@ export function buildFlow({ mobile }) {
     still[0] = vx; still[1] = vy; still[2] = vz;
     for (let k = 0; k < nSeg; ++k) {
       const k3 = k * 3;
+      if (k >= nNear) {
+        const mx = x - sM[k3], my = y - sM[k3 + 1], mz = z - sM[k3 + 2];
+        if (mx * mx + my * my + mz * mz > sCut[k]) continue;
+      }
       const r1x = x - sA[k3], r1y = y - sA[k3 + 1], r1z = z - sA[k3 + 2];
       const r2x = x - sB[k3], r2y = y - sB[k3 + 1], r2z = z - sB[k3 + 2];
       const r0x = sB[k3] - sA[k3], r0y = sB[k3 + 1] - sA[k3 + 1], r0z = sB[k3 + 2] - sA[k3 + 2];
@@ -193,11 +215,13 @@ export function buildFlow({ mobile }) {
       if (rr > R * 1.3) continue;
       const decay = e.jet ? (e.r / R) ** 2 : Math.exp(-along / (40 * e.r));
       const prof = Math.max(0, 1 - (rr / (R * 1.3)) ** 4);
+      if (e.resolved) continue;  // the blades and their vortices (segments) make this slipstream
       const dv = e.inc * decay * prof;
       vx -= dv * e.ax; vy -= dv * e.ay; vz -= dv * e.az;
       if (!e.jet && rr > 1e-3) {
-        // Slipstream swirl (sense from the rotation, which the core's slipstream carries).
-        const sw = 0.25 * dv * (rr / R);
+        // Slipstream swirl, turning with the propeller (the core's swirl at
+        // 0.7 R, solid-body inside that radius, falling off outside it).
+        const r7 = 0.7 * R, sw = Math.sign(e.omega) * e.swirl * 2 * decay * prof * (rr < r7 ? rr / r7 : r7 / rr);
         const tx = (e.ay * rz - e.az * ry) / rr, ty = (e.az * rx - e.ax * rz) / rr, tz = (e.ax * ry - e.ay * rx) / rr;
         vx += sw * tx; vy += sw * ty; vz += sw * tz;
       }
@@ -205,6 +229,85 @@ export function buildFlow({ mobile }) {
     }
     out[0] = vx; out[1] = vy; out[2] = vz;
     return hot;
+  }
+
+  // The propeller resolved (slow motion): each blade a lifting line whose
+  // bound vortex runs from the hub to the tip, its tip vortex trailing as a
+  // helix that convects aft with the slipstream (half the far-wake increment
+  // at the disc, all of it downstream) while the blade turns, and its root
+  // vortex joining the others on the axis (the hub vortex that sets the
+  // slipstream turning). Each tip vortex carries G = 2 pi Vs dv / (B Omega),
+  // the circulation whose vortex cylinder adds the core's slipstream
+  // increment dv to the flow (momentum theory). The sense is the one that
+  // accelerates the slipstream aft. phase: the blade angle (rad, about the
+  // thrust axis, blade 0 at the top at 0).
+  const hx = [0, 0, 0];
+  function addPropeller(e, phase) {
+    const R = e.r, B = e.blades, om = e.omega;
+    // Disc axes: e1 up (structural -z, square to the axis), e2 = axis x e1.
+    let e1x = -e.ax * -e.az, e1y = -e.ay * -e.az, e1z = -1 - e.az * -e.az;
+    const n1 = Math.hypot(e1x, e1y, e1z) || 1; e1x /= n1; e1y /= n1; e1z /= n1;
+    const e2x = e.ay * e1z - e.az * e1y, e2y = e.az * e1x - e.ax * e1z, e2z = e.ax * e1y - e.ay * e1x;
+    // The slipstream's path: the free stream plus the increment along -axis.
+    const Vs = Umag + e.inc;
+    let px = U[0] - e.inc * e.ax, py = U[1] - e.inc * e.ay, pz = U[2] - e.inc * e.az;
+    const pn = Math.hypot(px, py, pz) || 1; px /= pn; py /= pn; pz /= pn;
+    const G0 = 2 * Math.PI * Vs * e.inc / (B * Math.abs(om));
+    const rc = Math.max(0.06 * R, 0.03), rc2 = rc * rc;
+    const reach = 1.9 * L, perTurn = 14, cut = (5 * R) ** 2;
+    const first = nSeg;
+    const put = (ax, ay, az, bx, by, bz, g, r2) => {
+      if (nSeg >= MAXS) return;
+      const k = nSeg * 3;
+      sA[k] = ax; sA[k + 1] = ay; sA[k + 2] = az; sB[k] = bx; sB[k + 1] = by; sB[k + 2] = bz; sG[nSeg] = g; sR[nSeg] = r2;
+      sM[k] = 0.5 * (ax + bx); sM[k + 1] = 0.5 * (ay + by); sM[k + 2] = 0.5 * (az + bz);
+      // Long segments (the root vortex) always count.
+      sCut[nSeg] = (bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2 > 4 * R * R ? Infinity : cut;
+      ++nSeg;
+    };
+    for (let b = 0; b < B; ++b) {
+      const th0 = phase + 2 * Math.PI * b / B;
+      const ct = Math.cos(th0), st = Math.sin(th0);
+      const rx = ct * e1x + st * e2x, ry = ct * e1y + st * e2y, rz = ct * e1z + st * e2z;
+      const rh = Math.max(e.hub, 0.1) * R;
+      // Root vortex: from far down the axis to the blade root.
+      put(e.x + px * reach, e.y + py * reach, e.z + pz * reach, e.x + rx * rh, e.y + ry * rh, e.z + rz * rh, G0, (0.2 * R) ** 2);
+      // Bound vortex along the blade.
+      put(e.x + rx * rh, e.y + ry * rh, e.z + rz * rh, e.x + rx * R, e.y + ry * R, e.z + rz * R, G0, rc2);
+      // Tip vortex: the helix the tip has drawn in the air.
+      let sDist = 0, tau = 0;
+      hx[0] = e.x + rx * R; hx[1] = e.y + ry * R; hx[2] = e.z + rz * R;
+      const dth = 2 * Math.PI / perTurn;
+      while (sDist < reach && nSeg < MAXS) {
+        const vc = Umag + e.inc * (0.5 + 0.5 * sDist / (sDist + R));
+        const dtau = dth / Math.abs(om);
+        sDist += vc * dtau; tau += dtau;
+        const th = th0 - om * tau, Rc = R * (0.82 + 0.18 * Math.exp(-sDist / R));
+        const c = Math.cos(th), sn = Math.sin(th);
+        const nx = e.x + px * sDist + Rc * (c * e1x + sn * e2x), ny = e.y + py * sDist + Rc * (c * e1y + sn * e2y), nz = e.z + pz * sDist + Rc * (c * e1z + sn * e2z);
+        put(hx[0], hx[1], hx[2], nx, ny, nz, G0 * Math.exp(-sDist / (40 * R)), rc2 * (1 + sDist / (4 * R)));
+        hx[0] = nx; hx[1] = ny; hx[2] = nz;
+      }
+    }
+    // The sense that pushes the slipstream aft (along -axis) two radii behind the disc.
+    const qx = e.x + px * 2 * R, qy = e.y + py * 2 * R, qz = e.z + pz * 2 * R;
+    const nSave = nSeg;
+    let ux = 0, uy = 0, uz = 0;
+    for (let k = first; k < nSave; ++k) {
+      const k3 = k * 3;
+      const r1x = qx - sA[k3], r1y = qy - sA[k3 + 1], r1z = qz - sA[k3 + 2];
+      const r2x = qx - sB[k3], r2y = qy - sB[k3 + 1], r2z = qz - sB[k3 + 2];
+      const r0x = sB[k3] - sA[k3], r0y = sB[k3 + 1] - sA[k3 + 1], r0z = sB[k3 + 2] - sA[k3 + 2];
+      const cx = r1y * r2z - r1z * r2y, cy = r1z * r2x - r1x * r2z, cz = r1x * r2y - r1y * r2x;
+      const r1n = Math.hypot(r1x, r1y, r1z), r2n = Math.hypot(r2x, r2y, r2z);
+      const den = cx * cx + cy * cy + cz * cz + sR[k] * (r0x * r0x + r0y * r0y + r0z * r0z);
+      if (r1n < 1e-6 || r2n < 1e-6) continue;
+      const f = sG[k] / (4 * Math.PI) * ((r0x * r1x + r0y * r1y + r0z * r1z) / r1n - (r0x * r2x + r0y * r2y + r0z * r2z) / r2n) / den;
+      ux += f * cx; uy += f * cy; uz += f * cz;
+    }
+    if (ux * e.ax + uy * e.ay + uz * e.az > 0) for (let k = first; k < nSave; ++k) sG[k] = -sG[k];
+    e.resolved = true;
+    e.tipGamma = Math.abs(G0);
   }
 
   let L = 8, span = 11, centre = [0, 0, 0];
@@ -234,7 +337,8 @@ export function buildFlow({ mobile }) {
       seed[0] = tip[0]; seed[1] = side * tip[1] + Math.cos(a) * r; seed[2] = tip[2] + Math.sin(a) * r;
       return true;
     }
-    if (f < 0.6 && nEng) {
+    // Resolved propeller: the context rake goes through the disc too.
+    if ((f < 0.6 || (f >= 0.76 && engines.some((e) => e.resolved))) && nEng) {
       // Into the engines: a ring inside each disc or inlet.
       const e = engines[i % nEng], a = j * 2 * Math.PI, r = e.r * (0.15 + 0.75 * Math.sqrt(m));
       // Two axes across the disc.
@@ -246,7 +350,7 @@ export function buildFlow({ mobile }) {
     }
     if (f < 0.7 && nBody) {
       // Onto the bodies: across each leg or panel, just upstream.
-      const b = i % nBody, b3 = b * 3, t = (j * 2 - 1) * (bH[b] + 0.5 * bD[b]), l = (m * 2 - 1) * 1.6 * bD[b], back = 1.5 * bD[b];
+      const b = i % nBody, b3 = b * 3, t = (j * 2 - 1) * (bH[b] + 0.5 * bD[b]), l = (m * 2 - 1) * 0.9 * bD[b], back = 1.5 * bD[b];
       for (let c = 0; c < 3; ++c) seed[c] = bP[b3 + c] + bA[b3 + c] * t + bN[b3 + c] * l - U[c] / Umag * back;
       return false;
     }
@@ -310,10 +414,13 @@ export function buildFlow({ mobile }) {
       // Chord axis = cross(span, normal) up to sign: forward is +x.
       let C = [S[1] * N[2] - S[2] * N[1], S[2] * N[0] - S[0] * N[2], S[0] * N[1] - S[1] * N[0]];
       if (C[0] < 0) C = C.map((v) => -v);
-      const t = 0.075 * c + 0.015;  // just outside the section's thickness
+      // Clear of the section (12 % thick, plus its incidence and camber) by a
+      // few centimetres everywhere: the logarithmic depth buffer ignores
+      // polygon offsets, so a closer overlay loses to the wing at some angles.
+      const t = 0.1 * c + 0.03;
       let k = 0;
       for (const side of [1, -1]) {
-        const corner = (s, ch) => [0, 1, 2].map((j) => P[j] + S[j] * s * b * 0.5 + C[j] * ch * c + N[j] * side * t * (1 - Math.abs(ch + 0.25) * 0.8));
+        const corner = (s, ch) => [0, 1, 2].map((j) => P[j] + S[j] * s * b * 0.5 + C[j] * ch * c + N[j] * side * t * (1 - Math.abs(ch + 0.25) * 0.6));
         const q = [corner(-1, 0.22), corner(1, 0.22), corner(1, -0.72), corner(-1, -0.72)];
         for (const v of [q[0], q[1], q[2], q[0], q[2], q[3]]) { pos[(i * V + k) * 3] = v[0]; pos[(i * V + k) * 3 + 1] = -v[1]; pos[(i * V + k) * 3 + 2] = -v[2]; ++k; }
       }
@@ -330,7 +437,9 @@ export function buildFlow({ mobile }) {
   let clockT = 0, flowT = 0, grey = 0.55;
   // f: avd_flow(); prof: { fuse: {xNose, xTail, R, z} } in the structural frame; dt: frame seconds.
   function update(f, dt, prof, opts = {}) {
-    clockT += dt;
+    // dt: screen seconds; opts.slow: slow-motion factor (1 real time).
+    const slow = Math.max(1, opts.slow || 1);
+    clockT += dt / slow;
     const n = f[0] | 0;
     const tas = f[2], alpha = f[3], beta = f[4], rho = Math.max(f[5], 0.05);
     const key = `${prof.id}:${n}`;
@@ -342,8 +451,10 @@ export function buildFlow({ mobile }) {
     let stalled = 0;
     for (let i = 0; i < n; ++i) {
       const o = 16 + i * STRIDE;
-      const a = f[o + 12], sa = f[o + 14], q = f[o + 13];
-      const r = a / Math.max(sa, 0.02);
+      // How far into its lift range the strip is: (alpha - alpha0) / (stall - alpha0),
+      // both angles with the flaps' effect: 0 no lift, 1 the stall.
+      const a = f[o + 12], sa = f[o + 14], q = f[o + 13], a0 = f[o + 18];
+      const r = (a - a0) / Math.max(sa - a0, 0.02);
       if (q <= 1) { col[0] = 0.13; col[1] = 0.15; col[2] = 0.18; }  // no airflow over it: unlit
       else if (r > 1) { ++stalled; const pulse = 0.5 + 0.5 * Math.sin(clockT * 12); col[0] = 1; col[1] = 0.1 * pulse; col[2] = 0.9 * pulse + 0.1; }
       else turbo(0.5 + 0.5 * r, col);
@@ -392,7 +503,7 @@ export function buildFlow({ mobile }) {
       // three (e, u, -n), the aircraft's inverse world matrix to body FLU,
       // then (x, -y, -z). The segments that matter for lines this close.
       const sg = wk.seg, inv = opts.inv, tiny = 0.02 * wk.gmax, lim2 = (3 * Math.max(span, L)) ** 2;
-      for (let k = 0; k < wk.n && nSeg < MAXS; ++k) {
+      for (let k = 0; k < wk.n && nSeg < MAXWAKE; ++k) {
         const o = k * 9, g = sg[o + 6];
         if (Math.abs(g) < tiny) continue;
         va.set(sg[o], sg[o + 2], -sg[o + 1]).applyMatrix4(inv);
@@ -406,7 +517,7 @@ export function buildFlow({ mobile }) {
     } else {
       // Steady horseshoes from the strips' lift.
       const far = 4 * L;
-      for (let i = 0; i < n && nSeg < MAXS - 3; ++i) {
+      for (let i = 0; i < n && nSeg < MAXWAKE - 3; ++i) {
         const o = 16 + i * STRIDE;
         const q = f[o + 13], cl = f[o + 11], c = f[o + 9], b = f[o + 10] / Math.max(c, 1e-3);
         if (q < 1 || Math.abs(cl) < 1e-4) continue;
@@ -424,6 +535,7 @@ export function buildFlow({ mobile }) {
         seg(P2[0], P2[1], P2[2], P2[0] + ux * far, P2[1] + uy * far, P2[2] + uz * far, G, rc2);
       }
     }
+    nNear = nSeg;
     if (wn > 0) { wing[0] = wx / wn; wing[1] = wz / wn; }
     gnd = opts.ground || null;
     // The atmosphere around the aircraft, refreshed about ten times a second.
@@ -444,9 +556,12 @@ export function buildFlow({ mobile }) {
     engines = [];
     const e0 = 16 + 64 * STRIDE;
     for (let k = 0; k < (f[1] | 0); ++k) {
-      const o = e0 + k * 10;
+      const o = e0 + k * ESTRIDE;
       if (f[o + 7] <= 0.1) continue;
-      engines.push({ x: f[o], y: f[o + 1], z: f[o + 2], ax: f[o + 3], ay: f[o + 4], az: f[o + 5], r: f[o + 6], inc: f[o + 7], jet: f[o + 9] > 0.5 });
+      const e = { x: f[o], y: f[o + 1], z: f[o + 2], ax: f[o + 3], ay: f[o + 4], az: f[o + 5], r: f[o + 6], inc: f[o + 7], jet: f[o + 9] > 0.5,
+        omega: f[o + 10], blades: f[o + 11] | 0, swirl: f[o + 12], hub: f[o + 13], resolved: false };
+      engines.push(e);
+      if (!e.jet && opts.prop && opts.prop.resolved && e.blades > 0 && Math.abs(e.omega) > 1) addPropeller(e, opts.prop.phase);
     }
     // Bluff bodies (structural frame): the axis made square to the flow, the
     // lateral direction across both.
@@ -469,6 +584,20 @@ export function buildFlow({ mobile }) {
         ++nBody;
       }
     }
+    // Draw the propeller's vortex cores (segments after the wake's).
+    let nc = 0;
+    for (let k = nNear; k < nSeg && nc < MAXC; ++k, ++nc) {
+      const k3 = k * 3, w6 = nc * 6;
+      corePos[w6] = sA[k3]; corePos[w6 + 1] = -sA[k3 + 1]; corePos[w6 + 2] = -sA[k3 + 2];
+      corePos[w6 + 3] = sB[k3]; corePos[w6 + 4] = -sB[k3 + 1]; corePos[w6 + 5] = -sB[k3 + 2];
+      // Long root segments: the hub vortex, dimmer.
+      const root = sCut[k] === Infinity, g = Math.min(1, Math.abs(sG[k]) / (engines[0]?.tipGamma || 1));
+      const cr = opts.light ? [0.75 * g, 0.12, 0.1] : root ? [0.5, 0.45, 0.35] : [1, 0.62 + 0.3 * (1 - g), 0.2 + 0.6 * (1 - g)];
+      coreCol.set(cr, w6); coreCol.set(cr, w6 + 3);
+    }
+    coreGeo.setDrawRange(0, nc * 2);
+    coreGeo.attributes.position.needsUpdate = true; coreGeo.attributes.color.needsUpdate = true;
+    cores.visible = nc > 0 && opts.cores !== false;
     updateTufts(f, n, opts.light);
     if (!lines.visible) return { stalled };
     // Re-trace a share of the lines each frame (a third at a time right after
@@ -478,12 +607,17 @@ export function buildFlow({ mobile }) {
     for (let c = 0; c < per; ++c) { traceLine(refresh); refresh = (refresh + 1) % NL; }
     traced += per;
     // Draw: segments between consecutive points; the ends fade in and out, and
-    // a pulse travels along each line at the (slowed) speed of the flow.
-    // Pulsed smoke: the pulses ride with the air (phase = time of flight), so
-    // they bunch up at the stagnation point and race over the upper surface.
-    // Slow motion: about half an aircraft length per second on screen.
-    flowT += dt * Math.min(1, (opts.speed || 1) * 0.55 * L / tas);
-    const period = 0.45 * L / tas, opacity = opts.light ? 0.85 : 0.7;
+    // comets of smoke travel along each line at the speed of the air there
+    // (phase = time of flight), so they bunch up at the stagnation point and
+    // race over the upper surface. flowT is flow time in simulated seconds:
+    // in real time the comets are shown at about half an aircraft length per
+    // second (the air itself would cross the screen in a blink); in slow
+    // motion they move at the true slowed speed. Comets are spaced so each
+    // line carries a few, at least six points apart.
+    const rate = Math.min(1 / slow, 0.55 * L / tas);  // simulated s per screen s
+    flowT += dt * rate;
+    const spacing = Math.max(6 * 2.1 * L / NPT, Math.min(0.45 * L, 1.3 * tas * rate));
+    const period = spacing / tas, opacity = opts.light ? 0.9 : 0.8;
     let w = 0, cw = 0;
     for (let i = 0; i < NL; ++i) {
       const n = ln[i], base = i * NPT * 3;
@@ -492,12 +626,14 @@ export function buildFlow({ mobile }) {
           const oa = base + k * 3, ob = oa + 3;
           for (const [o, kk] of [[oa, k], [ob, k + 1]]) {
             segPos[w++] = lp[o]; segPos[w++] = -lp[o + 1]; segPos[w++] = -lp[o + 2];
-            const pulse = 0.5 + 0.5 * Math.cos(2 * Math.PI * ((lt[i * NPT + kk] - flowT) / period + lphase[i]));
+            // Comet: bright head, tail fading upstream.
+            const ph = (lt[i * NPT + kk] - flowT) / period + lphase[i];
+            const comet = (ph - Math.floor(ph)) ** 5;
             const dn = (lp[o] - centre[0]) * ux + lp[o + 1] * uy + (lp[o + 2] - centre[2]) * uz;
             const fade = Math.min(1, kk / 8, (n - 1 - kk) / 12, Math.max(0, (1.2 * L - dn) / (0.6 * L)));
-            const bright = 0.78 + 0.32 * pulse * pulse;
+            const bright = 0.6 + 0.6 * comet;
             segCol[cw++] = Math.min(1, lc[o] * bright); segCol[cw++] = Math.min(1, lc[o + 1] * bright); segCol[cw++] = Math.min(1, lc[o + 2] * bright);
-            segCol[cw++] = opacity * fade;
+            segCol[cw++] = opacity * fade * (0.3 + 0.7 * comet);
           }
         } else {
           for (let q = 0; q < 6; ++q) segPos[w++] = 0;
@@ -521,10 +657,10 @@ export function buildFlow({ mobile }) {
       const c = f[o + 9], q = f[o + 13];
       let Cx = Sy * Nz - Sz * Ny, Cy = Sz * Nx - Sx * Nz, Cz = Sx * Ny - Sy * Nx;
       if (Cx < 0) { Cx = -Cx; Cy = -Cy; Cz = -Cz; }
-      const r = f[o + 12] / Math.max(f[o + 14], 0.02), att = f[o + 16];
+      const r = (f[o + 12] - f[o + 18]) / Math.max(f[o + 14] - f[o + 18], 0.02), att = f[o + 16];
       for (const at of [0.1, 0.5]) {  // aft of the quarter chord: 35 % and 75 % chord
         const k = 2 * i + (at > 0.3 ? 1 : 0);
-        const h = 0.05 * c + 0.02;
+        const h = 0.1 * c + 0.035;  // on the overlay
         const x = f[o] - Cx * at * c + Nx * h, y = f[o + 1] - Cy * at * c + Ny * h, z = f[o + 2] - Cz * at * c + Nz * h;
         velocity(x, y, z);
         let dx = out[0], dy = out[1], dz = out[2];

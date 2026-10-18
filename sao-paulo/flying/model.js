@@ -220,12 +220,14 @@ export function buildAircraft(def) {
     }
     if (controls.rudder) controls.rudder.pivot.quaternion.setFromAxisAngle(controls.rudder.axis, -st.rudder * (controls.rudder.def?.max_positive_deg || 17.7) * DEG);
     const omega = st.rpm / 60 * 2 * Math.PI;
-    propAngle = (propAngle + omega * dt) % (2 * Math.PI);
-    // Above ~600 rpm the eye sees a disc, not blades (frame-rate aliasing).
-    const fast = st.rpm > 600;
-    blades.visible = !fast || st.rpm < 900;
+    propAngle = st.phase ?? (propAngle + omega * dt) % (2 * Math.PI);
+    // Above ~600 rpm on screen the eye sees a disc, not blades (frame-rate
+    // aliasing); in slow motion (st.slow) the blades turn at the slowed rate.
+    const seen = st.rpm / (st.slow || 1);
+    const fast = seen > 600;
+    blades.visible = !fast || seen < 900;
     blades.quaternion.copy(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), fast ? propAngle * 0.02 + Math.random() * 6.28 : propAngle));
-    disc.material.opacity = Math.min(0.35, Math.max(0, (st.rpm - 500) / 1500) * 0.35) * (st.disc ?? 1);
+    disc.material.opacity = Math.min(0.35, Math.max(0, (seen - 500) / 1500) * 0.35) * (st.disc ?? 1);
   }
   return { root, update, glass: glassMat };
 }
