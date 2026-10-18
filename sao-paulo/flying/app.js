@@ -355,6 +355,7 @@ addEventListener('keydown', (e) => {
     case 'KeyI': toggleInstr(); break;
     case 'KeyR': restart(); break;
     case 'KeyH': togglePanel(); break;
+    case 'KeyL': setLevel(!ui.level, true); break;
     case 'KeyM': toggleSound(); break;
     case 'Space': togglePause(); e.preventDefault(); break;
     default:
@@ -442,6 +443,19 @@ function setAssist(n) {
   $('hAssist').textContent = ASSIST[n];
 }
 document.querySelectorAll('[data-assist]').forEach((b) => b.addEventListener('click', () => { setAssist(+b.dataset.assist); b.blur(); }));
+// Auto-trim (the core's straight-and-level hold), on top of any assist mode.
+ui.level = store.get('level', false);
+function setLevel(on, announce) {
+  ui.level = on; store.set('level', on); A.avd_set_level_hold(on ? 1 : 0);
+  $('bLevel').setAttribute('aria-pressed', String(on));
+  if (announce) toast(on ? 'Auto-trim on: let go of the stick and it holds straight and level.' : 'Auto-trim off.', 2.5);
+}
+$('bLevel').addEventListener('click', (e) => { setLevel(!ui.level, true); e.currentTarget.blur(); });
+// Status after the assist mode: auto-trim state, and Q/E on the tiller.
+function assistStatus() {
+  const lvl = !ui.level ? '' : s[58] ? ' · TOO SLOW' : s[55] ? ' · HOLDING LEVEL' : ' · AUTO-TRIM';
+  return ASSIST[ui.assist] + lvl + (s[56] ? ' · TILLER' : '');
+}
 
 document.querySelectorAll('[data-fail]').forEach((b) => b.addEventListener('click', () => {
   const k = b.dataset.fail, on = !failed[k];
@@ -528,6 +542,7 @@ resize();
 const hRead = $('hRead');
 const fmt = (v, d = 0) => (Number.isFinite(v) ? v.toFixed(d) : '—');
 function hud() {
+  $('hAssist').textContent = assistStatus();
   if (P.jet) { jetHud(); return; }
   $('hIas').innerHTML = `${fmt(Math.max(0, c[K.ias]))}<small>KIAS</small>`;
   $('hAlt').innerHTML = `${fmt(c[K.alt])}<small>FT MSL</small>`;
@@ -570,7 +585,7 @@ function jetData() {
   return {
     ias: c[K.ias], alt: c[K.alt], baro: c[K.kollsman], vsi: c[K.vsi], pitch: c[K.aiPitch], roll: c[K.aiRoll], hdg: c[K.dg], bug: c[K.bug],
     ball: c[K.ball], stall: c[K.stall] > 0.5, mach: j[5], gs: s[12], tas: j[26], agl: Math.max(0, s[14]), vmo: j[25], mmo: j[24],
-    assist: FMA[ui.assist], n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
+    assist: FMA[ui.assist] + (s[58] ? ' · UNDERSPD' : s[55] ? ' · ALT HDG HOLD' : ''), n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
     run: [j[13], j[21]], starting: [j[14], j[22]], fuelSw: [j[15], j[23]], n1cmd: 22 + 78 * input.throttle,
     fuelKg: j[6], gear: j[1], spd: j[3], flaps: j[27], wow: j[29], park: s[49],
     x: s[0], y: s[1], trueHdg: s[9], runway: RW, points: LANDMARKS,
@@ -684,7 +699,7 @@ function handleEvents() {
 // ---------- Airflow view ----------
 const FLOW = ['Airflow', 'Airflow: on', 'Wind tunnel'];
 ui.flow = 0;
-const DARK = new THREE.Color('#05080d');
+const STUDIO = new THREE.Color('#dde1e6');  // wind tunnel: a plain light backdrop, as CFD renders are shown
 function cycleFlow() {
   ui.flow = (ui.flow + 1) % 3;
   flow.group.visible = ui.flow > 0;
@@ -693,11 +708,11 @@ function cycleFlow() {
   $('bFlow').setAttribute('aria-pressed', String(ui.flow > 0));
   $('flowLegend').hidden = ui.flow === 0;
   const tunnel = ui.flow === 2;
-  scene.background = tunnel ? DARK : SKY;
-  scene.fog.color.copy(tunnel ? DARK : SKY);
+  scene.background = tunnel ? STUDIO : SKY;
+  scene.fog.color.copy(tunnel ? STUDIO : SKY);
   skyDome.visible = !tunnel;
-  if (ui.flow === 1) toast('Airflow: streamlines from the lift the physics is making, coloured by pressure. Orbit camera recommended (C).', 5);
-  if (tunnel) toast('Wind tunnel: the world goes dark so the flow stands out. V again to turn it off.', 4);
+  if (ui.flow === 1) toast('Airflow: streamlines through the field the physics is making, coloured by local speed (grey: undisturbed). Orbit camera recommended (C).', 5);
+  if (tunnel) toast('Wind tunnel: the world fades so the flow stands out. V again to turn it off.', 4);
 }
 $('bFlow').addEventListener('click', (e) => { cycleFlow(); e.currentTarget.blur(); });
 
@@ -710,6 +725,8 @@ function applyProfileUi() {
   document.querySelector('[data-fail="3"]').textContent = P.jet ? 'Generators' : 'Alternator';
   document.querySelectorAll('.jetonly').forEach((el) => { el.hidden = !P.jet; });
   document.querySelectorAll('.pistononly').forEach((el) => { el.hidden = P.jet; });
+  document.body.classList.toggle('jet', P.jet);
+  sizePanel();  // the jet's strip is taller
   $('plateSub').textContent = `Flight test bed · ${P.name}`;
   document.title = `Flight Test Bed · ${P.name}`;
 }
@@ -732,6 +749,7 @@ async function selectAircraft(id) {
   buildStarts();
   applyProfileUi();
   setAssist(ui.assist);
+  setLevel(ui.level, false);
   ui.paused = false;
   restart(0);
   sizePanel();
@@ -741,6 +759,7 @@ document.querySelectorAll('[data-aircraft]').forEach((b) => b.addEventListener('
 // ---------- Loop ----------
 applyProfileUi();
 setAssist(ui.assist);
+setLevel(ui.level, false);
 restart(0);
 $('loading').hidden = true;
 $('loading').style.display = 'none';
@@ -783,7 +802,7 @@ function frame() {
   if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]) }, ui.paused ? 0 : dt);
   else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1 }, ui.paused ? 0 : dt);
   if (ui.flow) {
-    const fr = flow.update(A.flow(), ui.paused ? 0 : dt, { ...P, span: def.reference.span_m });
+    const fr = flow.update(A.flow(), ui.paused ? 0 : dt, { ...P, span: def.reference.span_m }, { light: ui.flow === 2 });
     $('flowStall').textContent = fr.stalled ? `${fr.stalled} strip${fr.stalled > 1 ? 's' : ''} stalled` : 'no stalled strips';
   }
   acGroup.updateMatrixWorld(true);

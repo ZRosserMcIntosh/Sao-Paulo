@@ -8,9 +8,15 @@
 // ahead of it, and the tip vortices that roll up off the wingtips. The
 // fuselage is a Rankine body (a source at the nose, a sink at the tail); the
 // propeller slipstream and jet exhausts come from the core's momentum-theory
-// values. Particles stream through that field in slow motion, coloured by the
-// pressure coefficient Cp = 1 - (V / V_inf)^2; the strips themselves glow by
-// how close each is to its stall angle.
+// values.
+//
+// That field is drawn as streamlines, the way CFD shows it: rakes of lines
+// released upstream (densest along the wing plane, around the wingtips and
+// into the engines) traced through the field to well behind the aircraft.
+// Undisturbed air stays grey; where the aircraft changes the flow the lines
+// take the local speed (turbo: slow blue to fast red), exhaust glows orange,
+// and a faint pulse travels along every line in the flow direction. The
+// strips themselves glow by how close each is to its stall angle.
 //
 // Structural frame (x forward, y right, z down) inside; rendered in body FLU.
 import * as THREE from 'three';
@@ -27,45 +33,30 @@ function turbo(t, out) {
   return out;
 }
 
-function glowTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 64;
-  const g = c.getContext('2d');
-  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.3, 'rgba(255,255,255,.55)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(c);
-}
-
 export function buildFlow({ mobile }) {
   const group = new THREE.Group();
   group.visible = false;
-  const NP = mobile ? 450 : 1100, TR = mobile ? 14 : 24;
-  const p = new Float32Array(NP * 3);           // particle positions (structural frame)
-  const heat = new Float32Array(NP);            // exhaust temperature marker 0..1
-  const age = new Float32Array(NP).fill(1e9);
-  const trail = new Float32Array(NP * TR * 3);  // ring buffer of positions
-  const trailC = new Float32Array(NP * TR * 3); // colour at each trail point
-  let head = 0;
-
-  // Trails: one line segment per consecutive trail pair, additive, fading.
-  const segPos = new Float32Array(NP * (TR - 1) * 6), segCol = new Float32Array(NP * (TR - 1) * 6);
+  // Streamlines: NL lines of up to NPT points, drawn as one LineSegments.
+  const NL = mobile ? 150 : 340, NPT = mobile ? 90 : 150;
+  const lp = new Float32Array(NL * NPT * 3);   // points (structural frame)
+  const lc = new Float32Array(NL * NPT * 3);   // base colour at each point
+  const ln = new Uint16Array(NL);              // points in each line
+  const lphase = new Float32Array(NL).map(() => Math.random());
+  const segPos = new Float32Array(NL * (NPT - 1) * 6), segCol = new Float32Array(NL * (NPT - 1) * 8);
   const lineGeo = new THREE.BufferGeometry();
   lineGeo.setAttribute('position', new THREE.BufferAttribute(segPos, 3).setUsage(THREE.DynamicDrawUsage));
-  lineGeo.setAttribute('color', new THREE.BufferAttribute(segCol, 3).setUsage(THREE.DynamicDrawUsage));
-  const lines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  lineGeo.setAttribute('color', new THREE.BufferAttribute(segCol, 4).setUsage(THREE.DynamicDrawUsage));
+  const lineMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false });
+  const lines = new THREE.LineSegments(lineGeo, lineMat);
   lines.frustumCulled = false;
+  lines.renderOrder = 3;
   group.add(lines);
-  const headPos = new Float32Array(NP * 3), headCol = new Float32Array(NP * 3);
-  const ptGeo = new THREE.BufferGeometry();
-  ptGeo.setAttribute('position', new THREE.BufferAttribute(headPos, 3).setUsage(THREE.DynamicDrawUsage));
-  ptGeo.setAttribute('color', new THREE.BufferAttribute(headCol, 3).setUsage(THREE.DynamicDrawUsage));
-  const points = new THREE.Points(ptGeo, new THREE.PointsMaterial({ size: 0.35, map: glowTexture(), vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }));
-  points.frustumCulled = false;
-  group.add(points);
+  let refresh = 0;      // next line to re-trace (round robin)
+  let traced = 0;       // lines traced since the last reset
 
   // Strip heat map (rebuilt when the aircraft changes).
   let stripMesh = null, stripCount = -1, stripKey = '';
-  const stripMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
+  const stripMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
 
   // Vortex segments for this frame.
   const MAXS = 64 * 3;
@@ -130,29 +121,80 @@ export function buildFlow({ mobile }) {
 
   let L = 8, span = 11, centre = [0, 0, 0];
   const tip = [0, 5, 0, 0.5];  // right wingtip trailing point (x, |y|, z) and vortex core radius
-  function respawn(i, scatter) {
-    // Seeds on a plane upstream of the aircraft, dense near the wing plane.
-    // A third near the wing plane, a sixth just inboard of each tip (to show
-    // the tip vortex roll up), the rest in the volume around the aircraft.
-    const u = Math.random();
-    if (!scatter && u > 0.88) {
-      // Released just behind a wingtip, around the vortex core: they spiral.
-      const side = Math.random() < 0.5 ? -1 : 1, a = Math.random() * 2 * Math.PI, r = tip[3] * (0.6 + Math.random() * 2.5);
-      p[i * 3] = tip[0]; p[i * 3 + 1] = side * tip[1] + Math.cos(a) * r; p[i * 3 + 2] = tip[2] + Math.sin(a) * r;
-      heat[i] = 0; age[i] = 0;
-      for (let k = 0; k < TR; ++k) { const o = (i * TR + k) * 3; trail[o] = p[i * 3]; trail[o + 1] = p[i * 3 + 1]; trail[o + 2] = p[i * 3 + 2]; trailC[o] = trailC[o + 1] = trailC[o + 2] = 0; }
-      return;
-    }
-    let yy, zz;
-    if (u < 0.34) { yy = (Math.random() * 2 - 1) * span * 0.55; zz = centre[2] + (Math.random() * 2 - 1) * span * 0.04; }
-    else if (u < 0.5) { yy = (Math.random() < 0.5 ? -1 : 1) * span * (0.42 + Math.random() * 0.12); zz = centre[2] + (Math.random() * 2 - 1) * span * 0.05; }
-    else { yy = (Math.random() * 2 - 1) * span * 0.62; zz = (Math.random() * 2 - 1) * span * 0.3; }
-    // After a reset, scatter along the whole stream so there is no launch wave.
-    const back = scatter ? 0.6 * L - Math.random() * 1.85 * L : 0.55 * L + Math.random() * 0.15 * L;
+  const wing = [0, 0];         // main wing plane: x of the quarter chord, z
+  // Seed of line i (structural frame) and whether it is traced from that point
+  // only downstream (wingtip lines start at the tip). Lines are allocated to
+  // rakes by index so each rake keeps its share as the field changes.
+  const seed = [0, 0, 0];
+  const R1 = (i, k) => { const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+  function seedLine(i) {
     const ux = U[0] / Umag, uy = U[1] / Umag, uz = U[2] / Umag;
-    p[i * 3] = centre[0] - ux * back; p[i * 3 + 1] = yy - uy * back; p[i * 3 + 2] = zz - uz * back;
-    heat[i] = 0; age[i] = 0;
-    for (let k = 0; k < TR; ++k) { const o = (i * TR + k) * 3; trail[o] = p[i * 3]; trail[o + 1] = p[i * 3 + 1]; trail[o + 2] = p[i * 3 + 2]; trailC[o] = trailC[o + 1] = trailC[o + 2] = 0; }
+    const up = 0.75 * L;
+    const upstream = (x, y, z) => { seed[0] = x - ux * up; seed[1] = y - uy * up; seed[2] = z - uz * up; return false; };
+    const f = i / NL, j = R1(i, 1), m = R1(i, 2);
+    const nEng = engines.length;
+    if (f < 0.36) {
+      // Wing-plane rake: four sheets just above and below the wing, across the span.
+      const sheet = i % 4, zz = wing[1] + [-0.07, -0.025, 0.025, 0.07][sheet] * span;
+      return upstream(wing[0] + 0.15 * L, (j * 2 - 1) * span * 0.56, zz);
+    }
+    if (f < 0.5) {
+      // Wingtips: released around each tip's trailing edge, so they wind into the vortex.
+      const side = i % 2 ? 1 : -1, a = j * 2 * Math.PI, r = tip[3] * (0.4 + 3.2 * m);
+      seed[0] = tip[0]; seed[1] = side * tip[1] + Math.cos(a) * r; seed[2] = tip[2] + Math.sin(a) * r;
+      return true;
+    }
+    if (f < 0.62 && nEng) {
+      // Into the engines: a ring inside each disc or inlet.
+      const e = engines[i % nEng], a = j * 2 * Math.PI, r = e.r * (0.15 + 0.75 * Math.sqrt(m));
+      // Two axes across the disc.
+      let px = -e.az, py = 0, pz = e.ax; const pn = Math.hypot(px, pz) || 1; px /= pn; pz /= pn;
+      const qx = e.ay * pz - e.az * py, qy = e.az * px - e.ax * pz, qz = e.ax * py - e.ay * px;
+      const fx = e.x + (px * Math.cos(a) + qx * Math.sin(a)) * r, fy = e.y + (py * Math.cos(a) + qy * Math.sin(a)) * r, fz = e.z + (pz * Math.cos(a) + qz * Math.sin(a)) * r;
+      seed[0] = fx + e.ax * e.r * 2.5; seed[1] = fy + e.ay * e.r * 2.5; seed[2] = fz + e.az * e.r * 2.5;
+      return false;
+    }
+    if (f < 0.7) {
+      // Around the nose: the fuselage parting the air.
+      const a = j * 2 * Math.PI, r = (fuse ? Math.sqrt(fuse.Q / (Math.PI * Umag)) : 1) * (1.05 + 1.2 * m);
+      return upstream(centre[0] + 0.5 * L, Math.cos(a) * r, centre[2] + Math.sin(a) * r);
+    }
+    // The volume around the aircraft (context: mostly undisturbed, grey).
+    return upstream(wing[0] + 0.15 * L, (j * 2 - 1) * span * 0.78, centre[2] + (m * 2 - 1) * span * 0.32);
+  }
+
+  // Trace line i through the field: midpoint steps of fixed length along the
+  // local flow direction, from the seed until it is well behind the aircraft.
+  function traceLine(i) {
+    const fromTip = seedLine(i);
+    const ds = (fromTip ? 1.3 : 2.1) * L / NPT;
+    const ux = U[0] / Umag, uy = U[1] / Umag, uz = U[2] / Umag;
+    let x = seed[0], y = seed[1], z = seed[2], k = 0;
+    const base = i * NPT * 3;
+    for (; k < NPT; ++k) {
+      const hot = velocity(x, y, z);
+      const vx = out[0], vy = out[1], vz = out[2];
+      const sp = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
+      // Colour: grey where the aircraft leaves the air alone, local speed where it does not.
+      const dx = vx - U[0], dy = vy - U[1], dz = vz - U[2];
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) / Umag;
+      const w = Math.min(1, Math.max(0, (dist - 0.006) / 0.045));
+      turbo(0.5 + (sp / Umag - 1) * 3.2, col);
+      const g = grey;
+      let r = g + (col[0] - g) * w, gg = g + (col[1] - g) * w, b = g + (col[2] - g) * w;
+      if (hot > 0.02) { const h = Math.min(1, hot * 1.5); r += (1.0 - r) * h; gg += (0.55 - gg) * h; b += (0.15 - b) * h; }
+      const o = base + k * 3;
+      lp[o] = x; lp[o + 1] = y; lp[o + 2] = z;
+      lc[o] = r; lc[o + 1] = gg; lc[o + 2] = b;
+      // Midpoint step along the unit flow direction.
+      const mx = x + vx / sp * ds * 0.5, my = y + vy / sp * ds * 0.5, mz = z + vz / sp * ds * 0.5;
+      velocity(mx, my, mz);
+      const s2 = Math.sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]) || 1;
+      x += out[0] / s2 * ds; y += out[1] / s2 * ds; z += out[2] / s2 * ds;
+      const dxc = x - centre[0], dyc = y, dzc = z - centre[2];
+      if (dxc * ux + dyc * uy + dzc * uz > 1.2 * L || Math.abs(dyc) > span || Math.abs(dzc) > 0.6 * span) { ++k; break; }
+    }
+    ln[i] = k;
   }
 
   function buildStrips(f, n) {
@@ -183,14 +225,16 @@ export function buildFlow({ mobile }) {
     stripCount = n;
   }
 
-  let clockT = 0;
+  let clockT = 0, flowT = 0, grey = 0.55;
   // f: avd_flow(); prof: { fuse: {xNose, xTail, R, z} } in the structural frame; dt: frame seconds.
   function update(f, dt, prof, opts = {}) {
     clockT += dt;
     const n = f[0] | 0;
     const tas = f[2], alpha = f[3], beta = f[4], rho = Math.max(f[5], 0.05);
     const key = `${prof.id}:${n}`;
-    if (key !== stripKey) { stripKey = key; buildStrips(f, n); for (let i = 0; i < NP; ++i) age[i] = 1e9; }
+    if (key !== stripKey) { stripKey = key; buildStrips(f, n); reset(); }
+    grey = opts.light ? 0.42 : 0.55;
+    lineMat.blending = THREE.NormalBlending;
     // Strip glow: angle of attack as a fraction of the strip's stall angle.
     const sc = stripMesh.geometry.attributes.color;
     let stalled = 0;
@@ -206,8 +250,8 @@ export function buildFlow({ mobile }) {
     sc.needsUpdate = true;
     stripMesh.visible = opts.strips !== false;
 
-    if (tas < 6) { lines.visible = points.visible = false; return { stalled }; }
-    lines.visible = points.visible = true;
+    if (tas < 6) { lines.visible = false; return { stalled }; }
+    lines.visible = true;
     // Free stream relative to the aircraft (structural frame): minus the body velocity through the air.
     const ca = Math.cos(alpha), cb = Math.cos(beta);
     U[0] = -tas * ca * cb; U[1] = -tas * Math.sin(beta); U[2] = -tas * Math.sin(alpha) * cb;
@@ -216,6 +260,7 @@ export function buildFlow({ mobile }) {
     // Horseshoe vortices from the strips' lift.
     nSeg = 0;
     tip[1] = 0;
+    let wx = 0, wz = 0, wn = 0;
     const far = 4 * L;
     for (let i = 0; i < n; ++i) {
       const o = 16 + i * STRIDE;
@@ -230,6 +275,7 @@ export function buildFlow({ mobile }) {
       const P1 = [f[o] - lx * b / 2, f[o + 1] - ly * b / 2, f[o + 2] - lz * b / 2];
       const P2 = [f[o] + lx * b / 2, f[o + 1] + ly * b / 2, f[o + 2] + lz * b / 2];
       const rc = Math.max(0.22 * c, 0.15), rc2 = rc * rc;
+      if (f[o + 15] === 0) { wx += f[o] * b; wz += f[o + 2] * b; wn += b; }
       if (f[o + 15] === 0 && Math.abs(P2[1]) > tip[1] * 0.999) { tip[0] = P2[0] - 0.75 * c; tip[1] = Math.abs(P2[1]); tip[2] = P2[2]; tip[3] = rc; }
       if (f[o + 15] === 0 && Math.abs(P1[1]) > tip[1] * 0.999) { tip[0] = P1[0] - 0.75 * c; tip[1] = Math.abs(P1[1]); tip[2] = P1[2]; tip[3] = rc; }
       const seg = (a, bb, g, r2) => { const k = nSeg * 3; sA[k] = a[0]; sA[k + 1] = a[1]; sA[k + 2] = a[2]; sB[k] = bb[0]; sB[k + 1] = bb[1]; sB[k + 2] = bb[2]; sG[nSeg] = g; sR[nSeg] = r2; ++nSeg; };
@@ -238,6 +284,7 @@ export function buildFlow({ mobile }) {
       seg(P2, [P2[0] + ux * far, P2[1] + uy * far, P2[2] + uz * far], G, rc2);
       if (nSeg >= MAXS - 3) break;
     }
+    if (wn > 0) { wing[0] = wx / wn; wing[1] = wz / wn; }
     // Fuselage and engines.
     const fu = prof.fuse;
     L = fu.xNose - fu.xTail; span = prof.span; centre = [(fu.xNose + fu.xTail) / 2, 0, fu.z];
@@ -250,57 +297,42 @@ export function buildFlow({ mobile }) {
       if (f[o + 7] <= 0.1) continue;
       engines.push({ x: f[o], y: f[o + 1], z: f[o + 2], ax: f[o + 3], ay: f[o + 4], az: f[o + 5], r: f[o + 6], inc: f[o + 7], jet: f[o + 9] > 0.5 });
     }
-    // Slow motion: about half an aircraft length per second on screen.
-    const ts = Math.min(1, (opts.speed || 1) * 0.55 * L / tas);
-    const steps = 2, h = dt * ts / steps;
-    head = (head + 1) % TR;
-    const inv = 1 / (tas * tas);
-    for (let i = 0; i < NP; ++i) {
-      const i3 = i * 3;
-      if (age[i] > 60) respawn(i, age[i] > 1e8);
-      let hot = 0;
-      for (let st = 0; st < steps; ++st) {
-        hot = Math.max(hot, velocity(p[i3], p[i3 + 1], p[i3 + 2]));
-        p[i3] += out[0] * h; p[i3 + 1] += out[1] * h; p[i3 + 2] += out[2] * h;
-      }
-      age[i] += dt;
-      heat[i] = Math.max(hot, heat[i] * Math.exp(-dt * ts * 3));
-      const v2 = out[0] * out[0] + out[1] * out[1] + out[2] * out[2];
-      const cp = 1 - v2 * inv;
-      turbo(0.5 + cp * 3.3, col);  // Cp -0.15 .. +0.15 across the map
-      if (heat[i] > 0.02) {
-        const hh = Math.min(1, heat[i]);
-        col[0] = col[0] * (1 - hh) + 1.0 * hh; col[1] = col[1] * (1 - hh) + 0.55 * hh; col[2] = col[2] * (1 - hh) + 0.15 * hh;
-      }
-      const o = (i * TR + head) * 3;
-      trail[o] = p[i3]; trail[o + 1] = p[i3 + 1]; trail[o + 2] = p[i3 + 2];
-      trailC[o] = col[0]; trailC[o + 1] = col[1]; trailC[o + 2] = col[2];
-      // Downstream and gone, or wandered off: recycle.
-      const dxc = p[i3] - centre[0], dyc = p[i3 + 1], dzc = p[i3 + 2] - centre[2];
-      const down = dxc * ux + dyc * uy + dzc * uz;
-      if (down > 1.3 * L || Math.abs(dyc) > span * 1.0 || Math.abs(dzc) > span * 0.6) age[i] = 100;
-      headPos[i3] = p[i3]; headPos[i3 + 1] = -p[i3 + 1]; headPos[i3 + 2] = -p[i3 + 2];
-      headCol[i3] = col[0] * 0.6; headCol[i3 + 1] = col[1] * 0.6; headCol[i3 + 2] = col[2] * 0.6;
-    }
-    // Trail segments, newest brightest.
-    let w = 0;
-    for (let i = 0; i < NP; ++i) {
-      for (let k = 0; k < TR - 1; ++k) {
-        const a = (head - k + TR) % TR, b = (head - k - 1 + TR) % TR;
-        const oa = (i * TR + a) * 3, ob = (i * TR + b) * 3;
-        const fa = 0.42 * (1 - k / (TR - 1)), fb = 0.42 * (1 - (k + 1) / (TR - 1));
-        segPos[w] = trail[oa]; segPos[w + 1] = -trail[oa + 1]; segPos[w + 2] = -trail[oa + 2];
-        segPos[w + 3] = trail[ob]; segPos[w + 4] = -trail[ob + 1]; segPos[w + 5] = -trail[ob + 2];
-        segCol[w] = trailC[oa] * fa; segCol[w + 1] = trailC[oa + 1] * fa; segCol[w + 2] = trailC[oa + 2] * fa;
-        segCol[w + 3] = trailC[ob] * fb; segCol[w + 4] = trailC[ob + 1] * fb; segCol[w + 5] = trailC[ob + 2] * fb;
-        w += 6;
+    // Re-trace a share of the lines each frame (a third at a time right after
+    // a reset); the field changes smoothly, so a full refresh every ~20 frames (a third of a second)
+    // keeps the picture current at a fraction of the cost.
+    const per = Math.ceil(NL / (traced < NL ? 3 : 20));
+    for (let c = 0; c < per; ++c) { traceLine(refresh); refresh = (refresh + 1) % NL; }
+    traced += per;
+    // Draw: segments between consecutive points; the ends fade in and out, and
+    // a pulse travels along each line at the (slowed) speed of the flow.
+    flowT += dt * Math.min(1, (opts.speed || 1) * 0.55 * L / tas) * tas;  // metres of air travelled, slowed
+    const lambda = 0.45 * L, opacity = opts.light ? 0.85 : 0.7;
+    let w = 0, cw = 0;
+    for (let i = 0; i < NL; ++i) {
+      const n = ln[i], base = i * NPT * 3;
+      const ds = 2.1 * L / NPT;
+      for (let k = 0; k < NPT - 1; ++k) {
+        if (k < n - 1) {
+          const oa = base + k * 3, ob = oa + 3;
+          for (const [o, kk] of [[oa, k], [ob, k + 1]]) {
+            segPos[w++] = lp[o]; segPos[w++] = -lp[o + 1]; segPos[w++] = -lp[o + 2];
+            const s0 = kk * ds;
+            const pulse = 0.5 + 0.5 * Math.cos(2 * Math.PI * ((s0 - flowT) / lambda + lphase[i]));
+            const dn = (lp[o] - centre[0]) * ux + lp[o + 1] * uy + (lp[o + 2] - centre[2]) * uz;
+            const fade = Math.min(1, kk / 8, (n - 1 - kk) / 12, Math.max(0, (1.2 * L - dn) / (0.6 * L)));
+            const bright = 0.78 + 0.32 * pulse * pulse;
+            segCol[cw++] = Math.min(1, lc[o] * bright); segCol[cw++] = Math.min(1, lc[o + 1] * bright); segCol[cw++] = Math.min(1, lc[o + 2] * bright);
+            segCol[cw++] = opacity * fade;
+          }
+        } else {
+          for (let q = 0; q < 6; ++q) segPos[w++] = 0;
+          for (let q = 0; q < 8; ++q) segCol[cw++] = 0;
+        }
       }
     }
     lineGeo.attributes.position.needsUpdate = true; lineGeo.attributes.color.needsUpdate = true;
-    ptGeo.attributes.position.needsUpdate = true; ptGeo.attributes.color.needsUpdate = true;
-    points.material.size = Math.max(0.12, L * 0.022);
     return { stalled };
   }
-  function reset() { for (let i = 0; i < NP; ++i) age[i] = 1e9; }
+  function reset() { traced = 0; ln.fill(0); }
   return { group, update, reset };
 }
