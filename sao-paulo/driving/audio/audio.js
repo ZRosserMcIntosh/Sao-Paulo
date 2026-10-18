@@ -149,6 +149,6 @@ export class CarAudio {
     this.tyreGain.gain.setTargetAtTime(st.interior ? 0.45 : 0.7, t, 0.1);
     this.windG.gain.setTargetAtTime(Math.min(1, (v / 70) ** 2) * (st.interior ? 0.15 : 0.35), t, 0.1);
     this.roadG.gain.setTargetAtTime(Math.min(1, v / 45) * (st.interior ? 0.4 : 0.3), t, 0.1);
-    this.engineGain.gain.setTargetAtTime(st.interior ? 0.45 : 0.55, t, 0.1);
+    this.engineGain.gain.setTargetAtTime(st.engineOn === false ? 0 : st.interior ? 0.45 : 0.55, t, 0.1); // engineOn false: bicycle, e-scooter
   }
 }

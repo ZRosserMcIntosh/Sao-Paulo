@@ -8,6 +8,8 @@ import { MeshoptDecoder } from './vendor/libs/meshopt_decoder.module.js';
 import createOrdModule from './ord.mjs';
 import { CarAudio } from './audio/audio.js';
 import { loadCity, streetNamer } from './city.js';
+import { BikeView } from './bike.js';
+import { CrashDummies } from './dummies.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -28,6 +30,12 @@ const statePtr = M._ord_state() / 8;
 const S = (i) => M.HEAPF64[statePtr + i];
 const W = (w, i) => M.HEAPF64[statePtr + HEADER + PER_WHEEL * w + i];
 const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55]; // full-lock road-wheel angle per car (rad)
+// Two-wheelers (vehicle 6 bicycle, 7 e-scooter, 8 motorcycle): their own state buffer.
+const bikePtr = M._ord_bike_state() / 8;
+const B = (i) => M.HEAPF64[bikePtr + i];
+const BIKE_LOCK = [1.2, 0.9, 0.55];
+const BIKE_NAMES = ['Bicycle', 'E-scooter', 'Motorcycle'];
+const isBike = () => settings.car >= 6;
 const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000];
 const G = 9.81;
 
@@ -49,6 +57,10 @@ const settings = {
   preset: store.get('preset', 0),
   abs: true, tcs: 2, esc: 2, auto: true, drift: 0,
   cam: store.get('cam', 0),
+  barTorque: store.get('barTorque', false),       // two-wheelers: steer input = handlebar torque
+  lock: store.get('driftLock', false),            // drift steering lock (0.9 rad) on the cars
+  diff: store.get('diff', -1),                    // rear diff: -1 stock, 0 open, 1 locked, 2 tight LSD
+  dummies: store.get('dummies', true), belted: store.get('belted', true), airbags: store.get('airbags', true), xray: store.get('xray', false),
 };
 function presetAids(p) {
   if (p === 0) return { abs: true, tcs: 2, esc: 2, auto: true, drift: 0 };
@@ -301,6 +313,24 @@ function ring(c, r, mat, w = 0.15) {
   ring(PG.wet, PG.wet.r, yellowPaint); ring(PG.wet, PG.wet.r - 4, paint, 0.08); ring(PG.wet, PG.wet.r + 4, paint, 0.08);
 }
 
+// Crash-test lane: run-up, a rigid concrete barrier (the physics' collider is its west face) and a
+// 30 cm pole for side impacts.
+const CRASH = { y: M._ord_crash_lane_y(), bx: M._ord_crash_barrier_x(), px: M._ord_crash_pole_x() };
+if (WORLD === 'track') {
+  stripe(-450, CRASH.y - 6, CRASH.bx, CRASH.y - 6, 0.15); stripe(-450, CRASH.y + 6, CRASH.bx, CRASH.y + 6, 0.15);
+  for (let x = -450; x < CRASH.bx - 5; x += 12) stripe(x, CRASH.y, x + 6, CRASH.y, 0.12, yellowPaint);
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const g = c.getContext('2d'); g.fillStyle = '#f0c419'; g.fillRect(0, 0, 256, 64); g.fillStyle = '#111';
+  for (let i = -2; i < 12; ++i) { g.beginPath(); g.moveTo(i * 32, 64); g.lineTo(i * 32 + 16, 64); g.lineTo(i * 32 + 48, 0); g.lineTo(i * 32 + 32, 0); g.fill(); }
+  const stripes = new THREE.CanvasTexture(c); stripes.colorSpace = THREE.SRGBColorSpace; stripes.wrapS = THREE.RepeatWrapping; stripes.repeat.set(4, 1);
+  const concrete = new THREE.MeshStandardMaterial({ color: '#b9b6ae', roughness: 0.95 });
+  const block = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.5, 16), [concrete, concrete, concrete, concrete, concrete, new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.8 })]);
+  block.position.copy(v3(CRASH.bx + 0.6, CRASH.y, 0.75)); block.rotation.y = Math.PI; block.castShadow = block.receiveShadow = true; TRACK.add(block);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 6, 20), new THREE.MeshStandardMaterial({ color: '#8d9299', roughness: 0.4, metalness: 0.7 }));
+  pole.position.copy(v3(CRASH.px, CRASH.y + 16, 3)); pole.castShadow = true; TRACK.add(pole);
+  ring({ x: CRASH.px, y: CRASH.y + 16 }, 1.2, yellowPaint, 0.08);
+}
+
 // Slalom cones: 10 cones, 18 m apart, at y = -45
 const SLALOM = { y: -45, x0: 40, gap: 18, n: 10 };
 const cones = [];
@@ -344,6 +374,7 @@ document.fonts?.ready.then(() => {
   sign('SLALOM', 22, -40, '10 cones · 18 m');
   sign('BUMPS', 25, LANE_Y + 5, 'bumps · rumble · pothole · kerb');
   sign('WET', 240, 50, 'reduced grip · 200 m');
+  sign('CRASH TEST', -446, CRASH.y + 7, 'rigid barrier ahead · pole on the left');
   for (let x = 100; x <= 1000; x += 100) sign(`${x} m`, x, 9);
   for (let x = 1500; x < STRAIGHT_END - 1000; x += 500) sign(`${(x / 1000).toFixed(1)} km`, x, 9);
   for (const d of [1000, 600, 400, 300, 200, 100]) sign(`${d}`, STRAIGHT_END - d, 9, 'brake · end of straight');
@@ -362,7 +393,7 @@ let model = null; // { wrapper, rigs:[{steer,spin}|null x4], hasWheels }
 let spinAngle = [0, 0, 0, 0];
 
 const bodyMat = new THREE.MeshPhysicalMaterial({ color: '#d22a1f', roughness: 0.32, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.12 });
-const glassMat = new THREE.MeshPhysicalMaterial({ color: '#33465e', roughness: 0.08, metalness: 0.6 });
+const glassMat = new THREE.MeshPhysicalMaterial({ color: '#33465e', roughness: 0.08, metalness: 0.6, transparent: true, opacity: 0.45 });
 const tireMat = new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.85 });
 const rimMat = new THREE.MeshStandardMaterial({ color: '#c9ccd1', roughness: 0.3, metalness: 0.9 });
 
@@ -401,6 +432,25 @@ function buildPlaceholder() {
     wheelRigs.push({ steer, spin, base: steer.position.clone() });
   }
   return { xf, xr, half, r, midX };
+}
+
+// ---------- Crash dummies ----------
+const dummies = new CrashDummies(carRoot);
+const GLASS_RE = /(glass|window|vidro|windscreen|windshield)/i;
+// Glass is see-through so the dummies show; "See-through" fades the whole body.
+function applySeeThrough() {
+  carRoot.traverse((o) => {
+    if (!o.isMesh || o === dummies.group || dummies.group.getObjectById(o.id)) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (!m) continue;
+      if (m.userData.op0 === undefined) m.userData.op0 = { t: m.transparent, o: m.opacity, d: m.depthWrite };
+      const glass = GLASS_RE.test(m.name || '') || m === glassMat;
+      if (settings.xray) { m.transparent = true; m.opacity = glass ? 0.12 : 0.22; m.depthWrite = false; }
+      else if (glass) { m.transparent = true; m.opacity = 0.4; m.depthWrite = false; }
+      else { m.transparent = m.userData.op0.t; m.opacity = m.userData.op0.o; m.depthWrite = m.userData.op0.d; }
+      m.needsUpdate = true;
+    }
+  });
 }
 
 // ---------- Blender model loading (.glb) ----------
@@ -488,6 +538,7 @@ async function loadModel(buffer, name, announce = true) {
   }
   inner.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   model = { wrapper, rigs, hasWheels, turn };
+  applySeeThrough();
   setupLights(inner);
   setupPaint(inner);
   placeholder.visible = false;
@@ -623,22 +674,50 @@ const ZONES = CITY_ZONES || [
   { name: 'Slalom', x: 10, y: SLALOM.y, yaw: 0 },
   { name: 'Bumps', x: 15, y: LANE_Y, yaw: 0 },
   { name: 'Wet', x: 200, y: 50, yaw: 0 },
+  { name: 'Crash barrier', x: M._ord_crash_barrier_x() - 260, y: M._ord_crash_lane_y(), yaw: 0 },
+  { name: 'Pole test (side)', x: M._ord_crash_pole_x() - 120, y: M._ord_crash_lane_y() + 16, yaw: 0 },
 ];
+let bikeView = null, crashT = 0;
+function createBike(z, speed = 0) {
+  if (!bikeView) bikeView = new BikeView(scene);
+  applyAids();
+  M._ord_bike_create(settings.car - 6, z.x, z.y, z.yaw, speed);
+  bikeView.build(B);
+  bikeView.root.visible = true; carRoot.visible = false;
+  $('hGear').style.display = ''; document.querySelector('.tachp').style.display = 'none';
+  hudLabels(true); applyDummies();
+  crashT = 0; camInit = true;
+}
+function hudLabels(bike) {
+  $('iEsc').textContent = bike ? 'BAL' : 'ESC'; $('iDrift').textContent = bike ? 'WHEELIE' : 'DRIFT';
+  $('iCs').style.display = bike ? 'none' : '';
+  wheelEls.forEach((e, w) => { e.el.style.display = bike && w > 1 ? 'none' : ''; e.el.querySelector('span').textContent = ['FL', 'FR', 'RL', 'RR'][w]; });
+  $('hGear').title = bike ? 'Lean angle' : 'Gear';
+}
 function createCar() {
+  if (isBike()) { createBike(ZONES[0]); resetTimers(); return; }
+  if (bikeView) { M._ord_bike_remove(); bikeView.root.visible = false; }
+  carRoot.visible = true; document.querySelector('.tachp').style.display = '';
+  hudLabels(false);
   applyAids();
   if (!M._ord_create(settings.car, ZONES[0].x, ZONES[0].y, ZONES[0].yaw)) { toast('Vehicle definition rejected by the physics core'); return; }
   // Settle on the brakes so the rest pose is the loaded suspension.
   for (let i = 0; i < 90; ++i) { M._ord_set_input(0, 0, 1, 0, 0, 0); M._ord_advance(1 / 60); }
   restWheelZ = [0, 1, 2, 3].map((w) => W(w, 2));
   groundZBody = Math.min(...[0, 1, 2, 3].map((w) => W(w, 2) - W(w, 3)));
-  buildPlaceholder();
+  const ph = buildPlaceholder();
+  // hip points: ~42% of the wheelbase ahead of the rear axle, low sports-car seating
+  dummies.place(ph.xr + 0.42 * (ph.xf - ph.xr), groundZBody + 0.36);
+  M._ord_set_occupants(settings.belted ? 1 : 0, settings.airbags ? 1 : 0, settings.airbags ? 1 : 0);
   buildTach();
   if (modelSource) loadModel(modelSource.buffer, modelSource.name, false);
   M._ord_reset(ZONES[0].x, ZONES[0].y, ZONES[0].yaw);
+  applySeeThrough(); applyDummies();
+  crashSeen[0] = crashSeen[1] = 0;
   resetTimers();
 }
 function placeAt(z) {
-  M._ord_reset(z.x, z.y, z.yaw);
+  if (isBike()) createBike(z); else M._ord_reset(z.x, z.y, z.yaw);
   resetSkidTrail?.();
   for (const c of cones) { c.hit = false; c.mesh.position.copy(c.home); c.mesh.rotation.set(0, 0, 0); c.vel.set(0, 0, 0); }
   resetTimers();
@@ -655,7 +734,23 @@ for (const [w, label] of [['city', 'São Paulo · MASP'], ['track', 'Test track'
 }
 
 // ---------- Aids & presets ----------
+// Two-wheeler aids from the same presets: Fun = everything, Sport = ABS, Simulation = none,
+// Drift (key 4) = wheelie assist that holds the front up. Balance at walking pace is always on
+// (it stands in for the rider's foot). Bar-torque steering is its own switch (L).
+function applyBikeAids() {
+  const p = settings.preset;
+  const wheelie = p === 0 ? 1 : p === 3 ? 1 : 0, pitch = p === 3 ? 0.42 : 0.04;
+  M._ord_bike_set_assists(settings.barTorque ? 1 : 0, 1, settings.abs ? 1 : 0, settings.tcs > 0 ? 1 : 0, wheelie, pitch);
+}
+function applyTuning() {
+  M._ord_set_tuning(settings.lock ? 0.9 : 0, settings.diff, 220, 0.7, 0.5);
+  $('bLock').setAttribute('aria-pressed', settings.lock);
+  $('bDiff').textContent = 'Rear diff: ' + (settings.diff < 0 ? 'stock' : ['open', 'locked', 'tight LSD'][settings.diff]);
+  $('bDiff').setAttribute('aria-pressed', settings.diff >= 0);
+}
 function applyAids() {
+  applyBikeAids(); applyTuning();
+  $('bBar').setAttribute('aria-pressed', settings.barTorque);
   M._ord_set_preset(settings.preset);
   M._ord_set_aids(settings.abs ? 1 : 0, settings.tcs, settings.esc, settings.auto ? 1 : 0);
   M._ord_set_drift_assist?.(settings.drift);
@@ -667,17 +762,24 @@ function applyAids() {
   $('aEsc').textContent = 'ESC: ' + lv[settings.esc]; $('aEsc').setAttribute('aria-pressed', settings.esc > 0);
   $('aBox').textContent = settings.auto ? 'Auto gearbox' : 'Manual gearbox'; $('aBox').setAttribute('aria-pressed', settings.auto);
   document.querySelectorAll('[data-preset]').forEach((b) => b.setAttribute('aria-pressed', +b.dataset.preset === settings.preset));
-  $('hPreset').textContent = ['Fun', 'Sport', 'Simulation', 'Drift'][settings.preset] + (customised() ? ' · custom' : '');
+  $('hPreset').textContent = ['Fun', 'Sport', 'Simulation', isBike() ? 'Wheelie' : 'Drift'][settings.preset] + (customised() ? ' · custom' : '');
   $('iAbs').classList.toggle('on', settings.abs); $('iTcs').classList.toggle('on', settings.tcs > 0);
   $('iEsc').classList.toggle('on', settings.esc > 0); $('iCs').classList.toggle('on', settings.preset < 2);
 }
 function customised() { const d = presetAids(settings.preset); return d.abs !== settings.abs || d.tcs !== settings.tcs || d.esc !== settings.esc || d.auto !== settings.auto || d.drift !== settings.drift; }
-function setPreset(p) { settings.preset = p; Object.assign(settings, presetAids(p)); store.set('preset', p); applyAids(); toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT: throw it sideways, keep the throttle in, hold the turn to drift, let go to straighten'][p]); }
+function setPreset(p) {
+  settings.preset = p; Object.assign(settings, presetAids(p)); store.set('preset', p); applyAids();
+  if (isBike()) toast(['FUN: ABS, traction and wheelie control, the rider leans for you', 'SPORT: ABS only', 'SIMULATION: no aids (L for bar-torque steering)', 'WHEELIE: open the throttle, the assist holds the front up'][p]);
+  else toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT: throw it sideways, keep the throttle in, hold the turn to drift, let go to straighten'][p]);
+}
 document.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => setPreset(+b.dataset.preset)));
 $('aAbs').onclick = () => { settings.abs = !settings.abs; applyAids(); };
 $('aTcs').onclick = () => { settings.tcs = (settings.tcs + 1) % 3; applyAids(); };
 $('aEsc').onclick = () => { settings.esc = (settings.esc + 1) % 3; applyAids(); };
 $('aBox').onclick = () => { settings.auto = !settings.auto; applyAids(); };
+$('bBar').onclick = (e) => { settings.barTorque = !settings.barTorque; store.set('barTorque', settings.barTorque); applyAids(); toast(settings.barTorque ? 'Bar-torque steering: input = handlebar torque. Push left to go right (counter-steer)!' : 'Lean steering: input = lean angle, the rider counter-steers for you'); e.currentTarget.blur(); };
+$('bLock').onclick = (e) => { settings.lock = !settings.lock; store.set('driftLock', settings.lock); applyTuning(); toast(settings.lock ? 'Drift steering lock: 52° (catches drifts up to ~50°)' : 'Stock steering lock'); e.currentTarget.blur(); };
+$('bDiff').onclick = (e) => { settings.diff = settings.diff >= 2 ? -1 : settings.diff + 1; store.set('diff', settings.diff); applyTuning(); e.currentTarget.blur(); };
 $('aDrift').onclick = () => { settings.drift = settings.drift > 0 ? 0 : 1; applyAids(); toast(settings.drift ? 'Drift assist on: in a slide, hold the turn to drift, let go to straighten' : 'Drift assist off'); };
 // Paddle shifts (+ / − keys, the on-screen − / + buttons): the first press switches the box to
 // manual, like pulling a paddle on a dual-clutch car. G (or the Auto gearbox button) goes back.
@@ -692,7 +794,7 @@ for (const [id, dir] of [['tUp', 1], ['tDown', -1]]) {
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
 }
 $('car').value = settings.car;
-$('car').onchange = (e) => { settings.car = +e.target.value; store.set('car', settings.car); store.set('stellaPhysics', true); createCar(); e.target.blur(); };
+$('car').onchange = (e) => { settings.car = +e.target.value; camInit = true; store.set('car', settings.car); store.set('stellaPhysics', true); createCar(); e.target.blur(); };
 $('bReset').onclick = (e) => { placeAt(ZONES[0]); e.currentTarget.blur(); };
 $('bCam').onclick = (e) => { cycleCam(); e.currentTarget.blur(); };
 function togglePanel() {
@@ -723,6 +825,7 @@ addEventListener('keydown', (e) => {
   if (k === '1' || k === '2' || k === '3' || k === '4') setPreset(+k - 1);
   if (k === 'x') $('aDrift').click();
   if (k === 'k') $('bMouse').click();
+  if (k === 'l') $('bBar').click();
   if (k === 'z') mouseSteer.value = 0;
   if (k === 'b') $('aAbs').click();
   if (k === 't') $('aTcs').click();
@@ -853,7 +956,7 @@ function readInput(dt, gear, speed) {
 }
 
 // ---------- Camera ----------
-const CAMS = ['Chase', 'Far chase', 'Bonnet', 'Overhead', 'Free (drag to orbit)'];
+const CAMS = ['Chase', 'Far chase', 'Bonnet / helmet', 'Overhead', 'Free (drag to orbit)', 'Drift (follows where you travel)'];
 let camInit = true;
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
 function cycleCam() { settings.cam = (settings.cam + 1) % CAMS.length; store.set('cam', settings.cam); camInit = true; toast('Camera: ' + CAMS[settings.cam]); }
@@ -885,16 +988,31 @@ const orbit = { yaw: store.get('orbitYaw', 2.6), pitch: store.get('orbitPitch', 
 // camera when you floor it.
 const chaseDir = new THREE.Vector3(1, 0, 0);
 let chaseAccel = 0;
-function updateCamera(dt, carPos, carQuat, vel) {
+const driftDir = new THREE.Vector3(1, 0, 0);
+function updateCamera(dt, carPos, carQuat, vel, spd = S(7), ax = S(11)) {
   const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(carQuat); fwd.y = 0; fwd.normalize();
   const vh = new THREE.Vector3(vel.x, 0, vel.z);
-  const dir = vh.length() > 4 && S(7) > 2 ? vh.normalize().lerp(fwd, 0.5).normalize() : fwd;
+  const fov = settings.cam === 5 ? 68 : 60;
+  if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  if (settings.cam === 5) {
+    // Drift camera: sits behind the direction of travel, not behind the nose, so a car at 40° of
+    // sideslip is seen side-on, sliding across the view. Swings to the nose when slow or reversing.
+    const travel = vh.length() > 3 && spd > 1 ? vh.clone().normalize() : fwd;
+    if (camInit) driftDir.copy(travel); else driftDir.lerp(travel, 1 - Math.exp(-dt * 2.2)).normalize();
+    const want5 = carPos.clone().addScaledVector(driftDir, -7.8); want5.y = carPos.y + 2.7;
+    const look5 = carPos.clone().addScaledVector(driftDir, 2.5); look5.y = carPos.y + 0.6;
+    if (camInit) camPos.copy(want5); else camPos.lerp(want5, 1 - Math.exp(-dt * 6));
+    camLook.copy(look5); camInit = false;
+    camera.position.copy(camPos); camera.lookAt(camLook); return;
+  }
+  const dir = vh.length() > 4 && spd > 2 ? vh.normalize().lerp(fwd, 0.5).normalize() : fwd;
   let want, look;
   if (settings.cam === 0 || settings.cam === 1) {
     if (camInit) chaseDir.copy(dir); else chaseDir.lerp(dir, 1 - Math.exp(-dt * 3.5)).normalize();
-    chaseAccel += (Math.max(-1, Math.min(1, S(11) / G)) - chaseAccel) * (1 - Math.exp(-dt * 2));
+    chaseAccel += (Math.max(-1, Math.min(1, ax / G)) - chaseAccel) * (1 - Math.exp(-dt * 2));
     const far = settings.cam === 1;
-    const dist = (far ? 12 : 6.2) + 0.4 * chaseAccel, h = far ? 4.5 : 2.1;
+    const bike = isBike();
+    const dist = (far ? (bike ? 8 : 12) : bike ? 4.2 : 6.2) + 0.4 * chaseAccel, h = far ? (bike ? 3.2 : 4.5) : bike ? 1.7 : 2.1;
     want = carPos.clone().addScaledVector(chaseDir, -dist); want.y = carPos.y + h;
     look = carPos.clone().addScaledVector(chaseDir, far ? 6 : 4); look.y = carPos.y + (far ? 0 : 0.7);
     // smooth only vertical motion (bumps), keep the horizontal follow rigid
@@ -921,6 +1039,57 @@ function updateCamera(dt, carPos, carQuat, vel) {
   camInit = false;
   camera.position.copy(camPos); camera.lookAt(camLook);
 }
+
+// ---------- Crash dummies: settings and the crash report ----------
+function applyDummies() {
+  dummies.visible = settings.dummies && !isBike();
+  dummies.setBelted(settings.belted);
+  for (const [id, on] of [['bDummies', settings.dummies], ['bBelt', settings.belted], ['bAirbag', settings.airbags], ['bXray', settings.xray]]) $(id).setAttribute('aria-pressed', on);
+}
+function setOccupants() { M._ord_set_occupants(settings.belted ? 1 : 0, settings.airbags ? 1 : 0, settings.airbags ? 1 : 0); applyDummies(); }
+$('bDummies').onclick = (e) => { settings.dummies = !settings.dummies; store.set('dummies', settings.dummies); applyDummies(); e.currentTarget.blur(); };
+$('bBelt').onclick = (e) => { settings.belted = !settings.belted; store.set('belted', settings.belted); setOccupants(); toast(settings.belted ? 'Dummies belted' : 'Dummies unbelted: only the airbags (and the dash) stop them'); e.currentTarget.blur(); };
+$('bAirbag').onclick = (e) => { settings.airbags = !settings.airbags; store.set('airbags', settings.airbags); setOccupants(); toast(settings.airbags ? 'Front and curtain airbags on' : 'Airbags off'); e.currentTarget.blur(); };
+$('bXray').onclick = (e) => { settings.xray = !settings.xray; store.set('xray', settings.xray); applySeeThrough(); applyDummies(); e.currentTarget.blur(); };
+const ZONE_NAMES = ['', 'frontal', 'rear', 'left side', 'right side'];
+const VERDICTS = ['walks away', 'bruised', 'injured', 'seriously injured', 'critical'];
+const VERDICT_CSS = ['#2fbf71', '#9bd14b', '#f0c419', '#ff8a2a', '#e5383b'];
+const crashSeen = [0, 0, 0];
+let crashHide = 0;
+const occState = (seat) => { const p = M._ord_occupant_state(seat) / 8; return Array.from(M.HEAPF64.subarray(p, p + 24)); };
+function seatHtml(name, r) {
+  const v = r[15], pct = (x) => (x < 0.001 ? '<0.1' : (100 * x).toFixed(x < 0.1 ? 1 : 0));
+  return `<div class="seat"><b>${name}</b> · <span class="v" style="color:${VERDICT_CSS[v] || '#fff'}">${VERDICTS[v] || '—'}</span><br>` +
+    `<small>chest</small> ${r[6].toFixed(0)} g <small>(3 ms)</small> · <small>head</small> ${r[5].toFixed(0)} g · <small>HIC15</small> ${r[7].toFixed(0)}<br>` +
+    `<small>life-threatening injury risk</small> <b>${pct(r[13])}%</b> · <small>serious head</small> ${pct(r[12])}%` +
+    (r[11] ? ' · <b>hit the ' + (r[1] >= 3 ? 'door' : 'wheel/dash') + '</b>' : '') + (r[10] > 0.02 ? ` · intrusion ${(100 * r[10]).toFixed(0)} cm` : '') + '</div>';
+}
+function updateCrash(now) {
+  // dummies follow the occupant model
+  if (!isBike()) for (const seat of [0, 1]) { const o = occState(seat); dummies.update(seat, o[0], o[1], o[2], o[3], o[22]); }
+  const seats = isBike() ? [2] : [0, 1];
+  for (const seat of seats) {
+    const o = occState(seat);
+    if (o[6] <= crashSeen[seat]) continue;
+    crashSeen[seat] = o[6];
+    const r = o.slice(7, 23);
+    if (seat === 1) continue; // shown together with the driver
+    let html;
+    if (seat === 2) {
+      html = `<h3>Rider down</h3><small>impact speed change</small> <b>${(r[2] * 3.6).toFixed(0)} km/h</b>` + seatHtml(settings.car === 6 ? 'Cyclist (no helmet)' : 'Rider (helmet)', r);
+    } else {
+      const p = occState(1).slice(7, 23);
+      crashSeen[1] = occState(1)[6];
+      html = `<h3>Crash · ${ZONE_NAMES[r[1]] || 'impact'}</h3><small>speed change (delta-V)</small> <b>${(r[2] * 3.6).toFixed(0)} km/h</b> · <small>car pulse peak</small> ${r[3].toFixed(0)} g` +
+        seatHtml('Driver', r) + seatHtml('Passenger', p) +
+        `<div class="seat"><small>delta-V fatality statistic (Joksch 1993): ${(100 * r[14]).toFixed(r[14] < 0.1 ? 1 : 0)}%. ${settings.belted ? 'Belted' : 'Unbelted'}, airbags ${settings.airbags ? 'on' : 'off'}.</small></div>`;
+    }
+    $('crash').innerHTML = html; $('crash').classList.add('on'); crashHide = now + 12000;
+    lastCrash = { dv: r[2], verdict: r[15] };
+  }
+  if (crashHide && now > crashHide) { $('crash').classList.remove('on'); crashHide = 0; }
+}
+let lastCrash = null;
 
 // ---------- Analog tachometer ----------
 // 240° sweep, numbered every 1000 rpm, red zone from 92 % of the limiter; scale follows the selected car.
@@ -977,8 +1146,17 @@ gg.innerHTML = `<circle r="40" fill="none" stroke="rgba(255,255,255,.25)"/><circ
 const trail = [];
 let odo = 0, lastImpact = 0;
 const timers = { vmax: 0, t0: null, best0100: null, last0100: null, brakeStart: null, last1000: null, maxLat: 0, slalomStart: null, slalomLast: null, conesHit: 0 };
-function resetTimers() { odo = 0; lastImpact = 0; Object.assign(timers, { vmax: 0, t0: null, last0100: null, brakeStart: null, last1000: null, maxLat: 0, slalomStart: null, slalomLast: null, conesHit: 0 }); trail.length = 0; }
+function resetTimers() { Object.assign(bikeT, { maxLean: 0, wheelie: 0, wheelieDist: 0, lastWheelie: 0, prevV: 0, ax: 0 }); odo = 0; lastImpact = 0; Object.assign(timers, { vmax: 0, t0: null, last0100: null, brakeStart: null, last1000: null, maxLat: 0, slalomStart: null, slalomLast: null, conesHit: 0 }); trail.length = 0; }
 let latF = 0, lonF = 0;
+const gripF = [0, 0, 0, 0];
+function gripBar(e, load, grip, locked, contact) {
+  const i = wheelEls.indexOf(e);
+  gripF[i] += (grip - gripF[i]) * 0.35; // light smoothing so it reads, not flickers
+  e.v.textContent = `${(load / 1000).toFixed(1)}kN`;
+  e.bar.style.width = Math.min(100, gripF[i] * 100) + '%';
+  e.bar.style.background = locked ? 'var(--bad)' : gripF[i] > 0.95 ? 'var(--bad)' : gripF[i] > 0.8 ? 'var(--warn)' : 'var(--good)';
+  e.el.style.opacity = contact ? 1 : 0.4;
+}
 
 function updateHud(dt, inp) {
   const kmh = S(7) * 3.6;
@@ -987,20 +1165,17 @@ function updateHud(dt, inp) {
   $('hGear').textContent = gear === -1 ? 'R' : gear === 0 ? 'N' : String(gear);
   updateTach(dt, S(14));
   {
-    const inp01 = Math.max(-1, Math.min(1, S(27))), ang01 = Math.max(-1, Math.min(1, S(16) / (MAXSTEER[settings.car] || 0.55)));
+    const inp01 = Math.max(-1, Math.min(1, S(27))), ang01 = Math.max(-1, Math.min(1, S(16) / (settings.lock ? 0.9 : MAXSTEER[settings.car] || 0.55)));
     $('hSteerIn').style.left = (50 - inp01 * 50) + '%';   // + = left in ISO; drawn left of centre
     const b = $('hSteerOut'); b.style.width = Math.abs(ang01) * 50 + '%'; b.style.left = ang01 > 0 ? (50 - ang01 * 50) + '%' : '50%';
   }
   let abs = false, esc = false;
   for (let w = 0; w < 4; ++w) {
     abs ||= W(w, 13) > 0; esc ||= W(w, 14) > 1;
-    const load = W(w, 6), kappa = W(w, 7), alpha = W(w, 8);
-    const slip = Math.max(Math.abs(kappa) / 0.12, Math.abs(alpha) / 0.12); // 1 ≈ near the tyre's peak
-    const e = wheelEls[w];
-    e.v.textContent = `${(load / 1000).toFixed(1)}kN`;
-    e.bar.style.width = Math.min(100, slip * 70) + '%';
-    e.bar.style.background = W(w, 12) > 0 ? 'var(--bad)' : slip > 1.15 ? 'var(--warn)' : 'var(--good)';
-    e.el.style.opacity = W(w, 11) > 0 ? 1 : 0.4;
+    // Grip used = tyre force / what the tyre can give at this load (friction circle):
+    // the bar is how close the tyre is to letting go; past ~95% it is at the limit.
+    const load = W(w, 6), grip = Math.min(1.2, W(w, 16));
+    gripBar(wheelEls[w], load, grip, W(w, 12) > 0, W(w, 11) > 0);
   }
   $('iAbs').classList.toggle('act', abs);
   $('iTcs').classList.toggle('act', S(18) > 0.02);
@@ -1044,6 +1219,59 @@ function updateHud(dt, inp) {
     (CITY ? `<span>Last impact</span> <b>${lastImpact ? fmt(lastImpact * 3.6, 0) + ' km/h' : '—'}</b><br>`
       : `<span>Slalom</span> <b>${timers.slalomLast ? fmt(timers.slalomLast.time) + ' s' : '—'}</b>${timers.slalomLast ? ` <span>${timers.slalomLast.cones} cones</span>` : ''}<br>`) +
     `<span>Sideslip</span> <b>${fmt((S(10) * 180) / Math.PI, 1)}°</b>`;
+}
+
+// ---------- Two-wheeler HUD ----------
+const bikeT = { maxLean: 0, wheelie: 0, wheelieDist: 0, bestWheelie: store.get('bestWheelie', 0), lastWheelie: 0, crashes: 0, prevV: 0, ax: 0 };
+function updateBikeHud(dt, inp) {
+  const v = B(3), kmh = v * 3.6, lean = B(4), pitch = B(6), kind = settings.car - 6;
+  $('hSpeed').firstChild.nodeValue = Math.abs(Math.round(kmh)).toString();
+  $('hGear').textContent = `${Math.abs(Math.round((lean * 180) / Math.PI))}°`;
+  $('hGear').title = 'Lean angle';
+  {
+    const inp01 = Math.max(-1, Math.min(1, B(30))), ang01 = Math.max(-1, Math.min(1, -B(5) / BIKE_LOCK[kind]));
+    $('hSteerIn').style.left = (50 - inp01 * 50) + '%';
+    const b = $('hSteerOut'); b.style.width = Math.abs(ang01) * 50 + '%'; b.style.left = ang01 > 0 ? (50 - ang01 * 50) + '%' : '50%';
+  }
+  // two wheels: F and R grip used (friction circle incl. camber thrust)
+  wheelEls[0].el.querySelector('span').textContent = 'F'; wheelEls[1].el.querySelector('span').textContent = 'R';
+  gripBar(wheelEls[0], B(19), Math.min(1.2, B(17)), false, B(19) > 1);
+  gripBar(wheelEls[1], B(18), Math.min(1.2, B(16)), false, B(18) > 1);
+  $('iAbs').classList.toggle('act', B(13) > 0); $('iTcs').classList.toggle('act', B(14) > 0);
+  $('iEsc').classList.toggle('act', Math.abs(B(12)) > 2); $('iDrift').classList.toggle('act', B(15) > 0);
+  // g-g from the turn (v * yaw rate) and the speed change
+  bikeT.ax += ((v - bikeT.prevV) / Math.max(dt, 1e-3) - bikeT.ax) * (1 - Math.exp(-dt * 6)); bikeT.prevV = v;
+  const lat = Math.max(-2, Math.min(2, Math.tan(Math.min(1.2, Math.abs(lean))) * Math.sign(-lean))); // balanced turn: a_y / g = tan(lean)
+  const k = 1 - Math.exp(-dt * 12);
+  latF += (lat - latF) * k; lonF += (Math.max(-2, Math.min(2, bikeT.ax / G)) - lonF) * k;
+  if (!Number.isFinite(latF) || !Number.isFinite(lonF)) latF = lonF = 0;
+  const px = -latF * 40, py = -lonF * 40;
+  $('ggDot').setAttribute('cx', px.toFixed(1)); $('ggDot').setAttribute('cy', py.toFixed(1));
+  trail.push(`${px.toFixed(1)},${py.toFixed(1)}`); if (trail.length > 90) trail.shift();
+  $('ggTrail').setAttribute('points', trail.join(' '));
+  // timers: 0-100, top speed, lean, wheelies
+  const t = B(2);
+  if (Math.abs(v) < 0.3 && inp.throttle > 0.05 && timers.t0 === null) timers.t0 = t;
+  if (timers.t0 !== null && inp.brake > 0.1) timers.t0 = null;
+  if (timers.t0 !== null && v >= 100 / 3.6) { timers.last0100 = t - timers.t0; timers.best0100 = Math.min(timers.best0100 ?? Infinity, timers.last0100); timers.t0 = null; }
+  timers.vmax = Math.max(timers.vmax, kmh);
+  if (Math.abs(v) > 3) bikeT.maxLean = Math.max(bikeT.maxLean, Math.abs(lean));
+  if (B(19) < 1 && pitch > 0.03 && !B(1)) { bikeT.wheelie += dt; bikeT.wheelieDist += Math.abs(v) * dt; }
+  else if (bikeT.wheelie > 0) {
+    if (bikeT.wheelie > 0.5) { bikeT.lastWheelie = bikeT.wheelieDist; if (bikeT.wheelieDist > bikeT.bestWheelie) { bikeT.bestWheelie = bikeT.wheelieDist; store.set('bestWheelie', bikeT.bestWheelie); } }
+    bikeT.wheelie = 0; bikeT.wheelieDist = 0;
+  }
+  odo += Math.abs(v) * dt;
+  const fmt = (n, d = 2) => (n == null ? '—' : n.toFixed(d));
+  const deg = (r) => ((r * 180) / Math.PI).toFixed(0) + '°';
+  $('hTimers').innerHTML =
+    `<span>${BIKE_NAMES[kind]}</span> <b>${settings.barTorque ? 'bar-torque steering' : 'lean steering'}</b><br>` +
+    `<span>0–100 km/h</span> <b>${fmt(timers.last0100)} s</b>${timers.best0100 ? ` <span>best ${fmt(timers.best0100)}</span>` : ''}<br>` +
+    `<span>Top speed</span> <b>${fmt(timers.vmax, 0)} km/h</b> <span>${(odo / 1000).toFixed(2)} km</span><br>` +
+    `<span>Lean</span> <b>${deg(Math.abs(lean))}</b> <span>max ${deg(bikeT.maxLean)} · asked ${deg(Math.abs(B(7)))}</span><br>` +
+    `<span>Wheelie</span> <b>${bikeT.wheelie > 0 ? fmt(bikeT.wheelieDist, 0) + ' m' : bikeT.lastWheelie ? fmt(bikeT.lastWheelie, 0) + ' m' : '—'}</b>${bikeT.bestWheelie ? ` <span>best ${fmt(bikeT.bestWheelie, 0)} m</span>` : ''}<br>` +
+    `<span>Bar torque</span> <b>${fmt(B(8), 0)} N·m</b> <span>pitch ${deg(pitch)}</span>` +
+    (bikeT.crashes ? `<br><span>Crashes</span> <b>${bikeT.crashes}</b>` : '');
 }
 
 // zone banner
@@ -1290,6 +1518,7 @@ const audio = new CarAudio();
 window.__spwAudio = audio; // for debugging in the console
 window.__spwState = () => ({ pos: [S(0), S(1), S(2)], v: S(7), rpm: S(14), gear: S(15), thr: S(17), tcs: S(18), contact: [0, 1, 2, 3].map((w) => W(w, 11)), impact: S(31) });
 window.__spwPlace = (x, y = 0, yaw = 0) => placeAt({ x, y, yaw });
+window.__spwBike = () => ({ t: B(2), frames: window.__frames, kind: B(0), fallen: B(1), v: B(3), lean: B(4), steer: B(5), pitch: B(6), target: B(7), torque: B(8), yaw: B(22), pos: [B(23), B(24), B(25)], grip: [B(16), B(17)] });
 audio.enabled = store.get('sound', true); audio.volume = store.get('volume', 0.8);
 async function unlockAudio() {
   try { await audio.start(); audio.setEnabled(audio.enabled); } catch (e) { console.warn('audio unavailable', e); }
@@ -1340,9 +1569,64 @@ if (savedModel) {
 $('loading').remove();
 let last = performance.now();
 const qIso = new THREE.Quaternion();
+const _bp = new THREE.Vector3(), _bq = new THREE.Quaternion(), _bv = new THREE.Vector3(), _eye = new THREE.Vector3();
+const _yAxis = new THREE.Vector3(0, 1, 0), _zAxis = new THREE.Vector3(0, 0, 1);
+const motoGears = [0, 12, 19, 26, 33, 40, 200]; // m/s: a pseudo 6-speed box, only for the engine sound
+function frameBike(dt, now) {
+  const inp = readInput(dt, 1, B(3));
+  // Brake key: both brakes (front harder, like a rider); handbrake key: rear brake only.
+  M._ord_bike_set_input(inp.steer, inp.throttle, inp.brake, Math.max(0.6 * inp.brake, inp.hand));
+  M._ord_bike_advance(dt);
+  bikeView.update(B);
+  if (B(1) && !crashT) {
+    crashT = now; bikeT.crashes++;
+    toast(B(29) > 0 ? 'Crashed into something! Back on in 2 s' : Math.abs(B(6)) > 1 ? (B(6) > 0 ? 'Looped it! Back on in 2 s' : 'Over the bars! Back on in 2 s') : 'Down! Back on in 2 s · R resets');
+    try { audio.impact(Math.min(1, Math.max(0.4, Math.abs(B(3)) / 10))); } catch { /* audio not ready */ }
+  }
+  if (crashT && now - crashT > 2000) {
+    const yaw = B(22);
+    createBike({ x: B(23) - Math.cos(yaw) * 1.5, y: B(24) - Math.sin(yaw) * 1.5, yaw }); // back on, upright, where it went down
+  }
+  const yaw = B(22), v = B(3);
+  bikeView.framePos(_bp);
+  _bq.setFromAxisAngle(_yAxis, yaw);
+  _bv.set(Math.cos(yaw) * v, 0, -Math.sin(yaw) * v);
+  if (settings.cam === 2) {
+    // helmet camera: the rider's eye, leaning with the bike (half the lean, as a head would)
+    bikeView.eye(_eye);
+    camera.position.copy(_eye);
+    camera.quaternion.copy(_bq).multiply(new THREE.Quaternion().setFromAxisAngle(_yAxis, -Math.PI / 2));
+    camera.rotateZ(-0.5 * B(4));
+    camera.rotateX(-0.06 + Math.max(-0.4, Math.min(0.4, B(6))));
+    if (camera.fov !== 60) { camera.fov = 60; camera.updateProjectionMatrix(); }
+    camInit = true;
+  } else {
+    updateCamera(dt, _bp, _bq, _bv, v, bikeT.ax);
+    // chase cameras roll a little with the bike, so a lean reads as a lean
+    if (settings.cam === 0 || settings.cam === 1 || settings.cam === 5) camera.rotateZ(-0.3 * B(4));
+  }
+  sun.position.copy(_bp).addScaledVector(SUN_DIR, 80); sun.target.position.copy(_bp);
+  updateCones(dt, { x: B(23), y: B(24) }, { x: _bv.x, y: -_bv.z });
+  updateBikeHud(dt, inp);
+  updateCrash(now);
+  try {
+    if (settings.car === 8) {
+      let g = 1; while (g < 6 && v > motoGears[g]) ++g;
+      const lo = motoGears[g - 1], hi = Math.min(motoGears[g], 75);
+      const rpm = 2200 + 9800 * Math.max(0, Math.min(1, (v - lo) / Math.max(1, hi - lo)));
+      audio.update({ dt, rpm, load: inp.throttle, limiter: 12500, gear: g, speed: v, tyre: { squeal: 0, scrub: 0, pitch: 0 }, interior: false });
+    } else {
+      audio.update({ dt, rpm: 0, load: 0, limiter: 12500, gear: 0, speed: v, tyre: { squeal: 0, scrub: 0, pitch: 0 }, interior: false, engineOn: false });
+    }
+  } catch (e) { console.warn('audio update', e); }
+  const z = zoneAt(B(23), B(24));
+  if (z !== currentZone) { currentZone = z; $('zone').textContent = z; $('zone').classList.toggle('on', !!z); }
+}
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   adaptRes(dt);
+  window.__frames = (window.__frames || 0) + 1;
+  if (isBike()) { frameBike(dt, now); renderer.render(scene, camera); requestAnimationFrame(frame); return; }
   const inp = readInput(dt, S(15), S(7));
   M._ord_set_input(inp.steer, inp.throttle, inp.brake, inp.hand, inp.shiftUp ? 1 : 0, inp.shiftDown ? 1 : 0);
   M._ord_advance(dt);
@@ -1367,6 +1651,7 @@ function frame(now) {
   sun.position.copy(carRoot.position).addScaledVector(SUN_DIR, 80); sun.target.position.copy(carRoot.position);
   updateCones(dt, { x: S(0), y: S(1) }, { x: worldVel.x, y: -worldVel.z });
   updateHud(dt, inp);
+  updateCrash(now);
   updateLights(S(15) === -1 ? 0 : inp.brake);
   updateSkids();
   updateDrift(dt);

@@ -84,6 +84,12 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #drift small{display:block;font:600 12px var(--mono);color:#dfe6ef;margin-top:4px;letter-spacing:.06em}
 #drift.bank b{color:var(--good)}#drift.fail b{color:var(--bad)}
 @media (max-width:640px){#drift b{font-size:34px}#drift i{font-size:18px}}
+#crash{position:fixed;left:12px;top:72px;width:min(330px,calc(100% - 24px));font:500 12px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;z-index:2;opacity:0;transition:opacity .3s;pointer-events:none}
+#crash.on{opacity:1}
+#crash h3{margin:0 0 4px;font:800 14px var(--body);letter-spacing:.04em;text-transform:uppercase}
+#crash .seat{margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+#crash .v{font-weight:800}
+#crash small{color:var(--mute)}
 #toast{position:fixed;left:50%;top:50px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:3;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
 #toast.on{opacity:1}
 #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:5;background:var(--bg)}
@@ -153,6 +159,11 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <option value="2">Saloon AWD · 1600 kg</option>
       <option value="3">Hypercar AWD · ~476 km/h</option>
       <option value="4">Race car · high downforce</option>
+      <optgroup label="Two-wheelers (new)">
+        <option value="6">Bicycle · benchmark geometry · pedalling 350 W</option>
+        <option value="7">E-scooter · 500 W hub motor · 25 km/h</option>
+        <option value="8">Motorcycle · sport · 80 kW</option>
+      </optgroup>
     </select>
   </div>
   <div class="row" style="margin-top:8px">
@@ -186,6 +197,26 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   </div>
   <p class="note"><b>Drifting:</b> pick Drift (<kbd>4</kbd>). Throw the car sideways (handbrake, or lift and turn), keep the throttle in, then steer where you want to go: hold the steering into the corner to keep drifting (more steering, more angle and a tighter line) and let go once the car points down the road to straighten out. The drift assist countersteers for you and only ever trims power. Donuts and burnouts: TCS off (<kbd>T</kbd>) or Simulation (<kbd>3</kbd>).</p>
 
+  <h2>Drift setup</h2>
+  <div class="row">
+    <button id="bLock" aria-pressed="false" title="More steering lock: catch bigger drift angles">Drift steering lock (52°)</button>
+    <button id="bDiff" aria-pressed="false" title="Rear differential: stock, open, locked, tight LSD">Rear diff: stock</button>
+  </div>
+  <p class="note">Garage settings, not aids: the same physics with more steering lock (an angle kit; stock cars have ~32°, so drifts past ~35° can't be caught) and a different rear differential. A locked or tight LSD keeps both rear wheels spinning together, which holds a drift on the throttle but pushes on corner entry. Best with Simulation (<kbd>3</kbd>) or Drift (<kbd>4</kbd>), mouse steering and the Drift camera (<kbd>C</kbd>).</p>
+
+  <h2>Crash dummies</h2>
+  <div class="row">
+    <button id="bDummies" aria-pressed="true" title="Two crash test dummies in the front seats">Dummies</button>
+    <button id="bBelt" aria-pressed="true">Seat belts</button>
+    <button id="bAirbag" aria-pressed="true">Airbags</button>
+    <button id="bXray" aria-pressed="false" title="See-through body">See-through</button>
+  </div>
+  <p class="note">Speed doesn't hurt; suddenly stopping does. Each hit's speed change becomes the crash pulse a crumple zone would give (front ~0.9 m of crush, sides ~0.3 m), and each dummy (torso + head on a neck, belt, airbags, door, wheel and dash) rides it out. The report gives chest g (3 ms), the Head Injury Criterion (HIC15) and the risk of life-threatening injury from NHTSA's published risk curves, plus a delta-V fatality statistic (Joksch). A game estimate that ranks crashes sensibly, not a validated crash test. Try the <b>Crash barrier</b> on the test track (Go to), belted and unbelted.</p>
+
+  <h2>Two-wheelers</h2>
+  <div class="row"><button id="bBar" aria-pressed="false" title="L">Bar-torque steering</button></div>
+  <p class="note">Pick the bicycle, e-scooter or motorcycle above. By default the steer input asks for a <b>lean angle</b> and the virtual rider finds the handlebar torque, counter-steer included: to go left at speed the bars first turn right, watch the steering bar. <b>Bar-torque steering</b> (<kbd>L</kbd>) gives you the handlebar directly: push left to lean right. Hard, real, best with mouse steering. Brake = both brakes, handbrake (<kbd>Space</kbd>) = rear brake only. Presets: Fun = ABS, traction and wheelie control; Sport = ABS; Simulation = nothing; <kbd>4</kbd> = wheelie assist (hold the throttle, the front stays up). Full throttle on the motorcycle without it loops the bike. The tyres lean (camber thrust, rounded crown); there's no suspension or gearbox yet, and a crash stops the ride for 2 s.</p>
+
   <h2>World</h2>
   <div class="row"><button id="wCity">São Paulo · MASP</button><button id="wTrack">Test track</button></div>
 
@@ -214,10 +245,11 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <span><kbd>R</kbd> · <kbd>C</kbd> · <kbd>H</kbd></span><span>Reset · camera · panel</span>
     <span><kbd>M</kbd></span><span>Sound on / off</span>
     <span><kbd>K</kbd> · <kbd>Z</kbd></span><span>Mouse steering on / off · centre the wheel</span>
+    <span><kbd>L</kbd></span><span>Two-wheelers: lean steering / bar-torque steering</span>
     <span>Mouse</span><span>Drag the view to orbit the car (free camera), scroll to zoom</span>
     <span>Gamepad</span><span>Left stick steer, RT gas, LT brake, A handbrake, RB/LB shift, Y reset, View camera</span>
   </div>
-  <p class="note">Physics: the OpenRoad Dynamics core (the same C++ the game will use) compiled to WebAssembly, stepping at 360 Hz. Tire, suspension, drivetrain and aids are fully simulated; the car models here are fictional reference cars. This page doesn't run Unreal Engine or Chaos.</p>
+  <p class="note">Physics: the OpenRoad Dynamics core (the same C++ the game will use) compiled to WebAssembly, stepping at 360 Hz (two-wheelers at 500 Hz). Tire, suspension, drivetrain and aids are fully simulated; the car models here are fictional reference cars. This page doesn't run Unreal Engine or Chaos.</p>
 </aside>
 
 <div id="hud">
@@ -231,7 +263,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <div class="steerbar" title="Steering: input (white) and road-wheel angle (yellow)"><b id="hSteerOut"></b><i id="hSteerIn"></i></div>
     <div class="aids"><span id="iAbs">ABS</span><span id="iTcs">TCS</span><span id="iEsc">ESC</span><span id="iCs">CS</span><span id="iDrift">DRIFT</span></div>
   </div>
-  <div class="panel wheels" id="hWheels" aria-label="Per-wheel load and slip"></div>
+  <div class="panel wheels" id="hWheels" aria-label="Per-wheel load and grip used" title="Per wheel: load and grip used (tyre force / available friction). Red = at the limit."></div>
   <div class="panel"><svg class="gg" id="gg" viewBox="-50 -50 100 100" aria-label="g-g diagram"></svg></div>
   <div class="panel timers" id="hTimers"></div>
 </div>
@@ -239,6 +271,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 <div id="zone"></div>
 <div id="drift" aria-hidden="true"><b><span id="dScore">0</span><i id="dMult">×1</i></b><small id="dInfo"></small></div>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="crash" aria-live="polite"></div>
 <div id="drop">Drop the .glb to drive it</div>
 
 <div id="touch" aria-hidden="true">
