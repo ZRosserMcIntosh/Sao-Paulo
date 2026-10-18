@@ -880,14 +880,16 @@ function frame() {
     acGroup.updateMatrixWorld(true);
     const wk = A.wake();
     wk.seg = wk.seg.slice();  // a copy: later calls may move the module's memory
+    const bd = A.bodies();
+    bd.b = bd.b.slice(0, bd.n * 10);
     const fl = A.flow();
     const fdt = ui.paused ? 0 : dt;
     const fr = flow.update(fl, fdt, { ...P, span: def.reference.span_m },
-      { light: ui.flow === 2, windGrid: A.windGrid, wake: wk, inv: invM.copy(acGroup.matrixWorld).invert(), lines: ui.flow !== 3, ground: groundPlane(wk.ground) });
+      { light: ui.flow === 2, windGrid: A.windGrid, wake: wk, bodies: bd, inv: invM.copy(acGroup.matrixWorld).invert(), lines: ui.flow !== 3, ground: groundPlane(wk.ground) });
     // Smoke runs on the simulation's clock (it may run behind the wall clock).
     const sdt = Math.min(Math.max(s[42] - smokeT, 0), 0.25);
     smokeT = s[42];
-    if (ui.flow === 3) smoke.update(fl, sdt, acGroup, wk, A.windBox, s, { camera, turbulence: +$('turb').value + [0, 0.8, 1.6, 3.2][+$('turbClass').value || 0] });
+    if (ui.flow === 3) smoke.update(fl, sdt, acGroup, wk, A.windBox, s, { camera, bodies: bd, turbulence: +$('turb').value + [0, 0.8, 1.6, 3.2][+$('turbClass').value || 0] });
     $('flowStall').textContent = fr.stalled ? `${fr.stalled} strip${fr.stalled > 1 ? 's' : ''} stalled` : 'no stalled strips';
   }
   acGroup.updateMatrixWorld(true);

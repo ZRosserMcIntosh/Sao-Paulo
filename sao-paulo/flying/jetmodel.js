@@ -121,6 +121,9 @@ export function buildJet(def) {
   const wing = def.surfaces[0], wingT = wing.thickness_ratio || 0.11;
   const controls = { flaps: [], ailerons: [], elevator: [], rudder: null, spoilers: [] };
   let tipLe = null, tipChord = 1.6;
+  // A steeply canted panel in the data is a winglet (drawn in the livery's navy).
+  const isWinglet = (p) => (p.dihedral_deg || 0) > 45;
+  const dataWinglets = wing.panels.some(isWinglet);
   for (const p of wing.panels) {
     const qc = flu(p.root_quarter_chord_m);
     const dih = (p.dihedral_deg || 0) * DEG, sw = (p.sweep_deg || 0) * DEG;
@@ -131,8 +134,8 @@ export function buildJet(def) {
       const le0 = root0.clone().add(new THREE.Vector3(0.25 * c0, 0, 0));
       const le1 = tipQc.clone().add(new THREE.Vector3(0.25 * c1, 0, 0));
       const up = new THREE.Vector3(0, side * Math.sin(dih), Math.cos(dih));
-      add(new THREE.Mesh(panelGeometry(le0, c0 * 0.67, le1, c1 * 0.67, wingT / 0.67, up), wingMat));
-      if (side === 1) { tipLe = le1.clone(); tipChord = c1; }
+      add(new THREE.Mesh(panelGeometry(le0, c0 * 0.67, le1, c1 * 0.67, wingT / 0.67, up), isWinglet(p) ? navy : wingMat));
+      if (side === 1 && !isWinglet(p)) { tipLe = le1.clone(); tipChord = c1; }
       const lerp = (u, w, t) => u.clone().lerp(w, t);
       for (const ctl of p.controls || []) {
         const f = ctl.chord_fraction || 0.25, a = ctl.span_start ?? 0, b = ctl.span_end ?? 1;
@@ -161,8 +164,8 @@ export function buildJet(def) {
       }
     }
   }
-  // Blended winglets, canted outboard.
-  for (const y of [Math.abs(tipLe.y), -Math.abs(tipLe.y)]) {
+  // Blended winglets, canted outboard (when the data has none of its own).
+  for (const y of dataWinglets ? [] : [Math.abs(tipLe.y), -Math.abs(tipLe.y)]) {
     const out = Math.sign(y), h = 1.55, cant = 14 * DEG;
     const le = new THREE.Vector3(tipLe.x, y, tipLe.z);
     const le1 = le.clone().add(new THREE.Vector3(-h * Math.tan(38 * DEG), out * h * Math.sin(cant), h * Math.cos(cant)));

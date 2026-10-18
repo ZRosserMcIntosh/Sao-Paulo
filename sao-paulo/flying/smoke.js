@@ -13,7 +13,10 @@
 //   - the wind (avd_wind_box): the core's weather sampled on a grid around
 //     the aircraft (shear, turbulence, thermals, microbursts), with a small
 //     divergence-free (ABC-flow) stir below the grid scale;
-//   - the propeller slipstream and jet exhaust (momentum theory, avd_flow).
+//   - the propeller slipstream and jet exhaust (momentum theory, avd_flow);
+//   - the wakes of the extended gear and raised spoilers (avd_bodies): the
+//     air each drags along, carrying exactly its drag, and the Karman street
+//     it sheds (St 0.2). Smoke from the wheels shows them.
 //
 // So the trailing-edge sheet visibly winds itself into the tip vortices, the
 // pair drifts down and away with the wind, a gust tears the trails, and a
@@ -23,8 +26,9 @@
 // render targets; without them, smoke reports itself unavailable.
 import * as THREE from 'three';
 
-const STRIDE = 16;
+const STRIDE = 18;
 const MAX_EMIT = 32;
+const MAX_BODY = 16;
 
 const SIM_VERT = /* glsl */ `
 out vec2 vUv;
@@ -58,6 +62,11 @@ uniform vec4 uJetP[4];       // nozzle / disc centre, radius
 uniform vec4 uJetA[4];       // axis (thrust direction), velocity increment
 uniform float uJetK[4];      // 1 jet, 0 propeller
 uniform int uNJet;
+uniform vec4 uBodyP[${MAX_BODY}];  // centre, diameter
+uniform vec4 uBodyA[${MAX_BODY}];  // axis square to the flight path, half length
+uniform vec4 uBodyN[${MAX_BODY}];  // lateral (across axis and path), drag area per length
+uniform int uNBody;
+uniform vec4 uFlight;        // direction of flight through the air, airspeed
 uniform float uNoise;
 uniform float uGround;
 uniform bool uClear;
@@ -110,6 +119,27 @@ vec3 velocity(vec3 p) {
     float decay = uJetK[j] > 0.5 ? (R0 / R) * (R0 / R) : exp(-along / (40.0 * R0));
     float prof = max(0.0, 1.0 - pow(r / (1.3 * R), 4.0));
     v -= ax * (uJetA[j].w * decay * prof);
+  }
+  for (int b = 0; b < uNBody; ++b) {
+    // In the air's frame the wake is air dragged along behind the body: a
+    // Gaussian of half width d/2 (1 + 0.4 sqrt(x/d)) whose momentum is the
+    // body's drag, and the Karman street's lateral velocity convecting at
+    // 0.85 U relative to the body.
+    vec3 d = p - uBodyP[b].xyz;
+    float D = uBodyP[b].w, U = uFlight.w;
+    float xd = -dot(d, uFlight.xyz);
+    if (xd < -0.3 * D || xd > 80.0 * D) continue;
+    float xs = max(xd, 0.0);
+    float sg = 0.5 * D * (1.0 + 0.4 * sqrt(xs / D));
+    float over = max(0.0, abs(dot(d, uBodyA[b].xyz)) - uBodyA[b].w);
+    float eta = dot(d, uBodyN[b].xyz);
+    float g = exp(-(eta * eta + over * over) / (2.0 * sg * sg));
+    float ramp = clamp((xd + 0.3 * D) / (0.6 * D), 0.0, 1.0);
+    float umax = min(0.8, uBodyN[b].w / (5.0132565 * sg)) * U;
+    v += uFlight.xyz * (umax * g * ramp);
+    float k = 6.2831853 * 0.2 / (0.85 * D);
+    float fade = exp(-xs / (40.0 * D)) * min(1.0, xs / D);
+    v += uBodyN[b].xyz * (0.35 * umax * fade * g * sin(k * (xs - 0.85 * U * uTime) + float(b) * 1.3));
   }
   v += uNoise * (0.65 * abc(p, 0.9, uTime) + 0.35 * abc(p, 0.16, uTime * 0.5));
   return v;
@@ -210,6 +240,8 @@ export function buildSmoke({ renderer, mobile }) {
   const emitA = Array.from({ length: MAX_EMIT }, () => new THREE.Vector4());
   const emitB = Array.from({ length: MAX_EMIT }, () => new THREE.Vector4());
   const jetP = Array.from({ length: 4 }, () => new THREE.Vector4()), jetA = Array.from({ length: 4 }, () => new THREE.Vector4());
+  const vec4s = (n) => Array.from({ length: n }, () => new THREE.Vector4());
+  const bodyP = vec4s(MAX_BODY), bodyA = vec4s(MAX_BODY), bodyN = vec4s(MAX_BODY);
   const simMat = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3, vertexShader: SIM_VERT, fragmentShader: SIM_FRAG, depthTest: false, depthWrite: false,
     uniforms: {
@@ -220,6 +252,7 @@ export function buildSmoke({ renderer, mobile }) {
       uSpawnStart: { value: 0 }, uSpawnCount: { value: 0 }, uN: { value: N }, uSize: { value: [SX, SY] },
       uEmitA: { value: emitA }, uEmitB: { value: emitB }, uEmitCum: { value: new Array(MAX_EMIT).fill(1) }, uNEmit: { value: 0 },
       uJetP: { value: jetP }, uJetA: { value: jetA }, uJetK: { value: [0, 0, 0, 0] }, uNJet: { value: 0 },
+      uBodyP: { value: bodyP }, uBodyA: { value: bodyA }, uBodyN: { value: bodyN }, uNBody: { value: 0 }, uFlight: { value: new THREE.Vector4() },
       uNoise: { value: 0.15 }, uGround: { value: -1e9 }, uClear: { value: false },
     },
   });
@@ -269,7 +302,7 @@ export function buildSmoke({ renderer, mobile }) {
 
   // f: avd_flow(); acGroup: the aircraft (structural x, -y, -z in its frame);
   // wake: A.wake(); windBox(c, h, nx, ny, nz): A.windBox; s: avd_state;
-  // opts: { light, turbulence (m/s RMS), camera }.
+  // opts: { light, turbulence (m/s RMS), camera, bodies: A.bodies() }.
   function update(f, dt, acGroup, wake, windBoxFn, s, opts = {}) {
     if (!cleared) clear();
     clockT += dt;
@@ -324,6 +357,36 @@ export function buildSmoke({ renderer, mobile }) {
       ++nj;
     }
     simMat.uniforms.uNJet.value = nj;
+    // Bluff bodies: into the world (origin frame), the axis made square to
+    // the flight path. Smoke from each wheel, and from every other spoiler.
+    const qa = acGroup.getWorldQuaternion(new THREE.Quaternion());
+    const tas = f[2], al = f[3], be = f[4];
+    const F = new THREE.Vector3(Math.cos(al) * Math.cos(be), -Math.sin(be), -Math.sin(al) * Math.cos(be)).applyQuaternion(qa);
+    simMat.uniforms.uFlight.value.set(F.x, F.y, F.z, tas);
+    let nb = 0, nsp = 0;
+    const bd = opts.bodies;
+    for (let k = 0; bd && k < bd.n && nb < MAX_BODY && tas > 3; ++k) {
+      const o = k * 10, B = bd.b;
+      if (B[o + 8] <= 0) continue;
+      const a = v.set(B[o + 3], -B[o + 4], -B[o + 5]).applyQuaternion(qa);
+      a.addScaledVector(F, -a.dot(F));
+      const am = a.length();
+      if (am < 0.2) continue;
+      a.divideScalar(am);
+      const len = Math.max(B[o + 7], 0.05) * am;
+      sx(B[o], B[o + 1], B[o + 2], w);
+      bodyP[nb].set(w.x - origin.x, w.y - origin.y, w.z - origin.z, Math.max(B[o + 6], 0.05));
+      bodyA[nb].set(a.x, a.y, a.z, 0.5 * len);
+      const lat = new THREE.Vector3().crossVectors(F, a).normalize();
+      bodyN[nb].set(lat.x, lat.y, lat.z, B[o + 8] / len);
+      ++nb;
+      // The emitter: the wheel (the leg's lower end) or the panel's top edge.
+      const kind = B[o + 9] | 0;
+      if (kind === 1 && nsp++ % 2) continue;
+      const end = kind === 0 ? 0.4 * B[o + 7] : 0;
+      emit.push([[B[o] + B[o + 3] * end, B[o + 1] + B[o + 4] * end, B[o + 2] + B[o + 5] * end], 0.25 * B[o + 6], 1, 0.35]);
+    }
+    simMat.uniforms.uNBody.value = nb;
     const ne = Math.min(emit.length, MAX_EMIT);
     let tot = 0;
     for (let i = 0; i < ne; ++i) tot += emit[i][3];
