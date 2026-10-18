@@ -145,6 +145,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <button id="bFull" title="Full screen" hidden>Full screen</button>
     <button id="bCam" title="Camera (C)">Camera</button>
     <button id="bReset" title="Reset car (R)">Reset</button>
+    <button id="bGarage" title="Tuning garage (U)">Garage</button>
     <button id="bPanel" aria-expanded="true" aria-controls="side" title="Settings and help (H)">Settings</button>
   </div>
 </div>
@@ -204,6 +205,10 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   </div>
   <p class="note">Garage settings, not aids: the same physics with more steering lock (an angle kit; stock cars have ~32°, so drifts past ~35° can't be caught) and a different rear differential. A locked or tight LSD keeps both rear wheels spinning together, which holds a drift on the throttle but pushes on corner entry. Best with Simulation (<kbd>3</kbd>) or Drift (<kbd>4</kbd>), mouse steering and the Drift camera (<kbd>C</kbd>).</p>
 
+  <h2>Garage</h2>
+  <div class="row"><button id="bGarage2" title="U">Open the garage</button></div>
+  <p class="note">A design test bed, not a menu of cheats. Set camber, toe, caster and camber gain; springs, ride height, slow and fast dampers and anti-roll bars per axle; tyre compound (off-road to racing slick, rain) and pressure; brake balance; final drive; splitter, rear body downforce and a rear wing that really stalls; altitude, air temperature and wind. The HUD shows each tyre's tread temperature and camber, plus the downforce and drag. Slicks are slow until they are warm (or use tyre warmers), and too little brake balance spins the car. Setups are saved per car and can be shared as .json files.</p>
+
   <h2>Crash dummies</h2>
   <div class="row">
     <button id="bDummies" aria-pressed="true" title="Two crash test dummies in the front seats">Dummies</button>
@@ -243,6 +248,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></span><span>Fun / Sport / Simulation / Drift</span>
     <span><kbd>X</kbd></span><span>Drift assist on / off (any preset)</span>
     <span><kbd>R</kbd> · <kbd>C</kbd> · <kbd>H</kbd></span><span>Reset · camera · panel</span>
+    <span><kbd>U</kbd></span><span>Tuning garage</span>
     <span><kbd>M</kbd></span><span>Sound on / off</span>
     <span><kbd>K</kbd> · <kbd>Z</kbd></span><span>Mouse steering on / off · centre the wheel</span>
     <span><kbd>L</kbd></span><span>Two-wheelers: lean steering / bar-torque steering</span>

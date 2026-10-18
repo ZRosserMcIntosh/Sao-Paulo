@@ -10,6 +10,7 @@ import { CarAudio } from './audio/audio.js';
 import { loadCity, streetNamer } from './city.js';
 import { BikeView } from './bike.js';
 import { CrashDummies } from './dummies.js';
+import { Garage } from './garage.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -694,13 +695,18 @@ function hudLabels(bike) {
   wheelEls.forEach((e, w) => { e.el.style.display = bike && w > 1 ? 'none' : ''; e.el.querySelector('span').textContent = ['FL', 'FR', 'RL', 'RR'][w]; });
   $('hGear').title = bike ? 'Lean angle' : 'Gear';
 }
+// Tuning garage (U): a full setup for the car, applied by the physics core.
+const garage = new Garage(M, { store, toast, isBike, carIndex: () => settings.car, startYaw: () => ZONES[0].yaw });
+$('bGarage').onclick = (e) => { garage.toggle(); e.currentTarget.blur(); };
+$('bGarage2').onclick = (e) => { garage.toggle(true); e.currentTarget.blur(); };
 function createCar() {
-  if (isBike()) { createBike(ZONES[0]); resetTimers(); return; }
+  if (isBike()) { createBike(ZONES[0]); garage.afterCreate(); resetTimers(); return; }
   if (bikeView) { M._ord_bike_remove(); bikeView.root.visible = false; }
   carRoot.visible = true; document.querySelector('.tachp').style.display = '';
   hudLabels(false);
   applyAids();
   if (!M._ord_create(settings.car, ZONES[0].x, ZONES[0].y, ZONES[0].yaw)) { toast('Vehicle definition rejected by the physics core'); return; }
+  garage.afterCreate();
   // Settle on the brakes so the rest pose is the loaded suspension.
   for (let i = 0; i < 90; ++i) { M._ord_set_input(0, 0, 1, 0, 0, 0); M._ord_advance(1 / 60); }
   restWheelZ = [0, 1, 2, 3].map((w) => W(w, 2));
@@ -831,6 +837,7 @@ addEventListener('keydown', (e) => {
   if (k === 't') $('aTcs').click();
   if (k === 'y') $('aEsc').click();
   if (k === 'g') $('aBox').click();
+  if (k === 'u') garage.toggle();
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
@@ -1159,6 +1166,7 @@ function gripBar(e, load, grip, locked, contact) {
 }
 
 function updateHud(dt, inp) {
+  garage.updateHud();
   const kmh = S(7) * 3.6;
   $('hSpeed').firstChild.nodeValue = Math.abs(Math.round(kmh)).toString();
   const gear = S(15);
