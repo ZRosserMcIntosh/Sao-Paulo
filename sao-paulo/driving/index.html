@@ -58,6 +58,10 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .tach .num text{font:700 8.5px var(--display);text-anchor:middle}
 .tach .unit{font:600 4.2px var(--mono);fill:#93a0b2;text-anchor:middle;letter-spacing:.04em}
 .tach .tgear{font:900 17px var(--display);fill:#fff;text-anchor:middle}
+.steerbar{position:relative;height:8px;margin-top:8px;border-radius:4px;background:rgba(255,255,255,.1);overflow:hidden}
+.steerbar::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.35)}
+.steerbar b{position:absolute;top:2px;bottom:2px;left:50%;width:0;background:var(--hot);border-radius:2px}
+.steerbar i{position:absolute;top:0;bottom:0;width:3px;margin-left:-1.5px;left:50%;background:#fff;border-radius:2px}
 .aids{display:flex;gap:5px;margin-top:8px;font:600 11px var(--mono)}
 .aids span{border:1px solid var(--line);border-radius:4px;padding:2px 6px;color:var(--mute)}
 .aids span.on{color:var(--ink);border-color:rgba(255,255,255,.4)}
@@ -192,6 +196,12 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <div class="row"><button id="bRec" aria-pressed="false">Record CSV</button><button id="bCsv" disabled>Download</button></div>
   <p class="note" id="recNote">Records every frame: speed, g-forces, inputs, rpm and per-wheel load and slip.</p>
 
+  <h2>Mouse steering</h2>
+  <div class="row"><button id="bMouse" aria-pressed="false" title="K">Mouse steering</button></div>
+  <label class="note" style="display:flex;align-items:center;gap:8px">Sensitivity <input id="mSens" type="range" min="0.3" max="3" step="0.05" value="1" style="flex:1" aria-label="Mouse steering sensitivity"></label>
+  <label class="note" style="display:flex;align-items:center;gap:8px"><input id="mCentre" type="checkbox"> Self-centring (off = the wheel stays where you leave it)</label>
+  <p class="note">Click the view to grab the mouse: move left/right to turn the wheel, left button = throttle, right button = brake, middle button or <kbd>Z</kbd> centres the wheel, <kbd>Esc</kbd> lets go. Best with Simulation (<kbd>3</kbd>) for realistic, unfiltered steering.</p>
+
   <h2>Controls</h2>
   <div class="keys">
     <span><kbd>W</kbd> <kbd>↑</kbd></span><span>Throttle</span>
@@ -203,6 +213,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <span><kbd>X</kbd></span><span>Drift assist on / off (any preset)</span>
     <span><kbd>R</kbd> · <kbd>C</kbd> · <kbd>H</kbd></span><span>Reset · camera · panel</span>
     <span><kbd>M</kbd></span><span>Sound on / off</span>
+    <span><kbd>K</kbd> · <kbd>Z</kbd></span><span>Mouse steering on / off · centre the wheel</span>
     <span>Mouse</span><span>Drag the view to orbit the car (free camera), scroll to zoom</span>
     <span>Gamepad</span><span>Left stick steer, RT gas, LT brake, A handbrake, RB/LB shift, Y reset, View camera</span>
   </div>
@@ -217,6 +228,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <div class="speed" id="hSpeed">0<small>KM/H</small></div>
       <div class="gear" id="hGear" style="display:none">1</div>
     </div>
+    <div class="steerbar" title="Steering: input (white) and road-wheel angle (yellow)"><b id="hSteerOut"></b><i id="hSteerIn"></i></div>
     <div class="aids"><span id="iAbs">ABS</span><span id="iTcs">TCS</span><span id="iEsc">ESC</span><span id="iCs">CS</span><span id="iDrift">DRIFT</span></div>
   </div>
   <div class="panel wheels" id="hWheels" aria-label="Per-wheel load and slip"></div>

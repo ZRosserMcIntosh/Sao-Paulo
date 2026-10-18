@@ -27,6 +27,7 @@ const HEADER = M._ord_state_header(), PER_WHEEL = M._ord_state_per_wheel();
 const statePtr = M._ord_state() / 8;
 const S = (i) => M.HEAPF64[statePtr + i];
 const W = (w, i) => M.HEAPF64[statePtr + HEADER + PER_WHEEL * w + i];
+const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55]; // full-lock road-wheel angle per car (rad)
 const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000];
 const G = 9.81;
 
@@ -721,6 +722,8 @@ addEventListener('keydown', (e) => {
   if (k === 'h') togglePanel();
   if (k === '1' || k === '2' || k === '3' || k === '4') setPreset(+k - 1);
   if (k === 'x') $('aDrift').click();
+  if (k === 'k') $('bMouse').click();
+  if (k === 'z') mouseSteer.value = 0;
   if (k === 'b') $('aAbs').click();
   if (k === 't') $('aTcs').click();
   if (k === 'y') $('aEsc').click();
@@ -750,14 +753,71 @@ bindHold('tGas', 'gas'); bindHold('tBrake', 'brake'); bindHold('tHand', 'hand');
 }
 const pad = { prev: [] };
 let kbSteer = 0, reverseHold = 0;
+// ---------- Mouse steering ----------
+// A virtual steering wheel: with the pointer locked to the view, horizontal mouse movement turns
+// the wheel (it stays where you leave it unless self-centring is on); left button = throttle,
+// right = brake. Analog and unfiltered by the page, so the preset's own steering mapping (direct
+// in Simulation) is what the car sees. Without pointer lock, the cursor's horizontal offset from
+// the centre of the view is used instead.
+const mouseSteer = { on: store.get('mouseSteer', false), value: 0, sens: store.get('mouseSens', 1), centre: store.get('mouseCentre', false),
+  locked: false, abs: false, absX: 0, gas: 0, brake: 0 };
+function setMouseSteer(on) {
+  mouseSteer.on = on; store.set('mouseSteer', on); mouseSteer.value = 0; mouseSteer.gas = mouseSteer.brake = 0;
+  $('bMouse').setAttribute('aria-pressed', on);
+  if (!on && document.pointerLockElement === canvas) document.exitPointerLock();
+  toast(on ? 'Mouse steering on: click the view to grab the mouse (Esc lets go)' : 'Mouse steering off');
+}
+$('bMouse').onclick = (e) => { setMouseSteer(!mouseSteer.on); e.currentTarget.blur(); };
+$('bMouse').setAttribute('aria-pressed', mouseSteer.on);
+$('mSens').value = mouseSteer.sens;
+$('mSens').oninput = (e) => { mouseSteer.sens = +e.target.value; store.set('mouseSens', mouseSteer.sens); };
+$('mCentre').checked = mouseSteer.centre;
+$('mCentre').onchange = (e) => { mouseSteer.centre = e.target.checked; store.set('mouseCentre', mouseSteer.centre); };
+canvas.addEventListener('click', () => {
+  if (mouseSteer.on && document.pointerLockElement !== canvas && canvas.requestPointerLock) {
+    try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => { mouseSteer.abs = true; }); } catch { mouseSteer.abs = true; }
+  }
+});
+document.addEventListener('pointerlockchange', () => {
+  mouseSteer.locked = document.pointerLockElement === canvas;
+  if (!mouseSteer.locked) { mouseSteer.gas = mouseSteer.brake = 0; }
+});
+document.addEventListener('pointerlockerror', () => { mouseSteer.abs = true; toast('Pointer lock unavailable: steering follows the cursor position instead'); });
+document.addEventListener('mousemove', (e) => {
+  if (!mouseSteer.on) return;
+  // Some browsers emit a single huge movement when the lock engages or the cursor is warped;
+  // a real flick never moves hundreds of pixels in one event, so those are ignored.
+  if (mouseSteer.locked) { if (Math.abs(e.movementX) < 250) mouseSteer.value = Math.max(-1, Math.min(1, mouseSteer.value - (e.movementX * mouseSteer.sens) / 450)); }
+  else if (mouseSteer.abs) { const r = canvas.getBoundingClientRect(); mouseSteer.absX = ((e.clientX - r.left) / r.width - 0.5) * 2; }
+});
+canvas.addEventListener('mousedown', (e) => {
+  if (!mouseSteer.on || !mouseSteer.locked) return;
+  if (e.button === 0) mouseSteer.gas = 1;
+  else if (e.button === 2) mouseSteer.brake = 1;
+  else if (e.button === 1) { mouseSteer.value = 0; e.preventDefault(); }
+});
+addEventListener('mouseup', (e) => { if (e.button === 0) mouseSteer.gas = 0; else if (e.button === 2) mouseSteer.brake = 0; });
+canvas.addEventListener('contextmenu', (e) => { if (mouseSteer.on) e.preventDefault(); });
+function mouseSteerInput(dt) {
+  if (!mouseSteer.on) return null;
+  if (mouseSteer.locked) {
+    if (mouseSteer.centre) mouseSteer.value *= Math.exp(-dt * 1.5);  // springs back over ~0.7 s
+    return mouseSteer.value;
+  }
+  if (mouseSteer.abs) { const x = mouseSteer.absX * mouseSteer.sens; return -Math.sign(x) * Math.min(1, Math.max(0, Math.abs(x) - 0.03) / 0.97); }
+  return null;
+}
+
 function readInput(dt, gear, speed) {
   // Keyboard steering is digital; ramp it like a driver turning a wheel (the presets add their own shaping).
   const target = (keys.has('a') || keys.has('arrowleft') ? 1 : 0) - (keys.has('d') || keys.has('arrowright') ? 1 : 0);
   const rate = target === 0 || Math.sign(target) !== Math.sign(kbSteer) ? 6 : 3;
   kbSteer += Math.max(-rate * dt, Math.min(rate * dt, target - kbSteer));
   let steer = kbSteer;
-  let up = keys.has('w') || keys.has('arrowup') ? 1 : 0;
-  let down = keys.has('s') || keys.has('arrowdown') ? 1 : 0;
+  const ms = mouseSteerInput(dt);
+  if (ms !== null && target === 0) steer = ms;  // keys still win while held
+  let up = Math.max(keys.has('w') || keys.has('arrowup') ? 1 : 0, mouseSteer.gas);
+  let down = Math.max(keys.has('s') || keys.has('arrowdown') ? 1 : 0, mouseSteer.brake);
   let hand = keys.has(' ') ? 1 : 0;
   let shiftUp = edge.up, shiftDown = edge.down;
   edge.up = edge.down = false;
@@ -803,7 +863,8 @@ const orbit = { yaw: store.get('orbitYaw', 2.6), pitch: store.get('orbitPitch', 
 {
   const ptrs = new Map(); let pinch0 = 0, dist0 = 0;
   canvas.style.touchAction = 'none';
-  canvas.addEventListener('pointerdown', (e) => { ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); canvas.setPointerCapture(e.pointerId);
+  canvas.addEventListener('pointerdown', (e) => { if (document.pointerLockElement === canvas) return; // mouse steering owns the mouse
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); try { canvas.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
     if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); dist0 = orbit.dist; } });
   canvas.addEventListener('pointermove', (e) => {
     const p = ptrs.get(e.pointerId); if (!p) return;
@@ -925,6 +986,11 @@ function updateHud(dt, inp) {
   const gear = S(15);
   $('hGear').textContent = gear === -1 ? 'R' : gear === 0 ? 'N' : String(gear);
   updateTach(dt, S(14));
+  {
+    const inp01 = Math.max(-1, Math.min(1, S(27))), ang01 = Math.max(-1, Math.min(1, S(16) / (MAXSTEER[settings.car] || 0.55)));
+    $('hSteerIn').style.left = (50 - inp01 * 50) + '%';   // + = left in ISO; drawn left of centre
+    const b = $('hSteerOut'); b.style.width = Math.abs(ang01) * 50 + '%'; b.style.left = ang01 > 0 ? (50 - ang01 * 50) + '%' : '50%';
+  }
   let abs = false, esc = false;
   for (let w = 0; w < 4; ++w) {
     abs ||= W(w, 13) > 0; esc ||= W(w, 14) > 1;
