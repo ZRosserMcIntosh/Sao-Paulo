@@ -13,7 +13,9 @@
 //   - the wind (avd_wind_box): the core's weather sampled on a grid around
 //     the aircraft (shear, turbulence, thermals, microbursts), with a small
 //     divergence-free (ABC-flow) stir below the grid scale;
-//   - the propeller slipstream and jet exhaust (momentum theory, avd_flow);
+//   - the propeller slipstream, turning with the propeller, and jet exhaust
+//     (momentum theory, avd_flow); in slow motion the blade tips release
+//     smoke, which draws the tip vortices' helix as the blades turn;
 //   - the wakes of the extended gear and raised spoilers (avd_bodies): the
 //     air each drags along, carrying exactly its drag, and the Karman street
 //     it sheds (St 0.2). Smoke from the wheels shows them.
@@ -26,7 +28,7 @@
 // render targets; without them, smoke reports itself unavailable.
 import * as THREE from 'three';
 
-const STRIDE = 18;
+const STRIDE = 20, ESTRIDE = 14;
 const MAX_EMIT = 32;
 const MAX_BODY = 16;
 
@@ -60,6 +62,7 @@ uniform float uEmitCum[${MAX_EMIT}];
 uniform int uNEmit;
 uniform vec4 uJetP[4];       // nozzle / disc centre, radius
 uniform vec4 uJetA[4];       // axis (thrust direction), velocity increment
+uniform float uJetW[4];      // swirl at 0.7 R (m/s, + right-handed about the axis)
 uniform float uJetK[4];      // 1 jet, 0 propeller
 uniform int uNJet;
 uniform vec4 uBodyP[${MAX_BODY}];  // centre, diameter
@@ -119,6 +122,10 @@ vec3 velocity(vec3 p) {
     float decay = uJetK[j] > 0.5 ? (R0 / R) * (R0 / R) : exp(-along / (40.0 * R0));
     float prof = max(0.0, 1.0 - pow(r / (1.3 * R), 4.0));
     v -= ax * (uJetA[j].w * decay * prof);
+    if (r > 1e-3 && uJetW[j] != 0.0) {
+      float r7 = 0.7 * R;
+      v += cross(ax, d + along * ax) / r * (2.0 * uJetW[j] * decay * prof * (r < r7 ? r / r7 : r7 / r));
+    }
   }
   for (int b = 0; b < uNBody; ++b) {
     // In the air's frame the wake is air dragged along behind the body: a
@@ -186,8 +193,8 @@ in vec2 ref;
 uniform sampler2D uState;
 uniform vec3 uOrigin;
 uniform float uScale, uLife;
-uniform vec3 uCol[3];
-uniform float uAlpha[3], uSize0[3], uGrow[3];
+uniform vec3 uCol[4];
+uniform float uAlpha[4], uSize0[4], uGrow[4];
 out vec4 vCol;
 void main() {
   vec4 s = texture(uState, ref);
@@ -197,7 +204,7 @@ void main() {
   vec4 mv = modelViewMatrix * vec4(s.xyz + uOrigin, 1.0);
   float size = uSize0[kind] + uGrow[kind] * sqrt(age);
   gl_PointSize = clamp(size * uScale / -mv.z, 1.0, 72.0);
-  float fade = (1.0 - smoothstep(0.55 * uLife, uLife, age)) * min(1.0, age * 10.0);
+  float fade = (1.0 - smoothstep(0.55 * uLife, uLife, age)) * min(1.0, age / (0.0025 * uLife + 1e-5));
   // Thinning as it spreads: the same smoke over a larger volume.
   float thin = uSize0[kind] / size;
   vCol = vec4(uCol[kind], uAlpha[kind] * fade * (0.35 + 0.65 * thin));
@@ -251,7 +258,7 @@ export function buildSmoke({ renderer, mobile }) {
       uDt: { value: 0 }, uSub: { value: 1 }, uTime: { value: 0 }, uShift: { value: new THREE.Vector3() },
       uSpawnStart: { value: 0 }, uSpawnCount: { value: 0 }, uN: { value: N }, uSize: { value: [SX, SY] },
       uEmitA: { value: emitA }, uEmitB: { value: emitB }, uEmitCum: { value: new Array(MAX_EMIT).fill(1) }, uNEmit: { value: 0 },
-      uJetP: { value: jetP }, uJetA: { value: jetA }, uJetK: { value: [0, 0, 0, 0] }, uNJet: { value: 0 },
+      uJetP: { value: jetP }, uJetA: { value: jetA }, uJetK: { value: [0, 0, 0, 0] }, uJetW: { value: [0, 0, 0, 0] }, uNJet: { value: 0 },
       uBodyP: { value: bodyP }, uBodyA: { value: bodyA }, uBodyN: { value: bodyN }, uNBody: { value: 0 }, uFlight: { value: new THREE.Vector4() },
       uNoise: { value: 0.15 }, uGround: { value: -1e9 }, uClear: { value: false },
     },
@@ -273,8 +280,9 @@ export function buildSmoke({ renderer, mobile }) {
     transparent: true, depthWrite: false, blending: THREE.NormalBlending,
     uniforms: {
       uState: { value: null }, uOrigin: { value: new THREE.Vector3() }, uScale: { value: 600 }, uLife: { value: LIFE },
-      uCol: { value: [new THREE.Color(), new THREE.Color(), new THREE.Color()] },
-      uAlpha: { value: [0.34, 0.2, 0.22] }, uSize0: { value: [0.8, 0.5, 1.0] }, uGrow: { value: [0.35, 0.25, 0.5] },
+      // Kinds: 0 wingtips, 1 trailing edge, wheels, struts, spoilers, 2 exhaust, 3 propeller tips.
+      uCol: { value: [new THREE.Color(), new THREE.Color(), new THREE.Color(), new THREE.Color()] },
+      uAlpha: { value: [0.34, 0.2, 0.22, 0.55] }, uSize0: { value: [0.8, 0.5, 1.0, 0.14] }, uGrow: { value: [0.35, 0.25, 0.5, 0.3] },
     },
   });
   const points = new THREE.Points(geo, drawMat);
@@ -302,7 +310,9 @@ export function buildSmoke({ renderer, mobile }) {
 
   // f: avd_flow(); acGroup: the aircraft (structural x, -y, -z in its frame);
   // wake: A.wake(); windBox(c, h, nx, ny, nz): A.windBox; s: avd_state;
-  // opts: { light, turbulence (m/s RMS), camera, bodies: A.bodies() }.
+  // opts: { light, turbulence (m/s RMS), camera, bodies: A.bodies(), slow
+  // (slow-motion factor), length (aircraft, m), prop: { phase, blades,
+  // radius, resolved } }. dt: simulated seconds.
   function update(f, dt, acGroup, wake, windBoxFn, s, opts = {}) {
     if (!cleared) clear();
     clockT += dt;
@@ -337,14 +347,26 @@ export function buildSmoke({ renderer, mobile }) {
     const tipL = tips.find((p) => p[1] < 0), tipR = tips.find((p) => p[1] > 0);
     const emit = [];
     if (tipL && tipR) { emit.push([tipL, 0.12, 0, 2.5]); emit.push([tipR, 0.12, 0, 2.5]); }
+    // Propeller blade tips (slow motion: the blades turn little per frame).
+    const pr = opts.prop, e0 = 16 + 64 * STRIDE;
+    if (pr && pr.resolved && (f[1] | 0) > 0 && f[e0 + 9] < 0.5) {
+      const ax = f[e0 + 3], ay = f[e0 + 4], az = f[e0 + 5];
+      let e1x = ax * az, e1y = ay * az, e1z = -1 + az * az;
+      const n1 = Math.hypot(e1x, e1y, e1z) || 1; e1x /= n1; e1y /= n1; e1z /= n1;
+      const e2x = ay * e1z - az * e1y, e2y = az * e1x - ax * e1z, e2z = ax * e1y - ay * e1x;
+      const R = f[e0 + 6] * 0.97;
+      for (let b = 0; b < pr.blades; ++b) {
+        const th = pr.phase + 2 * Math.PI * b / pr.blades, c = Math.cos(th), sn = Math.sin(th);
+        emit.push([[f[e0] + R * (c * e1x + sn * e2x), f[e0 + 1] + R * (c * e1y + sn * e2y), f[e0 + 2] + R * (c * e1z + sn * e2z)], 0.02, 3, 5]);
+      }
+    }
     sheet.sort((a, b) => a[1] - b[1]);
     const step = Math.max(1, Math.floor(sheet.length / (mobile ? 8 : 14)));
     for (let i = 0; i < sheet.length; i += step) emit.push([sheet[i], 0.08, 1, 3.5 / Math.ceil(sheet.length / step)]);
     // Engines.
-    const e0 = 16 + 64 * STRIDE;
     let nj = 0;
     for (let k = 0; k < (f[1] | 0) && nj < 4; ++k) {
-      const o = e0 + k * 10;
+      const o = e0 + k * ESTRIDE;
       if (f[o + 8] <= 50) continue;  // not producing thrust
       const jet = f[o + 9] > 0.5;
       emit.push([[f[o], f[o + 1], f[o + 2]], f[o + 6] * (jet ? 0.5 : 0.25), 2, jet ? 1.6 : 1.0]);
@@ -354,6 +376,7 @@ export function buildSmoke({ renderer, mobile }) {
       v.set(f[o + 3], -f[o + 4], -f[o + 5]).applyQuaternion(acGroup.getWorldQuaternion(new THREE.Quaternion()));
       jetA[nj].set(v.x, v.y, v.z, f[o + 7]);
       simMat.uniforms.uJetK.value[nj] = jet ? 1 : 0;
+      simMat.uniforms.uJetW.value[nj] = jet ? 0 : Math.sign(f[o + 10]) * f[o + 12];
       ++nj;
     }
     simMat.uniforms.uNJet.value = nj;
@@ -382,7 +405,7 @@ export function buildSmoke({ renderer, mobile }) {
       ++nb;
       // The emitter: the wheel (the leg's lower end) or the panel's top edge.
       const kind = B[o + 9] | 0;
-      if (kind === 1 && nsp++ % 2) continue;
+      if (kind === 1 && nsp++ % 2) continue;  // every other spoiler; every wheel and strut
       const end = kind === 0 ? 0.4 * B[o + 7] : 0;
       emit.push([[B[o] + B[o + 3] * end, B[o + 1] + B[o + 4] * end, B[o + 2] + B[o + 5] * end], 0.25 * B[o + 6], 1, 0.35]);
     }
@@ -470,8 +493,14 @@ export function buildSmoke({ renderer, mobile }) {
     }
     simMat.uniforms.uNoise.value = 0.12 + 0.25 * (opts.turbulence || 0);
 
-    // Spawn and advect.
-    const want = N * dt / LIFE + carry;
+    // Spawn and advect. In slow motion smoke lives long enough on screen to
+    // cross the aircraft a couple of times (at most ~7 minutes), so in
+    // simulated time its life is short and its budget per screen second the same.
+    const S = Math.max(1, opts.slow || 1), wallSpeed = Math.max(f[2], 1) / S;
+    const lifeWall = S > 1 ? Math.min(Math.max(2.5 * (opts.length || 10) / wallSpeed, LIFE), 420) : LIFE;
+    const life = lifeWall / S;
+    drawMat.uniforms.uLife.value = life;
+    const want = N * dt / life + carry;
     const count = Math.min(Math.floor(want), N);
     carry = want - count;
     const u = simMat.uniforms;
@@ -493,8 +522,8 @@ export function buildSmoke({ renderer, mobile }) {
     const cam = opts.camera;
     if (cam) drawMat.uniforms.uScale.value = renderer.getDrawingBufferSize(v).y / (2 * Math.tan((cam.fov * Math.PI) / 360));
     const col = drawMat.uniforms.uCol.value;
-    if (opts.light) { col[0].setRGB(0.1, 0.25, 0.75); col[1].setRGB(0.05, 0.5, 0.55); col[2].setRGB(0.3, 0.3, 0.32); }
-    else { col[0].setRGB(0.97, 0.97, 0.98); col[1].setRGB(0.72, 0.88, 1.0); col[2].setRGB(0.62, 0.6, 0.58); }
+    if (opts.light) { col[0].setRGB(0.1, 0.25, 0.75); col[1].setRGB(0.05, 0.5, 0.55); col[2].setRGB(0.3, 0.3, 0.32); col[3].setRGB(0.75, 0.2, 0.1); }
+    else { col[0].setRGB(0.97, 0.97, 0.98); col[1].setRGB(0.72, 0.88, 1.0); col[2].setRGB(0.62, 0.6, 0.58); col[3].setRGB(1.0, 0.86, 0.55); }
   }
   function reset() { cleared = false; haveOrigin = false; lastEmit.length = 0; windAge = 1e9; windBox = null; }
   return { ok, group, update, reset };

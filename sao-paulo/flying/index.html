@@ -87,6 +87,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #flowLegend .bar.half{background:linear-gradient(90deg,#1ae4b6,#72fe5e,#c8ef34,#faba39,#f66b19,#ca2a04,#7a0403)}
 #flowLegend .ends{display:flex;justify-content:space-between}
 #flowLegend b{color:var(--ink);font-weight:600}
+#flowLegend .slow{pointer-events:auto}#flowLegend .slow input{width:100%;accent-color:#36aaf9}#flowLegend .sm{font-size:10px;opacity:.8}
 #flowLegend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
 #flowLegend .sw.hot{background:#ff8c26}#flowLegend .sw.air{background:#8c8c8c}#flowLegend .sw.stall{background:#ff19e6}
 #flowLegend .sw.tip{background:#f7f7fa}#flowLegend .sw.te{background:#b8e0ff}#flowLegend .sw.tuft{background:#f2f2e6}#flowLegend .sw.amber{background:#ffbf33}
@@ -95,6 +96,11 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #instr{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:2;padding:6px;width:min(1000px,calc(100% - 24px));height:var(--instr-h,150px)}
 #instr[hidden]{display:none}
 #instr canvas{width:100%;height:100%;display:block}
+#instr .grip{position:absolute;top:-7px;width:22px;height:22px;cursor:nwse-resize;touch-action:none;z-index:3;opacity:.55;transition:opacity .15s}
+#instr .grip.l{left:-7px;cursor:nwse-resize}#instr .grip.r{right:-7px;cursor:nesw-resize}
+#instr .grip::before{content:"";position:absolute;inset:5px;border-top:3px solid var(--ink);border-radius:2px}
+#instr .grip.l::before{border-left:3px solid var(--ink)}#instr .grip.r::before{border-right:3px solid var(--ink)}
+#instr:hover .grip,#instr .grip:hover{opacity:1}
 /* The jet's glass strip (PFD, map, engines) is drawn from its height: at
    least twice the 172's, and wide enough for all three displays. The lever
    card is left out for the jet; the engine display shows thrust, flaps and
@@ -125,6 +131,7 @@ body.jet #hud .levers{display:none}
   #tSpd{right:calc(156px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom))}
   .tb[hidden]{display:none}
   #instr{bottom:auto;top:calc(60px + env(safe-area-inset-top));height:var(--instr-h,96px)}
+  #instr .grip{top:auto;bottom:-7px}#instr .grip::before{border-top:0;border-bottom:3px solid var(--ink)}
   body.jet{--instr-h:min(192px,45vh)}
   #hud{top:auto;bottom:calc(180px + env(safe-area-inset-bottom));left:calc(12px + env(safe-area-inset-left))}
   #hud .read,#hud .levers{display:none}
@@ -247,6 +254,7 @@ body.jet #hud .levers{display:none}
     <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level) · sync the heading to the compass</span>
     <span><kbd>;</kbd> <kbd>'</kbd> · <kbd>O</kbd></span><span>Heading bug left / right (Shift: 1°) · altimeter +0.01 inHg (Shift: −)</span>
     <span><kbd>V</kbd></span><span>Airflow view: off, streamlines, wind tunnel, smoke</span>
+    <span><kbd>T</kbd> <kbd>⇧T</kbd></span><span>Slow motion: slower / faster (real time to 1/5000×)</span>
     <span><kbd>C</kbd> · <kbd>I</kbd> · <kbd>R</kbd></span><span>Camera · instruments · restart</span>
     <span><kbd>H</kbd> · <kbd>M</kbd> · <kbd>Space</kbd></span><span>Panel · sound · pause</span>
     <span>Mouse</span><span>Drag to look around (free camera), scroll to zoom</span>
@@ -274,13 +282,14 @@ body.jet #hud .levers{display:none}
 <div id="warn">STALL</div>
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>
-  <div class="lg lines"><span>Streamlines · local speed / free stream</span><i class="bar"></i><span class="ends"><b>0.85 slower</b><b>1.15 faster</b></span><span><i class="sw air"></i> grey: air the aircraft leaves alone</span><span>Gear legs and raised spoilers leave a slow wake that carries their drag, and shed a Kármán street.</span></div>
+  <div class="lg slow"><span class="ends"><span>Slow motion <kbd>T</kbd></span><b id="slowO">real time</b></span><input id="slowR" type="range" min="0" max="4" step="1" value="0" aria-label="Slow motion: real time, 1/10, 1/100, 1/1000 or 1/5000"><span class="sm">At 1/1000× and slower the propeller is resolved: its blades, tip vortices and the slipstream they drive.</span></div>
+  <div class="lg lines"><span>Streamlines · local speed / free stream</span><i class="bar"></i><span class="ends"><b>0.85 slower</b><b>1.15 faster</b></span><span><i class="sw air"></i> grey: air the aircraft leaves alone</span><span>Wheels, struts and raised spoilers leave a slow wake that carries their drag, and shed a Kármán street. Comets travel with the air.</span></div>
   <div class="lg"><span>Wing strips α/α<sub>stall</sub></span><i class="bar half"></i><span class="ends"><b>0</b><b>stall</b></span></div>
-  <div class="lg smokeLg"><span>Smoke · <i class="sw tip"></i>wingtips <i class="sw te"></i>trailing edge, wheels, spoilers <i class="sw air"></i>exhaust</span><span>It stays in the air: the wake rolls up, sinks and drifts with the wind.</span></div>
+  <div class="lg smokeLg"><span>Smoke · <i class="sw tip"></i>wingtips <i class="sw te"></i>trailing edge, wheels, struts, spoilers <i class="sw air"></i>exhaust <i class="sw amber"></i>propeller tips (slow motion)</span><span>It stays in the air: the wake rolls up, sinks and drifts with the wind.</span></div>
   <div class="lg"><span>Tufts · <i class="sw tuft"></i>attached <i class="sw amber"></i>near the stall <i class="sw stall"></i>separated (stall, or behind a raised spoiler)</span></div>
   <div class="lg"><span><i class="sw hot"></i> jet exhaust</span><span><i class="sw stall"></i> <b id="flowStall">no stalled strips</b></span></div>
 </div>
-<div id="instr" class="panel" aria-label="Instrument panel"><canvas id="panelCv"></canvas></div>
+<div id="instr" class="panel" aria-label="Instrument panel"><canvas id="panelCv"></canvas><i class="grip l" title="Drag to resize · double-click to reset"></i><i class="grip r" title="Drag to resize · double-click to reset"></i></div>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <div id="touch" aria-hidden="true">
