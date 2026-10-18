@@ -153,7 +153,7 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
       <span class="lg"><span>Smoke · speed |V|/V<sub>∞</sub></span><i class="bar"></i><span><b id="lgV0">0</b> → <b id="lgV1">1.8 (126 m/s)</b></span></span>
       <span class="lg" id="lgSkin"><span>Skin · pressure C<sub>p</sub></span><i class="bar"></i><span><b>−1.2</b> → <b>+1</b></span></span>
       <span><span class="sw" style="background:#fff;box-shadow:0 0 6px #fff"></span>separation point</span>
-      <span class="clock" id="clock">1/1000× · t = 0.0 ms</span>
+      <span class="clock" id="clock">1/2000× · t = −0.500 ms · club approaching</span>
     </div>
   </section>
 
@@ -165,29 +165,29 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
       <button data-mode="split" aria-pressed="false" title="Side by side (3)">Split view</button>
     </div>
 
-    <label class="ctl"><span class="lbl"><span>Ball speed <kbd>←</kbd><kbd>→</kbd></span><output id="oV">70 m/s</output></span>
-      <input id="iV" type="range" min="10" max="120" step="1" value="70" aria-label="Ball speed, metres per second">
-      <span class="sub" id="sV">157 mph · Re 1.99×10⁵</span></label>
-    <label class="ctl"><span class="lbl"><span>Backspin <kbd>↑</kbd><kbd>↓</kbd></span><output id="oW">2800 rpm</output></span>
-      <input id="iW" type="range" min="0" max="8000" step="50" value="2800" aria-label="Backspin, revolutions per minute">
-      <span class="sub" id="sW">S = ωr/V = 0.089</span></label>
-    <label class="ctl"><span class="lbl"><span>Launch angle</span><output id="oA">11.0°</output></span>
-      <input id="iA" type="range" min="4" max="30" step="0.5" value="11" aria-label="Launch angle, degrees">
-      <span class="sub">for the trajectory below</span></label>
-    <label class="ctl"><span class="lbl"><span>Slow motion <kbd>[</kbd><kbd>]</kbd></span><output id="oS">1/1000×</output></span>
-      <input id="iS" type="range" min="0" max="5" step="1" value="2" aria-label="Slow-motion factor">
-      <span class="sub" id="sS">1 s on screen = 1.0 ms of real flow</span></label>
+    <label class="ctl"><span class="lbl"><span>Ball speed <kbd>←</kbd><kbd>→</kbd></span><output id="oV">74.7 m/s</output></span>
+      <input id="iV" type="range" min="10" max="120" step="0.1" value="74.7" aria-label="Ball speed, metres per second">
+      <span class="sub" id="sV">167 mph · Re 2.13×10⁵</span></label>
+    <label class="ctl"><span class="lbl"><span>Backspin <kbd>↑</kbd><kbd>↓</kbd></span><output id="oW">2686 rpm</output></span>
+      <input id="iW" type="range" min="0" max="10000" step="1" value="2686" aria-label="Backspin, revolutions per minute">
+      <span class="sub" id="sW">S = ωr/V = 0.080</span></label>
+    <label class="ctl"><span class="lbl"><span>Launch angle</span><output id="oA">10.9°</output></span>
+      <input id="iA" type="range" min="4" max="30" step="0.1" value="10.9" aria-label="Launch angle, degrees">
+      <span class="sub">for the impact and the trajectory below</span></label>
+    <label class="ctl"><span class="lbl"><span>Slow motion <kbd>[</kbd><kbd>]</kbd></span><output id="oS">1/2000×</output></span>
+      <input id="iS" type="range" min="0" max="5" step="1" value="3" aria-label="Slow-motion factor">
+      <span class="sub" id="sS">1 s on screen = 0.5 ms of real flow</span></label>
     <div class="row" style="margin-top:10px">
       <button id="bPause" aria-pressed="false" title="Pause (Space)">Pause</button>
-      <button id="bReset" title="Restart the flow (R)">Restart flow</button>
+      <button id="bReset" title="Restart the shot: club, impact, then flight (R)">Restart shot</button>
     </div>
 
     <h2>Shots</h2>
     <div class="row" role="group" aria-label="Presets">
-      <button data-preset="driver" title="70 m/s, 11°, 2800 rpm">Driver</button>
-      <button data-preset="iron" title="54 m/s, 16°, 6500 rpm">7-iron</button>
-      <button data-preset="wedge" title="45 m/s, 26°, 8000 rpm (spin clamped)">Wedge</button>
-      <button data-preset="knuckle" title="70 m/s, 11°, no spin">No spin</button>
+      <button data-preset="driver" aria-pressed="true" title="Tour average: 167 mph, 10.9°, 2686 rpm">Driver</button>
+      <button data-preset="iron" aria-pressed="false" title="Tour average: 120 mph, 16.3°, 7097 rpm">7-iron</button>
+      <button data-preset="wedge" aria-pressed="false" title="Tour average pitching wedge: 102 mph, 24.2°, 9304 rpm">Wedge</button>
+      <button data-preset="knuckle" aria-pressed="false" title="Driver, 167 mph, 10.9°, no spin (club moving up along the face normal)">No spin</button>
     </div>
 
     <h2>Layers</h2>
@@ -210,7 +210,7 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
     <h2>Keys</h2>
     <div class="keys">
       <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span>Smooth · dimpled · split</span>
-      <span><kbd>Space</kbd> <kbd>R</kbd></span><span>Pause · restart flow</span>
+      <span><kbd>Space</kbd> <kbd>R</kbd></span><span>Pause · restart the shot</span>
       <span><kbd>S</kbd><kbd>T</kbd><kbd>P</kbd><kbd>B</kbd><kbd>F</kbd><kbd>L</kbd></span><span>Toggle layers</span>
       <span>Click / tap</span><span>the ball's edge to move the boundary-layer close-up</span>
     </div>
@@ -225,7 +225,7 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
     <section class="card chart" aria-label="Lift coefficient versus spin parameter">
       <h2>Magnus lift · C<sub>l</sub> vs S</h2>
       <canvas id="clc" aria-label="Chart of lift coefficient against spin parameter"></canvas>
-      <p class="cap">S = ωr/V. Dimpled: C<sub>l</sub> = 0.54 S<sup>0.4</sup>. Smooth: estimated at half. Shaded: beyond the fitted range.</p>
+      <p class="cap">S = ωr/V. Dimpled: C<sub>l</sub> = 0.47 S<sup>0.42</sup> (fitted to tour flights). Smooth: estimated at half. Shaded: beyond the fitted range.</p>
     </section>
     <section class="card chart traj" aria-label="Trajectory">
       <h2>Flight · same launch, smooth vs dimpled</h2>
@@ -237,11 +237,11 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
   <div class="text">
     <section class="card prose" id="seeing">
       <h2>What you're seeing</h2>
-      <p>Air flows left to right past a ball held still, as in a wind tunnel, slowed about a thousand times. Lines of smoke are released from a rake on the left; each line is a <em>streakline</em>, the path a puff of smoke takes, coloured by the local air speed.</p>
+      <p>Each shot starts with the club: for about a second on screen the face closes on the ball, squashes it for roughly half a millisecond, and throws it off with speed and backspin. From then on the camera rides with the ball, so the air flows left to right past it as in a wind tunnel, slowed two thousand times. Before the strike the smoke hangs still; the ball's start sets it moving and the wake grows from nothing. Lines of smoke are released from a rake on the left; each line is a <em>streakline</em>, the path a puff of smoke takes, coloured by the local air speed.</p>
       <h3>The lesson: where the air lets go</h3>
       <p>Air slides around the front of the ball, speeds up over the shoulders, and then has to slow down and climb back to high pressure on the back. A thin <em>boundary layer</em> next to the surface does not have the energy to do that for long. Where it gives up, it <em>separates</em> (white dots), leaving a low-pressure wake that pulls the ball backwards. That is most of a golf ball's drag.</p>
       <p><b>Smooth ball:</b> its boundary layer stays laminar, orderly but feeble, and separates at about 82° from the front. The wake is wider than the ball and the drag coefficient is about 0.48.</p>
-      <p><b>Dimpled ball:</b> the dimples trip the boundary layer into turbulence. Turbulent mixing pulls fast outer air down to the wall, so it hangs on until about 113°. The wake is roughly half as wide and C<sub>d</sub> falls to about 0.25: the <em>drag crisis</em>, moved from Re ≈ 3×10⁵ down to ≈ 5×10⁴, inside the speeds golfers actually hit.</p>
+      <p><b>Dimpled ball:</b> the dimples trip the boundary layer into turbulence. Turbulent mixing pulls fast outer air down to the wall, so it hangs on until about 113°. The wake is roughly half as wide and C<sub>d</sub> falls to about 0.22 (0.24 with driver spin): the <em>drag crisis</em>, moved from Re ≈ 3×10⁵ down to ≈ 5×10⁴, inside the speeds golfers actually hit.</p>
       <h3>Backspin</h3>
       <p>A ball struck with backspin turns so its top moves with the air and its bottom against it. The flow stays attached longer over the top and lets go sooner underneath, so the wake is thrown downward. Pushing air down pushes the ball up: Magnus lift, the force arrow pointing up, often bigger than the ball's weight off the tee.</p>
       <h3>The close-up</h3>
@@ -251,14 +251,15 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
       <h2>How this is modelled</h2>
       <p><span class="tag m">model</span> physics models or measured fits &nbsp; <span class="tag e">estimate</span> our estimate, plausible but not from a single source &nbsp; <span class="tag i">illustrative</span> drawn to explain, not computed</p>
       <ul>
-        <li><span class="tag m">model</span><b>C<sub>d</sub>(Re)</b>: a subcritical sphere curve blended into a post-crisis curve in log Re; smooth crisis at 3.3×10⁵ with minimum ≈ 0.07 (Achenbach 1972); golf ball crisis at 5×10⁴, then ≈ 0.24 rising slowly (Bearman &amp; Harvey 1976; Choi, Jeon &amp; Choi 2006). The curve shapes are smooth fits to those data, not the data themselves.</li>
-        <li><span class="tag m">model</span><b>Spin</b>: C<sub>l</sub> = 0.54 S<sup>0.4</sup> and C<sub>d</sub> += 0.18 S, the power-law form of Smits &amp; Smith (1994), fitted for S ≈ 0.08–0.3; outside that range it is extrapolated (flagged in amber). <span class="tag e">estimate</span> smooth-ball lift = half of that: real smooth spheres can even lift the wrong way near their crisis (Kim et al. 2014).</li>
+        <li><span class="tag m">model</span><b>C<sub>d</sub>(Re)</b>: a subcritical sphere curve blended into a post-crisis curve in log Re; smooth crisis at 3.3×10⁵ with minimum ≈ 0.07 (Achenbach 1972); golf ball crisis at 5×10⁴, then ≈ 0.24 rising slowly (Bearman &amp; Harvey 1976; Choi, Jeon &amp; Choi 2006). The curve shapes are smooth fits to those data, not the data themselves; the golf ball's post-crisis value (0.221) is fitted to measured flights (below).</li>
+        <li><span class="tag m">model</span><b>Spin</b>: C<sub>l</sub> = 0.47 S<sup>0.42</sup> and C<sub>d</sub> += 0.26 S, the power-law form of Smits &amp; Smith (1994) with coefficients fitted to TrackMan PGA Tour average flights of eight clubs (launch S ≈ 0.08–0.46; beyond it is extrapolated, flagged in amber). They agree with wind-tunnel data (C<sub>l</sub> ≈ 0.18, 0.24, 0.28 at S = 0.1, 0.2, 0.3). The earlier 0.54 S<sup>0.4</sup> with 0.18 S put every apex 5–10 yd too high. <span class="tag e">estimate</span> smooth-ball lift = half of that: real smooth spheres can even lift the wrong way near their crisis (Kim et al. 2014).</li>
         <li><span class="tag m">model</span><b>Separation angle</b> 82° laminar, 113° dimpled-turbulent, 120° smooth-supercritical (Achenbach 1972; Choi et al. 2006), switched by the same crisis curve. <span class="tag e">estimate</span> the top/bottom shift with spin (up to ±20°, saturating with S) and the wake width (from the separation line's angle).</li>
         <li><span class="tag m">model</span><b>The flow</b> is a 2-D cross-section: free stream + doublet (the ball) + bound circulation sized from C<sub>l</sub>, plus a <em>discrete-vortex</em> wake. Vortex blobs are released at the imposed separation points at the rate the boundary layer feeds vorticity (½U<sub>e</sub>², reduced ×0.6 as is customary), with mirror images inside the ball so no air goes through it, and every blob moves with the velocity all the others induce (Clements 1973). The shedding, the wake width, its downward tilt with spin and the Kármán-street rhythm (Strouhal ≈ 0.2) come out of that model, not out of an animation.</li>
-        <li><span class="tag m">model</span><b>Surface C<sub>p</sub></b>: attached sin² shape to a pressure minimum, recovery, then constant base pressure; shaped after Achenbach's measurements and tuned so its pressure-drag integral matches the C<sub>d</sub> above (0.47 vs 0.48 smooth, 0.24 vs 0.25 dimpled).</li>
+        <li><span class="tag m">model</span><b>Surface C<sub>p</sub></b>: attached sin² shape to a pressure minimum, recovery, then constant base pressure; shaped after Achenbach's measurements and tuned so its pressure-drag integral matches the no-spin C<sub>d</sub> above (0.47 vs 0.48 smooth, 0.221 vs 0.221 dimpled).</li>
         <li><span class="tag e">estimate</span><b>Boundary layer</b> thicknesses use flat-plate correlations along the surface (δ ≈ 5x/√Re<sub>x</sub> laminar, 0.37x/Re<sub>x</sub><sup>0.2</sup> turbulent). In the main view the layer is drawn about 5× thicker than life so you can see it slow the smoke.</li>
         <li><span class="tag i">illustrative</span> small-scale jitter in the wake and turbulent layer, the eddies in the close-up, and the dimple pattern on the ball. A 2-D model cannot resolve real dimples or 3-D sphere wakes, which form helical vortex loops rather than a flat street.</li>
-        <li><span class="tag m">model</span><b>Trajectory</b>: point mass, gravity + drag + Magnus lift (RK4), C<sub>d</sub> and C<sub>l</sub> recomputed every step from the current speed and spin; no wind, sea level. <span class="tag e">estimate</span> spin decays with a 25 s time constant.</li>
+        <li><span class="tag m">model</span><b>Trajectory</b>: point mass, gravity + drag + Magnus lift (RK4), C<sub>d</sub> and C<sub>l</sub> recomputed every step from the current speed and spin; no wind, sea level. <span class="tag e">estimate</span> spin decays with a 25 s time constant (the fit is insensitive to it). Against TrackMan tour averages for eight clubs (carry · apex · landing angle): driver 263 yd vs 275 · 35 vs 32 · 40° vs 37°; 7-iron 172 vs 172 · 31 vs 32 · 47° vs 50°; PW 130 vs 136 · 32 vs 29 · 53° vs 52°. Every club carries within 5%, peaks within 4 yd and lands within 6°; <code>validate.mjs</code> re-runs these checks.</li>
+        <li><span class="tag m">model</span><b>Impact</b>: a 2-D rigid-body oblique collision of the ball with the club head. The head has its mass, moment of inertia and centre of gravity behind the face, so a strike above the CG turns the head and takes spin off (the vertical gear effect). Normal restitution e<sub>n</sub> 0.83 (driver, the rules limit) or 0.78 (irons). Tangential restitution e<sub>t</sub> = 0.33: the squashed ball springs back and overspins (Cross 2005); the classic "rolls off the face" model (e<sub>t</sub> = 0, Penner 2003) under-spins irons by 30%. There is a Coulomb friction limit (μ = 0.4). With e<sub>t</sub> fitted once, iron spin comes out within ±10% of tour data from 5-iron to wedge. The driver spins about 20% too much and gives 4% less ball speed than TrackMan. The club delivery (speed, attack, dynamic loft) is solved so the ball leaves with the slider values. <span class="tag e">estimate</span> contact time 0.45 ms at 50 m/s (Hertz scaling v<sup>−1/5</sup>), the force following the deflection; head properties (driver 203 g, CG 38 mm deep, struck 12 mm above it; 7-iron 265 g).</li>
       </ul>
       <h2 style="margin-top:18px">About the physics · sources</h2>
       <ul class="refs">
@@ -269,6 +270,9 @@ footer{grid-column:1/-1;color:var(--mute);font-size:12px;padding:4px 2px}
         <li>J. Kim, H. Choi, H. Park &amp; J. Y. Yoo (2014), <i>Inverse Magnus effect on a rotating sphere: when and why</i>, J. Fluid Mech. 754, R2.</li>
         <li>R. R. Clements (1973), <i>An inviscid model of two-dimensional vortex shedding</i>, J. Fluid Mech. 57, 321–336.</li>
         <li>R. D. Mehta (1985), <i>Aerodynamics of sports balls</i>, Annu. Rev. Fluid Mech. 17, 151–189.</li>
+        <li>A. R. Penner (2003), <i>The physics of golf</i>, Rep. Prog. Phys. 66, 131–171.</li>
+        <li>R. Cross (2005), <i>Bounce of a spinning ball near normal incidence</i>, Am. J. Phys. 73, 914–920; and R. Cross (2002), <i>Grip-slip behavior of a bouncing ball</i>, Am. J. Phys. 70, 1093–1102.</li>
+        <li>TrackMan PGA Tour averages (club and ball speed, attack angle, launch, spin, apex, landing angle, carry), as published by TrackMan.</li>
         <li>H. Schlichting &amp; K. Gersten, <i>Boundary-Layer Theory</i> (Pohlhausen profiles, 1/7-power law).</li>
       </ul>
       <p class="note">Coefficients are as commonly quoted from these works and smoothed for display; treat the curves as representative of a typical modern ball, not of any one ball. Ball: D = 42.67 mm, m = 45.93 g; air ν = 1.5×10⁻⁵ m²/s.</p>

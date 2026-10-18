@@ -9,10 +9,15 @@
 //    crisis sits at Re ~ 3.3e5 (Achenbach 1972); for the dimpled ball at
 //    Re ~ 5e4 (Bearman & Harvey 1976; Choi, Jeon & Choi 2006). Spin adds drag
 //    linearly in the spin parameter S = omega r / V (Smits & Smith 1994).
-// 2. Lift coefficient Cl(S): power law Cl = 0.54 S^0.4 for the dimpled ball
-//    (Smits & Smith 1994 style fit). The smooth ball is ESTIMATED at half of
-//    that (real smooth spheres can even show negative, "inverse" Magnus lift
-//    near their drag crisis: Kim et al. 2014).
+// 2. Lift and spin drag: Cl = 0.47 S^0.42 and Cd += 0.26 S for the dimpled
+//    ball. The form is Smits & Smith's (1994) power law; the coefficients are
+//    fitted to TrackMan PGA Tour average flights (carry, apex, landing angle
+//    of eight clubs, S = 0.08-0.46 at launch), and agree with wind-tunnel
+//    data (Cl 0.18 / 0.24 / 0.28 at S 0.1 / 0.2 / 0.3). The original
+//    0.54 S^0.4 with 0.18 S over-lifted every club: apex 5-10 yd high. See
+//    validate.mjs. The smooth ball is ESTIMATED at half the lift (real smooth
+//    spheres can even show negative, "inverse" Magnus lift near their drag
+//    crisis: Kim et al. 2014).
 // 3. Separation angle: 82 deg (laminar) to 113 deg (dimple-tripped turbulent)
 //    or 120 deg (smooth sphere, supercritical), weighted by the same logistic.
 //    Backspin moves the top separation back and the bottom forward
@@ -22,7 +27,15 @@
 //    Achenbach's (1972) sphere measurements, tuned so the pressure-drag
 //    integral lands close to the Cd above.
 // 5. Trajectory: 2-D point mass with gravity, drag and Magnus lift (RK4),
-//    spin decaying exponentially (ESTIMATED time constant).
+//    spin decaying exponentially (ESTIMATED time constant; the TrackMan fit
+//    is insensitive to it).
+// 7. Impact (impact()): 2-D rigid-body oblique impact of the ball on the
+//    club head, with normal restitution e_n, tangential restitution e_t
+//    (Cross 2005: the deformed ball springs back and overspins; e_t = 0 is
+//    the classic "rolls off the face" model, Penner 2003), a Coulomb limit,
+//    and the head's mass, moment of inertia and centre-of-gravity offset, so
+//    an impact above the CG rotates the head and takes spin off (vertical
+//    gear effect). Contact time ~0.45 ms (Hertz scaling v^-1/5).
 // 6. The wind tunnel flow (class Tunnel): a 2-D discrete-vortex model of the
 //    cross-section: uniform stream + doublet (the ball) + bound circulation
 //    from Cl, with vortex blobs shed from the imposed separation points and
@@ -67,15 +80,16 @@ export function cd0(kind, Re) {
   const sub = interp(SUB, lr) + (kind === 'dimpled' ? 0.015 : 0);
   const post = kind === 'smooth'
     ? 0.07 + 0.13 * clamp((lr - 5.57) / 0.9, 0, 1)           // supercritical smooth sphere: min ~0.07, rising to ~0.2
-    : 0.235 + 0.04 * clamp((lr - 4.8) / 1.2, 0, 1);          // golf ball: ~0.24, rising slightly with Re
+    : 0.221;                                                 // golf ball, post-crisis (fitted; Choi et al.: nearly flat in Re)
   return sub * (1 - chi) + post * chi;
 }
 
-export const S_FIT_MAX = 0.3;    // upper end of the S range the lift fits were made over
-export function cd(kind, Re, S) { return cd0(kind, Re) + 0.18 * clamp(S, 0, 0.4); }
+export const S_FIT_MAX = 0.46;   // upper end of the launch S range the fit was made over
+const S_CAP = 1.0;               // in flight S grows as the ball slows; capped for safety
+export function cd(kind, Re, S) { return cd0(kind, Re) + 0.26 * clamp(S, 0, S_CAP); }
 export function cl(kind, S) {
-  const s = clamp(S, 0, 0.4);
-  const c = s <= 0 ? 0 : 0.54 * Math.pow(s, 0.4);
+  const s = clamp(S, 0, S_CAP);
+  const c = s <= 0 ? 0 : 0.47 * Math.pow(s, 0.42);
   return kind === 'smooth' ? 0.5 * c : c;
 }
 
@@ -102,7 +116,7 @@ export function surfaceCp(kind, chi, sepDeg, baseSep, th, side, S) {
   const thm = (72 + 18 * chi) * (sepDeg / baseSep);
   const k = 1.45 + (kind === 'smooth' ? 0.75 : 0.55) * chi; // 1 - Cp_min
   const kk = k * (1 + side * 0.9 * clamp(S, 0, 0.4));      // spin: faster over the top (ESTIMATE)
-  const cpb = -0.38 + (kind === 'smooth' ? 0.28 : 0.18) * chi;
+  const cpb = -0.38 + (kind === 'smooth' ? 0.28 : 0.198) * chi;
   const cpmin = 1 - kk;
   if (th <= thm) { const s = Math.sin((Math.PI / 2) * th / thm); return 1 - kk * s * s; }
   if (th <= sepDeg) return cpmin + (cpb - cpmin) * smooth01((th - thm) / Math.max(1, sepDeg - thm));
@@ -174,6 +188,104 @@ export function fly(kind, V0, angDeg, rpm, opt = {}) {
 // Non-dimensional: ball radius 1, free stream 1 along +x, centre at origin.
 // Front stagnation point at polar angle pi. Circulation counter-clockwise +.
 const TWO_PI = 2 * Math.PI;
+
+// ---------------------------------------------------------------------------
+// Club-ball impact. Face frame: n = face normal (out of the face, toward the
+// target side), t = up the face. The club moves at V along a path `attack`
+// degrees above horizontal; the face normal points `loft` degrees above
+// horizontal (dynamic loft at impact). Spin loft = loft - attack.
+//
+// Impulse P = Jn n + Jt t on the ball (minus that on the club). With the
+// contact a depth b in front of the head's CG and h above it along the face,
+// the change of the contact-point relative velocity is K P, with
+//   K = [[1/m + 1/M + h^2/Ic, -h b/Ic], [-h b/Ic, 1/m + 1/M + r^2/Ib + b^2/Ic]].
+// Normal: the relative normal velocity reverses with e_n. Tangential: the
+// relative sliding velocity reverses with e_t (grip and elastic recoil);
+// if that needs more than mu Jn, the ball slides throughout (Jt = -mu Jn).
+export const IB = 0.4 * MASS * R * R;     // solid-sphere approximation of the ball
+export const CLUBS = {
+  //            head mass, MOI about the heel-toe axis, CG depth, contact above CG, e_n
+  driver: { name: 'Driver', M: 0.203, Ic: 2.8e-4, b: 0.038, h: 0.012, en: 0.83, mu: 0.4, et: 0.33,
+            speed: 50.5, attack: -1.3, loft: 13.2, face: 0.058, kind: 'wood' },
+  iron7:  { name: '7-iron', M: 0.265, Ic: 0.6e-4, b: 0.006, h: 0.004, en: 0.78, mu: 0.4, et: 0.33,
+            speed: 40.2, attack: -3.9, loft: 22.8, face: 0.048, kind: 'iron' },
+  wedge:  { name: 'Pitching wedge', M: 0.290, Ic: 0.6e-4, b: 0.005, h: 0.004, en: 0.78, mu: 0.4, et: 0.33,
+            speed: 37.1, attack: -4.7, loft: 34.3, face: 0.050, kind: 'iron' },
+};
+export function impact(club, V = club.speed, attack = club.attack, loft = club.loft) {
+  const { M, Ic, b, h, en, et, mu } = club;
+  const phi = ((loft - attack) * Math.PI) / 180, d = (loft * Math.PI) / 180;
+  const un0 = -V * Math.cos(phi), ut0 = V * Math.sin(phi);   // ball relative to the club face
+  const k11 = 1 / MASS + 1 / M + (h * h) / Ic, k12 = (-h * b) / Ic, k22 = 1 / MASS + 1 / M + (R * R) / IB + (b * b) / Ic;
+  const dn = -(1 + en) * un0, dt = -(1 + et) * ut0, det = k11 * k22 - k12 * k12;
+  let Jn = (k22 * dn - k12 * dt) / det, Jt = (k11 * dt - k12 * dn) / det, sliding = false;
+  if (Math.abs(Jt) > mu * Jn) {
+    sliding = true;
+    const s = -Math.sign(ut0);
+    Jn = dn / (k11 + k12 * s * mu);
+    Jt = s * mu * Jn;
+  }
+  const vn = Jn / MASS, vt = Jt / MASS, w = (-R * Jt) / IB;      // w > 0: backspin
+  const ball = [vn * Math.cos(d) - vt * Math.sin(d), vn * Math.sin(d) + vt * Math.cos(d)];
+  const a = (attack * Math.PI) / 180;
+  const club0 = [V * Math.cos(a), V * Math.sin(a)];
+  const P = [Jn * Math.cos(d) - Jt * Math.sin(d), Jn * Math.sin(d) + Jt * Math.cos(d)];
+  const club1 = [club0[0] - P[0] / M, club0[1] - P[1] / M];
+  const dOmega = (h * Jn - b * Jt) / Ic;                        // head rotation (+ = face tilts up)
+  // Contact time: ~0.45 ms at a 50 m/s normal approach, Hertzian v^-1/5.
+  const vapp = V * Math.cos(phi);
+  const tau = 0.45e-3 * Math.pow(Math.max(vapp, 5) / 50, -0.2);
+  const tc = (tau * en) / (1 + en), tr = tau - tc;              // compression, restitution (same peak deflection)
+  const dmax = (2 * vapp * tc) / Math.PI;                       // peak compression of the ball, m
+  const speed = Math.hypot(ball[0], ball[1]);
+  return { speed, launch: (Math.atan2(ball[1], ball[0]) * 180) / Math.PI, rpm: w / RPM, w, ball, club0, club1, dOmega,
+           Jn, Jt, sliding, tau, tc, tr, dmax, smash: speed / V, spinLoft: loft - attack, V, attack, loft };
+}
+// Fraction (0..1) of the total impulse delivered by time t after first
+// contact: force follows the deflection, a quarter sine up over tc and a
+// quarter cosine down over tr.
+export function impulseFraction(imp, t) {
+  const { tc, tr } = imp;
+  if (t <= 0) return 0;
+  if (t >= tc + tr) return 1;
+  if (t < tc) return ((1 - Math.cos((Math.PI * t) / (2 * tc))) * tc) / (tc + tr);
+  return (tc + Math.sin((Math.PI * (t - tc)) / (2 * tr)) * tr) / (tc + tr);
+}
+export function deflection(imp, t) {
+  const { tc, tr, dmax } = imp;
+  if (t <= 0 || t >= tc + tr) return 0;
+  return t < tc ? dmax * Math.sin((Math.PI * t) / (2 * tc)) : dmax * Math.cos((Math.PI * (t - tc)) / (2 * tr));
+}
+// Club speed, attack and dynamic loft that give a wanted ball speed, launch
+// and spin with this club (Newton, numerical Jacobian). Used when the ball
+// sliders are set by hand. Returns the closest reachable impact.
+export function solveImpact(club, speed, launch, rpm) {
+  let x = [club.speed * (speed / Math.max(1, impact(club).speed)), club.attack, club.loft];
+  const f = (x) => { const q = impact(club, x[0], x[1], x[2]); return [(q.speed - speed) / 10, q.launch - launch, (q.rpm - rpm) / 500]; };
+  for (let it = 0; it < 40; ++it) {
+    const r = f(x);
+    if (Math.hypot(...r) < 1e-6) break;
+    const J = [0, 1, 2].map((j) => { const e = [0.01, 0.01, 0.01][j], xp = x.slice(); xp[j] += e; const rp = f(xp); return rp.map((v, i) => (v - r[i]) / e); });
+    // Solve J^T columns: J[j][i] = d r_i / d x_j
+    const A = [0, 1, 2].map((i) => [J[0][i], J[1][i], J[2][i]]);
+    const dx = solve3(A, r.map((v) => -v));
+    if (!dx) break;
+    x = x.map((v, j) => v + clamp(dx[j], -5, 5));
+    x[0] = clamp(x[0], 5, 80); x[1] = clamp(x[1], -20, 25); x[2] = clamp(x[2], x[1] - 5, 70);
+  }
+  return impact(club, x[0], x[1], x[2]);
+}
+function solve3(A, b) {
+  const m = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < 3; ++c) {
+    let p = c; for (let r = c + 1; r < 3; ++r) if (Math.abs(m[r][c]) > Math.abs(m[p][c])) p = r;
+    if (Math.abs(m[p][c]) < 1e-12) return null;
+    [m[c], m[p]] = [m[p], m[c]];
+    for (let r = 0; r < 3; ++r) if (r !== c) { const k = m[r][c] / m[c][c]; for (let j = c; j < 4; ++j) m[r][j] -= k * m[c][j]; }
+  }
+  return [0, 1, 2].map((i) => m[i][3] / m[i][i]);
+}
+
 export class Tunnel {
   constructor(kind, cap = 360) {
     this.kind = kind; this.cap = cap;
