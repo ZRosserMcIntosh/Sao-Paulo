@@ -245,6 +245,19 @@ acGroup.add(flow.group);
 const smoke = buildSmoke({ renderer, mobile: MOBILE });
 scene.add(smoke.group);
 const invM = new THREE.Matrix4();
+// The flat ground (ENU height h) as a plane in the aircraft's structural
+// frame (x fwd, y right, z down): [n, d] with n . p >= d above the ground.
+const gUp = new THREE.Vector3(), gPt = new THREE.Vector3(), gQ = new THREE.Quaternion();
+function groundPlane(h) {
+  if (!(h > -1e8)) return null;
+  acGroup.getWorldQuaternion(gQ).invert();
+  gUp.set(0, 1, 0).applyQuaternion(gQ);
+  acGroup.getWorldPosition(gPt);
+  gPt.y = h;
+  gPt.applyMatrix4(invM);
+  const n = [gUp.x, -gUp.y, -gUp.z];
+  return [n[0], n[1], n[2], n[0] * gPt.x - n[1] * gPt.y - n[2] * gPt.z];
+}
 let smokeT = 0;
 const bodyPoint = (x, y, z) => acGroup.localToWorld(new THREE.Vector3(x, y, z));
 
@@ -870,7 +883,7 @@ function frame() {
     const fl = A.flow();
     const fdt = ui.paused ? 0 : dt;
     const fr = flow.update(fl, fdt, { ...P, span: def.reference.span_m },
-      { light: ui.flow === 2, windGrid: A.windGrid, wake: wk, inv: invM.copy(acGroup.matrixWorld).invert(), lines: ui.flow !== 3 });
+      { light: ui.flow === 2, windGrid: A.windGrid, wake: wk, inv: invM.copy(acGroup.matrixWorld).invert(), lines: ui.flow !== 3, ground: groundPlane(wk.ground) });
     // Smoke runs on the simulation's clock (it may run behind the wall clock).
     const sdt = Math.min(Math.max(s[42] - smokeT, 0), 0.25);
     smokeT = s[42];

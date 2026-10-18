@@ -112,12 +112,15 @@ export function buildFlow({ mobile }) {
   // Velocity of the air relative to the aircraft at (x, y, z), structural
   // frame: the free stream at the CG, minus the aircraft's own rotation
   // (omega x r about the CG), plus the induced and atmospheric fields.
-  const out = [0, 0, 0];
+  const out = [0, 0, 0], still = [0, 0, 0];
   const W = [0, 0, 0], CG = [0, 0, 0];
   function velocity(x, y, z) {
     const rx = x - CG[0], ry = y - CG[1], rz = z - CG[2];
     let vx = U[0] - (W[1] * rz - W[2] * ry), vy = U[1] - (W[2] * rx - W[0] * rz), vz = U[2] - (W[0] * ry - W[1] * rx);
     if (windDelta(x, y, z)) { vx += wd[0]; vy += wd[1]; vz += wd[2]; }
+    // The undisturbed air here (free stream, the aircraft's rotation, the
+    // atmosphere's own motion): what is left is the aircraft's doing.
+    still[0] = vx; still[1] = vy; still[2] = vz;
     for (let k = 0; k < nSeg; ++k) {
       const k3 = k * 3;
       const r1x = x - sA[k3], r1y = y - sA[k3 + 1], r1z = z - sA[k3 + 2];
@@ -167,6 +170,7 @@ export function buildFlow({ mobile }) {
   }
 
   let L = 8, span = 11, centre = [0, 0, 0];
+  let gnd = null;  // the ground plane in the structural frame: n . p >= d above it
   const va = new THREE.Vector3(), vb = new THREE.Vector3();
   const tip = [0, 5, 0, 0.5];  // right wingtip trailing point (x, |y|, z) and vortex core radius
   const wing = [0, 0];         // main wing plane: x of the quarter chord, z
@@ -223,11 +227,14 @@ export function buildFlow({ mobile }) {
       const hot = velocity(x, y, z);
       const vx = out[0], vy = out[1], vz = out[2];
       const sp = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
-      // Colour: grey where the aircraft leaves the air alone, local speed where it does not.
-      const dx = vx - U[0], dy = vy - U[1], dz = vz - U[2];
+      // Colour: grey where the aircraft leaves the air alone, and where it
+      // does not, the speed it gives the air (the free stream plus what it
+      // induces: gusts move the lines but do not colour them).
+      const dx = vx - still[0], dy = vy - still[1], dz = vz - still[2];
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) / Umag;
       const w = Math.min(1, Math.max(0, (dist - 0.006) / 0.045));
-      turbo(0.5 + (sp / Umag - 1) * 3.2, col);
+      const ix = U[0] + dx, iy = U[1] + dy, iz = U[2] + dz;
+      turbo(0.5 + (Math.sqrt(ix * ix + iy * iy + iz * iz) / Umag - 1) * 3.2, col);
       const g = grey;
       let r = g + (col[0] - g) * w, gg = g + (col[1] - g) * w, b = g + (col[2] - g) * w;
       if (hot > 0.02) { const h = Math.min(1, hot * 1.5); r += (1.0 - r) * h; gg += (0.55 - gg) * h; b += (0.15 - b) * h; }
@@ -243,6 +250,7 @@ export function buildFlow({ mobile }) {
       x += out[0] / s2 * ds; y += out[1] / s2 * ds; z += out[2] / s2 * ds;
       const dxc = x - centre[0], dyc = y, dzc = z - centre[2];
       if (dxc * ux + dyc * uy + dzc * uz > 1.2 * L || Math.abs(dyc) > span || Math.abs(dzc) > 0.6 * span) { ++k; break; }
+      if (gnd && x * gnd[0] + y * gnd[1] + z * gnd[2] < gnd[3]) { ++k; break; }  // into the ground
     }
     ln[i] = k;
   }
@@ -373,13 +381,19 @@ export function buildFlow({ mobile }) {
       }
     }
     if (wn > 0) { wing[0] = wx / wn; wing[1] = wz / wn; }
+    gnd = opts.ground || null;
     // The atmosphere around the aircraft, refreshed about ten times a second.
     gridAge += dt;
     if (opts.windGrid && gridAge > 0.1) {
       gridAge = 0;
       GC[0] = f[6]; GC[1] = f[7]; GC[2] = f[8];
       GH[0] = 1.4 * L; GH[1] = span; GH[2] = 0.6 * span;
-      grid = Float32Array.from(opts.windGrid(GH[0], GH[1], GH[2], GN[0], GN[1], GN[2]));
+      // The streamlines show the air around the aircraft averaged over about
+      // half a second (and over the grid spacing, in the core): the large
+      // eddies bend them coherently; every gust is in the smoke view.
+      const fresh = opts.windGrid(GH[0], GH[1], GH[2], GN[0], GN[1], GN[2]);
+      if (!grid || grid.length !== fresh.length) grid = Float32Array.from(fresh);
+      else for (let k = 0; k < grid.length; ++k) grid[k] += (fresh[k] - grid[k]) * 0.18;
     }
     const Q = tas * Math.PI * fu.R * fu.R;
     fuse = { src: fu.xNose - fu.R * 0.5, snk: fu.xTail + fu.R * 0.5, z: fu.z, Q, core: (fu.R * 0.3) ** 2 };
