@@ -84,11 +84,44 @@ export function buildAircraft(def) {
   const add = (m) => { m.castShadow = true; m.receiveShadow = true; root.add(m); return m; };
 
   // Fuselage (FLU stations: x, half-width, top, bottom).
-  add(new THREE.Mesh(loft([
+  const FUS = [
     [1.02, 0.06, 0.06, -0.06], [0.95, 0.2, 0.22, -0.22], [0.75, 0.42, 0.38, -0.46], [0.0, 0.52, 0.5, -0.56],
     [-0.4, 0.55, 0.66, -0.56], [-0.95, 0.56, 1.05, -0.55], [-2.3, 0.53, 1.03, -0.46], [-3.2, 0.34, 0.62, -0.2],
     [-5.0, 0.16, 0.42, 0.02], [-6.25, 0.06, 0.34, 0.16],
-  ]), body));
+  ];
+  add(new THREE.Mesh(loft(FUS, 32), body));
+  // The fuselage side's half-width at (x, z) (the loft's superellipse, e 2.6).
+  const sideY = (x, z) => {
+    let i = 0;
+    while (i < FUS.length - 2 && x < FUS[i + 1][0]) ++i;
+    const [x0, w0, t0, b0] = FUS[i], [x1, w1, t1, b1] = FUS[i + 1], u = Math.min(Math.max((x - x0) / (x1 - x0), 0), 1);
+    const hw = w0 + (w1 - w0) * u, zt = t0 + (t1 - t0) * u, zb = b0 + (b1 - b0) * u, zc = (zt + zb) / 2, hh = (zt - zb) / 2;
+    return hw * Math.max(0, 1 - Math.abs((z - zc) / hh) ** 2.6) ** (1 / 2.6);
+  };
+  // A window on the fuselage side: a rounded quad [x, z] (front-bottom,
+  // front-top, rear-top, rear-bottom) laid on the skin, a grid so it follows it.
+  const sideWindow = (q, side, mat) => {
+    const n = 5, N = 10, pos = [], idx = [];
+    const at = (u, v) => {
+      const [fb, ft, rt, rb] = q;
+      const x = (1 - u) * ((1 - v) * fb[0] + v * ft[0]) + u * ((1 - v) * rb[0] + v * rt[0]);
+      const z = (1 - u) * ((1 - v) * fb[1] + v * ft[1]) + u * ((1 - v) * rb[1] + v * rt[1]);
+      return [x, side * (sideY(x, z) + 0.008), z];
+    };
+    // Rings from the centre to a rounded (superellipse) outline.
+    const K = 28; pos.push(...at(0.5, 0.5));
+    for (let r = 1; r <= N; ++r)
+      for (let k = 0; k < K; ++k) {
+        const t = k / K * 2 * Math.PI, c = Math.cos(t), sn = Math.sin(t), f = r / N;
+        pos.push(...at(0.5 + 0.5 * f * Math.sign(c) * Math.abs(c) ** (2 / n), 0.5 + 0.5 * f * Math.sign(sn) * Math.abs(sn) ** (2 / n)));
+      }
+    const id = (r, k) => (r === 0 ? 0 : 1 + (r - 1) * K + (k % K));
+    for (let k = 0; k < K; ++k) idx.push(0, id(1, k), id(1, k + 1));
+    for (let r = 1; r < N; ++r) for (let k = 0; k < K; ++k) idx.push(id(r, k), id(r + 1, k), id(r + 1, k + 1), id(r, k), id(r + 1, k + 1), id(r, k + 1));
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    return add(new THREE.Mesh(g, mat));
+  };
   // Windshield and side windows (thin dark panels just outside the skin).
   {
     // Windshield: a quad from the top of the cowl to the cabin roof.
@@ -99,9 +132,14 @@ export function buildAircraft(def) {
     g.computeVertexNormals();
     add(new THREE.Mesh(g, glassMat));
   }
+  // Side windows: the door's and the rear quarter's, a side; the door's seam.
+  const seam = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.6, side: THREE.DoubleSide });
+  glassMat.side = THREE.DoubleSide;
   for (const s of [1, -1]) {
-    const w = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 0.42), glassMat);
-    w.position.set(-1.55, s * 0.565, 0.72); w.rotation.x = s * Math.PI / 2; add(w);
+    sideWindow([[-0.98, 0.56], [-1.0, 0.96], [-1.74, 0.98], [-1.74, 0.56]], s, glassMat);
+    sideWindow([[-1.84, 0.58], [-1.84, 0.97], [-2.62, 0.84], [-2.78, 0.6]], s, glassMat);
+    // Door outline: a thin seam from the sill to the roof, ahead of and behind the window.
+    for (const x of [-0.93, -1.79]) add(new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.004, 1.3), seam)).position.set(x, s * (sideY(x, 0.3) + 0.004), 0.3);
     const st = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.02, 0.08), trim);
     st.position.set(-2.6, s * 0.48, 0.1); add(st);
   }
@@ -168,18 +206,36 @@ export function buildAircraft(def) {
     const mesh = new THREE.Mesh(panelGeometry(new THREE.Vector3(), c0 * f, new THREE.Vector3().subVectors(hB, hA), c1 * f, 0.06 / f, side), accent);
     mesh.castShadow = true; pivot.add(mesh); root.add(pivot);
     controls.rudder = { pivot, axis: new THREE.Vector3().subVectors(hB, hA).normalize(), def: vt.controls?.[0] };
+    // Dorsal fin: a low fillet from the tailcone up the fin's leading edge.
+    const sh = new THREE.Shape();
+    const top = (x) => { let i = 0; while (i < FUS.length - 2 && x < FUS[i + 1][0]) ++i; const [x0, , t0] = FUS[i], [x1, , t1] = FUS[i + 1]; return t0 + (t1 - t0) * (x - x0) / (x1 - x0); };
+    const xd = le0.x + 1.1;
+    sh.moveTo(xd, top(xd) - 0.02); sh.lineTo(le0.x - 0.28 * vt.span_m * Math.tan(sweep), le0.z + 0.28 * vt.span_m);
+    sh.lineTo(le0.x - 0.1, le0.z - 0.04); sh.lineTo(xd, top(xd) - 0.02);
+    const dg = new THREE.ExtrudeGeometry(sh, { depth: 0.06, bevelEnabled: false });
+    dg.rotateX(Math.PI / 2); dg.translate(0, 0.03, 0);
+    add(new THREE.Mesh(dg, body));
   }
   // Landing gear: legs from the attach points, wheels at the leg ends.
   for (const g of def.gear) {
     const a = flu(g.attach_m), end = a.clone().add(new THREE.Vector3(0, 0, -g.length_m + g.wheel_radius_m * 0.6));
     const isNose = /nose/.test(g.name);
     const top = isNose ? a : new THREE.Vector3(a.x + 0.05, Math.sign(a.y) * 0.45, a.z + 0.05);
-    add(cylinderBetween(top, end, isNose ? 0.04 : 0.03, isNose ? body : dark));
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(g.wheel_radius_m, g.wheel_radius_m, 0.14, 16), tyre);
-    wheel.position.copy(end); wheel.position.z -= g.wheel_radius_m * 0.15;
+    add(cylinderBetween(top, end, isNose ? 0.04 : 0.03, body));  // spring-steel legs, painted
+    const r = g.wheel_radius_m;
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.14, 16), tyre);
+    wheel.position.copy(end); wheel.position.z -= r * 0.15;
     add(wheel);  // cylinder axis = y (lateral)
-    const pant = new THREE.Mesh(new THREE.SphereGeometry(g.wheel_radius_m * 1.25, 12, 8), body);
-    pant.scale.set(1.7, 0.6, 1.0); pant.position.copy(wheel.position); pant.position.z += 0.03; add(pant);
+    // Speed fairing: a teardrop round the wheel, open below it (the tyre shows).
+    const prof = [];
+    for (let k = 0; k <= 14; ++k) {
+      const u = k / 14, rad = u < 0.35 ? Math.sin(u / 0.35 * Math.PI / 2) : Math.cos((u - 0.35) / 0.65 * Math.PI / 2) ** 0.8;
+      prof.push(new THREE.Vector2(Math.max(rad, 0.001) * r * 1.12, (0.38 - u) * r * 4.2));
+    }
+    const pant = new THREE.Mesh(new THREE.LatheGeometry(prof.reverse(), 20), body);  // y increasing: normals outward
+    pant.rotation.z = -Math.PI / 2;  // lathe axis (y) -> forward
+    pant.scale.set(0.66, 1, 1);       // narrower than tall (local x turns lateral)
+    pant.position.copy(wheel.position); pant.position.z += r * 0.22; add(pant);
   }
   // Propeller: spinner, two blades, and a translucent disc at speed.
   const eng = def.engines[0], R = eng.propeller.diameter_m / 2;
@@ -220,12 +276,14 @@ export function buildAircraft(def) {
     }
     if (controls.rudder) controls.rudder.pivot.quaternion.setFromAxisAngle(controls.rudder.axis, -st.rudder * (controls.rudder.def?.max_positive_deg || 17.7) * DEG);
     const omega = st.rpm / 60 * 2 * Math.PI;
-    propAngle = (propAngle + omega * dt) % (2 * Math.PI);
-    // Above ~600 rpm the eye sees a disc, not blades (frame-rate aliasing).
-    const fast = st.rpm > 600;
-    blades.visible = !fast || st.rpm < 900;
+    propAngle = st.phase ?? (propAngle + omega * dt) % (2 * Math.PI);
+    // Above ~600 rpm on screen the eye sees a disc, not blades (frame-rate
+    // aliasing); in slow motion (st.slow) the blades turn at the slowed rate.
+    const seen = st.rpm / (st.slow || 1);
+    const fast = seen > 600;
+    blades.visible = !fast || seen < 900;
     blades.quaternion.copy(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), fast ? propAngle * 0.02 + Math.random() * 6.28 : propAngle));
-    disc.material.opacity = Math.min(0.35, Math.max(0, (st.rpm - 500) / 1500) * 0.35) * (st.disc ?? 1);
+    disc.material.opacity = Math.min(0.35, Math.max(0, (seen - 500) / 1500) * 0.35) * (st.disc ?? 1);
   }
   return { root, update, glass: glassMat };
 }

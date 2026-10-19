@@ -10,8 +10,12 @@ const DEG = Math.PI / 180;
 const PX = -2.62, PZ0 = -0.33;            // panel face x, panel bottom z
 const PTOP = PZ0 + JET_PANEL_H;
 
-export function buildJetCabin({ mobile, maxAniso, skin }) {
+// scale: the type's fuselage diameter over the Top G's (the flight deck is
+// laid out in the Top G's metres and scaled as one; the lining follows the
+// type's own skin).
+export function buildJetCabin({ mobile, maxAniso, skin, scale = 1 }) {
   const root = new THREE.Group();
+  root.scale.setScalar(scale);
   const std = (color, rough = 0.85, metal = 0) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
   const M = {
     lining: std('#5d6168', 0.92), liningDark: std('#3f4248', 0.9), dark: std('#1f2125', 0.7), black: std('#0e0f11', 0.5),
@@ -26,24 +30,31 @@ export function buildJetCabin({ mobile, maxAniso, skin }) {
 
   // ---- Lining: the fuselage interior with the glazing cut out ----
   {
-    const inWindshield = (x, a) => {
-      const sa = Math.sin(a);
-      return a > 16 * DEG && a < 164 * DEG && x <= -1.98 - 0.45 * (1 - sa) && x >= -2.98 - 0.25 * (1 - sa);
-    };
+    // The windshield's forward and aft edges (x at angle a); a centre post 4 deg wide.
+    const fwd = (a) => -1.98 - 0.45 * (1 - Math.sin(a)), aft = (a) => -2.98 - 0.25 * (1 - Math.sin(a));
+    const inWindshield = (x, a) => a > 16 * DEG && a < 164 * DEG && Math.abs(a - 90 * DEG) > 2 * DEG && x <= fwd(a) && x >= aft(a);
     // Side windows: a large sliding-window-sized pane beside each seat.
     const inSide = (x, a) => x <= -3.06 && x >= -3.9 && ((a > 8 * DEG && a < 56 * DEG) || (a > 124 * DEG && a < 172 * DEG));
     const pos = [], idx = [];
-    // From the windshield's forward edge aft (~2.5 cm cells keep the glazing edges clean).
-    const nx = 145, na = 240, x0 = -1.98, x1 = -5.6;
+    // From the windshield's forward edge aft to the bulkhead, in ~2.5 cm
+    // cells; ahead of that edge the nose is left open (the eye looks over the
+    // glareshield through it: lined, it hid the view ahead). The vertices
+    // next to the windshield's slanted edges are moved onto them, so the
+    // edges are smooth rather than a staircase of cells.
+    const nx = 145, na = 240, x0 = -1.98, x1 = -5.6, dx = (x0 - x1) / nx;
     for (let i = 0; i <= nx; ++i)
       for (let j = 0; j <= na; ++j) {
-        const p = skin(x0 + (x1 - x0) * i / nx, j / na * 2 * Math.PI, -0.05);
+        let x = x0 + (x1 - x0) * i / nx;
+        const a = j / na * 2 * Math.PI;
+        if (a > 15 * DEG && a < 165 * DEG) for (const e of [fwd(a), aft(a)]) if (Math.abs(x - e) <= dx / 2) x = e;
+        const p = skin(x * scale, a, -0.05 * scale).divideScalar(scale);
         pos.push(p.x, p.y, p.z);
       }
     for (let i = 0; i < nx; ++i)
       for (let j = 0; j < na; ++j) {
         const xm = x0 + (x1 - x0) * (i + 0.5) / nx, am = (j + 0.5) / na * 2 * Math.PI;
         if (inWindshield(xm, am) || inSide(xm, am)) continue;
+        if (am > 16 * DEG && am < 164 * DEG && xm > fwd(am)) continue;  // the open nose
         const k = i * (na + 1) + j;
         idx.push(k, k + 1, k + na + 1, k + 1, k + na + 2, k + na + 1);
       }
@@ -82,6 +93,9 @@ export function buildJetCabin({ mobile, maxAniso, skin }) {
     rodX(0.012, 0.01, M.chrome, 0, 0, 0, g);
     const arm = box(0.03, 0.025, 0.2, M.chrome, 0, 0, 0.1, g); void arm;
     box(0.07, 0.06, 0.05, M.black, 0, 0, 0.21, g);
+    // An invisible grab volume around the lever (for the mouse).
+    const grab = box(0.1, 0.11, 0.26, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }), 0, 0, 0.12, g);
+    grab.castShadow = grab.receiveShadow = false;
     throttles.push(g);
   }
   const spd = new THREE.Group(); spd.position.set(-3.0, 0.15, pedTop); root.add(spd);
@@ -120,8 +134,33 @@ export function buildJetCabin({ mobile, maxAniso, skin }) {
     box(0.9, 0.14, 0.12, M.liningDark, -3.35, y * 1.72, -0.28);
   }
   const ov = box(0.75, 0.62, 0.08, M.dark, -3.2, 0, 1.08); ov.rotation.y = 18 * DEG;
-  for (let r = 0; r < 4; ++r) for (let k = 0; k < 9; ++k)
-    box(0.012, 0.025, 0.012, M.white, -2.95 - r * 0.15, -0.24 + k * 0.06, 1.0 + r * 0.05);
+  // Overhead: the first two rows are working switches (electrical and
+  // lights), the rest the panel's other systems (not simulated: inert).
+  const OVERHEAD = [
+    ['electrical.battery', 'BATT'], ['electrical.alternator', 'GEN'], ['electrical.avionics', 'AVIONICS'], ['fuel.auxpump', 'FUEL PUMP'], ['electrical.load.pitot_heat', 'PITOT HEAT'],
+    ['electrical.load.beacon', 'BEACON'], ['electrical.load.nav_lights', 'NAV LTS'], ['electrical.load.strobes', 'STROBES'], ['electrical.load.taxi_light', 'TAXI LT'], ['electrical.load.landing_light', 'LANDING LTS'],
+    ['electrical.load.panel_lights', 'PANEL LTS'],
+  ];
+  const switches = [];
+  for (let r = 0; r < 4; ++r) for (let k = 0; k < 9; ++k) {
+    const n = r * 9 + k, live = OVERHEAD[n];
+    const g = new THREE.Group(); g.position.set(-2.95 - r * 0.15, -0.24 + k * 0.06, 1.0 + r * 0.05); root.add(g);
+    box(0.012, 0.025, 0.012, live ? M.white : M.liningDark, 0, 0, 0, g);
+    if (live) switches.push({ g, id: live[0], label: live[1] });
+  }
+  // Engine fuel control switches (RUN / CUTOFF) aft of the thrust levers.
+  const fuelSw = [];
+  for (const [i, y] of [[0, 0.05], [1, -0.05]]) {
+    const g = new THREE.Group(); g.position.set(-3.38, y, pedTop + 0.01); root.add(g);
+    box(0.015, 0.015, 0.05, M.chrome, 0, 0, 0.025, g); box(0.03, 0.03, 0.025, std('#b8231c', 0.5), 0, 0, 0.055, g);
+    fuelSw.push({ g, id: `engine${i + 1}.fuel` });
+  }
+  // Parking brake handle on the pedestal's left side.
+  const park = new THREE.Group(); park.position.set(-3.45, 0.19, pedTop - 0.05); root.add(park);
+  rodX(0.006, 0.08, M.chrome, 0.04, 0, 0, park); box(0.02, 0.06, 0.02, std('#b8231c', 0.5), 0, 0, 0, park);
+  // Guidance-panel knobs on the glareshield: heading bug and barometric setting.
+  const knobOn = (y) => { const k = add(new THREE.CylinderGeometry(0.018, 0.018, 0.025, 18), M.chrome, PX - 0.08, y, PTOP + 0.085); k.rotation.z = Math.PI / 2; return k; };
+  const hdgKnob = knobOn(0.12), baroKnob = knobOn(0.36);
 
   function update(st) {
     for (const g of yokes) { g.position.x = PX - 0.22 - st.elev * 0.08; g.rotation.x = st.ail * 0.8; }
@@ -130,11 +169,16 @@ export function buildJetCabin({ mobile, maxAniso, skin }) {
     spd.rotation.y = -st.spd * 40 * DEG;
     flap.rotation.y = -Math.min(st.flapLever / 3, 1) * 45 * DEG;
     gearH.position.z = PZ0 + (st.gearDown ? 0.04 : 0.12);
+    const p = st.pos || {};
+    for (const w of switches) w.g.rotation.y = (p[w.id] ? -1 : 1) * 25 * DEG;
+    for (const w of fuelSw) w.g.position.z = pedTop + 0.01 + (p[w.id] ? 0.02 : 0);
+    park.position.x = -3.45 - (p['brakes.parking'] ? 0.06 : 0);
   }
   function redraw(d) {
     drawJetPanel(ctx, W, H, d);
     tex.needsUpdate = true;
   }
   root.visible = false;
-  return { root, update, redraw };
+  const parts = { throttles, spd, flap, gear: gearH, switches, fuelSw, park, hdgKnob, baroKnob };
+  return { root, update, redraw, parts };
 }

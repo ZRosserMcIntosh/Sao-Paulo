@@ -70,8 +70,10 @@ export function casMessages(d) {
   if (d.wow && d.thrLever > 0.7 && (d.flaps < 9 || d.flaps > 21 || d.spd > 0.02 || d.park)) m.push(['NO TAKEOFF CONFIG', 3]);
   if (d.fuelKg < 1500) m.push(['FUEL LOW', 2]);
   if ((d.run[0] || d.run[1]) && !d.gen) m.push(['GEN OFF', 2]);
-  const sbBad = d.spd > 0.02 && (d.flaps > 25 || d.thrLever > 0.6 || (!d.wow && d.ra < 1000));
-  if (sbBad) m.push(['SPEEDBRAKE', 2]);
+  const sbBad = !d.gndSpoilers && d.spd > 0.02 && (d.flaps > 25 || d.thrLever > 0.6 || (!d.wow && d.ra < 1000));
+  if (d.gndSpoilers) m.push(['GROUND SPOILERS', 1]);
+  if ((d.rev?.[0] || 0) > 0.02 || (d.rev?.[1] || 0) > 0.02) m.push(['THRUST REVERSERS', 1]);
+  if (d.gndSpoilers) { /* advisory above */ } else if (sbBad) m.push(['SPEEDBRAKE', 2]);
   else if (d.spd > 0.02) m.push(['SPEEDBRAKE EXTENDED', 1]);
   if (d.park) m.push(['PARKING BRAKE', 1]);
   return m.sort((a, b) => b[1] - a[1]);
@@ -155,6 +157,7 @@ export function drawPFD(ctx, x, y, w, h, d) {
     ctx.beginPath(); ctx.moveTo(cx + s * aw * 0.3, cy); ctx.lineTo(cx + s * aw * 0.12, cy); ctx.lineTo(cx + s * aw * 0.12, cy + u * 2.5); ctx.stroke();
   }
   ctx.fillStyle = C.yellow; ctx.fillRect(cx - u * 0.9, cy - u * 0.9, u * 1.8, u * 1.8);
+  deviation(ctx, ax, ay, aw, ah, cx, cy, u, d);
   // Radio altitude (over the terrain and buildings below).
   if (d.ra < 2500) {
     const col = d.ra < 200 ? C.amber : C.green;
@@ -306,6 +309,40 @@ export function drawPFD(ctx, x, y, w, h, d) {
   ctx.restore();
 }
 
+// Approach deviation on the PFD: the localizer under the attitude and the
+// glideslope at its right edge (green diamonds, the ILS on NAV 1), or the GPS
+// course and vertical path (magenta) with a destination and no ILS signal.
+// Two dots each side; the diamond shows where the beam or path is.
+function deviation(ctx, ax, ay, aw, ah, cx, cy, u, d) {
+  const n = d.nav, g = d.gps;
+  if (!n && !g) return;
+  const ils = n && n.valid && n.loc;
+  const lat = ils ? n.cdi : g && g[0] && g[2] === 2 ? g[6] : null;
+  const vert = ils && n.gsValid ? n.gs : g && g[10] ? g[12] : null;
+  if (lat === null && vert === null) return;
+  const col = ils ? C.green : C.magenta, dot = Math.min(aw, ah) * 0.11, r = u * 0.6;
+  const diamond = (x, y, filled) => {
+    ctx.beginPath(); ctx.moveTo(x, y - u * 1.4); ctx.lineTo(x + u * 1.1, y); ctx.lineTo(x, y + u * 1.4); ctx.lineTo(x - u * 1.1, y); ctx.closePath();
+    if (filled) { ctx.fillStyle = col; ctx.fill(); } else { ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.5, u * 0.35); ctx.stroke(); }
+  };
+  ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(1, u * 0.3);
+  if (lat !== null) {
+    const y = ay + ah - u * 3.2;
+    for (const k of [-2, -1, 1, 2]) { ctx.beginPath(); ctx.arc(cx + k * dot, y, r, 0, 2 * Math.PI); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(cx, y - u * 1.6); ctx.lineTo(cx, y + u * 1.6); ctx.stroke();
+    diamond(cx + clamp(lat, -1.1, 1.1) * 2 * dot, y, Math.abs(lat) < 1);
+  }
+  if (vert !== null) {
+    const x = ax + aw - u * 3;
+    for (const k of [-2, -1, 1, 2]) { ctx.beginPath(); ctx.arc(x, cy + k * dot, r, 0, 2 * Math.PI); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(x - u * 1.6, cy); ctx.lineTo(x + u * 1.6, cy); ctx.stroke();
+    diamond(x, cy - clamp(vert, -1.1, 1.1) * 2 * dot, Math.abs(vert) < 1);
+  }
+  // Source: the ILS identifier and frequency, or the GPS approach.
+  const label = ils ? `${d.dest && d.dest.ils && Math.round(n.mhz * 1000) === d.dest.khz ? d.dest.ils : 'LOC'} ${n.mhz.toFixed(2)}` : `GPS ${vert !== null ? 'LPV' : 'APR'}`;
+  text(ctx, label, ax + u * 1.5, ay + u * 3, u * 2.6, col, 'left');
+}
+
 // ---------------------------------------------------------- engine display ----
 function n1Dial(ctx, cx, cy, r, n1, cmd, running, u, limit) {
   const a = (p) => (-210 + clamp(p, 0, 110) / 110 * 240) * DEG;
@@ -345,6 +382,11 @@ export function drawEICAS(ctx, x, y, w, h, d) {
   text(ctx, `${rating} ${limit.toFixed(1)}`, x + w * 0.97, y + 4 * u, u * 2.8, C.green, 'right');
   text(ctx, `SAT ${Math.round(d.sat)}°C`, x + w * 0.03, y + 4 * u, u * 2.6, C.white, 'left');
   for (let i = 0; i < 2; ++i) n1Dial(ctx, x + w * (i ? 0.72 : 0.28), y + 21 * u, 12 * u, d.n1[i], d.n1cmd, d.run[i], u, limit);
+  // Thrust reversers: REV in amber while the sleeves travel, green deployed.
+  for (let i = 0; i < 2; ++i) {
+    const rv = d.rev?.[i] || 0;
+    if (rv > 0.02) text(ctx, 'REV', x + w * (i ? 0.72 : 0.28), y + 12 * u, u * 3.4, rv > 0.95 ? C.green : C.amber);
+  }
   const row = (label, vals, yy, fmt, color = C.green) => {
     text(ctx, label, x + w * 0.5, yy, u * 2.9, C.grey);
     vals.forEach((v, i) => text(ctx, fmt(v, i), x + w * (i ? 0.72 : 0.28), yy, u * 3.6, typeof color === 'function' ? color(v, i) : color));
@@ -441,9 +483,36 @@ export function drawND(ctx, x, y, w, h, d) {
     const ex = e0 - Math.sin(hdgRw * DEG) * 10 * 1852, ny = n0 - Math.cos(hdgRw * DEG) * 10 * 1852;
     const [fx, fy] = put(ex, ny);
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(fx, fy); ctx.stroke(); ctx.setLineDash([]);
-    text(ctx, 'SBMT', ax + u * 3, ay, u * 2.8, C.cyan, 'left');
+    text(ctx, d.airport || 'SBMT', ax + u * 3, ay, u * 2.8, C.cyan, 'left');
     const brg = (Math.atan2(e0 - d.x, n0 - d.y) / DEG - d.trueHdg + hdg + 720) % 360;
-    rwInfo = `SBMT ${String(Math.round(brg) % 360 || 360).padStart(3, '0')}° ${(dist / 1852).toFixed(1)} NM`;
+    rwInfo = `${d.airport || 'SBMT'} ${String(Math.round(brg) % 360 || 360).padStart(3, '0')}° ${(dist / 1852).toFixed(1)} NM`;
+  }
+  // The destination's runway and the GPS route: flown legs dim, the active
+  // leg magenta, the rest white; constraint altitudes under the waypoints.
+  if (d.destRunway) {
+    const r = d.destRunway, e1 = r.east + Math.sin(r.heading * DEG) * r.length, n1 = r.north + Math.cos(r.heading * DEG) * r.length;
+    const [ax, ay] = put(r.east, r.north), [bx, by] = put(e1, n1);
+    ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(2, u * 0.8);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  }
+  if (d.route && d.route.wp.length > 1) {
+    const wp = d.route.wp, act = d.route.active, pts = wp.map((w) => put(w.east, w.north));
+    ctx.lineWidth = Math.max(1.5, u * 0.45);
+    for (let i = 1; i < wp.length; ++i) {
+      if (i < act) continue;
+      ctx.strokeStyle = i === act ? C.magenta : C.white;
+      ctx.beginPath(); ctx.moveTo(...(i === act ? [0, 0] : pts[i - 1].slice(0, 2))); ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke();
+    }
+    for (let i = Math.max(act, 1); i < wp.length; ++i) {
+      const [px, py, dist] = pts[i];
+      if (dist > rangeM * 1.3) continue;
+      const col = i === act ? C.magenta : C.white;
+      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, u * 0.35);
+      ctx.beginPath(); ctx.moveTo(px, py - u * 1.3); ctx.lineTo(px + u * 0.4, py - u * 0.4); ctx.lineTo(px + u * 1.3, py); ctx.lineTo(px + u * 0.4, py + u * 0.4);
+      ctx.lineTo(px, py + u * 1.3); ctx.lineTo(px - u * 0.4, py + u * 0.4); ctx.lineTo(px - u * 1.3, py); ctx.lineTo(px - u * 0.4, py - u * 0.4); ctx.closePath(); ctx.stroke();
+      text(ctx, wp[i].ident, px + u * 2, py - u * 0.6, u * 2.4, col, 'left');
+      if (wp[i].alt > 0) text(ctx, String(Math.round(wp[i].alt / 0.3048 / 10) * 10), px + u * 2, py + u * 2, u * 2.1, C.cyan, 'left');
+    }
   }
   for (const [name, e, n] of d.points || []) {
     const [px, py, dist] = put(e, n);
@@ -465,6 +534,12 @@ export function drawND(ctx, x, y, w, h, d) {
     ctx.beginPath(); ctx.moveTo(0, -u * 2.6); ctx.lineTo(-u * 0.9, -u * 1.2); ctx.lineTo(u * 0.9, -u * 1.2); ctx.fill(); ctx.restore();
   }
   text(ctx, `HDG ${String(Math.round((hdg + 360) % 360)).padStart(3, '0')}`, x + w - u * 2, y + u * 4, u * 3, C.green, 'right');
+  if (d.gps && d.gps[0] && d.route) {
+    // The active waypoint (magenta), its distance and time, and the destination.
+    const wp = d.route.wp[d.gps[1]], ete = d.gs > 30 ? d.gps[7] / (d.gs * 0.5144) / 60 : 0;
+    if (wp) text(ctx, `${wp.ident} ${(d.gps[7] / 1852).toFixed(1)} NM${ete ? ` ${ete.toFixed(0)} MIN` : ''}`, x + w - u * 2, y + u * 8.5, u * 2.8, C.magenta, 'right');
+    rwInfo = `${d.dest.icao} ${d.dest.runway} ${(d.gps[9] / 1852).toFixed(0)} NM`;
+  }
   if (rwInfo) text(ctx, rwInfo, x + u * 2, y + h - u * 4, u * 2.6, C.cyan, 'left');
   text(ctx, `${d.rangeNm} NM`, x + w - u * 2, y + h - u * 4, u * 2.8, C.grey, 'right');
   ctx.restore();
@@ -479,16 +554,27 @@ export function drawJetStrip(ctx, w, h, d) {
   const on = powered(d);
   const show = (fn, x, y, ww, hh) => (on ? fn(ctx, x, y, ww, hh, d) : dark(ctx, x, y, ww, hh));
   const pad = 4, gap = 6;
-  if (w / h > 3.2) {
-    // PFD, map, engines at their natural proportions, centred.
-    const ih = h - 2 * pad;
-    let pw = ih * 1.35, nw = ih * 1.3, ew = ih * 1.0;
-    const k = Math.min(1, (w - 2 * pad - 2 * gap) / (pw + nw + ew));
-    pw *= k; nw *= k; ew *= k;
-    const x0 = (w - (pw + nw + ew + 2 * gap)) / 2;
-    show(drawPFD, x0, pad, pw, ih);
-    show(drawND, x0 + pw + gap, pad, nw, ih);
-    show(drawEICAS, x0 + pw + nw + 2 * gap, pad, ew, ih);
+  // Three layouts, the displays at their natural proportions, scaled to fit
+  // and centred: all three in a row; PFD and map over the engines (a tall
+  // panel); PFD and engines alone. The map goes only when keeping it would
+  // leave the PFD under two thirds the size (a phone). (The map used to go
+  // whenever the strip was less than 3.2 times as wide as tall: dragging the
+  // panel taller lost it.)
+  const H = h - 2 * pad, W = w - 2 * pad;
+  const row = Math.min(H, (W - 2 * gap) / 3.65), stack = Math.min((H - gap) / 2, (W - gap) / 2.65);
+  const alone = Math.min(H, (W - gap) * 0.6 / 1.35);
+  if (alone <= 1.5 * Math.max(row, stack) && row >= stack) {
+    const pw = row * 1.35, nw = row * 1.3, ew = row;
+    const x0 = (w - (pw + nw + ew + 2 * gap)) / 2, y0 = (h - row) / 2;
+    show(drawPFD, x0, y0, pw, row);
+    show(drawND, x0 + pw + gap, y0, nw, row);
+    show(drawEICAS, x0 + pw + nw + 2 * gap, y0, ew, row);
+  } else if (alone <= 1.5 * Math.max(row, stack)) {
+    const pw = stack * 1.35, nw = stack * 1.3, ew = Math.min(W, stack * 1.35);
+    const x0 = (w - (pw + nw + gap)) / 2, y0 = (h - (2 * stack + gap)) / 2;
+    show(drawPFD, x0, y0, pw, stack);
+    show(drawND, x0 + pw + gap, y0, nw, stack);
+    show(drawEICAS, (w - ew) / 2, y0 + stack + gap, ew, stack);
   } else {
     const pw = (w - gap - 2 * pad) * 0.6;
     show(drawPFD, pad, pad, pw, h - 2 * pad);
@@ -514,7 +600,7 @@ export function drawJetPanel(ctx, W, H, d) {
   show(drawEICAS, X(xs[2]), X(top), X(dw), X(dh));
   show(drawPFD, X(xs[3]), X(top), X(dw), X(dh));
   // Placards and labels under the displays.
-  text(ctx, 'TOP G', X(0.95), X(0.345), X(0.016), '#c9ccd1', 'center', SANS, 800);
+  text(ctx, d.typeName || 'TOP G', X(0.95), X(0.345), X(0.016), '#c9ccd1', 'center', SANS, 800);
   text(ctx, 'LANDING GEAR', X(0.93), X(0.395), X(0.009), '#c9ccd1', 'center', SANS, 700);
   text(ctx, d.gear > 0.999 ? 'DOWN' : d.gear < 0.001 ? 'UP' : 'TRANSIT', X(0.93), X(0.47), X(0.011), d.gear > 0.999 ? C.green : d.gear < 0.001 ? C.grey : C.amber, 'center', MONO, 700);
   // Master warning / caution: lit (warning flashing) while a message of that level is up.

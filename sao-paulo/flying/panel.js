@@ -239,6 +239,28 @@ export function drawPanel(ctx, w, h, c, m, layout) {
 // the glareshield (body z = 0.60); P is pixels per metre.
 export const PANEL_W = 1.04, PANEL_H = 0.56;
 
+// Clickable places on the 3D cockpit's panel face (metres from its top-left
+// corner as the pilot sees it, the same coordinates the drawing uses): the
+// switches, the key, the instrument knobs and the radios. Each names what
+// it does; the app maps the kinds to the simulation.
+const ROCKERS = [['BCN', 'electrical.load.beacon'], ['LAND', 'electrical.load.landing_light'], ['TAXI', 'electrical.load.taxi_light'],
+  ['NAV', 'electrical.load.nav_lights'], ['STROBE', 'electrical.load.strobes'], ['PITOT HT', 'electrical.load.pitot_heat'], ['AVIONICS', 'electrical.avionics']];
+export const PANEL_SPOTS = [
+  { kind: 'toggle', id: 'electrical.battery', label: 'Master: battery', u: 0.085, v: 0.445, w: 0.016, h: 0.03 },
+  { kind: 'toggle', id: 'electrical.alternator', label: 'Master: alternator', u: 0.103, v: 0.445, w: 0.016, h: 0.03 },
+  ...ROCKERS.map(([label, id], i) => ({ kind: 'toggle', id, label, u: 0.135 + i * 0.03, v: 0.445, w: 0.016, h: 0.03 })),
+  { kind: 'mags', id: 'engine1.ignition', label: 'Ignition key', u: 0.025, v: 0.45, w: 0.04, h: 0.04 },
+  { kind: 'cage', label: 'Attitude indicator: click to cage (wings level)', u: 0.2, v: 0.075, w: 0.08, h: 0.08 },
+  { kind: 'baro', label: 'Altimeter: scroll to set the pressure', u: 0.295, v: 0.075, w: 0.08, h: 0.08 },
+  { kind: 'hdg', label: 'Heading indicator: scroll the bug, click to set it to the compass', u: 0.2, v: 0.175, w: 0.08, h: 0.08 },
+  { kind: 'obs', label: 'Course (OBS): scroll to turn', u: 0.392, v: 0.077, w: 0.076, h: 0.076 },
+  { kind: 'comSwap', label: 'COM: click to swap active and standby', u: 0.512, v: 0.083, w: 0.085, h: 0.022 },
+  { kind: 'comTune', label: 'COM standby: scroll to tune, click to swap', u: 0.603, v: 0.083, w: 0.085, h: 0.022 },
+  { kind: 'navSwap', label: 'NAV: click to swap active and standby', u: 0.512, v: 0.113, w: 0.085, h: 0.022 },
+  { kind: 'navTune', label: 'NAV standby: scroll to tune, click to swap', u: 0.603, v: 0.113, w: 0.085, h: 0.022 },
+  { kind: 'xpdr', label: 'Transponder: click for the mode, scroll the code', u: 0.512, v: 0.163, w: 0.13, h: 0.024 },
+];
+
 function cdi(ctx, x, y, r, c) {
   dial(ctx, x, y, r);
   ctx.save(); ctx.translate(x, y); ctx.rotate(-c[K.obs] * DEG);

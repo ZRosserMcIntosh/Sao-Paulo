@@ -11,11 +11,42 @@ const NAME = { smooth: 'Smooth ball', dimpled: 'Dimpled ball' };
 const MONO = '"JetBrains Mono",ui-monospace,Menlo,monospace';
 const DISP = '"Big Shoulders Display","Arial Narrow",Impact,sans-serif';
 
+// Launch presets: TrackMan PGA Tour averages (ball speed m/s, spin rpm,
+// launch deg). The club delivery that produces them is solved from the
+// impact model (physics.js), so the club you see is consistent with the ball.
+const PRESETS = {
+  driver: { club: 'driver', V: 74.7, rpm: 2686, ang: 10.9 },
+  iron: { club: 'iron7', V: 53.6, rpm: 7097, ang: 16.3 },
+  wedge: { club: 'wedge', V: 45.6, rpm: 9304, ang: 24.2 },
+  knuckle: { club: 'driver', V: 74.7, rpm: 0, ang: 10.9 },
+};
 const state = {
-  mode: 'dimpled', V: 70, rpm: 2800, ang: 11, slow: 2, paused: false,
+  mode: 'dimpled', V: 74.7, rpm: 2686, ang: 10.9, slow: 3, paused: false, club: 'driver',
   layers: { smoke: true, tracers: true, skin: true, inset: true, forces: true, labels: true },
   inspect: { th: 100, side: 1 },
 };
+
+// The shot starts at the instant of impact: the ball is squashed by the
+// strike, springs back as it leaves, then the air flows past it. shot.t is
+// real time from first contact.
+const shot = { imp: null, t: 0 };
+function solveShot() { shot.imp = P.solveImpact(P.CLUBS[state.club], state.V, state.ang, state.rpm); }
+// Fraction of the final ball speed reached t seconds after first contact.
+function flowFraction(t) { return t <= 0 || !shot.imp ? (shot.imp ? 0 : 1) : P.impulseFraction(shot.imp, t); }
+// Integral of that fraction over [a, b] (seconds): flow distance / final speed.
+function flowIntegral(a, b) {
+  if (!shot.imp) return b - a;
+  if (b <= 0) return 0;
+  a = Math.max(a, 0);
+  const tau = shot.imp.tau;
+  let sum = 0;
+  if (a < tau) {
+    const e = Math.min(b, tau), n = 24, hh = (e - a) / n;
+    for (let i = 0; i < n; ++i) sum += flowFraction(a + (i + 0.5) * hh) * hh;
+    a = e;
+  }
+  return sum + Math.max(0, b - a);
+}
 
 // ---------------------------------------------------------------- colour
 function turbo(t) {
@@ -91,7 +122,7 @@ function ballTexture(kind, Rpx) {
 }
 
 // ---------------------------------------------------------------- one tunnel lane
-const DE = 0.13;       // smoke emission interval (non-dimensional time)
+const DE = 0.075;      // smoke emission interval (non-dimensional time): fine streaklines
 // Unresolved small-scale turbulence: a smooth, divergence-free 'curl noise'
 // field (illustrative), switched on near the wake vortices and in the
 // turbulent boundary layer.
@@ -130,9 +161,9 @@ class Lane {
     this.R = R; this.cx = x + w * (narrow ? 0.3 : 0.27); this.cy = y + h * 0.5;
     this.xl = (x - this.cx) / R; this.xr = (x + w - this.cx) / R; this.yh = h / 2 / R;
     this.tun.xmax = this.xr + 0.8; this.tun.ymax = this.yh + 1.5;
-    if (!this.ready) this.preroll();
+    if (!this.ready) { if (shot.imp) { this.sync(); this.tun.n = 0; this.ready = true; } else this.preroll(); }
     // Smoke rake: dense through the ball's frontal band, sparser outside.
-    const dense = 0.19 / q, sparse = 0.5 / Math.sqrt(q), ys = [];
+    const dense = 0.13 / q, sparse = 0.36 / Math.sqrt(q), ys = [];
     for (let yy = dense * 0.5; yy < this.yh - 0.1; yy += Math.abs(yy) < 1.7 ? dense : sparse) ys.push(yy);
     this.ys = [...ys.map((v) => -v).reverse(), ...ys];
     // Emitter start points: the rake, plus smoke ports on the ball's front
@@ -156,7 +187,7 @@ class Lane {
     this.ts = new Float32Array(this.NT); this.tage = new Float32Array(this.NT);
     this.thead = 0;
     for (let i = 0; i < this.NT; ++i) this.respawnTracer(i, true);
-    this.prefill();
+    if (shot.imp && shot.t <= 0) this.prefillStill(); else this.prefill();
     if (this.texR !== Math.round(R)) { this.texS = window.devicePixelRatio > 1 ? 2 : 1; this.tex = ballTexture(this.kind, R * this.texS); this.texR = Math.round(R); }
   }
   respawnTracer(i, scatter) {
@@ -168,6 +199,25 @@ class Lane {
     }
     for (let k = 0; k < this.TL; ++k) { this.tx[i * this.TL + k] = x; this.ty[i * this.TL + k] = y; }
     this.tage[i] = 0;
+  }
+  // At the instant of impact the air is still: the smoke hangs in straight
+  // lines (none inside the ball). The ball's start sets it moving.
+  prefillStill() {
+    const C = this.C;
+    this.alive.fill(0);
+    this.head = 0;
+    for (let e = 0; e < this.E; ++e) {
+      if (this.ex[e] * this.ex[e] + this.ey[e] * this.ey[e] < 1.2) continue;  // ports on the ball: no smoke yet
+      let x = this.ex[e];
+      const y = this.ey[e];
+      for (let k = 0; k < C; ++k) {
+        const idx = e * C + ((C - 1 - k + C) % C);
+        if (x > this.xr + 0.3) break;
+        if (x * x + y * y > 1.0816) { this.sx[idx] = x; this.sy[idx] = y; this.sa[idx] = k * DE; this.alive[idx] = 1; this.ss[idx] = 0; }
+        x += DE;
+      }
+    }
+    for (let i = 0; i < this.NT; ++i) this.ts[i] = 0;
   }
   // Fill the smoke lines along the current instantaneous streamlines, so the
   // tunnel opens with smoke already flowing.
@@ -232,10 +282,14 @@ class Lane {
     for (let i = 0; i < n; ++i) {
       if (!this.alive[i]) continue;
       let x = SX[i], y = SY[i];
+      // Midpoint (RK2) step: second-order streaklines, crisp through the
+      // strong gradients at the shoulders and around the wake vortices.
       this.pvel(x, y, o);
+      const xm = x + 0.5 * h * o[0], ym = y + 0.5 * h * o[1];
+      this.pvel(xm, ym, o);
       let u = o[0], v = o[1];
       const wgt = (o[2] < 1.2 ? Math.exp(-o[2] / 0.3) : 0) + (o[3] ? 0.35 : 0);
-      if (wgt > 0.02) { noise(x, y, tt, nz); u += nzA * wgt * nz[0]; v += nzA * wgt * nz[1]; }
+      if (wgt > 0.02) { noise(xm, ym, tt, nz); u += nzA * wgt * nz[0]; v += nzA * wgt * nz[1]; }
       x += u * h;
       y += v * h;
       const r2 = x * x + y * y;
@@ -250,6 +304,7 @@ class Lane {
     for (let i = 0; i < this.NT; ++i) {
       let x = this.tx[i * TL + pv], y = this.ty[i * TL + pv];
       this.pvel(x, y, o);
+      this.pvel(x + 0.5 * h * o[0], y + 0.5 * h * o[1], o);
       const wgt = (o[2] < 1.2 ? Math.exp(-o[2] / 0.3) : 0) + (o[3] ? 0.35 : 0);
       if (wgt > 0.02) { noise(x, y, tt, nz); o[0] += nzA * wgt * nz[0]; o[1] += nzA * wgt * nz[1]; }
       x += o[0] * h;
@@ -342,7 +397,7 @@ function drawSmoke(L) {
   const C = L.C, E = L.E, R = L.R, cx = L.cx, cy = L.cy;
   const paths = new Array(NB * 3);
   for (let i = 0; i < paths.length; ++i) paths[i] = null;
-  const maxGap2 = 0.36 * 0.36;
+  const maxGap2 = 0.26 * 0.26;
   for (let e = 0; e < E; ++e) {
     let prev = -1;
     for (let k = 0; k < C; ++k) {
@@ -368,7 +423,7 @@ function drawSmoke(L) {
   ctx.lineCap = 'round';
   const AL = [0.85, 0.55, 0.3];
   for (let pass = glow ? 0 : 1; pass < 2; ++pass) {
-    ctx.lineWidth = pass === 0 ? 4.2 * s : 1.15 * s;
+    ctx.lineWidth = pass === 0 ? 3.2 * s : 0.85 * s;
     for (let ab = 0; ab < 3; ++ab) for (let b = 0; b < NB; ++b) {
       const p = paths[ab * NB + b];
       if (!p) continue;
@@ -458,6 +513,15 @@ function drawBall(L) {
   halo.addColorStop(0, 'rgba(140,190,255,.10)'); halo.addColorStop(1, 'rgba(140,190,255,0)');
   ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, R * 1.6, 0, 2 * Math.PI); ctx.fill();
   ctx.translate(cx, cy);
+  // In contact the ball flattens against the face: an ellipse with the same
+  // area, its face side on the face plane.
+  const imp = shot.imp, dl = imp && shot.t > 0 && shot.t < imp.tau ? P.deflection(imp, shot.t) : 0;
+  if (dl > 0) {
+    const d = (imp.loft * Math.PI) / 180, nT = toTunnel([Math.cos(d), Math.sin(d)]);
+    const ang = Math.atan2(-nT[1], nT[0]), a = 1 - dl / (2 * P.R), sh = (dl / 2 / P.R) * R;
+    ctx.translate(Math.cos(ang) * sh, Math.sin(ang) * sh);
+    ctx.rotate(ang); ctx.scale(a, 1 / a); ctx.rotate(-ang);
+  }
   ctx.save();
   ctx.rotate(L.spinAng);
   const t = L.tex, sz = t.width / L.texS;
@@ -805,52 +869,103 @@ function frame(now) {
   const vis = visible();
   for (const L of vis) L.sync();
   if (!state.paused) {
-    const rate = (1 / SLOWS[state.slow]) * state.V / P.R;  // non-dimensional time per real second
-    let adv = dt * rate;
+    // Real time advanced this frame, and the distance the air moved past the
+    // ball in radii (non-dimensional time): zero before contact, ramping up
+    // with the impulse during it.
+    let realDt = dt / SLOWS[state.slow];
+    let fi = flowIntegral(shot.t, shot.t + realDt);
+    let adv = (fi * state.V) / P.R;
     const maxAdv = 0.26;
     limited = adv > maxAdv * 0.999;
-    adv = Math.min(adv, maxAdv);
-    const n = Math.max(1, Math.ceil(adv / 0.065)), h = adv / n;
+    if (limited) { realDt *= maxAdv / adv; fi *= maxAdv / adv; adv = maxAdv; }
+    const n = adv > 0 ? Math.max(1, Math.ceil(adv / 0.045)) : 0, h = n ? adv / n : 0;
     const t0 = performance.now();
     for (const L of vis) {
       for (let i = 0; i < n; ++i) L.step(h);
-      L.spinAng += state.rpm * P.RPM * adv * P.R / state.V;
-      updateInset(L, dt);
+      L.spinAng += state.rpm * P.RPM * fi;
+      if (inFlight()) updateInset(L, dt);
     }
     stepMs = stepMs * 0.95 + (performance.now() - t0) * 0.05;
-    physT += adv * P.R / state.V;
+    shot.t += realDt;
+    physT = shot.t;
     // Adapt the particle budget to the device, at most twice.
     frameMs = frameMs * 0.95 + dt * 1000 * 0.05;
     if ((stepMs > 18 || frameMs > 36) && lowered < 2 && now > 5000) { lowered++; quality *= 0.7; glow = false; layout(); stepMs = 8; frameMs = 16; }
   } else {
-    for (const L of vis) if (!L.ins.b) updateInset(L, 0);
+    for (const L of vis) if (!L.ins.b && inFlight()) updateInset(L, 0);
   }
   draw(vis);
   drawTrajectory(now);
   requestAnimationFrame(frame);
 }
+const inFlight = () => !shot.imp || shot.t >= shot.imp.tau;
 
 function draw(vis) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  const split = vis.length > 1;
+  const split = vis.length > 1, flying = inFlight();
   for (const L of vis) {
     ctx.save();
     ctx.beginPath(); ctx.rect(L.rect.x, L.rect.y, L.rect.w, L.rect.h); ctx.clip();
     drawLaneBackground(L);
     if (state.layers.smoke) { drawVortices(L); drawSmoke(L); }
     if (state.layers.tracers) drawTracers(L);
-    drawWakeBracket(L);
-    if (state.layers.skin) drawSkin(L);
+    if (flying && state.layers.labels) drawWakeBracket(L);
+    if (flying && state.layers.skin) drawSkin(L);
     drawBall(L);
-    drawSeparation(L);
-    if (state.layers.forces) drawForces(L);
+    if (flying) drawSeparation(L);
+    if (flying && state.layers.forces) drawForces(L);
     drawHud(L, split);
-    if (state.layers.inset) drawInset(L, split);
+    const sinceRelease = shot.imp ? (shot.t - shot.imp.tau) * SLOWS[state.slow] : 1e9;
+    if (shot.imp && sinceRelease < 3) drawImpactPanel(L, split);
+    else if (state.layers.inset) drawInset(L, split);
     if (state.paused) { ctx.font = `900 20px ${DISP}`; ctx.fillStyle = 'rgba(255,211,107,.9)'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText('PAUSED', L.rect.x + L.rect.w - 14, L.rect.y + L.rect.h - 20); }
     ctx.restore();
   }
   if (split) { ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(0, H / 2 - 0.5, W, 1); }
-  $('#clock').textContent = `${state.paused ? 'paused' : `1/${SLOWS[state.slow]}×`}${limited ? ' (display-limited)' : ''} · t = ${(physT * 1000).toFixed(1)} ms`;
+  $('#clock').textContent = `${state.paused ? 'paused' : `1/${SLOWS[state.slow]}×`}${limited ? ' (display-limited)' : ''} · t = ${fmtT(physT)} · ${phaseText()}`;
+}
+function fmtT(t) {
+  const a = Math.abs(t);
+  return a < 0.01 ? `${(t * 1000).toFixed(3)} ms` : `${(t * 1000).toFixed(1)} ms`;
+}
+function phaseText() {
+  const imp = shot.imp;
+  if (!imp) return 'flow';
+  if (shot.t < imp.tc) return 'contact · compressing';
+  if (shot.t < imp.tau) return 'contact · restoring';
+  return 'ball in flight';
+}
+
+// ---------------------------------------------------------------- the impact
+// World frame: x toward the target, y up, origin at the ball centre. The
+// tunnel shows the ball's own frame with the flight path along -x, so the
+// world is mirrored and turned by the launch angle.
+function toTunnel(v) {
+  const L = (shot.imp.launch * Math.PI) / 180, c = Math.cos(L), s = Math.sin(L), x = -v[0], y = v[1];
+  return [c * x - s * y, s * x + c * y];
+}
+function drawImpactPanel(L, split) {
+  const imp = shot.imp, cl = P.CLUBS[state.club];
+  const narrow = L.narrow, fs = narrow ? 9.5 : 11, lh = fs + 5;
+  const mph = (v) => (v * MPH).toFixed(0);
+  const off = Math.abs(imp.speed - state.V) > 0.02 * state.V || Math.abs(imp.launch - state.ang) > 0.5 || Math.abs(imp.rpm - state.rpm) > 150;
+  const t = shot.t, dl = t > 0 && t < imp.tau ? P.deflection(imp, t) * 1000 : 0;
+  const lines = [
+    [`${cl.name.toUpperCase()} · club ${mph(imp.V)} mph (${imp.V.toFixed(1)} m/s)`, '#ffd36b'],
+    [`attack ${imp.attack.toFixed(1)}° · dynamic loft ${imp.loft.toFixed(1)}° · spin loft ${imp.spinLoft.toFixed(1)}°`, '#e7ecf2'],
+    [`contact ${(imp.tau * 1000).toFixed(2)} ms · compression ${t > 0 && t < imp.tau ? dl.toFixed(1) : '0.0'} / ${(imp.dmax * 1000).toFixed(1)} mm`, '#e7ecf2'],
+    [`ball ${mph(imp.speed)} mph · smash ${imp.smash.toFixed(2)} · launch ${imp.launch.toFixed(1)}° · ${imp.rpm.toFixed(0)} rpm`, '#8fd8ff'],
+  ];
+  if (off) lines.push(['closest this club can deliver to the sliders', '#f0b43a']);
+  if (narrow && split) lines.splice(1, 2);
+  const w = Math.min(L.rect.w - 28, narrow ? 330 : 470), h = 12 + lines.length * lh;
+  const x0 = L.rect.x + 14, y0 = L.rect.y + L.rect.h - h - 14;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,7,12,.72)'; ctx.fillRect(x0, y0, w, h);
+  ctx.strokeStyle = 'rgba(255,211,107,.45)'; ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
+  ctx.font = `500 ${fs}px ${MONO}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  lines.forEach(([txt, col], i) => { ctx.fillStyle = col; ctx.fillText(txt, x0 + 8, y0 + 7 + i * lh, w - 16); });
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- charts
@@ -1010,7 +1125,7 @@ function drawTrajectory(now) {
 function updateReadouts() {
   const V = state.V, Re = P.reynolds(V), S = P.spinParam(state.rpm, V);
   state.lastRe = Re;
-  $('#oV').textContent = `${V} m/s`;
+  $('#oV').textContent = `${V.toFixed(1)} m/s`;
   $('#sV').textContent = `${(V * MPH).toFixed(0)} mph · Re ${sci(Re)}${V < 30 || V > 80 ? ' · outside golf range' : ''}`;
   $('#oW').textContent = `${state.rpm} rpm`;
   const sw = $('#sW');
@@ -1050,14 +1165,26 @@ $('#iS').addEventListener('input', (e) => { state.slow = +e.target.value; update
 document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
 function togglePause() { state.paused = !state.paused; $('#bPause').setAttribute('aria-pressed', String(state.paused)); $('#bPause').textContent = state.paused ? 'Play' : 'Pause'; }
 $('#bPause').addEventListener('click', togglePause);
-function resetFlow() { for (const L of Object.values(lanes)) { L.ready = false; L.ins.eddies = []; } physT = 0; layout(); }
-$('#bReset').addEventListener('click', resetFlow);
-const PRESETS = { driver: [70, 2800, 11], iron: [54, 6500, 16], wedge: [45, 8000, 26], knuckle: [70, 0, 11] };
-document.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
-  const [v, w, a] = PRESETS[b.dataset.preset];
-  $('#iV').value = v; $('#iW').value = w; $('#iA').value = a;
-  state.V = v; state.rpm = w; state.ang = a; updateReadouts();
-}));
+// Restart the shot at the instant of impact: the ball flattens and recovers
+// (about half a millisecond), and the air starts to flow as it leaves the
+// face (an impulsively started sphere: the wake grows from nothing).
+function startShot() {
+  solveShot();
+  shot.t = 0;
+  physT = shot.t;
+  for (const L of Object.values(lanes)) { L.ready = false; L.ins.eddies = []; L.ins.b = null; L.spinAng = 0; }
+  layout();
+}
+$('#bReset').addEventListener('click', startShot);
+function applyPreset(k) {
+  const p = PRESETS[k];
+  $('#iV').value = p.V; $('#iW').value = p.rpm; $('#iA').value = p.ang;
+  state.V = p.V; state.rpm = p.rpm; state.ang = p.ang; state.club = p.club;
+  document.querySelectorAll('[data-preset]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.preset === k)));
+  updateReadouts();
+  startShot();
+}
+document.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
 function toggleLayer(k) {
   state.layers[k] = !state.layers[k];
   const b = document.querySelector(`[data-layer="${k}"]`); b.setAttribute('aria-pressed', String(state.layers[k]));
@@ -1074,10 +1201,10 @@ window.addEventListener('keydown', (e) => {
   else if (k === '2') setMode('dimpled');
   else if (k === '3') setMode('split');
   else if (k === ' ' && e.target.tagName !== 'BUTTON') { e.preventDefault(); togglePause(); }
-  else if (k === 'r' || k === 'R') resetFlow();
+  else if (k === 'r' || k === 'R') startShot();
   else if (k === '[') setRange('#iS', Math.max(0, state.slow - 1));
   else if (k === ']') setRange('#iS', Math.min(5, state.slow + 1));
-  else if (!inRange && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); setRange('#iV', Math.max(10, Math.min(120, state.V + (k === 'ArrowRight' ? 2 : -2)))); }
+  else if (!inRange && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); setRange('#iV', Math.max(10, Math.min(120, Math.round(state.V + (k === 'ArrowRight' ? 2 : -2))))); }
   else if (!inRange && (k === 'ArrowUp' || k === 'ArrowDown')) { e.preventDefault(); setRange('#iW', Math.max(0, Math.min(8000, state.rpm + (k === 'ArrowUp' ? 250 : -250)))); }
   else if (keyLayer[k.toLowerCase()]) toggleLayer(k.toLowerCase() === 'p' ? 'skin' : keyLayer[k.toLowerCase()]);
 });
@@ -1107,7 +1234,7 @@ let rsT = 0;
 new ResizeObserver(() => { clearTimeout(rsT); rsT = setTimeout(() => { layout(); drawCd(); drawCl(); }, 60); }).observe(cv);
 window.addEventListener('resize', () => { drawCd(); drawCl(); });
 
-layout();
 updateReadouts();
+startShot();
 if (document.fonts) document.fonts.ready.then(() => { drawCd(); drawCl(); });
 requestAnimationFrame((t) => { last = t; frame(t); });
