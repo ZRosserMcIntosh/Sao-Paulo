@@ -157,6 +157,7 @@ export function drawPFD(ctx, x, y, w, h, d) {
     ctx.beginPath(); ctx.moveTo(cx + s * aw * 0.3, cy); ctx.lineTo(cx + s * aw * 0.12, cy); ctx.lineTo(cx + s * aw * 0.12, cy + u * 2.5); ctx.stroke();
   }
   ctx.fillStyle = C.yellow; ctx.fillRect(cx - u * 0.9, cy - u * 0.9, u * 1.8, u * 1.8);
+  deviation(ctx, ax, ay, aw, ah, cx, cy, u, d);
   // Radio altitude (over the terrain and buildings below).
   if (d.ra < 2500) {
     const col = d.ra < 200 ? C.amber : C.green;
@@ -308,6 +309,40 @@ export function drawPFD(ctx, x, y, w, h, d) {
   ctx.restore();
 }
 
+// Approach deviation on the PFD: the localizer under the attitude and the
+// glideslope at its right edge (green diamonds, the ILS on NAV 1), or the GPS
+// course and vertical path (magenta) with a destination and no ILS signal.
+// Two dots each side; the diamond shows where the beam or path is.
+function deviation(ctx, ax, ay, aw, ah, cx, cy, u, d) {
+  const n = d.nav, g = d.gps;
+  if (!n && !g) return;
+  const ils = n && n.valid && n.loc;
+  const lat = ils ? n.cdi : g && g[0] && g[2] === 2 ? g[6] : null;
+  const vert = ils && n.gsValid ? n.gs : g && g[10] ? g[12] : null;
+  if (lat === null && vert === null) return;
+  const col = ils ? C.green : C.magenta, dot = Math.min(aw, ah) * 0.11, r = u * 0.6;
+  const diamond = (x, y, filled) => {
+    ctx.beginPath(); ctx.moveTo(x, y - u * 1.4); ctx.lineTo(x + u * 1.1, y); ctx.lineTo(x, y + u * 1.4); ctx.lineTo(x - u * 1.1, y); ctx.closePath();
+    if (filled) { ctx.fillStyle = col; ctx.fill(); } else { ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.5, u * 0.35); ctx.stroke(); }
+  };
+  ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(1, u * 0.3);
+  if (lat !== null) {
+    const y = ay + ah - u * 3.2;
+    for (const k of [-2, -1, 1, 2]) { ctx.beginPath(); ctx.arc(cx + k * dot, y, r, 0, 2 * Math.PI); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(cx, y - u * 1.6); ctx.lineTo(cx, y + u * 1.6); ctx.stroke();
+    diamond(cx + clamp(lat, -1.1, 1.1) * 2 * dot, y, Math.abs(lat) < 1);
+  }
+  if (vert !== null) {
+    const x = ax + aw - u * 3;
+    for (const k of [-2, -1, 1, 2]) { ctx.beginPath(); ctx.arc(x, cy + k * dot, r, 0, 2 * Math.PI); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(x - u * 1.6, cy); ctx.lineTo(x + u * 1.6, cy); ctx.stroke();
+    diamond(x, cy - clamp(vert, -1.1, 1.1) * 2 * dot, Math.abs(vert) < 1);
+  }
+  // Source: the ILS identifier and frequency, or the GPS approach.
+  const label = ils ? `${d.dest && d.dest.ils && Math.round(n.mhz * 1000) === d.dest.khz ? d.dest.ils : 'LOC'} ${n.mhz.toFixed(2)}` : `GPS ${vert !== null ? 'LPV' : 'APR'}`;
+  text(ctx, label, ax + u * 1.5, ay + u * 3, u * 2.6, col, 'left');
+}
+
 // ---------------------------------------------------------- engine display ----
 function n1Dial(ctx, cx, cy, r, n1, cmd, running, u, limit) {
   const a = (p) => (-210 + clamp(p, 0, 110) / 110 * 240) * DEG;
@@ -452,6 +487,33 @@ export function drawND(ctx, x, y, w, h, d) {
     const brg = (Math.atan2(e0 - d.x, n0 - d.y) / DEG - d.trueHdg + hdg + 720) % 360;
     rwInfo = `${d.airport || 'SBMT'} ${String(Math.round(brg) % 360 || 360).padStart(3, '0')}° ${(dist / 1852).toFixed(1)} NM`;
   }
+  // The destination's runway and the GPS route: flown legs dim, the active
+  // leg magenta, the rest white; constraint altitudes under the waypoints.
+  if (d.destRunway) {
+    const r = d.destRunway, e1 = r.east + Math.sin(r.heading * DEG) * r.length, n1 = r.north + Math.cos(r.heading * DEG) * r.length;
+    const [ax, ay] = put(r.east, r.north), [bx, by] = put(e1, n1);
+    ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(2, u * 0.8);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  }
+  if (d.route && d.route.wp.length > 1) {
+    const wp = d.route.wp, act = d.route.active, pts = wp.map((w) => put(w.east, w.north));
+    ctx.lineWidth = Math.max(1.5, u * 0.45);
+    for (let i = 1; i < wp.length; ++i) {
+      if (i < act) continue;
+      ctx.strokeStyle = i === act ? C.magenta : C.white;
+      ctx.beginPath(); ctx.moveTo(...(i === act ? [0, 0] : pts[i - 1].slice(0, 2))); ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke();
+    }
+    for (let i = Math.max(act, 1); i < wp.length; ++i) {
+      const [px, py, dist] = pts[i];
+      if (dist > rangeM * 1.3) continue;
+      const col = i === act ? C.magenta : C.white;
+      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, u * 0.35);
+      ctx.beginPath(); ctx.moveTo(px, py - u * 1.3); ctx.lineTo(px + u * 0.4, py - u * 0.4); ctx.lineTo(px + u * 1.3, py); ctx.lineTo(px + u * 0.4, py + u * 0.4);
+      ctx.lineTo(px, py + u * 1.3); ctx.lineTo(px - u * 0.4, py + u * 0.4); ctx.lineTo(px - u * 1.3, py); ctx.lineTo(px - u * 0.4, py - u * 0.4); ctx.closePath(); ctx.stroke();
+      text(ctx, wp[i].ident, px + u * 2, py - u * 0.6, u * 2.4, col, 'left');
+      if (wp[i].alt > 0) text(ctx, String(Math.round(wp[i].alt / 0.3048 / 10) * 10), px + u * 2, py + u * 2, u * 2.1, C.cyan, 'left');
+    }
+  }
   for (const [name, e, n] of d.points || []) {
     const [px, py, dist] = put(e, n);
     if (dist > rangeM * 1.05 || py > u * 8) continue;
@@ -472,6 +534,12 @@ export function drawND(ctx, x, y, w, h, d) {
     ctx.beginPath(); ctx.moveTo(0, -u * 2.6); ctx.lineTo(-u * 0.9, -u * 1.2); ctx.lineTo(u * 0.9, -u * 1.2); ctx.fill(); ctx.restore();
   }
   text(ctx, `HDG ${String(Math.round((hdg + 360) % 360)).padStart(3, '0')}`, x + w - u * 2, y + u * 4, u * 3, C.green, 'right');
+  if (d.gps && d.gps[0] && d.route) {
+    // The active waypoint (magenta), its distance and time, and the destination.
+    const wp = d.route.wp[d.gps[1]], ete = d.gs > 30 ? d.gps[7] / (d.gs * 0.5144) / 60 : 0;
+    if (wp) text(ctx, `${wp.ident} ${(d.gps[7] / 1852).toFixed(1)} NM${ete ? ` ${ete.toFixed(0)} MIN` : ''}`, x + w - u * 2, y + u * 8.5, u * 2.8, C.magenta, 'right');
+    rwInfo = `${d.dest.icao} ${d.dest.runway} ${(d.gps[9] / 1852).toFixed(0)} NM`;
+  }
   if (rwInfo) text(ctx, rwInfo, x + u * 2, y + h - u * 4, u * 2.6, C.cyan, 'left');
   text(ctx, `${d.rangeNm} NM`, x + w - u * 2, y + h - u * 4, u * 2.8, C.grey, 'right');
   ctx.restore();

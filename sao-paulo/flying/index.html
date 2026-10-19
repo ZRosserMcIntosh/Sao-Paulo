@@ -69,6 +69,14 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #hud{position:fixed;left:12px;top:66px;z-index:2;pointer-events:none;display:grid;gap:8px}
 .read{display:grid;grid-template-columns:auto auto;gap:2px 14px;font:500 12px/1.35 var(--mono);color:var(--mute);min-width:190px}
 .read b{color:var(--ink);font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+/* Navigation card: the GPS leg and the ILS (or GPS approach) deviation bars. */
+.read.nav{margin-top:8px}
+.read.nav[hidden]{display:none}
+.read .dev{position:relative;display:inline-block;width:86px;height:10px;border:1px solid rgba(160,175,195,.45);border-radius:5px;vertical-align:middle}
+.read .dev::after{content:'';position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:rgba(220,228,238,.7)}
+.read .dev i{position:absolute;top:1px;width:9px;height:6px;margin-left:-4.5px;background:#e04fd8;border-radius:3px}
+.read .dev.ils i{background:#38d26a}
+.read .dev.off i{display:none}
 .big{display:flex;gap:16px;align-items:flex-end}
 .big div{font:900 40px/.85 var(--display);font-variant-numeric:tabular-nums}
 .big small{display:block;font:600 10px var(--mono);color:var(--mute);letter-spacing:.08em;margin-top:5px}
@@ -195,6 +203,10 @@ body.jet #hud .levers{display:none}
     <button data-airport="0" aria-pressed="false">Campo de Marte · 12</button>
   </div>
 
+  <h2>Destination</h2>
+  <label class="ctl">Fly to <select id="destSel" aria-label="Destination and approach"></select><output></output></label>
+  <p class="note">Pick an airport and runway: NAV 1 is tuned to its ILS (where it has one) with the course set, and the GPS loads a route to it — from the runway if you are on it, otherwise from where you are — down to a 3° path to the threshold. Two starts below put you on its approach. Runways from OurAirports; ILS identifiers and frequencies from published listings; antenna sites estimated. Not for real-world navigation.</p>
+
   <h2>Start</h2>
   <div class="starts" id="starts"></div>
   <div class="row" style="margin-top:8px"><button id="bQuick" title="Run the Quick Start checklist through the cockpit switches">Quick Start (from cold and dark)</button></div>
@@ -268,7 +280,7 @@ body.jet #hud .levers{display:none}
     <span>Gamepad</span><span>Left stick pitch/roll, right stick rudder, RT/LT throttle, RB/LB flaps, A brakes, D-pad trim, Y restart, View camera</span>
   </div>
   <p class="note">Take-off: full throttle, keep it straight with <kbd>Q</kbd>/<kbd>E</kbd>, ease back at 55 knots. Climb at 75. Land at 65 with flaps down, idle over the runway, flare gently.</p>
-  <p class="note">Physics: the Aviation Dynamics core (the C++ the game will use, <a href="https://github.com/ZRosserMcIntosh/Aviation-Dynamics" style="color:var(--ink)">github.com/ZRosserMcIntosh/Aviation-Dynamics</a>) compiled to WebAssembly, stepping at 240 Hz: strip-theory wings, a blade-element propeller and piston engine (172) or two-spool turbofans (Top G), fuel, electrics and instruments; the 172 is validated against its published handbook performance, the Top G against the G650ER's published figures. The ground is flat at the airport's elevation (Congonhas 802 m, Campo de Marte 722 m) under the São Paulo World map; real terrain and buildings arrive with the world tile export.</p>
+  <p class="note">Physics: the Aviation Dynamics core (the C++ the game will use, <a href="https://github.com/ZRosserMcIntosh/Aviation-Dynamics" style="color:var(--ink)">github.com/ZRosserMcIntosh/Aviation-Dynamics</a>) compiled to WebAssembly, stepping at 240 Hz: strip-theory wings, a blade-element propeller and piston engine (172) or two-spool turbofans (Top G), fuel, electrics and instruments; the 172 is validated against its published handbook performance, the Top G against the G650ER's published figures. Every airport of the region sits at its own elevation (Congonhas 802 m, Campo de Marte 722 m, Guarulhos 750 m, Viracopos 661 m, São José dos Campos 646 m, Jundiaí 753 m), the ground blended smoothly between them under the São Paulo World map; real terrain and buildings arrive with the world tile export.</p>
 </aside>
 
 <div id="hud">
@@ -280,6 +292,7 @@ body.jet #hud .levers{display:none}
     </div>
   </div>
   <div class="panel read" id="hRead"></div>
+  <div class="panel read nav" id="hNav" hidden></div>
   <div class="panel levers">
     <div><div class="lev"><i id="lThr"></i></div>THR</div>
     <div><div class="lev mix"><i id="lMix"></i></div><span id="lMixLbl">MIX</span></div>
