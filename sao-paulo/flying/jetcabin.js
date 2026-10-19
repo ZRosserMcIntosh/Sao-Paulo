@@ -30,24 +30,31 @@ export function buildJetCabin({ mobile, maxAniso, skin, scale = 1 }) {
 
   // ---- Lining: the fuselage interior with the glazing cut out ----
   {
-    const inWindshield = (x, a) => {
-      const sa = Math.sin(a);
-      return a > 16 * DEG && a < 164 * DEG && x <= -1.98 - 0.45 * (1 - sa) && x >= -2.98 - 0.25 * (1 - sa);
-    };
+    // The windshield's forward and aft edges (x at angle a); a centre post 4 deg wide.
+    const fwd = (a) => -1.98 - 0.45 * (1 - Math.sin(a)), aft = (a) => -2.98 - 0.25 * (1 - Math.sin(a));
+    const inWindshield = (x, a) => a > 16 * DEG && a < 164 * DEG && Math.abs(a - 90 * DEG) > 2 * DEG && x <= fwd(a) && x >= aft(a);
     // Side windows: a large sliding-window-sized pane beside each seat.
     const inSide = (x, a) => x <= -3.06 && x >= -3.9 && ((a > 8 * DEG && a < 56 * DEG) || (a > 124 * DEG && a < 172 * DEG));
     const pos = [], idx = [];
-    // From the windshield's forward edge aft (~2.5 cm cells keep the glazing edges clean).
-    const nx = 145, na = 240, x0 = -1.98, x1 = -5.6;
+    // From the windshield's forward edge aft to the bulkhead, in ~2.5 cm
+    // cells; ahead of that edge the nose is left open (the eye looks over the
+    // glareshield through it: lined, it hid the view ahead). The vertices
+    // next to the windshield's slanted edges are moved onto them, so the
+    // edges are smooth rather than a staircase of cells.
+    const nx = 145, na = 240, x0 = -1.98, x1 = -5.6, dx = (x0 - x1) / nx;
     for (let i = 0; i <= nx; ++i)
       for (let j = 0; j <= na; ++j) {
-        const p = skin((x0 + (x1 - x0) * i / nx) * scale, j / na * 2 * Math.PI, -0.05 * scale).divideScalar(scale);
+        let x = x0 + (x1 - x0) * i / nx;
+        const a = j / na * 2 * Math.PI;
+        if (a > 15 * DEG && a < 165 * DEG) for (const e of [fwd(a), aft(a)]) if (Math.abs(x - e) <= dx / 2) x = e;
+        const p = skin(x * scale, a, -0.05 * scale).divideScalar(scale);
         pos.push(p.x, p.y, p.z);
       }
     for (let i = 0; i < nx; ++i)
       for (let j = 0; j < na; ++j) {
         const xm = x0 + (x1 - x0) * (i + 0.5) / nx, am = (j + 0.5) / na * 2 * Math.PI;
         if (inWindshield(xm, am) || inSide(xm, am)) continue;
+        if (am > 16 * DEG && am < 164 * DEG && xm > fwd(am)) continue;  // the open nose
         const k = i * (na + 1) + j;
         idx.push(k, k + 1, k + na + 1, k + 1, k + na + 2, k + na + 1);
       }
