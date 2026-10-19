@@ -564,6 +564,18 @@ $('bPanel').addEventListener('click', (e) => { togglePanel(); e.currentTarget.bl
 $('sideClose').addEventListener('click', () => togglePanel(false));
 if (MOBILE || innerWidth < 900) togglePanel(false);
 else document.body.classList.add('side-open');
+// The automatic ground spoilers and thrust reversers, called out as they act.
+let revPhaseWas = 0, gndSpWas = 0;
+function landingRollCallouts() {
+  const ph = j[53] | 0, gs = j[56] | 0;
+  if (gs !== gndSpWas) toast(gs ? 'Ground spoilers deployed.' : 'Ground spoilers stowed.', 2);
+  if (ph !== revPhaseWas) {
+    if (ph === 1) toast('Thrust reversers deploying: reverse thrust.', 2.5);
+    else if (ph === 2) toast('60 knots: reverse idle.', 2);
+    else if (ph === 3) toast('Thrust reversers stowing.', 2);
+  }
+  revPhaseWas = ph; gndSpWas = gs;
+}
 function setSlow(i) {
   ui.slow = clamp(i, 0, SLOWS.length - 1);
   const S = SLOWS[ui.slow];
@@ -683,7 +695,8 @@ function jetHud() {
     ['Mach', j[5] > 0.2 ? fmt(j[5], 3) : '—'], ['Ground speed', spd(s[12])], ['Vertical', `${fmt(c[K.vsi])} fpm`],
     ['Heading', `${hdg}°`], ...windRows(), ['Above field', `${fmt(Math.max(0, s[14]))} ft`],
     ['N1 L / R', `${fmt(j[8], 1)} / ${fmt(j[16], 1)} %`], ['Fuel flow', `${fmt(j[7] * 2.20462 / 10) * 10 || 0} lb/h`],
-    ['Fuel', `${fmt(j[6] * 2.20462)} lb`], ['Flaps', `${fmt(j[27])}°`], ['Gear', gear], ['Speedbrake', j[3] > 0.02 ? `${fmt(j[3] * 100)} %` : 'retracted'],
+    ['Fuel', `${fmt(j[6] * 2.20462)} lb`], ['Flaps', `${fmt(j[27])}°`], ['Gear', gear], ['Speedbrake', j[56] ? 'ground spoilers' : j[3] > 0.02 ? `${fmt(j[3] * 100)} %` : 'retracted'],
+    ...(j[57] ? [['Reversers', j[52] > 0.02 ? ['', 'reverse thrust', 'reverse idle', 'stowing'][j[53] | 0] || `${fmt(j[52] * 100)} %` : 'stowed (auto)']] : []),
     ['Load', `${fmt(s[18], 2)} g`], ['Brakes', s[49] ? 'PARKING SET' : input.brake ? 'on' : 'off'],
   ];
   hRead.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
@@ -706,6 +719,7 @@ function jetData() {
     trend: iasAcc * 10, vs1g: j[32], vsTO: j[33], vsLDG: j[34], gw: j[35], fpa: j[36], drift: ((j[37] - s[9] + 540) % 360) - 180,
     windDir: s[59], windKt: s[60], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
     vfe: j[47], vle: j[48], toFlap: j[49], ldgFlap: j[50], trim: j[28], thrLever: input.throttle, crashed: ui.crashed, pusher: !!j[51],
+    rev: [j[52], j[54]], gndSpoilers: !!j[56],
   };
 }
 
@@ -914,6 +928,7 @@ function frame() {
     A.avd_advance(simDt);
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
+  if (P.jet) landingRollCallouts();
   // The propeller's blade angle (about the thrust axis, right-handed; the
   // flow view's blades and tip vortices use the same angle).
   const spin = P.jet ? 0 : (def.engines?.[0]?.clockwise_from_behind === false ? -1 : 1);
@@ -939,7 +954,7 @@ function frame() {
   if (lag < 0 || lag > 0.02) simClock = s[42];
   else if (S > 1) acGroup.position.addScaledVector(stepVel, lag);
   acGroup.quaternion.copy(qM).multiply(qBody.set(s[4], s[5], s[6], s[3]));
-  if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]) }, simDt);
+  if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]), reverser: [j[52], j[54]], slow: S }, simDt);
   else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1, phase: propPhase, slow: S }, simDt);
   if (ui.flow) {
     acGroup.updateMatrixWorld(true);
