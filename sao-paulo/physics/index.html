@@ -60,30 +60,30 @@ footer{border-top:1px solid var(--line);padding-block:36px 52px;color:var(--mute
 </style>
 </head>
 <body>
-<div class="wrap top"><a href="../">← São Paulo World</a><span style="display:flex;gap:18px;flex-wrap:wrap"><a href="#step">One step</a><a href="#factors">What it calculates</a><a href="#speed">How light</a><a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">GitHub</a></span></div>
+<div class="wrap top"><a href="../">← São Paulo World</a><span style="display:flex;gap:18px;flex-wrap:wrap"><a href="#step">One step</a><a href="#factors">What it calculates</a><a href="#garage">Garage</a><a href="#speed">How light</a><a href="../vehicle-dynamics/">Full math</a><a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">GitHub</a></span></div>
 <header class="wrap">
   <div class="eyebrow">OpenRoad Dynamics · the physics engine behind the game</div>
   <h1 style="margin-top:14px">What happens in 2.8 milliseconds</h1>
   <p class="lede">Every 1/360 of a second, the car on the test track is solved again from scratch: where each tyre touches the road, how hard the springs push, how much each tyre slips and grips, what the engine, clutch, gearbox and differential do, and how the whole car moves. Nothing is animated or canned. It's all physics, in plain C++ that doesn't care which game engine runs it.</p>
-  <div class="ctas"><a class="btn drive" href="../driving/">▶ Drive it in your browser</a><a class="btn gh" href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">Free &amp; open source on GitHub (MIT)</a></div>
+  <div class="ctas"><a class="btn drive" href="../driving/">▶ Drive it in your browser</a><a class="btn gh" href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">Free &amp; open source on GitHub (MIT)</a><a class="btn" style="border:1px solid var(--line);color:var(--ink)" href="../vehicle-dynamics/">Motor Vehicle Dynamics: every equation →</a></div>
   <div class="big">
     <div><b>360</b><span>physics steps a second in the browser demo</span></div>
     <div><b>44</b><span>ground samples per step (11 under each tyre)</span></div>
     <div><b>15,840</b><span>ground samples a second, before any rendering</span></div>
-    <div><b>~220</b><span>numbers that define one car (45 per wheel corner)</span></div>
+    <div><b>~330</b><span>numbers that define one car (68 per wheel corner)</span></div>
     <div><b>0</b><span>memory allocations per step (tested)</span></div>
-    <div><b>78</b><span>automated tests on Linux, macOS and Windows</span></div>
+    <div><b>129</b><span>automated tests on Linux, macOS and Windows</span></div>
   </div>
 </header>
 
 <section id="step"><div class="wrap">
   <div class="sechead"><div><div class="eyebrow">One step, in order</div><h2>Four stages, 360 times a second</h2></div>
-    <p>This is the order of operations inside <span class="mono">Vehicle::computeStep</span>. Assists act first (only through real actuators: brakes, throttle, shifts), then the four stages, then a telemetry snapshot of more than 70 values.</p></div>
+    <p>This is the order of operations inside <span class="mono">Vehicle::computeStep</span>. Assists act first (only through real actuators: brakes, throttle, shifts), then the four stages, then a telemetry snapshot of about 130 values.</p></div>
   <div class="steps">
-    <div class="step"><h3>Contact and suspension</h3><p>Under each tyre: 5 points across the contact patch plus 3 envelope probes ahead and 3 behind, so kerbs and pothole edges are felt before the patch reaches them. Springs, bump and rebound damping, bump stops, anti-roll bars, and each wheel's own unsprung mass bouncing on the tyre's vertical stiffness.</p></div>
-    <div class="step"><h3>Tyre slip, sideways</h3><p>Slip angles build up over a relaxation length (0.45 m by default) instead of jumping, which is what makes a car feel like it has weight on turn-in. Grip comes from a Pacejka Magic Formula with load sensitivity and combined slip.</p></div>
+    <div class="step"><h3>Contact and suspension</h3><p>Under each tyre: 5 points across the contact patch plus 3 envelope probes ahead and 3 behind, so kerbs and pothole edges are felt before the patch reaches them. Springs, bump and rebound damping (separate slow and fast settings, like a real two-way damper), bump stops, anti-roll bars, and each wheel's own unsprung mass bouncing on the tyre's vertical stiffness. Each wheel's camber to the road comes from its geometry: static camber, camber gain as the suspension moves, caster as it steers, and the body's roll.</p></div>
+    <div class="step"><h3>Tyre slip, sideways</h3><p>Slip angles build up over a relaxation length (0.45 m by default) instead of jumping, which is what makes a car feel like it has weight on turn-in. Grip comes from a Pacejka Magic Formula with load sensitivity and combined slip, scaled by camber (best leaning about 2° into the turn), tread temperature, tyre pressure, and the compound's grip on wet or loose ground.</p></div>
     <div class="step"><h3>Drivetrain, solved together</h3><p>Engine crank, gearbox input, all four wheel speeds and their longitudinal slip are solved in one implicit system, with the clutch, gears and differentials as stick/slip constraints. Up to 12 iterations per step.</p></div>
-    <div class="step"><h3>Forces and motion</h3><p>Tyre forces, suspension forces, self-aligning torque, rolling resistance, aerodynamic drag and downforce and gravity are summed on the chassis, a rigid body with 6 degrees of freedom, which is then integrated.</p></div>
+    <div class="step"><h3>Forces and motion</h3><p>Tyre forces, suspension forces, self-aligning torque, rolling resistance, aerodynamics and gravity are summed on the chassis, a rigid body with 6 degrees of freedom, which is then integrated. Aero uses the speed through the air (wind included): drag, a floor whose downforce grows as it runs lower until it stalls, and a rear wing that stalls past its critical angle. Each tread then heats from sliding and cools in the airflow.</p></div>
   </div>
   <div class="timeline" role="img" aria-label="A 60 frames-per-second frame holds six physics steps of 2.78 ms each"><i style="flex:1;background:var(--plate)"></i><i style="flex:1;background:var(--good)"></i><i style="flex:1;background:var(--plate)"></i><i style="flex:1;background:var(--good)"></i><i style="flex:1;background:var(--plate)"></i><i style="flex:1;background:var(--good)"></i></div>
   <div class="tl-key"><span>One 60 fps frame (16.7 ms) = six physics steps of 2.78 ms</span><span>In a game the core can also run 4 substeps inside a 60 Hz world, with ground pre-fetched once per frame</span></div>
@@ -98,20 +98,24 @@ footer{border-top:1px solid var(--line);padding-block:36px 52px;color:var(--mute
 
 <section id="factors"><div class="wrap">
   <div class="sechead"><div><div class="eyebrow">What it calculates</div><h2>Every factor in the model</h2></div>
-    <p>About 220 numbers describe one car, plus its engine torque curve. Tyre data can be generated from nothing more than a size and category (e.g. 335/40 R21, ultra-high performance).</p></div>
+    <p>About 330 numbers describe one car, plus its engine torque curve. Tyre data can be generated from nothing more than a size and category (e.g. 335/40 R21, ultra-high performance).</p></div>
   <div class="grid2">
-    <div class="card"><h3>Tyre <small>31 per tyre</small></h3><ul>
+    <div class="card"><h3>Tyre <small>48 per tyre</small></h3><ul>
       <li>Peak grip, longitudinal and lateral, and how it falls with load <span>(load sensitivity)</span></li>
       <li>Magic Formula shape and curvature, both directions</li>
       <li>Slip stiffness and cornering stiffness, peaking at a set load</li>
       <li>Combined-slip weighting: braking while turning costs grip both ways</li>
       <li>Relaxation lengths <span>(transient slip)</span>, low-speed carcass damping</li>
       <li>Rolling resistance, pneumatic trail <span>(self-aligning torque)</span>, wheel inertia</li>
-      <li>Vertical stiffness and damping, contact-patch length and width</li></ul></div>
-    <div class="card"><h3>Suspension &amp; wheel <small>14 per corner</small></h3><ul>
+      <li>Vertical stiffness and damping, contact-patch length and width</li>
+      <li>Camber thrust and the camber that gives peak grip</li>
+      <li>Tread temperature window, heating and cooling <span>(slicks need heat)</span></li>
+      <li>Grip on wet and loose ground, aquaplaning <span>(off-road to slick, rain)</span></li></ul></div>
+    <div class="card"><h3>Suspension &amp; wheel <small>20 per corner</small></h3><ul>
       <li>Hardpoint position <span>(x, y, z)</span> and travel</li>
       <li>Spring rate and preload, bump stop rate</li>
-      <li>Separate bump and rebound damping</li>
+      <li>Separate bump and rebound damping, slow and fast</li>
+      <li>Static camber, camber gain, caster</li>
       <li>Unsprung mass <span>(wheel, tyre, hub, brake)</span></li>
       <li>Steering lock, static toe, Ackermann <span>(per car)</span></li>
       <li>Brake and handbrake torque; anti-roll bar per axle</li></ul></div>
@@ -121,23 +125,57 @@ footer{border-top:1px solid var(--line);padding-block:36px 52px;color:var(--mute
       <li>Clutch capacity; gearbox ratios, reverse, efficiency, shift time, input inertia</li>
       <li>Automatic, sequential, dual-clutch or H-pattern</li>
       <li>Open, locked or clutch-LSD differentials with preload and power/coast ramps; AWD split</li></ul></div>
-    <div class="card"><h3>Body, air &amp; aids <small>~20</small></h3><ul>
+    <div class="card"><h3>Body, air &amp; aids <small>~40</small></h3><ul>
       <li>Mass, centre of mass, roll/pitch/yaw inertia</li>
-      <li>Drag area, front and rear downforce, air density</li>
+      <li>Drag area, front and rear downforce, side force in a crosswind</li>
+      <li>Floor ride-height sensitivity and stall; rear wing span, chord, angle and stall <span>(from Aviation Dynamics)</span></li>
+      <li>Air density from altitude and temperature, and the engine power it costs</li>
       <li>ABS target slip; traction control that brakes a spinning wheel before it cuts power</li>
-      <li>Stability control from a sideslip reference; countersteer aid <span>(labelled as non-real)</span></li>
-      <li>Steering shaping and rates, auto clutch, launch rpm, shift mode</li>
-      <li>Fun, Sport, Simulation only change these aids, never the grip</li></ul></div>
+      <li>Stability control from a sideslip reference; countersteer and drift aids <span>(labelled as non-real)</span></li>
+      <li>Steering shaping and rates, auto clutch (opens with the handbrake, like a drifter), launch rpm, shift mode</li>
+      <li>Fun, Sport, Simulation and Drift only change these aids, never the grip</li></ul></div>
   </div>
   <div class="tbl" style="margin-top:22px"><table>
     <thead><tr><th>Tracked every step</th><th>How many</th><th>What</th></tr></thead>
     <tbody>
       <tr><td>Chassis</td><td class="n">6 DOF</td><td>Position and orientation, linear and angular velocity</td></tr>
-      <tr><td>Each wheel</td><td class="n">4 × 4</td><td>Spin, unsprung vertical travel, transient slip ratio, transient slip angle</td></tr>
+      <tr><td>Each wheel</td><td class="n">4 × 5</td><td>Spin, unsprung vertical travel, transient slip ratio, transient slip angle, tread temperature</td></tr>
       <tr><td>Drivetrain</td><td class="n">2 + state</td><td>Engine crank speed, gearbox input speed, gear, clutch engagement, shift timer</td></tr>
       <tr><td>Ground</td><td class="n">44</td><td>Contact samples and envelope probes, with the surface's grip, roughness and micro-texture</td></tr>
-      <tr><td>Telemetry</td><td class="n">70+</td><td>Speed, sideslip, yaw rate, g-forces, inputs vs actuator outputs, rpm, gear, and per wheel load, slip, forces, brake torque and lock</td></tr>
+      <tr><td>Telemetry</td><td class="n">~130</td><td>Speed, sideslip, yaw rate, g-forces, inputs vs actuator outputs, rpm, gear, every aid's intervention, downforce, drag and stall flags, and per wheel load, slip, forces, grip used, camber, tread temperature, brake torque and lock</td></tr>
     </tbody></table></div>
+</div></section>
+
+<section id="garage"><div class="wrap">
+  <div class="sechead"><div><div class="eyebrow">A test bed, not just a game</div><h2>Garage, drifting, crashes and bikes</h2></div>
+    <p>The same physics, with the parts changed. Every setting is in the units a setup sheet uses, and the results come from the model, not from a lookup table.</p></div>
+  <div class="grid2">
+    <div class="card"><h3>Tuning garage <small>per axle</small></h3><ul>
+      <li>Camber, toe, caster, camber gain</li>
+      <li>Springs, ride height, slow and fast bump and rebound, anti-roll bars</li>
+      <li>Tyre compound: off-road, all-season, street, sport, semi-slick, slick, rain; pressure; tyre warmers</li>
+      <li>Brake balance and pressure, differential, final drive, gear ratios</li>
+      <li>Splitter, rear downforce, a rear wing and its angle; altitude, air temperature, wind</li>
+      <li>Saved per car, shared as a JSON setup file</li></ul></div>
+    <div class="card"><h3>What changing them does <small>measured</small></h3><ul>
+      <li>Skidpad on warm tyres: 0.76 g off-road, 0.83 g street, 0.94 g slick</li>
+      <li>On gravel the order flips: 0.62 g off-road, 0.37 g slick. In the wet, rain tyres lead (0.56 g)</li>
+      <li>Slicks from cold: 0.74 g; warm: 0.94 g</li>
+      <li>100–0 km/h: 39.0 m at 0° camber, 42.6 m at −6°</li>
+      <li>Rear wing at 200 km/h: 211 N at 0°, 1,394 N at 24°, then it stalls (920 N at 30°)</li>
+      <li>Brake balance at 30% front without ABS: the car swaps ends (31° of sideslip)</li></ul></div>
+    <div class="card"><h3>Drifting <small>an aid, labelled</small></h3><ul>
+      <li>Steering sets the drift angle, throttle holds it, centring the wheel straightens the car</li>
+      <li>Holds 17° / 24° / 31° at half, three-quarter and full steering (52° with an angle kit)</li>
+      <li>Full lock and throttle from a crawl spins donuts: the aid steps aside</li>
+      <li>It only ever countersteers and trims power; switched off, the same car simply spins</li></ul></div>
+    <div class="card"><h3>Crashes and two-wheelers</h3><ul>
+      <li>Each impact becomes a crash pulse; two crash-test dummies give chest g, head injury criterion and injury risk from published curves <span>(a game estimate, not a crash test)</span></li>
+      <li>Cars roll over: a body hull meets the ground once the car tilts, so a car slid sideways into a kerb or launched off a one-sided ramp lands on its side or roof. The tall, 4.2 t S 600 Guard goes over first; the F1 car hardly ever does</li>
+      <li>Rideable bicycle, e-scooter and sport motorcycle on a multibody model that reproduces the textbook bicycle weave and capsize speeds</li>
+      <li>Counter-steering emerges from the physics; wheelies and ABS for the motorcycle</li></ul></div>
+  </div>
+  <div class="ctas"><a class="btn drive" href="../driving/">▶ Open the garage (press U)</a></div>
 </div></section>
 
 <section id="speed"><div class="wrap">
@@ -146,9 +184,9 @@ footer{border-top:1px solid var(--line);padding-block:36px 52px;color:var(--mute
   <div class="tbl"><table>
     <thead><tr><th>Scene</th><th style="text-align:right">CPU per 60 fps frame</th><th style="text-align:right">Ground rays per frame</th></tr></thead>
     <tbody>
-      <tr><td>Player car: 60 Hz world × 4 substeps, 5-point contact + envelope probes, ground cache</td><td class="n">~0.06 ms</td><td class="n">~24</td></tr>
-      <tr><td>+ 16 nearby AI cars (lighter fidelity) + 300 traffic cars</td><td class="n">~0.37 ms</td><td class="n">~108</td></tr>
-      <tr><td>+ 1,000 traffic cars instead of 300</td><td class="n">~0.69 ms</td><td class="n">~150</td></tr>
+      <tr><td>Player car: 60 Hz world × 4 substeps, 5-point contact + envelope probes, ground cache</td><td class="n">~0.08 ms</td><td class="n">~24</td></tr>
+      <tr><td>+ 16 nearby AI cars (lighter fidelity) + 300 traffic cars</td><td class="n">~0.43 ms</td><td class="n">~108</td></tr>
+      <tr><td>+ 1,000 traffic cars instead of 300</td><td class="n">~0.77 ms</td><td class="n">~150</td></tr>
     </tbody></table></div>
   <p class="note">On kerbs and potholes the cached 60 Hz × 4 configuration stays within about 5–8 % of a 2,000 Hz reference, with about 4× fewer ground rays than querying directly at 240 Hz.</p>
 </div></section>
@@ -171,10 +209,10 @@ footer{border-top:1px solid var(--line);padding-block:36px 52px;color:var(--mute
   </div>
   <div class="tbl" style="margin-top:22px"><table>
     <thead><tr><th>The test car: Rosser V8</th><th style="text-align:right">Measured in the sim</th></tr></thead>
-    <tbody><tr><td>0–100 km/h</td><td class="n">3.83 s</td></tr><tr><td>0–200 km/h</td><td class="n">9.58 s</td></tr><tr><td>Top speed</td><td class="n">~330 km/h</td></tr>
+    <tbody><tr><td>0–100 km/h <span style="color:var(--mute)">(Sport preset)</span></td><td class="n">3.81 s</td></tr><tr><td>0–200 km/h</td><td class="n">9.57 s</td></tr><tr><td>Top speed</td><td class="n">~330 km/h</td></tr>
       <tr><td>Mass, weight split</td><td class="n">1,480 kg · 42 / 58</td></tr><tr><td>Rev limiter, gearbox</td><td class="n">9,000 rpm · 7-speed DCT</td></tr></tbody></table></div>
   <div class="ctas"><a class="btn drive" href="../driving/">▶ Drive the Rosser V8</a></div>
 </div></section>
 
-<footer><div class="wrap">OpenRoad Dynamics is MIT-licensed and independent; it isn't affiliated with or endorsed by any game studio or engine maker. Figures come from the project's README, source and benchmark baseline (v0.3, October 2026). <a href="../">Back to São Paulo World</a>.</div></footer>
+<footer><div class="wrap">OpenRoad Dynamics is MIT-licensed and independent; it isn't affiliated with or endorsed by any game studio or engine maker. Figures come from the project's source, tests and benchmark runs (October 2026). <a href="../">Back to São Paulo World</a>.</div></footer>
 </body></html>

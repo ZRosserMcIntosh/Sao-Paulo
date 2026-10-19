@@ -30,6 +30,11 @@
       "source": "/sao-paulo/physics",
       "destination": "/sao-paulo/physics/",
       "permanent": true
+    },
+    {
+      "source": "/sao-paulo/vehicle-dynamics",
+      "destination": "/sao-paulo/vehicle-dynamics/",
+      "permanent": true
     }
   ],
   "headers": [

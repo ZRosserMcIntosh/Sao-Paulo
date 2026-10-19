@@ -7,9 +7,11 @@ import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/libs/meshopt_decoder.module.js';
 import createOrdModule from './ord.mjs';
 import { CarAudio } from './audio/audio.js';
+import { VOICES } from './audio/engines.js';
 import { loadCity, streetNamer } from './city.js';
 import { BikeView } from './bike.js';
 import { CrashDummies } from './dummies.js';
+import { Garage } from './garage.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -29,14 +31,20 @@ const HEADER = M._ord_state_header(), PER_WHEEL = M._ord_state_per_wheel();
 const statePtr = M._ord_state() / 8;
 const S = (i) => M.HEAPF64[statePtr + i];
 const W = (w, i) => M.HEAPF64[statePtr + HEADER + PER_WHEEL * w + i];
-const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55]; // full-lock road-wheel angle per car (rad)
+// Per site car id: 0-5 generic cars + Rosser V8, 6-8 two-wheelers, 9-13 real-car approximations
+// (engine indices 6-10: 911 Carrera S, 911 Carrera 4S, AMG S 63, S 600 Guard, F1 2026).
+const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55, 0, 0, 0, 0.50, 0.50, 0.54, 0.52, 0.30]; // full-lock road-wheel angle (rad)
+const engineCar = (c) => (c >= 9 ? c - 3 : c);
 // Two-wheelers (vehicle 6 bicycle, 7 e-scooter, 8 motorcycle): their own state buffer.
 const bikePtr = M._ord_bike_state() / 8;
 const B = (i) => M.HEAPF64[bikePtr + i];
 const BIKE_LOCK = [1.2, 0.9, 0.55];
 const BIKE_NAMES = ['Bicycle', 'E-scooter', 'Motorcycle'];
-const isBike = () => settings.car >= 6;
-const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000];
+const isBike = () => settings.car >= 6 && settings.car <= 8;
+const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000, 0, 0, 12500, 7500, 7500, 6500, 5800, 15000];
+// Engine voice per car (audio/engines.js): each layout sounds like itself. Index 8 = motorcycle.
+const VOICE = ['refSports', 'refHatch', 'refSaloon', 'refHyper', 'refRace', 'stella', null, null, 'motorcycle', 'porsche911', 'porsche911', 'amgS63', 's600Guard', 'f1'];
+const setVoice = () => { try { audio.setVoice(VOICES[VOICE[settings.car]] || VOICES.stella); } catch { /* audio not built yet */ } };
 const G = 9.81;
 
 // ISO 8855 (x forward, y left, z up) -> three.js (y up): (x, z, -y)
@@ -331,6 +339,41 @@ if (WORLD === 'track') {
   ring({ x: CRASH.px, y: CRASH.y + 16 }, 1.2, yellowPaint, 0.08);
 }
 
+// Rollover area (ord_web.cpp): a 25 cm trip kerb to slide sideways into, and a one-sided ramp that
+// lifts the left wheels 0.9 m and drops them (a corkscrew). Heights sampled from the physics.
+const ROLL = { kerbY: M._ord_roll_kerb_y(), rampY: M._ord_roll_ramp_lane_y(), kx0: -420, kx1: -300, rx0: -265, rx1: -255 };
+function heightPatch(x0, x1, y0, y1, d, color) {
+  const nx = Math.round((x1 - x0) / d) + 1, ny = Math.round((y1 - y0) / d) + 1;
+  const pos = new Float32Array(nx * ny * 3), col = new Float32Array(nx * ny * 3), uv = new Float32Array(nx * ny * 2);
+  for (let j = 0; j < ny; ++j) for (let i = 0; i < nx; ++i) {
+    const x = x0 + i * d, y = y0 + j * d, h = M._ord_ground_height(x, y), k = j * nx + i;
+    pos.set([x, h, -y], k * 3); uv.set([x / 5, y / 5], k * 2);
+    const c = color(x, y, h); col.set([c.r, c.g, c.b], k * 3);
+  }
+  const idx = new Uint32Array((nx - 1) * (ny - 1) * 6);
+  let p = 0;
+  for (let j = 0; j < ny - 1; ++j) for (let i = 0; i < nx - 1; ++i) { const a = j * nx + i, b = a + 1, c = a + nx, e = c + 1; idx.set([a, b, c, b, e, c], p); p += 6; }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
+  const tex = asphalt.clone(); tex.needsUpdate = true;
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, vertexColors: true, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  m.receiveShadow = m.castShadow = true; m.position.y = 0.001; TRACK.add(m);
+}
+if (WORLD === 'track') {
+  const white = new THREE.Color('#ffffff'), red = new THREE.Color('#d22a1f'), kw = new THREE.Color('#f4f4f4'), yel = new THREE.Color('#f0c419'), blk = new THREE.Color('#222222');
+  heightPatch(ROLL.kx0, ROLL.kx1, ROLL.kerbY - 1, ROLL.kerbY + 0.4, 0.05, (x, y, h) => (h > 0.01 ? (Math.floor(x) % 2 ? red : kw) : white));
+  heightPatch(ROLL.rx0 - 1, ROLL.rx1 + 0.5, ROLL.rampY + 0.2, ROLL.rampY + 4.2, 0.05, (x, y, h) => (h > 0.005 ? (Math.floor((x - y) * 1.2) % 2 ? yel : blk) : white));
+  // the slide pad north of the kerb, and the ramp lane
+  stripe(ROLL.kx0, ROLL.kerbY + 18, ROLL.kx1, ROLL.kerbY + 18, 0.15);
+  for (let x = ROLL.kx0; x < ROLL.kx1; x += 12) stripe(x, ROLL.kerbY + 9, x + 6, ROLL.kerbY + 9, 0.12, yellowPaint);
+  stripe(-450, ROLL.rampY - 2.5, -230, ROLL.rampY - 2.5, 0.15);
+  for (let x = -450; x < ROLL.rx0 - 2; x += 12) stripe(x, ROLL.rampY, x + 6, ROLL.rampY, 0.12, yellowPaint);
+}
+
 // Slalom cones: 10 cones, 18 m apart, at y = -45
 const SLALOM = { y: -45, x0: 40, gap: 18, n: 10 };
 const cones = [];
@@ -375,6 +418,8 @@ document.fonts?.ready.then(() => {
   sign('BUMPS', 25, LANE_Y + 5, 'bumps · rumble · pothole · kerb');
   sign('WET', 240, 50, 'reduced grip · 200 m');
   sign('CRASH TEST', -446, CRASH.y + 7, 'rigid barrier ahead · pole on the left');
+  sign('TRIP KERB', ROLL.kx0 - 6, ROLL.kerbY + 9, 'slide sideways into the 25 cm kerb');
+  sign('CORKSCREW', -446, ROLL.rampY - 3.5, 'one-sided ramp · keep left wheels on it');
   for (let x = 100; x <= 1000; x += 100) sign(`${x} m`, x, 9);
   for (let x = 1500; x < STRAIGHT_END - 1000; x += 500) sign(`${(x / 1000).toFixed(1)} km`, x, 9);
   for (const d of [1000, 600, 400, 300, 200, 100]) sign(`${d}`, STRAIGHT_END - d, 9, 'brake · end of straight');
@@ -676,6 +721,8 @@ const ZONES = CITY_ZONES || [
   { name: 'Wet', x: 200, y: 50, yaw: 0 },
   { name: 'Crash barrier', x: M._ord_crash_barrier_x() - 260, y: M._ord_crash_lane_y(), yaw: 0 },
   { name: 'Pole test (side)', x: M._ord_crash_pole_x() - 120, y: M._ord_crash_lane_y() + 16, yaw: 0 },
+  { name: 'Rollover: corkscrew ramp', x: -440, y: M._ord_roll_ramp_lane_y(), yaw: 0 },
+  { name: 'Rollover: trip kerb', x: -440, y: M._ord_roll_kerb_y() + 9, yaw: 0 },
 ];
 let bikeView = null, crashT = 0;
 function createBike(z, speed = 0) {
@@ -694,13 +741,19 @@ function hudLabels(bike) {
   wheelEls.forEach((e, w) => { e.el.style.display = bike && w > 1 ? 'none' : ''; e.el.querySelector('span').textContent = ['FL', 'FR', 'RL', 'RR'][w]; });
   $('hGear').title = bike ? 'Lean angle' : 'Gear';
 }
+// Tuning garage (U): a full setup for the car, applied by the physics core.
+const garage = new Garage(M, { store, toast, isBike, carIndex: () => settings.car, startYaw: () => ZONES[0].yaw });
+$('bGarage').onclick = (e) => { garage.toggle(); e.currentTarget.blur(); };
+$('bGarage2').onclick = (e) => { garage.toggle(true); e.currentTarget.blur(); };
 function createCar() {
-  if (isBike()) { createBike(ZONES[0]); resetTimers(); return; }
+  setVoice();
+  if (isBike()) { createBike(ZONES[0]); garage.afterCreate(); resetTimers(); return; }
   if (bikeView) { M._ord_bike_remove(); bikeView.root.visible = false; }
   carRoot.visible = true; document.querySelector('.tachp').style.display = '';
   hudLabels(false);
   applyAids();
-  if (!M._ord_create(settings.car, ZONES[0].x, ZONES[0].y, ZONES[0].yaw)) { toast('Vehicle definition rejected by the physics core'); return; }
+  if (!M._ord_create(engineCar(settings.car), ZONES[0].x, ZONES[0].y, ZONES[0].yaw)) { toast('Vehicle definition rejected by the physics core'); return; }
+  garage.afterCreate();
   // Settle on the brakes so the rest pose is the loaded suspension.
   for (let i = 0; i < 90; ++i) { M._ord_set_input(0, 0, 1, 0, 0, 0); M._ord_advance(1 / 60); }
   restWheelZ = [0, 1, 2, 3].map((w) => W(w, 2));
@@ -716,6 +769,18 @@ function createCar() {
   crashSeen[0] = crashSeen[1] = 0;
   resetTimers();
 }
+// R: a car on its side or roof is put back on its wheels where it lies; otherwise back to the start.
+function resetCar() {
+  if (!isBike() && S(36) < 0.5) {
+    const qw = S(3), qx = S(4), qy = S(5), qz = S(6);
+    const fx = 1 - 2 * (qy * qy + qz * qz), fy = 2 * (qx * qy + qw * qz);
+    M._ord_reset(S(0), S(1), Math.atan2(fy, fx));
+    resetSkidTrail?.(); tipped.t = 0; tipped.hinted = false;
+    return;
+  }
+  placeAt(ZONES[0]);
+}
+const tipped = { t: 0, hinted: false, contacts: 0 };
 function placeAt(z) {
   if (isBike()) createBike(z); else M._ord_reset(z.x, z.y, z.yaw);
   resetSkidTrail?.();
@@ -767,10 +832,25 @@ function applyAids() {
   $('iEsc').classList.toggle('on', settings.esc > 0); $('iCs').classList.toggle('on', settings.preset < 2);
 }
 function customised() { const d = presetAids(settings.preset); return d.abs !== settings.abs || d.tcs !== settings.tcs || d.esc !== settings.esc || d.auto !== settings.auto || d.drift !== settings.drift; }
+// Drift preset fits the drift kit (52° angle kit + tight LSD) on the cars: stock steering can only
+// catch ~32° of drift, the big, GTA-style angles need the lock. Leaving Drift puts the previous
+// setup back. A garage change, not an aid: the buttons under "Drift setup" still override it.
+let kitBefore = store.get('kitBefore', null);
+function fitDriftKit(on) {
+  if (isBike()) return;
+  if (on && !kitBefore) {
+    kitBefore = { lock: settings.lock, diff: settings.diff };
+    settings.lock = true; settings.diff = 2;
+  } else if (!on && kitBefore) {
+    settings.lock = kitBefore.lock; settings.diff = kitBefore.diff; kitBefore = null;
+  } else return;
+  store.set('kitBefore', kitBefore); store.set('driftLock', settings.lock); store.set('diff', settings.diff);
+}
 function setPreset(p) {
+  fitDriftKit(p === 3);
   settings.preset = p; Object.assign(settings, presetAids(p)); store.set('preset', p); applyAids();
   if (isBike()) toast(['FUN: ABS, traction and wheelie control, the rider leans for you', 'SPORT: ABS only', 'SIMULATION: no aids (L for bar-torque steering)', 'WHEELIE: open the throttle, the assist holds the front up'][p]);
-  else toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT: throw it sideways, keep the throttle in, hold the turn to drift, let go to straighten'][p]);
+  else toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT (drift kit fitted: 52° lock, tight LSD): turn in on the throttle and the rear steps out; steer and throttle set the angle, centre to straighten. Handbrake for big entries. Donuts: full lock + throttle from a crawl'][p]);
 }
 document.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => setPreset(+b.dataset.preset)));
 $('aAbs').onclick = () => { settings.abs = !settings.abs; applyAids(); };
@@ -819,7 +899,7 @@ addEventListener('keydown', (e) => {
   if (k === 'q') edge.down = true;
   if (k === '+' || k === '=') { e.preventDefault(); paddle(1); }
   if (k === '-' || k === '_') { e.preventDefault(); paddle(-1); }
-  if (k === 'r') placeAt(ZONES[0]);
+  if (k === 'r') resetCar();
   if (k === 'c') cycleCam();
   if (k === 'h') togglePanel();
   if (k === '1' || k === '2' || k === '3' || k === '4') setPreset(+k - 1);
@@ -831,6 +911,7 @@ addEventListener('keydown', (e) => {
   if (k === 't') $('aTcs').click();
   if (k === 'y') $('aEsc').click();
   if (k === 'g') $('aBox').click();
+  if (k === 'u') garage.toggle();
 });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => keys.clear());
@@ -935,7 +1016,7 @@ function readInput(dt, gear, speed) {
     up = Math.max(up, btn(7)); down = Math.max(down, btn(6)); hand = Math.max(hand, btn(0));
     if (pressed(5) && !was(5)) shiftUp = true;
     if (pressed(4) && !was(4)) shiftDown = true;
-    if (pressed(3) && !was(3)) placeAt(ZONES[0]);
+    if (pressed(3) && !was(3)) resetCar();
     if (pressed(8) && !was(8)) cycleCam();
     if (pressed(9) && !was(9)) setPreset((settings.preset + 1) % 4);
     pad.prev = gp.buttons.map((b) => b.pressed);
@@ -1159,6 +1240,7 @@ function gripBar(e, load, grip, locked, contact) {
 }
 
 function updateHud(dt, inp) {
+  garage.updateHud();
   const kmh = S(7) * 3.6;
   $('hSpeed').firstChild.nodeValue = Math.abs(Math.round(kmh)).toString();
   const gear = S(15);
@@ -1516,7 +1598,7 @@ function updateSmoke(dt, worldVel) {
 // ---------- Sound ----------
 const audio = new CarAudio();
 window.__spwAudio = audio; // for debugging in the console
-window.__spwState = () => ({ pos: [S(0), S(1), S(2)], v: S(7), rpm: S(14), gear: S(15), thr: S(17), tcs: S(18), contact: [0, 1, 2, 3].map((w) => W(w, 11)), impact: S(31) });
+window.__spwState = () => ({ pos: [S(0), S(1), S(2)], v: S(7), rpm: S(14), gear: S(15), thr: S(17), tcs: S(18), contact: [0, 1, 2, 3].map((w) => W(w, 11)), impact: S(31), upright: S(36), body: S(37) });
 window.__spwPlace = (x, y = 0, yaw = 0) => placeAt({ x, y, yaw });
 window.__spwBike = () => ({ t: B(2), frames: window.__frames, kind: B(0), fallen: B(1), v: B(3), lean: B(4), steer: B(5), pitch: B(6), target: B(7), torque: B(8), yaw: B(22), pos: [B(23), B(24), B(25)], grip: [B(16), B(17)] });
 audio.enabled = store.get('sound', true); audio.volume = store.get('volume', 0.8);
@@ -1633,6 +1715,12 @@ function frame(now) {
   const hit = S(31);
   if (hit > 1.2) { lastImpact = hit; try { audio.impact(Math.min(1, hit / 12)); } catch { /* audio not ready */ } }
   if (S(23)) { toast('The simulation faulted (non-finite state). Resetting.'); placeAt(ZONES[0]); }
+  // the body landing on the ground (rollover): a thump as hull points first touch
+  if (tipped.contacts === 0 && S(37) > 0 && S(38) > 15000) { try { audio.impact(Math.min(1, S(38) / 120000)); } catch { /* audio not ready */ } }
+  tipped.contacts = S(37);
+  tipped.t = S(36) < 0.5 && Math.hypot(S(7), S(8)) < 2 ? tipped.t + dt : 0;
+  if (tipped.t > 1.5 && !tipped.hinted) { toast(S(36) < -0.5 ? 'On its roof. Press R to put it back on its wheels' : 'On its side. Press R to put it back on its wheels'); tipped.hinted = true; }
+  if (S(36) > 0.9) tipped.hinted = false;
   // car pose: ISO quaternion (w,x,y,z) -> three (w, x, z, -y)
   qIso.set(S(4), S(6), -S(5), S(3));
   carRoot.quaternion.copy(qIso);
