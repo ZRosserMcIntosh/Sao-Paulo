@@ -96,6 +96,10 @@ try {
 const RW = A.runway();  // [paved start east, north, elevation, true heading, length, width] of the runway in use
 const AP = A.airport();  // { icao, name, runway, reciprocal }
 const ELEV = RW[2];
+// The region: every airport (DESTS: names, runway ends, ILSs; REGION: runway
+// geometry) and the core's ground, each field at its own elevation.
+const DESTS = A.destinations(), REGION = A.region();
+const groundAt = (e, n) => A.avd_ground_height(e, n);
 const rwDir = [Math.sin(RW[3] * DEG), Math.cos(RW[3] * DEG)];
 const rwMid = [RW[0] + rwDir[0] * RW[4] / 2, RW[1] + rwDir[1] * RW[4] / 2];
 const rwRight = [rwDir[1], -rwDir[0]];  // right of the runway, looking down it
@@ -165,22 +169,39 @@ scene.add(skyDome);
   pm.dispose();
 }
 
-// ---------- Ground: the São Paulo World map at the field elevation ----------
+// ---------- Ground: the São Paulo World map on the core's ground ----------
+// The core's ground (avd_ground_height): each airport's field flat at its own
+// elevation, the terrain between blended. One mesh out to ~100 km on a 1 km
+// grid aligned with the map, with a hole where the map is; the map itself on a
+// 500 m grid, both following the same heights.
 const enu = (e, n, u) => new THREE.Vector3(e, u, -n);
-// Beyond the map: a plain frame around it (four tessellated strips that never overlap the map,
-// so there is no depth fight between two coplanar surfaces).
-{
-  const R = 120000, mat = new THREE.MeshLambertMaterial({ color: '#77796f' });
-  for (const [x0, x1, y0, y1] of [[-R, R, MY1, R], [-R, R, -R, MY0], [-R, MX0, MY0, MY1], [MX1, R, MY0, MY1]]) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, y1 - y0, 24, 24), mat);
-    m.rotation.x = -Math.PI / 2; m.position.copy(enu((x0 + x1) / 2, (y0 + y1) / 2, ELEV - 0.05));
-    scene.add(m);
+function heightMesh(x0, y0, nx, ny, step, skip, mat, drop) {
+  const pos = new Float32Array((nx + 1) * (ny + 1) * 3), uv = new Float32Array((nx + 1) * (ny + 1) * 2), idx = [];
+  for (let j = 0, k = 0; j <= ny; ++j) for (let i = 0; i <= nx; ++i, ++k) {
+    const e = x0 + i * step, n = y0 + j * step;
+    pos[3 * k] = e; pos[3 * k + 1] = groundAt(e, n) - drop; pos[3 * k + 2] = -n;
+    uv[2 * k] = i / nx; uv[2 * k + 1] = j / ny;
   }
+  for (let j = 0; j < ny; ++j) for (let i = 0; i < nx; ++i) {
+    if (skip && skip(x0 + (i + 0.5) * step, y0 + (j + 0.5) * step)) continue;
+    const a = j * (nx + 1) + i, b = a + 1, c2 = a + nx + 1, d2 = c2 + 1;
+    idx.push(a, b, c2, b, d2, c2);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, mat);
 }
-const mapMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
-const map = new THREE.Mesh(new THREE.PlaneGeometry(MX1 - MX0, MY1 - MY0, 24, 48), mapMat);
-map.rotation.x = -Math.PI / 2;  // texture top = north
-map.position.copy(enu((MX0 + MX1) / 2, (MY0 + MY1) / 2, ELEV - 0.05));
+{
+  const N = 104;  // km of terrain beyond the map on each side
+  const inMap = (e, n) => e > MX0 && e < MX1 && n > MY0 && n < MY1;
+  scene.add(heightMesh(MX0 - N * 1000, MY0 - N * 1000, (MX1 - MX0) / 1000 + 2 * N, (MY1 - MY0) / 1000 + 2 * N, 1000, inMap,
+    new THREE.MeshLambertMaterial({ color: '#77796f' }), 0.3));
+}
+const mapMat = new THREE.MeshLambertMaterial({ color: '#ffffff', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+const map = heightMesh(MX0, MY0, (MX1 - MX0) / 500, (MY1 - MY0) / 500, 500, null, mapMat, 0.05);
 map.receiveShadow = true;
 scene.add(map);
 new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/mosaic_world.jpg', (t) => {
@@ -189,16 +210,17 @@ new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/m
   mapMat.map = t; mapMat.needsUpdate = true;
 });
 
-// The runway in use, drawn from avd_runway: asphalt, threshold bars, numbers, centreline.
-{
+// A runway: asphalt, threshold bars, numbers, centreline; from its paved
+// start (east, north), true heading, length and width, at an elevation.
+function drawRunway(e0, n0, hdg, len, wid, elev, id1, id2) {
   const W = 128, H = 4096, c = document.createElement('canvas'); c.width = W; c.height = H;
-  const g = c.getContext('2d'), pxm = H / RW[4];
+  const g = c.getContext('2d'), pxm = H / len;
   g.fillStyle = '#3c3f43'; g.fillRect(0, 0, W, H);
   const img = g.getImageData(0, 0, W, H);
   for (let i = 0; i < img.data.length; i += 4) { const n = (Math.random() - 0.5) * 18; img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n; }
   g.putImageData(img, 0, 0);
   g.fillStyle = '#e9e9e4';
-  const edge = 0.9 * W / RW[5];
+  const edge = 0.9 * W / wid;
   g.fillRect(2, 0, edge, H); g.fillRect(W - 2 - edge, 0, edge, H);
   for (let y = 70 * pxm; y < H - 70 * pxm; y += 60 * pxm) g.fillRect(W / 2 - 1.5, H - y - 36 * pxm, 3, 36 * pxm);
   const end = (flip) => {
@@ -206,18 +228,39 @@ new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/m
     if (flip) { g.translate(W, H); g.rotate(Math.PI); }
     for (let i = 0; i < 8; ++i) { const x = 8 + i * 14 + (i >= 4 ? 4 : 0); g.fillRect(x, H - 8 - 30 * pxm, 8, 30 * pxm); }
     g.font = `900 ${Math.round(8 * pxm)}px Arial`; g.textAlign = 'center'; g.textBaseline = 'bottom';
-    g.save(); g.translate(W / 2, H - 44 * pxm); g.scale(0.8, 1.6); g.fillText(flip ? AP.reciprocal : AP.runway, 0, 0); g.restore();
+    g.save(); g.translate(W / 2, H - 44 * pxm); g.scale(0.8, 1.6); g.fillText(flip ? id2 : id1, 0, 0); g.restore();
     g.restore();
   };
   end(false); end(true);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const rw = new THREE.Mesh(new THREE.PlaneGeometry(RW[5], RW[4]),
+  const rw = new THREE.Mesh(new THREE.PlaneGeometry(wid, len),
     new THREE.MeshLambertMaterial({ map: t, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-  rw.rotation.set(-Math.PI / 2, 0, -RW[3] * DEG);
-  rw.position.copy(enu(rwMid[0], rwMid[1], ELEV + 0.02));
+  rw.rotation.set(-Math.PI / 2, 0, -hdg * DEG);
+  rw.position.copy(enu(e0 + Math.sin(hdg * DEG) * len / 2, n0 + Math.cos(hdg * DEG) * len / 2, elev + 0.02));
   rw.receiveShadow = true;
   scene.add(rw);
+}
+// The runway in use (avd_runway), then every other runway of the region; the
+// fields off the map get a grass apron so they read from the air.
+drawRunway(RW[0], RW[1], RW[3], RW[4], RW[5], ELEV, AP.runway, AP.reciprocal);
+REGION.forEach((ap, i) => {
+  let ce = 0, cn = 0, r = 0;
+  for (let k = 0; k < ap.ends.length; k += 2) {
+    const a = ap.ends[k], home = Math.hypot(a.east - RW[0], a.north - RW[1]) < 1;
+    if (!home) drawRunway(a.east, a.north, a.heading, a.length, a.width, ap.elevation, DESTS[i].ends[k].runway, DESTS[i].ends[k + 1].runway);
+    ce += a.east + Math.sin(a.heading * DEG) * a.length / 2; cn += a.north + Math.cos(a.heading * DEG) * a.length / 2;
+  }
+  ce /= ap.ends.length / 2; cn /= ap.ends.length / 2;
+  for (const a of ap.ends) r = Math.max(r, Math.hypot(a.east - ce, a.north - cn));
+  ap.centre = [ce, cn];
+  if (ce > MX0 && ce < MX1 && cn > MY0 && cn < MY1) return;
+  const apron = new THREE.Mesh(new THREE.CircleGeometry(r + 700, 48),
+    new THREE.MeshLambertMaterial({ color: '#717b5f', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+  apron.rotation.x = -Math.PI / 2; apron.position.copy(enu(ce, cn, ap.elevation - 0.15)); apron.receiveShadow = true;
+  scene.add(apron);
+});
+{
   // A tower and hangars on the south side, so the field reads at a glance.
   const box = (w, d, h, along, across, color) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
@@ -312,7 +355,43 @@ const JET_STARTS = [
   { name: 'Ibirapuera', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(-4000, -7000, 600, 40, 220, 0), trim: true },
   { name: 'Cruise FL410', sub: 'high and fast over the city', go: () => A.avd_reset_air(0, -9000, 12497 - ELEV, 340, 253, 0), trim: true },
 ];
-let STARTS = P.jet ? JET_STARTS : PISTON_STARTS;
+// ---------- Destination: its ILS on NAV 1, a GPS route to it ----------
+const destSel = $('destSel');
+let DEST = null;  // { ai, ri, icao, name, runway, ils, khz, synthetic }
+destSel.add(new Option('— none —', '-1'));
+DESTS.forEach((d, ai) => {
+  const grp = document.createElement('optgroup');
+  grp.label = `${d.name} (${d.icao})`;
+  d.ends.forEach((e, ri) => grp.appendChild(new Option(
+    `${e.ils ? 'ILS' : 'RNAV (GPS)'} ${e.runway}${e.ils ? ` · ${e.ils} ${(e.khz / 1000).toFixed(2)}${e.synthetic ? ' (test ILS)' : ''}` : ''}`, `${ai}:${ri}`)));
+  destSel.appendChild(grp);
+});
+// The starts: the aircraft's own, plus the destination's approach and final.
+function startsFor() {
+  const base = P.jet ? JET_STARTS : PISTON_STARTS;
+  if (!DEST) return base;
+  return [...base,
+    { name: `Approach ${DEST.icao} ${DEST.runway}`, sub: `10 NM out, ${DEST.ils ? `intercept ${DEST.ils}` : 'GPS'}`, go: () => A.avd_reset(4), trim: true },
+    { name: `Final ${DEST.icao} ${DEST.runway}`, sub: `${P.jet ? '6' : '3'} km, on the 3° path`, go: () => A.avd_reset(5), trim: true }];
+}
+const nm = (m, d = 1) => (m / 1852).toFixed(d);
+function setDestination(val, announce) {
+  const [ai, ri] = String(val).split(':').map(Number);
+  const d = DESTS[ai], e = d?.ends[ri];
+  if (!e) { DEST = null; A.avd_set_destination(-1, 0); }
+  else { DEST = { ai, ri, icao: d.icao, name: d.name, runway: e.runway, ils: e.ils, khz: e.khz, synthetic: e.synthetic }; A.avd_set_destination(ai, ri); }
+  destSel.value = DEST ? `${ai}:${ri}` : '-1';
+  store.set('dest', destSel.value);
+  STARTS = startsFor();
+  buildStarts();
+  if (announce && DEST) {
+    const r = A.route();
+    toast(`${DEST.name} ${DEST.runway}: ${DEST.ils ? `NAV 1 on ${DEST.ils} ${(DEST.khz / 1000).toFixed(2)}, course set` : 'no ILS, GPS approach'}; route ${r.wp.map((w) => w.ident).join(' → ')}, ${nm(A.gps()[9], 0)} NM.`, 7);
+  } else if (announce) toast('Destination cleared.', 2);
+}
+destSel.addEventListener('change', (e) => { setDestination(e.target.value, true); e.target.blur(); });
+
+let STARTS = startsFor();
 const startsEl = $('starts');
 function buildStarts() {
   startsEl.innerHTML = '';
@@ -324,6 +403,7 @@ function buildStarts() {
   });
 }
 buildStarts();
+setDestination(store.get('dest', '-1'), false);
 
 function applyWeather() {
   const kt = +$('wind').value, dir = +$('windDir').value, turb = +$('turb').value, temp = +$('temp').value;
@@ -351,6 +431,7 @@ A.avd_set_wind_hazard(+$('hazard').value);
 function restart(i = ui.start) {
   ui.start = i;
   smoke.reset();
+  if (!STARTS[i]) ui.start = i = 0;
   const st = STARTS[i];
   applyWeather();
   st.go();
@@ -825,8 +906,33 @@ function windRows() {
   if (s[63] > 0) rows.push(['Runway', s[63] >= 3 ? `standing water ${fmt(s[63])} mm` : 'wet']);
   return rows;
 }
+// The navigation card: the GPS leg, then NAV 1 (the ILS) or the GPS approach
+// deviation. Bars: full scale both sides, + = needle right (fly right).
+const hNav = $('hNav');
+function navHud() {
+  hNav.hidden = !DEST;
+  if (!DEST) return;
+  const g = A.gps(), r = A.route(), wp = r.wp[g[1]];
+  const rows = [];
+  if (g[0] && wp) {
+    const ete = s[12] > 30 ? g[7] / (s[12] * 0.5144) : 0;
+    rows.push(['GPS ' + ['ENR', 'TERM', 'APR'][g[2]], `${wp.ident} ${nm(g[7])} NM${ete ? ` · ${Math.floor(ete / 60)}:${String(Math.round(ete % 60)).padStart(2, '0')}` : ''}`]);
+    rows.push(['DTK · XTK', `${deg3(g[3] - g[13])}° · ${Math.abs(g[4]) < 9 ? 'on course' : `${g[4] > 0 ? 'R' : 'L'} ${nm(Math.abs(g[4]), 2)} NM`}`]);
+    rows.push([DEST.icao, `${nm(g[9], 0)} NM to ${DEST.runway}`]);
+  }
+  const ils = c[K.navValid] && c[K.loc];
+  const bar = (v, cls) => `<span class="dev ${cls}"><i style="left:${50 + 50 * clamp(v, -1, 1)}%"></i></span>`;
+  const dots = (v, up, down) => (Math.abs(v) < 0.05 ? 'on path' : `${v > 0 ? up : down} ${(Math.abs(v) * 2).toFixed(1)} dot`);
+  rows.push(['NAV 1', `${c[K.navAct].toFixed(2)} ${ils ? (DEST.ils && Math.round(c[K.navAct] * 1000) === DEST.khz ? DEST.ils : 'LOC') : c[K.navValid] ? 'VOR' : '· no signal'}`]);
+  if (ils) rows.push(['LOC', bar(c[K.cdi], 'ils')]);
+  else if (g[0]) rows.push(['GPS', bar(g[6], '')]);
+  if (ils && c[K.gsValid]) rows.push(['GS', dots(c[K.gs], 'fly up', 'fly down')]);
+  else if (g[10]) rows.push(['GP', dots(g[12], 'fly up', 'fly down')]);
+  hNav.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
+}
 function hud() {
   $('hAssist').textContent = assistStatus();
+  navHud();
   if (P.jet) { jetHud(); return; }
   $('hIas').innerHTML = iasHtml();
   $('hAlt').innerHTML = `${fmt(c[K.alt])}<small>FT MSL</small>`;
@@ -879,6 +985,10 @@ function jetData() {
     windDir: s[59], windKt: s[60], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
     vfe: j[47], vle: j[48], toFlap: j[49], ldgFlap: j[50], trim: j[28], thrLever: input.throttle, crashed: ui.crashed, pusher: !!j[51],
     rev: [j[52], j[54]], gndSpoilers: !!j[56], typeName: def.visual?.short_name || 'TOP G',
+    // Navigation: the GPS route and leg, the destination runway, NAV 1.
+    route: DEST ? A.route() : null, gps: DEST ? A.gps().slice() : null, dest: DEST,
+    destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
+    nav: { valid: !!c[K.navValid], loc: !!c[K.loc], cdi: c[K.cdi], gsValid: !!c[K.gsValid], gs: c[K.gs], mhz: c[K.navAct] },
   };
 }
 
@@ -911,7 +1021,7 @@ function updateCamera(dt) {
     const h = (ui.cam === 0 ? s[9] * DEG : 0) + look.yaw, el = (ui.cam === 0 ? 0.2 : 0.35) + look.pitch;
     const d = ui.cam === 0 ? look.dist : look.dist * 1.6;
     const want = target.clone().add(new THREE.Vector3(-Math.sin(h) * Math.cos(el) * d, Math.sin(el) * d, Math.cos(h) * Math.cos(el) * d));
-    want.y = Math.max(want.y, ELEV + 1.2);
+    want.y = Math.max(want.y, groundAt(want.x, -want.z) + 1.2);
     if (snapCamera) camPos.copy(want); else camPos.lerp(want, 1 - Math.exp(-dt * (ui.cam === 0 ? 5 : 12)));
     camLook.copy(target);
     camera.position.copy(camPos); camera.lookAt(camLook);
@@ -921,7 +1031,7 @@ function updateCamera(dt) {
   camera.updateProjectionMatrix();
   skyDome.position.copy(camera.position);
   // Shadow follows the airplane; fog opens up with height.
-  const agl = Math.max(0, s[2] - ELEV);
+  const agl = Math.max(0, s[14] * 0.3048);
   sun.target.position.copy(target);
   sun.position.copy(target).addScaledVector(SUN_DIR, agl / SUN_DIR.y + 60);
   sun.shadow.camera.far = agl / SUN_DIR.y + 120; sun.shadow.camera.updateProjectionMatrix();
@@ -930,7 +1040,11 @@ function updateCamera(dt) {
 }
 
 // ---------- Landmark labels ----------
-const labelPts = [...LANDMARKS.filter(([n]) => n !== AP.name).map(([n, x, y]) => [n, x, y, 60]), [AP.name, rwMid[0], rwMid[1], 40]];
+// [name, east, north, height above the ground, ground elevation, max distance]:
+// the city's landmarks, the home field, and the other airports from afar.
+const labelPts = [...LANDMARKS.filter(([n]) => n !== AP.name).map(([n, x, y]) => [n, x, y, 60, groundAt(x, y), 14000]),
+  [AP.name, rwMid[0], rwMid[1], 40, ELEV, 14000],
+  ...DESTS.map((d, i) => [`${d.name} · ${d.icao}`, ...REGION[i].centre, 80, REGION[i].elevation, 90000]).filter((l) => l[0].split(' · ')[1] !== AP.icao)];
 const v = new THREE.Vector3();
 // In the cockpit a label hides behind the panel, glareshield and frames: a
 // short ray from the eye toward it against the flight deck (refreshed every
@@ -945,14 +1059,14 @@ function drawLabels() {
   occRay.far = 8;
   lctx.font = `600 ${MOBILE ? 11 : 12}px "Public Sans",system-ui,sans-serif`;
   lctx.textAlign = 'center';
-  for (const [name, x, y, up] of labelPts) {
+  for (const [name, x, y, up, base, far] of labelPts) {
     const dist = Math.hypot(x - s[0], y - s[1]);
-    if (dist > 14000 || dist < 150) continue;
-    v.set(x, ELEV + up, -y).project(camera);
+    if (dist > far || dist < 150) continue;
+    v.set(x, base + up, -y).project(camera);
     if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) continue;
     if (inside) {
       if (refresh || !occluded.has(name)) {
-        occDir.set(x, ELEV + up, -y).sub(camera.position).normalize();
+        occDir.set(x, base + up, -y).sub(camera.position).normalize();
         occRay.set(camera.position, occDir);
         occluded.set(name, occRay.intersectObject(cabin.root, true).length > 0);
       }
@@ -1045,7 +1159,7 @@ async function selectAircraft(id) {
   useRig(P);
   flow.reset();
   look.dist = P.chase;
-  STARTS = P.jet ? JET_STARTS : PISTON_STARTS;
+  STARTS = startsFor();
   buildStarts();
   applyProfileUi();
   setAssist(ui.assist);
