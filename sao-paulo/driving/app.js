@@ -31,16 +31,19 @@ const HEADER = M._ord_state_header(), PER_WHEEL = M._ord_state_per_wheel();
 const statePtr = M._ord_state() / 8;
 const S = (i) => M.HEAPF64[statePtr + i];
 const W = (w, i) => M.HEAPF64[statePtr + HEADER + PER_WHEEL * w + i];
-const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55]; // full-lock road-wheel angle per car (rad)
+// Per site car id: 0-5 generic cars + Rosser V8, 6-8 two-wheelers, 9-13 real-car approximations
+// (engine indices 6-10: 911 Carrera S, 911 Carrera 4S, AMG S 63, S 600 Guard, F1 2026).
+const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55, 0, 0, 0, 0.50, 0.50, 0.54, 0.52, 0.30]; // full-lock road-wheel angle (rad)
+const engineCar = (c) => (c >= 9 ? c - 3 : c);
 // Two-wheelers (vehicle 6 bicycle, 7 e-scooter, 8 motorcycle): their own state buffer.
 const bikePtr = M._ord_bike_state() / 8;
 const B = (i) => M.HEAPF64[bikePtr + i];
 const BIKE_LOCK = [1.2, 0.9, 0.55];
 const BIKE_NAMES = ['Bicycle', 'E-scooter', 'Motorcycle'];
-const isBike = () => settings.car >= 6;
-const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000];
+const isBike = () => settings.car >= 6 && settings.car <= 8;
+const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000, 0, 0, 12500, 7500, 7500, 6500, 5800, 15000];
 // Engine voice per car (audio/engines.js): each layout sounds like itself. Index 8 = motorcycle.
-const VOICE = ['refSports', 'refHatch', 'refSaloon', 'refHyper', 'refRace', 'stella', null, null, 'motorcycle'];
+const VOICE = ['refSports', 'refHatch', 'refSaloon', 'refHyper', 'refRace', 'stella', null, null, 'motorcycle', 'porsche911', 'porsche911', 'amgS63', 's600Guard', 'f1'];
 const setVoice = () => { try { audio.setVoice(VOICES[VOICE[settings.car]] || VOICES.stella); } catch { /* audio not built yet */ } };
 const G = 9.81;
 
@@ -710,7 +713,7 @@ function createCar() {
   carRoot.visible = true; document.querySelector('.tachp').style.display = '';
   hudLabels(false);
   applyAids();
-  if (!M._ord_create(settings.car, ZONES[0].x, ZONES[0].y, ZONES[0].yaw)) { toast('Vehicle definition rejected by the physics core'); return; }
+  if (!M._ord_create(engineCar(settings.car), ZONES[0].x, ZONES[0].y, ZONES[0].yaw)) { toast('Vehicle definition rejected by the physics core'); return; }
   garage.afterCreate();
   // Settle on the brakes so the rest pose is the loaded suspension.
   for (let i = 0; i < 90; ++i) { M._ord_set_input(0, 0, 1, 0, 0, 0); M._ord_advance(1 / 60); }
