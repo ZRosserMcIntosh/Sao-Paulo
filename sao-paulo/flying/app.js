@@ -46,7 +46,20 @@ const PROFILES = {
   c172: { id: 'c172', name: '172', file: './172.json', jet: false, fuse: { xNose: 1.02, xTail: -6.25, R: 0.55, z: 0.0 }, chase: 15, zoom: [7, 120], target: [-1.4, 0, 0.4], eye: [-1.38, 0.27, 0.84], tower: 22, shadow: 9 },
   topg: { id: 'topg', name: 'Top G', file: './top_g.json', jet: true, fuse: { xNose: 0, xTail: -30.4, R: 1.31, z: 0.0 }, chase: 50, zoom: [20, 260], target: [-15, 0, 0.6], eye: [-3.4, 0.52, 0.42], tower: 48, shadow: 24 },
 };
-const hashPick = { '#topg': 'topg', '#172': 'c172' }[location.hash.toLowerCase()];
+// Generated jets (Aviation-Dynamics tools/jetgen): their camera and body
+// numbers come from the definition's visual block when it loads.
+const JETS = [['phenom300', 'Phenom 300E'], ['cj4', 'Citation CJ4'], ['learjet45', 'Learjet 45'], ['crj700', 'CRJ700'], ['b738', '737-800']];
+for (const [id, name] of JETS) PROFILES[id] = { id, name, file: `./${id}.json`, jet: true, fromVisual: true, fuse: { xNose: 0, xTail: -20, R: 1, z: 0 }, chase: 40, zoom: [15, 200], target: [-10, 0, 0.5], eye: [-3.4, 0.52, 0.42], tower: 40, shadow: 20 };
+function applyVisual(p, d) {
+  const v = d.visual;
+  if (!p.fromVisual || !v) return;
+  const st = v.fuselage_stations, L = -st[st.length - 1][0], R = Math.max(...st.map((q) => q[1]));
+  Object.assign(p, {
+    fuse: { xNose: 0, xTail: -L, R, z: 0 }, chase: v.camera.chase, zoom: [0.4 * v.camera.chase, 5 * v.camera.chase],
+    target: v.camera.target, eye: v.camera.eye, tower: 0.9 * v.camera.chase, shadow: Math.max(12, 0.8 * Math.max(L, d.reference.span_m)),
+  });
+}
+const hashPick = Object.keys(PROFILES).find((k) => location.hash.toLowerCase() === `#${k === 'c172' ? '172' : k}`);
 let P = PROFILES[hashPick || store.get('aircraft', 'c172')] || PROFILES.c172;
 const jsonCache = {};
 const fetchDef = async (p) => {
@@ -69,11 +82,13 @@ function loadInto(json) {
   def = JSON.parse(json);
   M = markingsFrom(A.markings());
 }
+const hashFor = (p) => (p.id === 'c172' ? '#172' : `#${p.id}`);
 try {
   const [mod, json] = await Promise.all([createAvdModule(), fetchDef(P)]);
   A = mod;
   A.avd_set_airport(AIRPORT);  // before the first load: every reset uses it
   loadInto(json);
+  applyVisual(P, def);
 } catch (e) {
   loadMsg('The flight core could not start: ' + e.message);
   throw e;
@@ -226,7 +241,8 @@ function useRig(p) {
   if (!rigs[p.id]) {
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     const model = p.jet ? buildJet(def) : buildAircraft(def);
-    const cab = p.jet ? buildJetCabin({ mobile: MOBILE, maxAniso, skin: jetSkin }) : buildCabin({ mobile: MOBILE, maxAniso });
+    const cab = p.jet ? buildJetCabin({ mobile: MOBILE, maxAniso, skin: model.skin || jetSkin, scale: def.visual?.nose_scale || 1 })
+      : buildCabin({ mobile: MOBILE, maxAniso });
     const e = new THREE.Object3D();
     e.position.set(...p.eye);
     e.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0)));
@@ -289,12 +305,12 @@ const PISTON_STARTS = [
 const JET_STARTS = [
   { name: `Runway ${AP.runway}`, sub: 'engines at idle', go: () => A.avd_reset(1), thr: 0 },
   { name: 'Cold and dark', sub: `runway ${AP.runway}`, go: () => A.avd_reset(0), thr: 0 },
-  { name: `Final ${AP.runway}`, sub: '6 km, 125 kt, flaps 39', go: () => A.avd_reset(2), trim: true },
+  { name: `Final ${AP.runway}`, sub: '6 km, Vref + 5, full flap', go: () => A.avd_reset(2), trim: true },
   { name: `Downwind ${AP.runway}`, sub: '2000 ft, 180 kt', go: () => A.avd_reset_air(rwMid[0] - rwRight[0] * 2500, rwMid[1] - rwRight[1] * 2500, 610, (RW[3] + 180) % 360, 180, 1), trim: true },
   { name: 'Avenida Paulista', sub: 'low pass, 220 kt', go: () => A.avd_reset_air(3200, -2200, 330, 305, 220, 0), trim: true },
   { name: 'Centro', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(2100, -3000, 600, 0, 220, 0), trim: true },
   { name: 'Ibirapuera', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(-4000, -7000, 600, 40, 220, 0), trim: true },
-  { name: 'Cruise FL410', sub: 'Mach 0.85 over the city', go: () => A.avd_reset_air(0, -9000, 12497 - ELEV, 340, 253, 0), trim: true },
+  { name: 'Cruise FL410', sub: 'high and fast over the city', go: () => A.avd_reset_air(0, -9000, 12497 - ELEV, 340, 253, 0), trim: true },
 ];
 let STARTS = P.jet ? JET_STARTS : PISTON_STARTS;
 const startsEl = $('starts');
@@ -348,7 +364,11 @@ function restart(i = ui.start) {
   A.events();  // drop the reset's own events
   [...startsEl.children].forEach((b, k) => b.setAttribute('aria-pressed', String(k === i)));
   snapCamera = true;
-  if (i === 0 && P.jet) toast(`Runway ${AP.runway}: full thrust (${MOBILE ? 'slide THR up' : '+ or X'}), rotate at 125 kt, gear up (${MOBILE ? 'GEAR' : 'G'}) once climbing.`, 7);
+  if (i === 0 && P.jet) {
+    // VR as the PFD bugs it (glass.js): for the take-off flap, the middle detent.
+    const jj = A.jet(), vr = Math.round(1.2 * jj[33]) - 6;
+    toast(`Runway ${AP.runway}: flaps ${Math.round(jj[49])} (${MOBILE ? 'FL+' : '.'}), full thrust (${MOBILE ? 'slide THR up' : '+ or X'}), rotate at ${vr} kt, gear up (${MOBILE ? 'GEAR' : 'G'}) once climbing.`, 7);
+  }
   else if (i === 0) toast(`Runway ${AP.runway}: full throttle (${MOBILE ? 'slide THR up' : '+ or X'}), keep straight, ease back at 55 kt.`, 6);
   else if (i === 1) toast('Cold and dark: run the Quick Start in Settings, or work the switches.', 6);
   else toast(`${st.name}: trimmed and level, ${st.sub}.`);
@@ -858,7 +878,7 @@ function jetData() {
     trend: iasAcc * 10, vs1g: j[32], vsTO: j[33], vsLDG: j[34], gw: j[35], fpa: j[36], drift: ((j[37] - s[9] + 540) % 360) - 180,
     windDir: s[59], windKt: s[60], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
     vfe: j[47], vle: j[48], toFlap: j[49], ldgFlap: j[50], trim: j[28], thrLever: input.throttle, crashed: ui.crashed, pusher: !!j[51],
-    rev: [j[52], j[54]], gndSpoilers: !!j[56],
+    rev: [j[52], j[54]], gndSpoilers: !!j[56], typeName: def.visual?.short_name || 'TOP G',
   };
 }
 
@@ -1013,12 +1033,13 @@ async function selectAircraft(id) {
   const next = PROFILES[id];
   try {
     loadInto(await fetchDef(next));
+    applyVisual(next, def);
     A.avd_set_wind_hazard(+$('hazard').value);  // a new aircraft starts a fresh sim
   } catch (e) { toast('Could not load the aircraft: ' + e.message, 6); return; }
   audio.stop();
   P = next;
   store.set('aircraft', P.id);
-  try { history.replaceState(null, '', P.jet ? '#topg' : '#172'); } catch { /* sandboxed */ }
+  try { history.replaceState(null, '', hashFor(P)); } catch { /* sandboxed */ }
   audio = P.jet ? audios.jet : audios.piston;
   if (ui.sound) audio.start();
   useRig(P);

@@ -521,7 +521,7 @@ export function drawJetPanel(ctx, W, H, d) {
   show(drawEICAS, X(xs[2]), X(top), X(dw), X(dh));
   show(drawPFD, X(xs[3]), X(top), X(dw), X(dh));
   // Placards and labels under the displays.
-  text(ctx, 'TOP G', X(0.95), X(0.345), X(0.016), '#c9ccd1', 'center', SANS, 800);
+  text(ctx, d.typeName || 'TOP G', X(0.95), X(0.345), X(0.016), '#c9ccd1', 'center', SANS, 800);
   text(ctx, 'LANDING GEAR', X(0.93), X(0.395), X(0.009), '#c9ccd1', 'center', SANS, 700);
   text(ctx, d.gear > 0.999 ? 'DOWN' : d.gear < 0.001 ? 'UP' : 'TRANSIT', X(0.93), X(0.47), X(0.011), d.gear > 0.999 ? C.green : d.gear < 0.001 ? C.grey : C.amber, 'center', MONO, 700);
   // Master warning / caution: lit (warning flashing) while a message of that level is up.
