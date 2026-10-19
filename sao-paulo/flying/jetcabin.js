@@ -10,8 +10,12 @@ const DEG = Math.PI / 180;
 const PX = -2.62, PZ0 = -0.33;            // panel face x, panel bottom z
 const PTOP = PZ0 + JET_PANEL_H;
 
-export function buildJetCabin({ mobile, maxAniso, skin }) {
+// scale: the type's fuselage diameter over the Top G's (the flight deck is
+// laid out in the Top G's metres and scaled as one; the lining follows the
+// type's own skin).
+export function buildJetCabin({ mobile, maxAniso, skin, scale = 1 }) {
   const root = new THREE.Group();
+  root.scale.setScalar(scale);
   const std = (color, rough = 0.85, metal = 0) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
   const M = {
     lining: std('#5d6168', 0.92), liningDark: std('#3f4248', 0.9), dark: std('#1f2125', 0.7), black: std('#0e0f11', 0.5),
@@ -37,7 +41,7 @@ export function buildJetCabin({ mobile, maxAniso, skin }) {
     const nx = 145, na = 240, x0 = -1.98, x1 = -5.6;
     for (let i = 0; i <= nx; ++i)
       for (let j = 0; j <= na; ++j) {
-        const p = skin(x0 + (x1 - x0) * i / nx, j / na * 2 * Math.PI, -0.05);
+        const p = skin((x0 + (x1 - x0) * i / nx) * scale, j / na * 2 * Math.PI, -0.05 * scale).divideScalar(scale);
         pos.push(p.x, p.y, p.z);
       }
     for (let i = 0; i < nx; ++i)
