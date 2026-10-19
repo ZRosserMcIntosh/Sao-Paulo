@@ -61,6 +61,81 @@ function skinPatch(fn, nu, nv, off) {
   return g;
 }
 
+// A rounded quadrilateral on the skin. `q`: corners [x, a (deg)] in order
+// front-bottom, front-top, rear-top, rear-bottom (or any loop); `n`: the
+// superellipse exponent of the rounding (higher = squarer). Returns its
+// outline as [x, a (rad)] points, the corners bilinearly blended.
+function roundedQuad(q, n = 5, k = 32) {
+  const pts = [];
+  for (let i = 0; i < k; ++i) {
+    const t = (i / k) * 2 * Math.PI, c = Math.cos(t), s = Math.sin(t);
+    const u = 0.5 + 0.5 * Math.sign(c) * Math.abs(c) ** (2 / n), v = 0.5 + 0.5 * Math.sign(s) * Math.abs(s) ** (2 / n);
+    // u: front (0) to rear (1); v: bottom (0) to top (1).
+    const [fb, ft, rt, rb] = q;
+    const x = (1 - u) * ((1 - v) * fb[0] + v * ft[0]) + u * ((1 - v) * rb[0] + v * rt[0]);
+    const a = (1 - u) * ((1 - v) * fb[1] + v * ft[1]) + u * ((1 - v) * rb[1] + v * rt[1]);
+    pts.push([x, a * DEG]);
+  }
+  return pts;
+}
+// A filled outline on the skin, pushed `off` out: concentric rings from its
+// centroid to the outline, each point on the skin (a flat fan would sag
+// below a curved skin and vanish under the paint).
+function skinFill(outline, off, rings = 6) {
+  const n = outline.length;
+  const cx = outline.reduce((t, p) => t + p[0], 0) / n, ca = outline.reduce((t, p) => t + p[1], 0) / n;
+  const pos = [], idx = [], c = skin(cx, ca, off);
+  pos.push(c.x, c.y, c.z);
+  for (let r = 1; r <= rings; ++r)
+    for (const [x, a] of outline) {
+      const t = r / rings, p = skin(cx + (x - cx) * t, ca + (a - ca) * t, off);
+      pos.push(p.x, p.y, p.z);
+    }
+  const at = (r, k) => (r === 0 ? 0 : 1 + (r - 1) * n + (k % n));
+  for (let k = 0; k < n; ++k) idx.push(0, at(1, k), at(1, k + 1));
+  for (let r = 1; r < rings; ++r)
+    for (let k = 0; k < n; ++k) idx.push(at(r, k), at(r + 1, k), at(r + 1, k + 1), at(r, k), at(r + 1, k + 1), at(r, k + 1));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+// A thin line along an outline on the skin (a panel seam: doors, hatches).
+function skinRing(outline, width, off) {
+  const cx = outline.reduce((t, p) => t + p[0], 0) / outline.length, ca = outline.reduce((t, p) => t + p[1], 0) / outline.length;
+  const pos = [], idx = [], n = outline.length;
+  for (const [x, a] of outline) {
+    const dx = x - cx, da = a - ca, r = Math.hypot(dx, da * 1.3) || 1;
+    for (const w of [0, width]) { const p = skin(x - dx / r * w, a - da / r * w / 1.3, off); pos.push(p.x, p.y, p.z); }
+  }
+  for (let k = 0; k < n; ++k) { const a = 2 * k, b = 2 * ((k + 1) % n); idx.push(a, b, a + 1, a + 1, b, b + 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+
+// The flight-deck glazing, in the Top G's metres (a type's x scales with its
+// nose): per side a windshield pane, a sliding side window beside the pilot
+// and an aft side window, with posts between them. [x, a deg] corners,
+// front-bottom, front-top, rear-top, rear-bottom; the left side (a from the
+// left side up to the crown at 90); the right side mirrors it.
+const PANES = [
+  [[-2.02, 30], [-2.32, 87.4], [-2.9, 87.4], [-2.82, 19]],
+  [[-2.92, 18], [-3.02, 62], [-3.44, 59], [-3.44, 16]],
+  [[-3.52, 16], [-3.52, 57], [-3.94, 50], [-3.94, 19]],
+];
+// Every pane's outline [x (Top G m), a (rad)], both sides. (The flight deck's
+// lining, jetcabin.js, keeps its own grid-aligned openings: slanted edges
+// stair-step on its 2.5 cm cells right in front of the eye.)
+function glazingOutlines() {
+  const out = [];
+  for (const q of PANES) {
+    out.push(roundedQuad(q, 6));
+    out.push(roundedQuad(q.map(([x, a]) => [x, 180 - a]), 6));
+  }
+  return out;
+}
+const GLAZING = glazingOutlines();
+
 function textTexture(text, w, h, font, color, bg) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const g = c.getContext('2d');
@@ -84,7 +159,7 @@ export function buildJet(def) {
   const wingMat = new THREE.MeshStandardMaterial({ color: 0xd9dcde, roughness: 0.42, metalness: 0.35 });
   const navy = new THREE.MeshStandardMaterial({ color: vis.colors?.primary || 0x0b2f6e, roughness: 0.38, metalness: 0.2 });
   const red = new THREE.MeshStandardMaterial({ color: vis.colors?.accent || 0xd22a1f, roughness: 0.45 });
-  const glassMat = new THREE.MeshStandardMaterial({ color: 0x0e1822, roughness: 0.08, metalness: 0.8, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x1b2a38, roughness: 0.12, metalness: 0.55, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
   const dark = new THREE.MeshStandardMaterial({ color: 0x1c1f23, roughness: 0.7, metalness: 0.3 });
   const metal = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.9 });
   const tyre = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.95 });
@@ -92,32 +167,46 @@ export function buildJet(def) {
 
   // ---- Fuselage, windshield, windows, livery ----
   add(new THREE.Mesh(loft(st, 40, SUPER), paint));
-  // Four-pane windshield (front panes reach further forward at the top centre).
-  add(new THREE.Mesh(skinPatch((u, v) => {
-    const a = (20 + v * 140) * DEG, sa = Math.sin(a);
-    const x0 = (-1.98 - 0.45 * (1 - sa)) * ns, x1 = (-2.98 - 0.25 * (1 - sa)) * ns;
-    return [x0 + (x1 - x0) * u, a];
-  }, 6, 24, 0.012), glassMat));
+  // Flight-deck glazing: windshield, sliding and aft side windows a side, with posts.
+  for (const o of GLAZING) add(new THREE.Mesh(skinFill(o.map(([x, a]) => [x * ns, a]), 0.018 * ns, 10), glassMat));
+  // Cabin windows: rounded rectangles (the Top G's eight large ovals a side, or the type's own row).
+  const W = vis.windows || { count: 8, first: -6.7, pitch: 1.42, half_w: 0.36, half_h: 0.2 * 1.32 };
+  const oval = !vis.windows;
+  const winA = 0.12;  // the row's height on the side (rad above the widest point)
   for (const side of [0, 1]) {
-    // Cockpit side windows.
-    add(new THREE.Mesh(skinPatch((u, v) => [(-3.12 - u * 0.75) * ns, (side ? 180 - 52 : 14) * DEG + v * 38 * DEG], 3, 6, 0.012), glassMat));
-    // Cabin windows: the Top G's eight large ovals a side, or the type's own row.
-    const W = vis.windows || { count: 8, first: -6.7, pitch: 1.42, half_w: 0.36, half_h: 0.2 * 1.32 };
+    const ac = side ? Math.PI - winA : winA;
     for (let i = 0; i < W.count; ++i) {
-      const xc = W.first - i * W.pitch, ac = side ? Math.PI - 0.12 : 0.12;
-      const shape = [];
-      for (let k = 0; k <= 24; ++k) {
-        const t = (k / 24) * 2 * Math.PI;
-        shape.push([xc + Math.cos(t) * W.half_w, ac + Math.sin(t) * W.half_h / Rf]);
+      const xc = W.first - i * W.pitch, shape = [];
+      for (let k = 0; k < 28; ++k) {
+        const t = (k / 28) * 2 * Math.PI, c = Math.cos(t), sn = Math.sin(t), e = oval ? 2 : 3.2;
+        shape.push([xc + Math.sign(c) * Math.abs(c) ** (2 / e) * W.half_w, ac + Math.sign(sn) * Math.abs(sn) ** (2 / e) * W.half_h / Rf]);
       }
-      const pos = [], idx = [];
-      const centre = skin(xc, ac, 0.012); pos.push(centre.x, centre.y, centre.z);
-      for (const [x, a] of shape) { const p = skin(x, a, 0.012); pos.push(p.x, p.y, p.z); }
-      for (let k = 1; k <= 24; ++k) idx.push(0, k, k + 1, 0, k + 1, k);
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
-      add(new THREE.Mesh(g, glassMat));
+      add(new THREE.Mesh(skinFill(shape, 0.01), glassMat));
     }
+  }
+  // Doors: seams of the main door (left, ahead of the cabin windows), an
+  // airliner's service door opposite it, aft doors and overwing exits.
+  const seam = new THREE.MeshStandardMaterial({ color: 0x8d9298, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide });
+  {
+    const big = Rf > 1.2, dh = big ? 0.95 : 0.66, dw = big ? 0.44 : 0.33;   // half height, half width
+    const dx = W.first + W.pitch * (big ? 1.6 : 1.25) + dw * 0.4;          // the door's centre station
+    const door = (xc, side, hw, hh, a0 = 0.02) => {
+      const ac = side ? Math.PI - a0 : a0, q = [[xc + hw, ac - hh / Rf], [xc + hw, ac + hh / Rf], [xc - hw, ac + hh / Rf], [xc - hw, ac - hh / Rf]];
+      add(new THREE.Mesh(skinRing(roundedQuad(q.map(([x, a]) => [x, a / DEG]), 5, 40), 0.025, 0.011), seam));
+    };
+    door(dx, 0, dw, dh);
+    if (big) {
+      door(dx, 1, dw * 0.85, dh * 0.85);
+      const aft = W.first - (W.count - 1) * W.pitch - W.pitch * 1.6;
+      door(aft, 0, dw * 0.9, dh * 0.92); door(aft, 1, dw * 0.85, dh * 0.85);
+      if (W.count > 20) {
+        // Two overwing exits a side, over the wing's root chord.
+        const xw = def.surfaces[0].panels[0].root_quarter_chord_m[0];
+        for (const side of [0, 1]) for (const o of [0.3, -0.75]) door(xw + o, side, 0.24, 0.42, winA);
+      }
+    }
+  }
+  for (const side of [0, 1]) {
     // Cheat line: navy band under the windows with a red pinstripe.
     const s0 = side ? Math.PI + 0.06 : -0.06;
     const dir = side ? 1 : -1;
@@ -129,7 +218,7 @@ export function buildJet(def) {
   const fair = add(new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12), paint));
   {
     const w0 = def.surfaces[0].panels[0], kc = w0.root_chord_m / 6.9;
-    fair.scale.set(6.2 * kc, 1.36 * ns, 0.62 * ns); fair.position.set(w0.root_quarter_chord_m[0] - 2.0 * kc, 0, -1.02 * ns);
+    fair.scale.set(6.2 * kc, 1.36 * ns, 0.52 * ns); fair.position.set(w0.root_quarter_chord_m[0] - 2.0 * kc, 0, -1.02 * ns);
   }
 
   // ---- Wing (right panels from the data, mirrored), flaps, ailerons, spoilers, winglets ----
@@ -201,6 +290,17 @@ export function buildJet(def) {
     const mesh = new THREE.Mesh(panelGeometry(new THREE.Vector3(), c0 * f, new THREE.Vector3().subVectors(hB, hA), c1 * f, 0.06 / f, side), navy);
     mesh.castShadow = true; pivot.add(mesh); root.add(pivot);
     controls.rudder = { pivot, axis: new THREE.Vector3().subVectors(hB, hA).normalize(), def: vt.controls?.[0] };
+    // Dorsal fin: a low fillet from the fuselage's crown up the fin's leading edge.
+    {
+      const xd = le0.x + 0.3 * c0, zd = skin(xd, Math.PI / 2).z - 0.04, h = 0.13 * vt.span_m;
+      const zr = skin(le0.x, Math.PI / 2).z;  // the crown under the fin's leading edge
+      const sh = new THREE.Shape();
+      sh.moveTo(xd, zd); sh.lineTo(le0.x - h * Math.tan(sweep), zr + h); sh.lineTo(le0.x - 0.15 * c0, skin(le0.x - 0.15 * c0, Math.PI / 2).z - 0.04); sh.lineTo(xd, zd);
+      const t = 0.07 * c0 / 5.4 * 1.6;
+      const dg = new THREE.ExtrudeGeometry(sh, { depth: 2 * t, bevelEnabled: true, bevelThickness: t * 0.4, bevelSize: t * 0.3, bevelSegments: 2 });
+      dg.rotateX(Math.PI / 2); dg.translate(0, t, 0);
+      add(new THREE.Mesh(dg, navy));
+    }
     // "TOP G" on both sides of the fin.
     const name = vis.short_name || 'TOP G', kf = c0 / 5.4;
     const tex = textTexture(name, 512 * Math.max(1, name.length / 5), 192, `italic 900 ${name.length > 6 ? 110 : 150}px "Big Shoulders Display", Impact, sans-serif`, '#ffffff');
@@ -229,6 +329,16 @@ export function buildJet(def) {
       const mesh = new THREE.Mesh(panelGeometry(new THREE.Vector3(), c0 * f, new THREE.Vector3().subVectors(hB, hA), c1 * f, 0.06 / f, up), wingMat);
       mesh.castShadow = true; pivot.add(mesh); root.add(pivot);
       controls.elevator.push({ pivot, axis: new THREE.Vector3().subVectors(hB, hA).normalize(), side, def: p.controls?.[0] });
+    }
+  }
+
+  // T-tail: a bullet fairing where the stabiliser sits on the fin.
+  {
+    const hp = ht.panels[0], q = flu(hp.root_quarter_chord_m), finTop = flu(vt.root_quarter_chord_m).z + vt.span_m;
+    if (Math.abs(q.z - finTop) < 0.6) {
+      const len = hp.root_chord_m * 1.15, r = Math.max(0.12, 0.075 * vt.tip_chord_m);
+      const b = add(new THREE.Mesh(new THREE.SphereGeometry(1, 20, 10), navy));
+      b.scale.set(len / 2, r, r); b.position.set(q.x + 0.25 * hp.root_chord_m - len * 0.42, 0, q.z);
     }
   }
 
