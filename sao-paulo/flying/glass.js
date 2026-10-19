@@ -70,8 +70,10 @@ export function casMessages(d) {
   if (d.wow && d.thrLever > 0.7 && (d.flaps < 9 || d.flaps > 21 || d.spd > 0.02 || d.park)) m.push(['NO TAKEOFF CONFIG', 3]);
   if (d.fuelKg < 1500) m.push(['FUEL LOW', 2]);
   if ((d.run[0] || d.run[1]) && !d.gen) m.push(['GEN OFF', 2]);
-  const sbBad = d.spd > 0.02 && (d.flaps > 25 || d.thrLever > 0.6 || (!d.wow && d.ra < 1000));
-  if (sbBad) m.push(['SPEEDBRAKE', 2]);
+  const sbBad = !d.gndSpoilers && d.spd > 0.02 && (d.flaps > 25 || d.thrLever > 0.6 || (!d.wow && d.ra < 1000));
+  if (d.gndSpoilers) m.push(['GROUND SPOILERS', 1]);
+  if ((d.rev?.[0] || 0) > 0.02 || (d.rev?.[1] || 0) > 0.02) m.push(['THRUST REVERSERS', 1]);
+  if (d.gndSpoilers) { /* advisory above */ } else if (sbBad) m.push(['SPEEDBRAKE', 2]);
   else if (d.spd > 0.02) m.push(['SPEEDBRAKE EXTENDED', 1]);
   if (d.park) m.push(['PARKING BRAKE', 1]);
   return m.sort((a, b) => b[1] - a[1]);
@@ -345,6 +347,11 @@ export function drawEICAS(ctx, x, y, w, h, d) {
   text(ctx, `${rating} ${limit.toFixed(1)}`, x + w * 0.97, y + 4 * u, u * 2.8, C.green, 'right');
   text(ctx, `SAT ${Math.round(d.sat)}°C`, x + w * 0.03, y + 4 * u, u * 2.6, C.white, 'left');
   for (let i = 0; i < 2; ++i) n1Dial(ctx, x + w * (i ? 0.72 : 0.28), y + 21 * u, 12 * u, d.n1[i], d.n1cmd, d.run[i], u, limit);
+  // Thrust reversers: REV in amber while the sleeves travel, green deployed.
+  for (let i = 0; i < 2; ++i) {
+    const rv = d.rev?.[i] || 0;
+    if (rv > 0.02) text(ctx, 'REV', x + w * (i ? 0.72 : 0.28), y + 12 * u, u * 3.4, rv > 0.95 ? C.green : C.amber);
+  }
   const row = (label, vals, yy, fmt, color = C.green) => {
     text(ctx, label, x + w * 0.5, yy, u * 2.9, C.grey);
     vals.forEach((v, i) => text(ctx, fmt(v, i), x + w * (i ? 0.72 : 0.28), yy, u * 3.6, typeof color === 'function' ? color(v, i) : color));

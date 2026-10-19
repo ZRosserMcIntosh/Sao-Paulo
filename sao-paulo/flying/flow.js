@@ -85,7 +85,7 @@ export function buildFlow({ mobile }) {
   group.add(tufts);
   // Vortex cores of the resolved propeller (slow motion): the blades' bound
   // vortices and the tip helices, drawn where the computation puts them.
-  const MAXC = 700;
+  const MAXC = 1400;
   const corePos = new Float32Array(MAXC * 6), coreCol = new Float32Array(MAXC * 6);
   const coreGeo = new THREE.BufferGeometry();
   coreGeo.setAttribute('position', new THREE.BufferAttribute(corePos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -100,7 +100,7 @@ export function buildFlow({ mobile }) {
   const sA = new Float64Array(MAXS * 3), sB = new Float64Array(MAXS * 3), sG = new Float64Array(MAXS), sR = new Float64Array(MAXS);
   // Segments past nNear (the propeller's) only count within sCut of their
   // midpoint sM: a helix's distant turns add next to nothing.
-  const sM = new Float64Array(MAXS * 3), sCut = new Float64Array(MAXS);
+  const sM = new Float64Array(MAXS * 3), sCut = new Float64Array(MAXS), sAge = new Float32Array(MAXS);
   let nNear = 0;
   let nSeg = 0;
   const U = [0, 0, 0];
@@ -205,6 +205,29 @@ export function buildFlow({ mobile }) {
     }
     let hot = 0;
     for (const e of engines) {
+      if (e.rev > 0.02) {
+        // Reverser efflux: the fan flow leaves the cascades as a conical sheet,
+        // forward and outward at 45 deg from a ring of the cowl's radius, its
+        // excess over the still air (the efflux speed plus the aircraft's own)
+        // spreading and decaying as it mixes; the free stream turns it aft.
+        const cx = e.x + e.ax * e.cf, cy = e.y + e.ay * e.cf, cz = e.z + e.az * e.cf;
+        const dx = x - cx, dy = y - cy, dz = z - cz;
+        const a = dx * e.ax + dy * e.ay + dz * e.az;
+        const qx = dx - a * e.ax, qy = dy - a * e.ay, qz = dz - a * e.az, r = Math.hypot(qx, qy, qz);
+        if (r > 1e-3) {
+          const rho = r - e.rc, sAlong = (rho + a) * Math.SQRT1_2, nAcross = (a - rho) * Math.SQRT1_2;
+          // Cascades blocked toward the pylon (the fuselage side): none of the
+          // flow leaves within ~45 deg of it.
+          const inb = -(qy / r) * Math.sign(e.y || 1);
+          const block = Math.min(1, Math.max(0, (inb - 0.55) / 0.2));
+          if (sAlong > -0.15 && sAlong < 12 * e.rc && block < 1) {
+            const sg = 0.1 + 0.16 * Math.max(sAlong, 0);
+            const g = (1 - block) * e.rev * Math.exp(-(nAcross * nAcross) / (2 * sg * sg)) * Math.sqrt(Math.min(1, 0.2 / sg)) * Math.exp(-Math.max(sAlong, 0) / (5 * e.rc));
+            const radial = e.vrev * Math.SQRT1_2 * g, axial = (e.vrev * Math.SQRT1_2 + Umag) * g;
+            vx += radial * qx / r + axial * e.ax; vy += radial * qy / r + axial * e.ay; vz += radial * qz / r + axial * e.az;
+          }
+        }
+      }
       // Behind the disc / nozzle: axial jet with momentum-theory increment, spreading and decaying.
       const dx = x - e.x, dy = y - e.y, dz = z - e.z;
       const along = -(dx * e.ax + dy * e.ay + dz * e.az);  // distance downstream
@@ -213,7 +236,8 @@ export function buildFlow({ mobile }) {
       const rr = Math.sqrt(rx * rx + ry * ry + rz * rz);
       const R = e.r * (e.jet ? 1 + 0.08 * along / e.r : 0.82 + 0.18 * Math.exp(-along / e.r));
       if (rr > R * 1.3) continue;
-      const decay = e.jet ? (e.r / R) ** 2 : Math.exp(-along / (40 * e.r));
+      // (A reversing engine keeps only its core jet: about a quarter.)
+      const decay = (e.jet ? (e.r / R) ** 2 : Math.exp(-along / (40 * e.r))) * (1 - 0.75 * (e.rev || 0));
       const prof = Math.max(0, 1 - (rr / (R * 1.3)) ** 4);
       if (e.resolved) continue;  // the blades and their vortices (segments) make this slipstream
       const dv = e.inc * decay * prof;
@@ -344,6 +368,12 @@ export function buildFlow({ mobile }) {
       // Two axes across the disc.
       let px = -e.az, py = 0, pz = e.ax; const pn = Math.hypot(px, pz) || 1; px /= pn; pz /= pn;
       const qx = e.ay * pz - e.az * py, qy = e.az * px - e.ax * pz, qz = e.ax * py - e.ay * px;
+      if (e.rev > 0.2 && m < 0.6) {
+        // Reversing: lines leave the cascades (traced from there, outward and forward).
+        const rr = e.rc + 0.05, cx = e.x + e.ax * (e.cf - 0.25 * m), cy = e.y + e.ay * (e.cf - 0.25 * m), cz = e.z + e.az * (e.cf - 0.25 * m);
+        seed[0] = cx + (px * Math.cos(a) + qx * Math.sin(a)) * rr; seed[1] = cy + (py * Math.cos(a) + qy * Math.sin(a)) * rr; seed[2] = cz + (pz * Math.cos(a) + qz * Math.sin(a)) * rr;
+        return true;
+      }
       const fx = e.x + (px * Math.cos(a) + qx * Math.sin(a)) * r, fy = e.y + (py * Math.cos(a) + qy * Math.sin(a)) * r, fz = e.z + (pz * Math.cos(a) + qz * Math.sin(a)) * r;
       seed[0] = fx + e.ax * e.r * 2.5; seed[1] = fy + e.ay * e.r * 2.5; seed[2] = fz + e.az * e.r * 2.5;
       return false;
@@ -512,6 +542,7 @@ export function buildFlow({ mobile }) {
         const dB = (vb.x - centre[0]) ** 2 + vb.y ** 2 + (vb.z + centre[2]) ** 2;
         if (dA > lim2 && dB > lim2) continue;
         const rc = Math.max(sg[o + 7], 0.08);
+        sAge[nSeg] = sg[o + 8];
         seg(va.x, -va.y, -va.z, vb.x, -vb.y, -vb.z, g, rc * rc);
       }
     } else {
@@ -557,9 +588,12 @@ export function buildFlow({ mobile }) {
     const e0 = 16 + 64 * STRIDE;
     for (let k = 0; k < (f[1] | 0); ++k) {
       const o = e0 + k * ESTRIDE;
-      if (f[o + 7] <= 0.1) continue;
-      const e = { x: f[o], y: f[o + 1], z: f[o + 2], ax: f[o + 3], ay: f[o + 4], az: f[o + 5], r: f[o + 6], inc: f[o + 7], jet: f[o + 9] > 0.5,
-        omega: f[o + 10], blades: f[o + 11] | 0, swirl: f[o + 12], hub: f[o + 13], resolved: false };
+      const jet = f[o + 9] > 0.5, rev = jet ? f[o + 10] : 0;
+      if (f[o + 7] <= 0.1 && rev < 0.02) continue;
+      const e = { x: f[o], y: f[o + 1], z: f[o + 2], ax: f[o + 3], ay: f[o + 4], az: f[o + 5], r: f[o + 6], inc: f[o + 7], jet,
+        omega: jet ? 0 : f[o + 10], blades: jet ? 0 : f[o + 11] | 0, swirl: jet ? 0 : f[o + 12], hub: jet ? 0 : f[o + 13], resolved: false,
+        // Thrust reverser: position, efflux speed, cowl radius, cascades forward of the nozzle.
+        rev, vrev: jet ? f[o + 11] : 0, rc: jet ? f[o + 12] : 0, cf: jet ? f[o + 13] : 0 };
       engines.push(e);
       if (!e.jet && opts.prop && opts.prop.resolved && e.blades > 0 && Math.abs(e.omega) > 1) addPropeller(e, opts.prop.phase);
     }
@@ -594,6 +628,21 @@ export function buildFlow({ mobile }) {
       const root = sCut[k] === Infinity, g = Math.min(1, Math.abs(sG[k]) / (engines[0]?.tipGamma || 1));
       const cr = opts.light ? [0.75 * g, 0.12, 0.1] : root ? [0.5, 0.45, 0.35] : [1, 0.62 + 0.3 * (1 - g), 0.2 + 0.6 * (1 - g)];
       coreCol.set(cr, w6); coreCol.set(cr, w6 + 3);
+    }
+    // The wake's vortex cores (the core's segments): the strong ones only, the
+    // rolled-up tip vortices behind the wingtips or winglets, the flap-edge and
+    // spoiler-edge vortices; brighter the stronger.
+    const gmax = opts.wake?.gmax || 0;
+    for (let k = 0; k < nNear && nc < MAXC && gmax > 0; ++k) {
+      const g = Math.abs(sG[k]) / gmax;
+      if (g < 0.3 || sAge[k] < 0.05) continue;  // not the bound vortices on the wing
+      const k3 = k * 3, w6 = nc * 6;
+      corePos[w6] = sA[k3]; corePos[w6 + 1] = -sA[k3 + 1]; corePos[w6 + 2] = -sA[k3 + 2];
+      corePos[w6 + 3] = sB[k3]; corePos[w6 + 4] = -sB[k3 + 1]; corePos[w6 + 5] = -sB[k3 + 2];
+      const b = Math.min(1, (g - 0.3) / 0.5);
+      const cr = opts.light ? [0.1, 0.2 + 0.2 * b, 0.55 + 0.35 * b] : [0.45 + 0.5 * b, 0.75 + 0.25 * b, 1];
+      coreCol.set(cr, w6); coreCol.set(cr, w6 + 3);
+      ++nc;
     }
     coreGeo.setDrawRange(0, nc * 2);
     coreGeo.attributes.position.needsUpdate = true; coreGeo.attributes.color.needsUpdate = true;

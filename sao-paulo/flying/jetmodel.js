@@ -216,37 +216,79 @@ export function buildJet(def) {
     }
   }
 
-  // ---- Engines: nacelles on aft-fuselage pylons, fan faces that spin ----
-  const fans = [];
-  const nacelleMat = paint.clone(); nacelleMat.side = THREE.DoubleSide;  // open-ended shells
+  // ---- Engines: long-cowl turbofans on swept aft-fuselage pylons ----
+  // Each nacelle is lathed from a profile along its axis (local x, 0 at the
+  // inlet lip, negative aft): a rounded lip, the fan cowl swelling to its
+  // widest a third of the way back and closing to the fan nozzle; behind it
+  // the core cowl, its nozzle and a pointed exhaust plug. The fan cowl's aft
+  // part is the thrust reverser's translating sleeve: deployed, it slides aft
+  // and uncovers the cascades (where the fan flow leaves, turned forward).
+  const fans = [], sleeves = [];
+  const nacelleMat = paint.clone(); nacelleMat.side = THREE.DoubleSide;
+  const inner = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.6, metalness: 0.5, side: THREE.BackSide });
+  const coreMat = new THREE.MeshStandardMaterial({ color: 0xb7bcc2, roughness: 0.45, metalness: 0.7 });
+  const cascadeTex = (() => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 16;
+    const g = c.getContext('2d'); g.fillStyle = '#16191c'; g.fillRect(0, 0, 64, 16);
+    g.fillStyle = '#5a6066'; for (let i = 0; i < 64; i += 4) g.fillRect(i, 0, 1, 16); for (let j = 0; j < 16; j += 4) g.fillRect(0, j, 64, 1);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(12, 2); return t;
+  })();
+  const cascadeMat = new THREE.MeshStandardMaterial({ map: cascadeTex, roughness: 0.8, metalness: 0.4, side: THREE.DoubleSide });
+  const lathe = (pts, mat, segs = 40) => {
+    const m = new THREE.Mesh(new THREE.LatheGeometry(pts.map(([r, x]) => new THREE.Vector2(r, x)), segs), mat);
+    m.rotation.z = -Math.PI / 2;  // lathe axis (y) -> local x
+    return m;
+  };
   for (const e of def.turbofans || []) {
-    const noz = flu(e.position_m), L = 4.1;
+    const noz = flu(e.position_m), rev = e.thrust_reverser;
+    const L = 4.1, Rmax = 0.8;
     const nac = new THREE.Group(); nac.position.set(noz.x + L, noz.y, noz.z); root.add(nac);
-    const prof = [[0.6, 0], [0.74, -0.08], [0.81, -0.45], [0.82, -1.4], [0.78, -2.6], [0.64, -3.6], [0.47, -L]].map(([r, y]) => new THREE.Vector2(r, y));
-    const shell = new THREE.Mesh(new THREE.LatheGeometry(prof, 32), nacelleMat);
-    shell.rotation.z = Math.PI / 2;
-    add(shell, nac);
-    const lip = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.06, 8, 32), metal);
-    lip.rotation.y = Math.PI / 2; lip.position.x = 0.0; add(lip, nac);
-    const face = new THREE.Mesh(new THREE.CircleGeometry(0.62, 32), dark);
-    face.rotation.y = Math.PI / 2; face.position.x = -0.35; nac.add(face);
-    const fan = new THREE.Group(); fan.position.x = -0.3; nac.add(fan);
-    for (let k = 0; k < 18; ++k) {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.09, 0.52), metal);
-      b.position.set(0, Math.cos(k / 18 * 2 * Math.PI) * 0.33, Math.sin(k / 18 * 2 * Math.PI) * 0.33);
-      b.rotation.x = -k / 18 * 2 * Math.PI; b.rotation.y = 0.5; fan.add(b);
+    // Fan cowl, lip to the cascades (fixed) and the sleeve (moves).
+    const xc = rev ? -(L - rev.cascade_forward_of_nozzle_m) : -2.6;  // cascade station (local x)
+    const cowl = (x) => {  // outer radius along the cowl
+      const u = Math.min(Math.max(-x / L, 0), 1);
+      if (u < 0.33) return 0.69 + (Rmax - 0.69) * Math.sin(u / 0.33 * Math.PI / 2);
+      return Rmax - (Rmax - 0.6) * ((u - 0.33) / 0.67) ** 1.6;
+    };
+    // Inner duct wall to the rounded lip (a half circle) and on along the cowl.
+    const fwd = [[0.59, -0.3]];
+    for (let k = 0; k <= 8; ++k) { const a = Math.PI * (1 - k / 8); fwd.push([0.64 + 0.05 * Math.cos(a), -0.05 + 0.05 * Math.sin(a)]); }
+    for (let k = 1; k <= 12; ++k) { const x = -0.05 + (xc + 0.05) * k / 12; fwd.push([cowl(x), x]); }
+    add(lathe(fwd, nacelleMat), nac);
+    // Inlet duct (seen from the front) and the fan.
+    add(lathe([[0.59, -0.05], [0.585, -0.3], [0.57, -0.6]], inner), nac);
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.57, 40), dark);
+    face.rotation.y = Math.PI / 2; face.position.x = -0.62; nac.add(face);
+    const fan = new THREE.Group(); fan.position.x = -0.55; nac.add(fan);
+    const bladeShape = new THREE.Shape(); bladeShape.moveTo(0, 0.13); bladeShape.lineTo(0.03, 0.55); bladeShape.lineTo(-0.1, 0.56); bladeShape.lineTo(-0.06, 0.13);
+    const bladeGeo = new THREE.ShapeGeometry(bladeShape);
+    for (let k = 0; k < 22; ++k) {
+      const b = new THREE.Mesh(bladeGeo, metal);
+      const holder = new THREE.Group(); holder.rotation.x = k / 22 * 2 * Math.PI; fan.add(holder);
+      b.rotation.y = Math.PI / 2; b.rotation.z = 0; b.rotation.x = 0.6; holder.add(b);  // wide chord, twisted
     }
-    const spinner = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.42, 20), metal);
-    spinner.rotation.z = Math.PI / 2; spinner.position.x = -0.15; nac.add(spinner);
-    const plug = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.9, 20), dark);
-    plug.rotation.z = Math.PI / 2; plug.position.x = -L - 0.25; nac.add(plug);
-    const exhaust = new THREE.Mesh(new THREE.CircleGeometry(0.45, 24), dark);
-    exhaust.rotation.y = -Math.PI / 2; exhaust.position.x = -L + 0.05; nac.add(exhaust);
-    // Pylon from the fuselage side to the nacelle.
+    const spinner = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.36, 24), paint);
+    spinner.rotation.z = Math.PI / 2; spinner.position.x = -0.42; nac.add(spinner);
+    // Cascades: a dark grid band under the sleeve, uncovered when deployed.
+    const casc = add(lathe([[cowl(xc) - 0.04, xc + 0.02], [cowl(xc - 0.5) - 0.04, xc - 0.5]], cascadeMat), nac);
+    casc.visible = !!rev;
+    // Translating sleeve: the cowl from the cascades to the fan nozzle.
+    const sleeve = new THREE.Group(); nac.add(sleeve);
+    const aft = [];
+    for (let k = 0; k <= 10; ++k) { const x = xc + (-L * 0.8 - xc) * k / 10; aft.push([cowl(x), x]); }
+    aft.push([0.58, -L * 0.8 - 0.02]);
+    add(lathe(aft, nacelleMat), sleeve);
+    add(lathe([[0.58, -L * 0.8 - 0.01], [0.56, xc - 0.1]], inner), sleeve);  // bypass duct wall
+    sleeves.push({ sleeve, travel: rev ? 0.5 : 0 });
+    // Core cowl, core nozzle and the exhaust plug (aft of the fan nozzle).
+    add(lathe([[0.44, -L * 0.62], [0.46, -L * 0.8], [0.4, -L - 0.25], [0.34, -L - 0.45]], coreMat), nac);
+    add(lathe([[0.33, -L - 0.45], [0.32, -L - 0.2]], inner), nac);
+    add(lathe([[0.001, -L - 1.05], [0.12, -L - 0.75], [0.22, -L - 0.4], [0.24, -L - 0.2]], dark), nac);
+    // Pylon: a swept, thin wing from the fuselage to the nacelle's inboard side.
     const side = Math.sign(noz.y);
-    const pyl = new THREE.Mesh(new THREE.BoxGeometry(2.4, Math.abs(noz.y) - 1.0, 0.22), paint);
-    pyl.position.set(noz.x + L - 1.8, side * (Math.abs(noz.y) + 1.0) / 2, noz.z - 0.05); add(pyl);
-    pyl.rotation.x = side * 0.12;
+    const rootLe = new THREE.Vector3(noz.x + L - 0.9, side * 1.05, noz.z + 0.12), tipLe2 = new THREE.Vector3(noz.x + L - 1.25, side * (Math.abs(noz.y) - 0.62), noz.z + 0.05);
+    const pyl = new THREE.Mesh(panelGeometry(rootLe, 2.9, tipLe2, 2.4, 0.09, new THREE.Vector3(0, 0, 1)), paint);
+    add(pyl);
     fans.push(fan);
   }
 
@@ -277,7 +319,8 @@ export function buildJet(def) {
   const strobes = [lamp(0xffffff, tipL.clone().add(new THREE.Vector3(-0.2, 0, 0)), 0.11), lamp(0xffffff, new THREE.Vector3(tipL.x - 0.2, -tipL.y, tipL.z), 0.11)];
 
   let fanAngle = 0, clockT = 0;
-  // st: flapDeg, aileron, elevator, rudder (-1..1), n1 [%...], gear 0..1, speedbrake 0..1, lights bool
+  // st: flapDeg, aileron, elevator, rudder (-1..1), n1 [%...], gear 0..1, speedbrake 0..1, lights bool,
+  // reverser [0..1 per engine], slow (slow-motion factor)
   function update(st, dt) {
     clockT += dt;
     for (const f of controls.flaps) f.pivot.quaternion.setFromAxisAngle(f.axis, f.side * st.flapDeg * DEG);
@@ -299,7 +342,12 @@ export function buildJet(def) {
       sp.pivot.quaternion.setFromAxisAngle(sp.axis, -sp.side * Math.min(1, st.speedbrake + roll) * 45 * DEG);
     }
     const n1 = st.n1 || [];
-    fanAngle += (n1[0] || 0) / 100 * 40 * dt;
+    // Fan: about 8,000 rpm at 100 % N1. Real time shows a slowed, wheel-like
+    // spin; in slow motion (st.slow) the true rate once the eye can follow it.
+    const fanRate = (n1[0] || 0) / 100 * 838;
+    fanAngle += Math.min(fanRate, (n1[0] || 0) / 100 * 40 * (st.slow || 1)) * dt;
+    const rv = st.reverser || [];
+    sleeves.forEach((s, i) => { s.sleeve.position.x = -s.travel * (rv[i] || 0); });
     fans.forEach((f, i) => { f.rotation.x = fanAngle * ((n1[i] || 0) / Math.max(n1[0] || 1, 1)); });
     for (const g of gears) {
       const up = 1 - st.gear;

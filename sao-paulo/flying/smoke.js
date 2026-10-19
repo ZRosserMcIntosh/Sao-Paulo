@@ -63,6 +63,9 @@ uniform int uNEmit;
 uniform vec4 uJetP[4];       // nozzle / disc centre, radius
 uniform vec4 uJetA[4];       // axis (thrust direction), velocity increment
 uniform float uJetW[4];      // swirl at 0.7 R (m/s, + right-handed about the axis)
+uniform vec4 uRevP[4];       // reverser cascades: centre, cowl radius
+uniform vec4 uRevA[4];       // thrust axis, efflux speed x position (0: stowed)
+uniform vec4 uRevI[4];       // inboard direction (towards the pylon)
 uniform float uJetK[4];      // 1 jet, 0 propeller
 uniform int uNJet;
 uniform vec4 uBodyP[${MAX_BODY}];  // centre, diameter
@@ -147,6 +150,26 @@ vec3 velocity(vec3 p) {
     float k = 6.2831853 * 0.2 / (0.85 * D);
     float fade = exp(-xs / (40.0 * D)) * min(1.0, xs / D);
     v += uBodyN[b].xyz * (0.35 * umax * fade * g * sin(k * (xs - 0.85 * U * uTime) + float(b) * 1.3));
+  }
+  for (int j = 0; j < uNJet; ++j) {
+    // Thrust reverser efflux: a conical sheet from the cascades, forward and
+    // outward at 45 deg; its excess over the still air is the efflux speed
+    // plus the aircraft's, spreading and decaying as it mixes.
+    if (uRevA[j].w <= 0.0) continue;
+    vec3 d = p - uRevP[j].xyz, ax = uRevA[j].xyz;
+    float a = dot(d, ax);
+    vec3 q = d - a * ax;
+    float r = length(q);
+    if (r < 1e-3) continue;
+    float rc = uRevP[j].w, rho = r - rc;
+    float sAl = (rho + a) * 0.70710678, nAc = (a - rho) * 0.70710678;
+    if (sAl < -0.15 || sAl > 12.0 * rc) continue;
+    float sg = 0.1 + 0.16 * max(sAl, 0.0);
+    // Cascades blocked toward the pylon (uRevI: the inboard direction).
+    float block = clamp((dot(q / r, uRevI[j].xyz) - 0.55) / 0.2, 0.0, 1.0);
+    float g = (1.0 - block) * exp(-nAc * nAc / (2.0 * sg * sg)) * sqrt(min(1.0, 0.2 / sg)) * exp(-max(sAl, 0.0) / (5.0 * rc));
+    float ve = uRevA[j].w;
+    v += (q / r) * (ve * 0.70710678 * g) + ax * ((ve * 0.70710678 + uFlight.w) * g);
   }
   v += uNoise * (0.65 * abc(p, 0.9, uTime) + 0.35 * abc(p, 0.16, uTime * 0.5));
   return v;
@@ -259,6 +282,7 @@ export function buildSmoke({ renderer, mobile }) {
       uSpawnStart: { value: 0 }, uSpawnCount: { value: 0 }, uN: { value: N }, uSize: { value: [SX, SY] },
       uEmitA: { value: emitA }, uEmitB: { value: emitB }, uEmitCum: { value: new Array(MAX_EMIT).fill(1) }, uNEmit: { value: 0 },
       uJetP: { value: jetP }, uJetA: { value: jetA }, uJetK: { value: [0, 0, 0, 0] }, uJetW: { value: [0, 0, 0, 0] }, uNJet: { value: 0 },
+      uRevP: { value: vec4s(4) }, uRevA: { value: vec4s(4) }, uRevI: { value: vec4s(4) },
       uBodyP: { value: bodyP }, uBodyA: { value: bodyA }, uBodyN: { value: bodyN }, uNBody: { value: 0 }, uFlight: { value: new THREE.Vector4() },
       uNoise: { value: 0.15 }, uGround: { value: -1e9 }, uClear: { value: false },
     },
@@ -343,7 +367,11 @@ export function buildSmoke({ renderer, mobile }) {
       sheet.push(te(0));
       tips.push(te(-1), te(1));
     }
-    tips.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    // The tips: the strip ends farthest from the wing root across the flow
+    // (with winglets, their tops, where the tip vortex leaves).
+    const zRoot = sheet.length ? sheet.reduce((m, p) => (Math.abs(p[1]) < Math.abs(m[1]) ? p : m))[2] : 0;
+    const reach = (p) => Math.hypot(p[1], p[2] - zRoot);
+    tips.sort((a, b) => reach(b) - reach(a));
     const tipL = tips.find((p) => p[1] < 0), tipR = tips.find((p) => p[1] > 0);
     const emit = [];
     if (tipL && tipR) { emit.push([tipL, 0.12, 0, 2.5]); emit.push([tipR, 0.12, 0, 2.5]); }
@@ -374,9 +402,24 @@ export function buildSmoke({ renderer, mobile }) {
       jetP[nj].set(w.x - origin.x, w.y - origin.y, w.z - origin.z, f[o + 6]);
       // Axis: a structural direction, rotated with the aircraft.
       v.set(f[o + 3], -f[o + 4], -f[o + 5]).applyQuaternion(acGroup.getWorldQuaternion(new THREE.Quaternion()));
-      jetA[nj].set(v.x, v.y, v.z, f[o + 7]);
+      jetA[nj].set(v.x, v.y, v.z, f[o + 7] * (jet ? 1 - 0.75 * f[o + 10] : 1));  // reversing: the core jet only
       simMat.uniforms.uJetK.value[nj] = jet ? 1 : 0;
       simMat.uniforms.uJetW.value[nj] = jet ? 0 : Math.sign(f[o + 10]) * f[o + 12];
+      // Reverser (jets): the cascades' centre and the efflux; smoke from four
+      // points round the cascades while it flows.
+      const rv = jet ? f[o + 10] : 0, rp = simMat.uniforms.uRevP.value[nj], ra = simMat.uniforms.uRevA.value[nj];
+      if (rv > 0.02) {
+        const cf = f[o + 13], rc = f[o + 12];
+        sx(f[o] + f[o + 3] * cf, f[o + 1] + f[o + 4] * cf, f[o + 2] + f[o + 5] * cf, w);
+        rp.set(w.x - origin.x, w.y - origin.y, w.z - origin.z, rc);
+        ra.set(v.x, v.y, v.z, f[o + 11] * rv);
+        const inbW = new THREE.Vector3(0, Math.sign(f[o + 1] || 1), 0).applyQuaternion(acGroup.getWorldQuaternion(new THREE.Quaternion()));  // FLU +y is structural -y
+        simMat.uniforms.uRevI.value[nj].set(inbW.x, inbW.y, inbW.z, 0);
+        if (rv > 0.5) for (let q = 0; q < 4; ++q) {
+          const an = (q + 0.5) * Math.PI / 2, cy = Math.cos(an) * (rc + 0.08), cz = Math.sin(an) * (rc + 0.08);
+          emit.push([[f[o] + f[o + 3] * (cf - 0.2), f[o + 1] + cy, f[o + 2] + cz], 0.06, 1, 0.8]);
+        }
+      } else ra.w = 0;
       ++nj;
     }
     simMat.uniforms.uNJet.value = nj;
