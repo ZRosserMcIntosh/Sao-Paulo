@@ -70,6 +70,19 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .read{display:grid;grid-template-columns:auto auto;gap:2px 14px;font:500 12px/1.35 var(--mono);color:var(--mute);min-width:190px}
 .read b{color:var(--ink);font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
 /* Navigation card: the GPS leg and the ILS (or GPS approach) deviation bars. */
+/* Destination search: the box, its results and the chosen airport's approaches. */
+.dsearch{position:relative;margin-top:6px}
+.dsearch input{width:100%;font:500 13px var(--body);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:8px;padding:8px 10px;-webkit-user-select:text;user-select:text}
+.dres{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:6;background:#0e1724;border:1px solid var(--line);border-radius:8px;max-height:340px;overflow:auto;box-shadow:0 12px 30px rgba(0,0,0,.45)}
+.dres button{display:block;width:100%;text-align:left;border:0;border-radius:0;background:none;padding:7px 10px;font:500 12px var(--body)}
+.dres button[aria-selected="true"],.dres button:hover{background:rgba(255,255,255,.09)}
+.dres b{font:600 12px var(--mono);color:var(--hot)}
+.dres small,.dcard small{display:block;color:var(--mute);font-weight:500}
+.dres .none{padding:8px 10px;color:var(--mute);font-size:12px}
+.dcard{margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.03)}
+.dcard .dh{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+.dcard .dh b{font:600 12px var(--mono);color:var(--hot)}
+.dcard .row{margin-top:6px}
 .read.nav{margin-top:8px}
 .read.nav[hidden]{display:none}
 .read .dev{position:relative;display:inline-block;width:86px;height:10px;border:1px solid rgba(160,175,195,.45);border-radius:5px;vertical-align:middle}
@@ -204,8 +217,13 @@ body.jet #hud .levers{display:none}
   </div>
 
   <h2>Destination</h2>
-  <label class="ctl">Fly to <select id="destSel" aria-label="Destination and approach"></select><output></output></label>
-  <p class="note">Pick an airport and runway: NAV 1 is tuned to its ILS (where it has one) with the course set, and the GPS loads a route to it — from the runway if you are on it, otherwise from where you are — down to a 3° path to the threshold. Two starts below put you on its approach. Runways from OurAirports; ILS identifiers and frequencies from published listings; antenna sites estimated. Not for real-world navigation.</p>
+  <div class="dsearch">
+    <input id="destQ" type="search" placeholder="Airport, city or code — Cong…, CGH, Flor…, SBGL" autocomplete="off" spellcheck="false"
+      role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="destRes" aria-label="Search airports in Brazil">
+    <div id="destRes" class="dres" role="listbox" hidden></div>
+  </div>
+  <div id="destCard" class="dcard" hidden></div>
+  <p class="note">Any of Brazil's 1,150 airports with a paved runway: type part of its name, its city or its code (ICAO or IATA; accents and small typos are fine). Pick a runway: NAV 1 is tuned to its ILS (where it has one) with the course set, and the GPS loads a route to it — from the runway if you are on it, otherwise from where you are — down to a 3° path to the threshold. Two starts below put you on its approach. Runways from OurAirports; ILS identifiers and frequencies from published listings (only some airports'); antenna sites estimated. Not for real-world navigation.</p>
 
   <h2>Start</h2>
   <div class="starts" id="starts"></div>

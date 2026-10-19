@@ -12,6 +12,7 @@ import { drawJetStrip } from './glass.js';
 import { buildCabin } from './cabin.js';
 import { buildJetCabin } from './jetcabin.js';
 import { FlightAudio, JetAudio } from './audio.js';
+import { buildIndex, searchAirports } from './airportsearch.js';
 import { buildFlow } from './flow.js';
 import { buildSmoke } from './smoke.js';
 import { mountLoadSheet } from './loadsheet.js';
@@ -98,7 +99,9 @@ const AP = A.airport();  // { icao, name, runway, reciprocal }
 const ELEV = RW[2];
 // The region: every airport (DESTS: names, runway ends, ILSs; REGION: runway
 // geometry) and the core's ground, each field at its own elevation.
-const DESTS = A.destinations(), REGION = A.region();
+// A destination anywhere else in Brazil joins them after the region's REGION_N.
+let DESTS = A.destinations(), REGION = A.region();
+const REGION_N = REGION.length;
 const groundAt = (e, n) => A.avd_ground_height(e, n);
 const rwDir = [Math.sin(RW[3] * DEG), Math.cos(RW[3] * DEG)];
 const rwMid = [RW[0] + rwDir[0] * RW[4] / 2, RW[1] + rwDir[1] * RW[4] / 2];
@@ -175,11 +178,13 @@ scene.add(skyDome);
 // grid aligned with the map, with a hole where the map is; the map itself on a
 // 500 m grid, both following the same heights.
 const enu = (e, n, u) => new THREE.Vector3(e, u, -n);
-function heightMesh(x0, y0, nx, ny, step, skip, mat, drop) {
+// Vertices relative to (ox, oy), the mesh placed there: far from the world
+// origin, 32-bit vertex positions would otherwise lose centimetres.
+function heightMesh(x0, y0, nx, ny, step, skip, mat, drop, ox = 0, oy = 0) {
   const pos = new Float32Array((nx + 1) * (ny + 1) * 3), uv = new Float32Array((nx + 1) * (ny + 1) * 2), idx = [];
   for (let j = 0, k = 0; j <= ny; ++j) for (let i = 0; i <= nx; ++i, ++k) {
     const e = x0 + i * step, n = y0 + j * step;
-    pos[3 * k] = e; pos[3 * k + 1] = groundAt(e, n) - drop; pos[3 * k + 2] = -n;
+    pos[3 * k] = e - ox; pos[3 * k + 1] = groundAt(e, n) - drop; pos[3 * k + 2] = -(n - oy);
     uv[2 * k] = i / nx; uv[2 * k + 1] = j / ny;
   }
   for (let j = 0; j < ny; ++j) for (let i = 0; i < nx; ++i) {
@@ -192,18 +197,42 @@ function heightMesh(x0, y0, nx, ny, step, skip, mat, drop) {
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  return new THREE.Mesh(geo, mat);
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(ox, 0, -oy);
+  return m;
 }
-{
-  const N = 104;  // km of terrain beyond the map on each side
-  const inMap = (e, n) => e > MX0 && e < MX1 && n > MY0 && n < MY1;
-  scene.add(heightMesh(MX0 - N * 1000, MY0 - N * 1000, (MX1 - MX0) / 1000 + 2 * N, (MY1 - MY0) / 1000 + 2 * N, 1000, inMap,
-    new THREE.MeshLambertMaterial({ color: '#77796f' }), 0.3));
-}
+// Rebuilt when a destination beyond the region joins the ground: it shifts
+// the blend everywhere a little, and gets ground of its own (a 1 km patch
+// around it, and a coarse corridor from the region to it).
+const terrain = new THREE.Group();
+scene.add(terrain);
+const groundMat = new THREE.MeshLambertMaterial({ color: '#77796f' });
+const farMat = new THREE.MeshLambertMaterial({ color: '#77796f', polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 const mapMat = new THREE.MeshLambertMaterial({ color: '#ffffff', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-const map = heightMesh(MX0, MY0, (MX1 - MX0) / 500, (MY1 - MY0) / 500, 500, null, mapMat, 0.05);
-map.receiveShadow = true;
-scene.add(map);
+const TN = 104;  // km of terrain beyond the map on each side
+const inMain = (e, n) => e > MX0 - TN * 1000 && e < MX1 + TN * 1000 && n > MY0 - TN * 1000 && n < MY1 + TN * 1000;
+function buildTerrain() {
+  for (const m of [...terrain.children]) { m.geometry.dispose(); terrain.remove(m); }
+  const inMap = (e, n) => e > MX0 && e < MX1 && n > MY0 && n < MY1;
+  terrain.add(heightMesh(MX0 - TN * 1000, MY0 - TN * 1000, (MX1 - MX0) / 1000 + 2 * TN, (MY1 - MY0) / 1000 + 2 * TN, 1000, inMap, groundMat, 0.3));
+  const map = heightMesh(MX0, MY0, (MX1 - MX0) / 500, (MY1 - MY0) / 500, 500, null, mapMat, 0.05);
+  map.receiveShadow = true;
+  terrain.add(map);
+  for (let i = REGION_N; i < REGION.length; ++i) {
+    const [ce, cn] = fieldCentre(REGION[i]);
+    if (inMain(ce, cn)) continue;
+    // 1 km around the field, then a corridor back to the region (cells of
+    // at least 4 km, under 150 a side), pushed back in depth so the finer
+    // ground wins where they overlap.
+    const half = 25;
+    terrain.add(heightMesh(ce - half * 1000, cn - half * 1000, 2 * half, 2 * half, 1000, null, groundMat, 0.3, ce, cn));
+    const x0 = Math.min(ce, MX0) - 40000, x1 = Math.max(ce, MX1) + 40000, y0 = Math.min(cn, MY0) - 40000, y1 = Math.max(cn, MY1) + 40000;
+    const step = Math.max(4000, Math.max(x1 - x0, y1 - y0) / 150);
+    const nx = Math.ceil((x1 - x0) / step), ny = Math.ceil((y1 - y0) / step);
+    const nearField = (e, n) => inMain(e, n) || (Math.abs(e - ce) < half * 1000 - step && Math.abs(n - cn) < half * 1000 - step);
+    terrain.add(heightMesh(x0, y0, nx, ny, step, nearField, farMat, 2, (x0 + x1) / 2, (y0 + y1) / 2));
+  }
+}
 new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/mosaic_world.jpg', (t) => {
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
@@ -212,7 +241,7 @@ new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/m
 
 // A runway: asphalt, threshold bars, numbers, centreline; from its paved
 // start (east, north), true heading, length and width, at an elevation.
-function drawRunway(e0, n0, hdg, len, wid, elev, id1, id2) {
+function drawRunway(e0, n0, hdg, len, wid, elev, id1, id2, parent = scene) {
   const W = 128, H = 4096, c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d'), pxm = H / len;
   g.fillStyle = '#3c3f43'; g.fillRect(0, 0, W, H);
@@ -239,27 +268,44 @@ function drawRunway(e0, n0, hdg, len, wid, elev, id1, id2) {
   rw.rotation.set(-Math.PI / 2, 0, -hdg * DEG);
   rw.position.copy(enu(e0 + Math.sin(hdg * DEG) * len / 2, n0 + Math.cos(hdg * DEG) * len / 2, elev + 0.02));
   rw.receiveShadow = true;
-  scene.add(rw);
+  parent.add(rw);
 }
 // The runway in use (avd_runway), then every other runway of the region; the
 // fields off the map get a grass apron so they read from the air.
 drawRunway(RW[0], RW[1], RW[3], RW[4], RW[5], ELEV, AP.runway, AP.reciprocal);
-REGION.forEach((ap, i) => {
+// A field's centre (the mean of its runways' midpoints) and the distance to its farthest runway end.
+function fieldCentre(ap) {
   let ce = 0, cn = 0, r = 0;
   for (let k = 0; k < ap.ends.length; k += 2) {
-    const a = ap.ends[k], home = Math.hypot(a.east - RW[0], a.north - RW[1]) < 1;
-    if (!home) drawRunway(a.east, a.north, a.heading, a.length, a.width, ap.elevation, DESTS[i].ends[k].runway, DESTS[i].ends[k + 1].runway);
+    const a = ap.ends[k];
     ce += a.east + Math.sin(a.heading * DEG) * a.length / 2; cn += a.north + Math.cos(a.heading * DEG) * a.length / 2;
   }
   ce /= ap.ends.length / 2; cn /= ap.ends.length / 2;
   for (const a of ap.ends) r = Math.max(r, Math.hypot(a.east - ce, a.north - cn));
-  ap.centre = [ce, cn];
+  return [ce, cn, r];
+}
+function drawField(i, parent) {
+  const ap = REGION[i], [ce, cn, r] = fieldCentre(ap);
+  for (let k = 0; k < ap.ends.length; k += 2) {
+    const a = ap.ends[k], home = Math.hypot(a.east - RW[0], a.north - RW[1]) < 1;
+    if (!home) drawRunway(a.east, a.north, a.heading, a.length, a.width, ap.elevation, DESTS[i].ends[k].runway, DESTS[i].ends[k + 1].runway, parent);
+  }
   if (ce > MX0 && ce < MX1 && cn > MY0 && cn < MY1) return;
   const apron = new THREE.Mesh(new THREE.CircleGeometry(r + 700, 48),
     new THREE.MeshLambertMaterial({ color: '#717b5f', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
   apron.rotation.x = -Math.PI / 2; apron.position.copy(enu(ce, cn, ap.elevation - 0.15)); apron.receiveShadow = true;
-  scene.add(apron);
-});
+  parent.add(apron);
+}
+for (let i = 0; i < REGION_N; ++i) drawField(i, scene);
+// A destination beyond the region: its fields, redrawn when it changes.
+const farFields = new THREE.Group();
+scene.add(farFields);
+function drawFarFields() {
+  farFields.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } });
+  farFields.clear();
+  for (let i = REGION_N; i < REGION.length; ++i) drawField(i, farFields);
+}
+buildTerrain();
 {
   // A tower and hangars on the south side, so the field reads at a glance.
   const box = (w, d, h, along, across, color) => {
@@ -355,17 +401,105 @@ const JET_STARTS = [
   { name: 'Ibirapuera', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(-4000, -7000, 600, 40, 220, 0), trim: true },
   { name: 'Cruise FL410', sub: 'high and fast over the city', go: () => A.avd_reset_air(0, -9000, 12497 - ELEV, 340, 253, 0), trim: true },
 ];
-// ---------- Destination: its ILS on NAV 1, a GPS route to it ----------
-const destSel = $('destSel');
+// ---------- Destination: search Brazil's airports; its ILS on NAV 1, a GPS route ----------
 let DEST = null;  // { ai, ri, icao, name, runway, ils, khz, synthetic }
-destSel.add(new Option('— none —', '-1'));
-DESTS.forEach((d, ai) => {
-  const grp = document.createElement('optgroup');
-  grp.label = `${d.name} (${d.icao})`;
-  d.ends.forEach((e, ri) => grp.appendChild(new Option(
-    `${e.ils ? 'ILS' : 'RNAV (GPS)'} ${e.runway}${e.ils ? ` · ${e.ils} ${(e.khz / 1000).toFixed(2)}${e.synthetic ? ' (test ILS)' : ''}` : ''}`, `${ai}:${ri}`)));
-  destSel.appendChild(grp);
+let BR = null, brIndex = null;  // airports_br.json records and their search index
+const brReady = fetch('./airports_br.json').then((r) => r.json())
+  .then((d) => { BR = d.airports; brIndex = buildIndex(BR); }).catch(() => { /* region only */ });
+const destQ = $('destQ'), destRes = $('destRes'), destCard = $('destCard');
+const regionIndex = (icao) => DESTS.slice(0, REGION_N).findIndex((d) => d.icao === icao);
+function kmFromHome(lat, lon) {
+  const [la0, lo0] = [-23.5611 * DEG, -46.6558 * DEG], la = lat * DEG, lo = lon * DEG;
+  const h = Math.sin((la - la0) / 2) ** 2 + Math.cos(la0) * Math.cos(la) * Math.sin((lo - lo0) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+// An airport's approaches, one per runway end: { runway, ils, khz, synthetic,
+// heading (true deg, approximate), length (m) }. A region airport has the
+// region's own (Congonhas: 35L and 17R, as modelled); any other its record's.
+function approachesOf(rec) {
+  const ri = regionIndex(rec.icao);
+  if (ri >= 0) return DESTS[ri].ends.map((e, k) => ({ ...e, heading: REGION[ri].ends[k].heading, length: REGION[ri].ends[k].length }));
+  return rec.rw.flatMap((w) => w.ends.map((id) => {
+    const i = rec.ils.find((x) => x.rwy === id);
+    return { runway: id, ils: i?.id || null, khz: i ? Math.round(i.mhz * 1000) : 0, synthetic: false,
+      heading: ((parseInt(id, 10) || 0) * 10 - 21.5 + 360) % 360, length: w.len * 0.3048 };
+  }));
+}
+// The approach to fly when an airport is picked: an ILS first, then into the
+// set wind, then the longest runway.
+function preferredApproach(list) {
+  const kt = +$('wind').value, from = +$('windDir').value;
+  const score = (e) => (e.ils ? 1000 : 0) + (kt >= 5 ? 50 * Math.cos((e.heading - from) * DEG) : 0) + e.length / 1000;
+  return list.reduce((b, e, k) => (score(e) > score(list[b]) ? k : b), 0);
+}
+// Fly to approach k of an airport (a region index, or a record).
+function chooseApproach(rec, k, announce = true) {
+  const ri = regionIndex(rec.icao);
+  if (ri >= 0) { setDestination(ri, k, announce); return; }
+  const ai = A.setDestinationRecord(rec, k);
+  if (ai < 0) { toast(`${rec.icao}: that runway can't be flown here.`, 3); return; }
+  refreshRegion();
+  const id = rec.rw.flatMap((w) => w.ends)[k];
+  setDestination(ai, DESTS[ai].ends.findIndex((e) => e.runway === id), announce);
+}
+let cardRec = null;  // the airport shown in the card
+function showCard(rec) {
+  cardRec = rec;
+  destCard.hidden = !rec;
+  if (!rec) return;
+  const list = approachesOf(rec), km = kmFromHome(rec.lat, rec.lon);
+  destCard.innerHTML = `<div class="dh"><div><b>${rec.icao}${rec.iata ? ` · ${rec.iata}` : ''}</b> ${rec.name}
+    <small>${[rec.city, rec.state].filter(Boolean).join(', ')} · ${Math.round(rec.elev)} ft · ${km < 10 ? 'here' : `${Math.round(km)} km`}</small></div>
+    <button id="destClear" title="No destination" aria-label="Clear the destination">✕</button></div>
+    <div class="row">${list.map((e, k) => `<button data-appr="${k}" aria-pressed="${!!(DEST && DEST.icao === rec.icao && DEST.runway === e.runway)}"
+      title="${e.ils ? `ILS ${e.ils} ${(e.khz / 1000).toFixed(2)}${e.synthetic ? ' (a test ILS: Campo de Marte has none)' : ''}` : 'GPS approach with a 3° vertical path'}">${e.ils ? 'ILS' : 'RNAV'} ${e.runway}${e.ils ? ` · ${e.ils} ${(e.khz / 1000).toFixed(2)}` : ''}</button>`).join('')}</div>`;
+  destCard.querySelectorAll('[data-appr]').forEach((b) => b.addEventListener('click', () => { chooseApproach(rec, +b.dataset.appr); b.blur(); }));
+  $('destClear').addEventListener('click', () => { setDestination(-1, 0, true); destQ.value = ''; });
+}
+// The search box: results as you type; arrows and Enter pick, Escape closes.
+let results = [], active = 0;
+function regionRecords() {
+  // Before airports_br.json arrives: the region's airports as records.
+  return DESTS.slice(0, REGION_N).map((d, i) => ({ icao: d.icao, iata: '', name: d.name, city: d.name, state: 'SP', kind: 'M', elev: REGION[i].elevation / 0.3048, lat: -23.5, lon: -46.6, alias: '', rw: [], ils: [] }));
+}
+function renderResults() {
+  destQ.setAttribute('aria-expanded', String(!destRes.hidden));
+  destRes.innerHTML = results.length ? results.map(({ a }, i) => `<button role="option" data-i="${i}" aria-selected="${i === active}"><b>${a.icao}${a.iata ? ` · ${a.iata}` : ''}</b> ${a.name}
+    <small>${[a.city, a.state].filter(Boolean).join(', ')}${a.ils?.length ? ` · ILS ${a.ils.map((x) => x.rwy).join(', ')}` : ''} · ${Math.round(kmFromHome(a.lat, a.lon))} km</small></button>`).join('')
+    : '<div class="none">No airport matches. Try a city, a name or a code.</div>';
+  destRes.querySelectorAll('[data-i]').forEach((b) => b.addEventListener('mousedown', (e) => { e.preventDefault(); pickResult(+b.dataset.i); }));
+}
+function pickResult(i) {
+  const rec = results[i]?.a;
+  if (!rec) return;
+  destRes.hidden = true; destQ.setAttribute('aria-expanded', 'false');
+  destQ.value = `${rec.icao}${rec.iata ? ` · ${rec.iata}` : ''} — ${rec.city || rec.name}`;
+  showCard(rec);
+  if (rec.rw.length || regionIndex(rec.icao) >= 0) chooseApproach(rec, preferredApproach(approachesOf(rec)));
+  destQ.blur();
+}
+destQ.addEventListener('input', () => {
+  const q = destQ.value;
+  results = q.trim() ? searchAirports(brIndex || buildIndex(regionRecords()), q, 8) : [];
+  active = 0;
+  destRes.hidden = !q.trim();
+  renderResults();
 });
+destQ.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { active = (active + (e.key === 'ArrowDown' ? 1 : results.length - 1)) % Math.max(results.length, 1); renderResults(); e.preventDefault(); }
+  else if (e.key === 'Enter') { pickResult(active); e.preventDefault(); }
+  else if (e.key === 'Escape') { destRes.hidden = true; destQ.blur(); }
+});
+destQ.addEventListener('focus', () => { if (destQ.value.includes(' — ')) destQ.select(); });
+destQ.addEventListener('blur', () => setTimeout(() => { destRes.hidden = true; destQ.setAttribute('aria-expanded', 'false'); }, 150));
+// After a destination beyond the region joins the core: its ground, fields and label.
+function refreshRegion() {
+  DESTS = A.destinations();
+  REGION = A.region();
+  buildTerrain();
+  drawFarFields();
+  buildLabels();
+}
 // The starts: the aircraft's own, plus the destination's approach and final.
 function startsFor() {
   const base = P.jet ? JET_STARTS : PISTON_STARTS;
@@ -375,21 +509,42 @@ function startsFor() {
     { name: `Final ${DEST.icao} ${DEST.runway}`, sub: `${P.jet ? '6' : '3'} km, on the 3° path`, go: () => A.avd_reset(5), trim: true }];
 }
 const nm = (m, d = 1) => (m / 1852).toFixed(d);
-function setDestination(val, announce) {
-  const [ai, ri] = String(val).split(':').map(Number);
+function setDestination(ai, ri, announce) {
   const d = DESTS[ai], e = d?.ends[ri];
   if (!e) { DEST = null; A.avd_set_destination(-1, 0); }
   else { DEST = { ai, ri, icao: d.icao, name: d.name, runway: e.runway, ils: e.ils, khz: e.khz, synthetic: e.synthetic }; A.avd_set_destination(ai, ri); }
-  destSel.value = DEST ? `${ai}:${ri}` : '-1';
-  store.set('dest', destSel.value);
+  store.set('dest', DEST ? `${DEST.icao}|${DEST.runway}` : '');
+  if (!DEST) showCard(null);
+  else if (cardRec?.icao === DEST.icao) showCard(cardRec);
   STARTS = startsFor();
   buildStarts();
   if (announce && DEST) {
     const r = A.route();
-    toast(`${DEST.name} ${DEST.runway}: ${DEST.ils ? `NAV 1 on ${DEST.ils} ${(DEST.khz / 1000).toFixed(2)}, course set` : 'no ILS, GPS approach'}; route ${r.wp.map((w) => w.ident).join(' → ')}, ${nm(A.gps()[9], 0)} NM.`, 7);
+    toast(`${DEST.icao} ${DEST.runway}: ${DEST.ils ? `NAV 1 on ${DEST.ils} ${(DEST.khz / 1000).toFixed(2)}, course set` : 'no ILS, GPS approach'}; route ${r.wp.map((w) => w.ident).join(' → ')}, ${nm(A.gps()[9], 0)} NM.`, 7);
   } else if (announce) toast('Destination cleared.', 2);
 }
-destSel.addEventListener('change', (e) => { setDestination(e.target.value, true); e.target.blur(); });
+// The last destination, back after a reload: a region airport at once, any
+// other once the airport list has arrived.
+function restoreDestination() {
+  const [icao, rwy] = String(store.get('dest', '')).split('|');
+  if (!icao || !rwy) return;
+  const ri = regionIndex(icao);
+  if (ri >= 0) {
+    const k = DESTS[ri].ends.findIndex((e) => e.runway === rwy);
+    if (k < 0) return;
+    setDestination(ri, k, false);
+    destQ.value = `${icao} — ${DESTS[ri].name}`;
+    brReady.then(() => { const rec = BR?.find((a) => a.icao === icao); if (rec && DEST?.icao === icao) showCard(rec); });
+    return;
+  }
+  brReady.then(() => {
+    const rec = BR?.find((a) => a.icao === icao), k = rec ? rec.rw.flatMap((w) => w.ends).indexOf(rwy) : -1;
+    if (k < 0) return;
+    chooseApproach(rec, k, false);
+    showCard(rec);
+    destQ.value = `${rec.icao}${rec.iata ? ` · ${rec.iata}` : ''} — ${rec.city || rec.name}`;
+  });
+}
 
 let STARTS = startsFor();
 const startsEl = $('starts');
@@ -403,7 +558,7 @@ function buildStarts() {
   });
 }
 buildStarts();
-setDestination(store.get('dest', '-1'), false);
+restoreDestination();
 
 function applyWeather() {
   const kt = +$('wind').value, dir = +$('windDir').value, turb = +$('turb').value, temp = +$('temp').value;
@@ -1042,9 +1197,14 @@ function updateCamera(dt) {
 // ---------- Landmark labels ----------
 // [name, east, north, height above the ground, ground elevation, max distance]:
 // the city's landmarks, the home field, and the other airports from afar.
-const labelPts = [...LANDMARKS.filter(([n]) => n !== AP.name).map(([n, x, y]) => [n, x, y, 60, groundAt(x, y), 14000]),
-  [AP.name, rwMid[0], rwMid[1], 40, ELEV, 14000],
-  ...DESTS.map((d, i) => [`${d.name} · ${d.icao}`, ...REGION[i].centre, 80, REGION[i].elevation, 90000]).filter((l) => l[0].split(' · ')[1] !== AP.icao)];
+let labelPts = [];
+function buildLabels() {
+  labelPts = [...LANDMARKS.filter(([n]) => n !== AP.name).map(([n, x, y]) => [n, x, y, 60, groundAt(x, y), 14000]),
+    [AP.name, rwMid[0], rwMid[1], 40, ELEV, 14000],
+    ...DESTS.map((d, i) => [`${d.name} · ${d.icao}`, ...fieldCentre(REGION[i]).slice(0, 2), 80, REGION[i].elevation, i < REGION_N ? 90000 : Infinity])
+      .filter((l) => l[0].split(' · ')[1] !== AP.icao)];
+}
+buildLabels();
 const v = new THREE.Vector3();
 // In the cockpit a label hides behind the panel, glareshield and frames: a
 // short ray from the eye toward it against the flight deck (refreshed every
