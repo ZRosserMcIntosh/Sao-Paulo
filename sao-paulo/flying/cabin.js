@@ -124,6 +124,10 @@ export function buildCabin({ mobile, maxAniso }) {
     return g;
   };
   const throttle = knob(0.52, M.black), mixture = knob(0.61, M.red, true), carb = knob(0.45, M.trim2);
+  for (const k of [throttle, mixture]) {  // invisible grab volumes (for the mouse)
+    const grab = box(0.05, 0.045, 0.045, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }), -0.005, 0, 0, k);
+    grab.castShadow = grab.receiveShadow = false;
+  }
   carb.position.x = PX - 0.02;
   // Flap lever with its wing-shaped knob, riding in a slot beside the indicator.
   box(0.004, 0.012, 0.09, M.black, PX - 0.002, py(0.672), pz(0.368));
@@ -141,6 +145,14 @@ export function buildCabin({ mobile, maxAniso }) {
   const fuelSel = new THREE.Group(); fuelSel.position.set(-1.16, 0, -0.055); root.add(fuelSel);
   rodY(0.05, 0.008, M.dark, 0, 0, 0, fuelSel, 28).rotation.x = Math.PI / 2;
   box(0.09, 0.02, 0.03, M.cream, 0, 0, 0.018, fuelSel);
+  // Fuel shutoff valve: the red push-pull knob at the foot of the console.
+  const shutoff = new THREE.Group(); shutoff.position.set(-1.28, 0, -0.03); root.add(shutoff);
+  rodY(0.006, 0.05, M.chrome, 0, 0, 0.02, shutoff).rotation.x = 0;
+  add(new THREE.CylinderGeometry(0.018, 0.018, 0.02, 20), M.red, 0, 0, 0.05, shutoff);
+  // Parking brake: a T-handle under the panel on the pilot's left.
+  const park = new THREE.Group(); park.position.set(PX - 0.03, py(0.08), PZ0 - 0.05); root.add(park);
+  rodX(0.005, 0.06, M.chrome, 0.03, 0, 0, park);
+  box(0.016, 0.06, 0.016, M.red, 0, 0, 0, park);
 
   let compassHdg = NaN;
   // st: elev, ail, rud (−1..1), trim, thr, mix (0..1), flapLever (0..3), fuelSel (0..2), dt
@@ -153,9 +165,19 @@ export function buildCabin({ mobile, maxAniso }) {
     flap.position.set(PX - 0.03, py(0.672), pz(fv));
     trimWheel.rotation.y = -st.trim * 6;
     fuelSel.rotation.z = (st.fuelSel - 1) * 0.8;
+    shutoff.position.z = -0.03 + (st.shutoff ? 0 : 0.03);          // pulled out: OFF
+    park.position.x = PX - 0.03 - (st.park ? 0.05 : 0);             // pulled: SET
   }
+  // Hover ring on the panel face (a clickable place), in panel metres.
+  let hover = null;
+  function setHover(r) { hover = r; }
   function redraw(c, m, sw, s, compass) {
     drawCockpitPanel(ctx, W, H, c, m, sw, s);
+    if (hover) {
+      const k = W / PANEL_W;
+      ctx.strokeStyle = 'rgba(80,200,255,.95)'; ctx.lineWidth = Math.max(2, k * 0.002);
+      ctx.strokeRect((hover.u - 0.004) * k, (hover.v - 0.004) * k, (hover.w + 0.008) * k, (hover.h + 0.008) * k);
+    }
     tex.needsUpdate = true;
     if (!(Math.abs(compass - compassHdg) <= 0.05)) {
       compassHdg = compass;
@@ -164,5 +186,8 @@ export function buildCabin({ mobile, maxAniso }) {
     }
   }
   root.visible = false;
-  return { root, update, redraw };
+  // For the cockpit's mouse interaction: the panel face (its clickable places
+  // are PANEL_SPOTS in panel.js) and the movable controls.
+  const parts = { face, size: [PANEL_W, PANEL_H], throttle, mixture, flap, trimWheel, fuelSel, shutoff, park, yoke: yokes[0] };
+  return { root, update, redraw, setHover, parts };
 }

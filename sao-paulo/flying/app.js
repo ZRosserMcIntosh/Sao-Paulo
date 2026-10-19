@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import createAvdModule from './avd.mjs';
 import { buildAircraft } from './model.js';
 import { buildJet, skin as jetSkin } from './jetmodel.js';
-import { K, markingsFrom, drawPanel } from './panel.js';
+import { K, markingsFrom, drawPanel, PANEL_SPOTS } from './panel.js';
 import { drawJetStrip } from './glass.js';
 import { buildCabin } from './cabin.js';
 import { buildJetCabin } from './jetcabin.js';
@@ -269,7 +269,8 @@ const ui = {
 // this many times slower than real time, as in the golf ball's wind tunnel.
 const SLOWS = [1, 10, 100, 1000, 5000];
 let propPhase = 0, simClock = 0, stepPos = null, stepT = 0, stepVel = new THREE.Vector3();
-const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0 };
+const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0, starter: 0 };
+let trimPulse = null;  // { rate, until }: the cockpit's trim wheel turned by hand
 let s = new Float64Array(64), c = new Float64Array(96), j = new Float64Array(64);
 let lastIas = 0, iasAcc = 0;  // speed trend (kt/s, filtered)
 const failed = { fuel: false, 0: false, 1: false, 2: false, 3: false };
@@ -463,6 +464,7 @@ function readInputs(dt) {
   if (k('thrUp')) input.throttle = clamp(input.throttle + 0.5 * dt, 0, 1);
   if (k('thrDown')) input.throttle = clamp(input.throttle - 0.5 * dt, 0, 1);
   input.trimRate = k('trimUp') ? 1 : k('trimDown') ? -1 : 0;
+  if (trimPulse && performance.now() < trimPulse.until) input.trimRate = trimPulse.rate;
   input.brake = k('brake') || touch.brake ? 1 : 0;
   if (touch.id !== null) {
     input.pitch = touch.y; input.roll = touch.x;
@@ -597,6 +599,143 @@ canvas.addEventListener('pointermove', (e) => {
 const endDrag = () => { look.drag = false; look.held = false; };
 canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
 canvas.addEventListener('wheel', (e) => { look.dist = clamp(look.dist * (1 + Math.sign(e.deltaY) * 0.1), P.zoom[0], P.zoom[1]); e.preventDefault(); }, { passive: false });
+
+
+// ---------- Cockpit: point, click, drag and scroll ----------
+// In the cockpit view the switches, knobs and levers answer the mouse:
+// hover shows what a control is and how it is set; click (right-click the
+// other way) switches or steps it, dragging moves a lever, the wheel turns
+// a knob. Anywhere else, dragging looks around (double-click looks ahead).
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), mouse = { x: 0, y: 0, in: false };
+const hiBox = new THREE.Box3Helper(new THREE.Box3(), 0x50c8ff);
+hiBox.visible = false; scene.add(hiBox);
+let hot = null, act = null, spots = null, spotsFor = null;
+const named = (id) => { const c = A.cockpit().find((x) => x.id === id); return c ? `${c.label}: ${c.positions[c.position]}` : id; };
+const toggle = (id) => setControl(id, controlPos(id) ? 0 : 1);
+const pct = (v) => `${Math.round(v * 100)} %`;
+const lever = (get, set, label, step = 0.02) => ({
+  label: () => `${label}: ${pct(get())} (drag or scroll)`, cursor: 'ns-resize',
+  down() { act.v0 = get(); }, drag: (dy) => set(clamp(act.v0 + dy / 220, 0, 1)), wheel: (n) => set(clamp(get() + n * step, 0, 1)),
+});
+const stepper = (id, label) => ({
+  label: () => `${named(id)} · click: next, right-click: back${label ? ` · ${label}` : ''}`,
+  down: (dir) => setControl(id, controlPos(id) + dir), wheel: (n) => setControl(id, controlPos(id) + n),
+});
+const switcher = (id) => ({ label: () => `${named(id)} · click to switch`, down: () => toggle(id) });
+function buildSpots() {
+  const p = cabin.parts || {}, list = [];
+  const mesh = (obj, spec) => obj && list.push({ obj, ...spec });
+  if (P.jet) {
+    for (const t of p.throttles || []) mesh(t, lever(() => input.throttle, (v) => { input.throttle = v; }, 'Thrust levers'));
+    mesh(p.spd, stepper('speedbrake.lever'));
+    mesh(p.flap, stepper('flaps.lever'));
+    mesh(p.gear, { label: () => `${named('gear.lever')} · click to move the handle`, down: () => toggleGear() });
+    for (const w of p.switches || []) mesh(w.g, switcher(w.id));
+    for (const w of p.fuelSw || []) mesh(w.g, switcher(w.id));
+    mesh(p.park, switcher('brakes.parking'));
+    mesh(p.hdgKnob, { label: () => `Heading bug ${String(Math.round(c[K.bug])).padStart(3, '0')}° · scroll to turn, click to sync to the heading`,
+      wheel: (n) => A.avd_heading_bug((Math.round(c[K.bug]) + n + 360) % 360), down: () => A.avd_heading_bug(Math.round(s[9]) % 360) });
+    mesh(p.baroKnob, { label: () => `Altimeter ${c[K.kollsman].toFixed(2)} inHg · scroll to set`, wheel: (n) => A.avd_altimeter_adjust(n) });
+  } else {
+    mesh(p.throttle, lever(() => input.throttle, (v) => { input.throttle = v; }, 'Throttle'));
+    mesh(p.mixture, lever(() => input.mixture, (v) => { input.mixture = v; }, 'Mixture'));
+    mesh(p.flap, stepper('flaps.lever', 'scroll too'));
+    mesh(p.trimWheel, { label: () => `Elevator trim ${Math.round(s[27] * 100)} % · scroll or drag (up: nose down)`, cursor: 'ns-resize',
+      down() { act.y0 = mouse.y; }, drag: (dy) => { trimPulse = { rate: clamp(-dy / 40, -1, 1), until: performance.now() + 120 }; },
+      wheel: (n) => { trimPulse = { rate: -Math.sign(n), until: performance.now() + 140 }; } });
+    mesh(p.fuelSel, stepper('fuel.selector'));
+    mesh(p.shutoff, switcher('fuel.shutoff'));
+    mesh(p.park, switcher('brakes.parking'));
+    if (p.face) list.push({ obj: p.face, panel: true });
+  }
+  return list;
+}
+// What a panel-face spot does (the 172's panel: PANEL_SPOTS in panel.js).
+function panelSpot(sp) {
+  switch (sp.kind) {
+    case 'toggle': return { label: () => `${sp.label} · ${named(sp.id).split(': ').pop()} · click to switch`, down: () => toggle(sp.id) };
+    case 'mags': return {
+      label: () => `${named(sp.id)} · click: next, right-click: back; at BOTH, click and hold to START`,
+      down(dir) {
+        const pos = controlPos(sp.id);
+        if (dir > 0 && pos === 3) { input.starter = 1; act.starting = true; } else setControl(sp.id, pos + dir);
+      },
+      up() { if (act.starting) input.starter = 0; },
+    };
+    case 'cage': return { label: () => sp.label, down: () => { A.avd_ai_cage(); toast('Attitude indicator caged.', 1.5); } };
+    case 'baro': return { label: () => `Altimeter setting ${c[K.kollsman].toFixed(2)} inHg · scroll to set`, wheel: (n) => A.avd_altimeter_adjust(n) };
+    case 'hdg': return { label: () => `Heading bug ${String(Math.round(c[K.bug])).padStart(3, '0')}° · scroll to turn; click: set the indicator to the compass`,
+      wheel: (n) => A.avd_heading_bug((Math.round(c[K.bug]) + n + 360) % 360), down: () => { A.avd_dg_sync(); toast('Heading indicator set to the compass.', 1.5); } };
+    case 'obs': return { label: () => `Course ${String(Math.round(c[K.obs])).padStart(3, '0')}° · scroll to turn`, wheel: (n) => A.avd_obs_adjust(n) };
+    case 'comSwap': case 'navSwap': return { label: () => sp.label, down: () => (sp.kind === 'comSwap' ? A.avd_com_swap() : A.avd_nav_swap()) };
+    case 'comTune': return { label: () => `${sp.label} (${c[K.comStb].toFixed(3)})`, wheel: (n) => A.avd_com_tune(n), down: () => A.avd_com_swap() };
+    case 'navTune': return { label: () => `${sp.label} (${c[K.navStb].toFixed(2)})`, wheel: (n) => A.avd_nav_tune(n), down: () => A.avd_nav_swap() };
+    case 'xpdr': return {
+      label: () => `Transponder ${String(c[K.squawk] | 0).padStart(4, '0')} ${['OFF', 'SBY', 'ON', 'ALT'][c[K.xpdrMode] | 0]} · click: mode, scroll: code`,
+      down: (dir) => A.avd_xpdr_mode((((c[K.xpdrMode] | 0) + dir) % 4 + 4) % 4),
+      wheel(n) {
+        // Octal digits: step the last digit, carrying into the others.
+        let code = parseInt(String(c[K.squawk] | 0).padStart(4, '0'), 8) + n;
+        code = ((code % 4096) + 4096) % 4096;
+        A.avd_squawk(+code.toString(8).padStart(4, '0'));
+      },
+    };
+    default: return null;
+  }
+}
+function cockpitHover() {
+  if (ui.cam !== 1 || !mouse.in || look.drag) { setHot(null); return; }
+  if (spotsFor !== cabin) { spots = buildSpots(); spotsFor = cabin; }
+  ndc.set(mouse.x / innerWidth * 2 - 1, -(mouse.y / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hits = ray.intersectObjects(spots.map((x) => x.obj), true);
+  let found = null;
+  if (hits.length && hits[0].distance < 3) {
+    let o = hits[0].object;
+    while (o && !found) { found = spots.find((x) => x.obj === o) || null; o = o.parent; }
+    if (found && found.panel) {
+      const uv = hits[0].uv, [pw, ph] = cabin.parts.size, u = uv.x * pw, v = (1 - uv.y) * ph;
+      const r = PANEL_SPOTS.find((q) => u >= q.u && u <= q.u + q.w && v >= q.v && v <= q.v + q.h);
+      found = r ? { ...panelSpot(r), rect: r, key: r } : null;
+    }
+  }
+  setHot(found);
+}
+function setHot(h) {
+  if (act) return;  // keep the control being operated
+  const same = h && hot && (h.key ? h.key === hot.key : h.obj === hot.obj);
+  hot = h;
+  if (!same) {
+    cabin?.setHover?.(h?.rect || null);
+    hiBox.visible = !!(h && h.obj && !h.panel);
+    if (hiBox.visible) { hiBox.box.setFromObject(h.obj); hiBox.box.expandByScalar(0.006); }
+  }
+  canvas.style.cursor = h ? h.cursor || 'pointer' : '';
+  const tip = $('cockpitTip');
+  if (h && h.label) { tip.textContent = h.label(); tip.hidden = false; tip.style.left = `${mouse.x + 16}px`; tip.style.top = `${mouse.y + 14}px`; }
+  else tip.hidden = true;
+}
+canvas.addEventListener('pointermove', (e) => {
+  mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true;
+  if (act && act.spot.drag) act.spot.drag(act.y - e.clientY);
+}, { capture: true });
+canvas.addEventListener('pointerleave', () => { mouse.in = false; });
+canvas.addEventListener('pointerdown', (e) => {
+  if (ui.cam !== 1 || !hot || e.pointerType === 'touch' && !e.isPrimary) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  act = { spot: hot, y: e.clientY };
+  canvas.setPointerCapture(e.pointerId);
+  hot.down?.(e.button === 2 ? -1 : 1);
+}, { capture: true });
+const endAct = () => { if (!act) return; act.spot.up?.(); act = null; };
+canvas.addEventListener('pointerup', endAct); canvas.addEventListener('pointercancel', endAct);
+canvas.addEventListener('wheel', (e) => {
+  if (ui.cam !== 1 || !hot?.wheel) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  hot.wheel(e.deltaY < 0 ? 1 : -1);
+}, { capture: true, passive: false });
+canvas.addEventListener('contextmenu', (e) => { if (ui.cam === 1) e.preventDefault(); });
+canvas.addEventListener('dblclick', () => { if (ui.cam === 1 && !hot) { look.yaw = look.pitch = 0; } });
 
 // ---------- Instrument panel ----------
 const panelCv = $('panelCv'), pctx = panelCv.getContext('2d');
@@ -734,11 +873,15 @@ function updateCamera(dt) {
   aircraft.glass.opacity = inside ? 0.06 : 0.88;
   $('instr').hidden = !ui.instr || inside;
   $('hud').style.display = inside ? 'none' : '';
-  if (!look.held && ui.cam !== 2) { look.yaw *= Math.exp(-dt * 1.5); look.pitch *= Math.exp(-dt * 1.5); }
+  // The chase view swings back behind the airplane; in the cockpit the head stays where you turned it.
+  if (!look.held && ui.cam !== 2 && ui.cam !== 1) { look.yaw *= Math.exp(-dt * 1.5); look.pitch *= Math.exp(-dt * 1.5); }
   camera.near = ui.cam === 1 ? 0.08 : 0.5;
   if (ui.cam === 1) {
     eye.getWorldPosition(camera.position); eye.getWorldQuaternion(camera.quaternion);
     camera.rotateY(look.yaw); camera.rotateX(-look.pitch * 0.8 - 0.17);
+    camera.fov = innerWidth < innerHeight ? 82 : 70;
+    camera.updateProjectionMatrix();
+    cockpitHover();
     camera.fov = innerWidth < innerHeight ? 82 : 70;
   } else if (ui.cam === 3) {
     camera.position.copy(TOWER); camera.lookAt(target);
@@ -908,7 +1051,7 @@ function readSwitches() {
     bat: p['electrical.battery'], alt: p['electrical.alternator'], avionics: p['electrical.avionics'],
     beacon: p['electrical.load.beacon'], land: p['electrical.load.landing_light'], taxi: p['electrical.load.taxi_light'],
     nav: p['electrical.load.nav_lights'], strobe: p['electrical.load.strobes'], pitot: p['electrical.load.pitot_heat'],
-    mags: p['engine1.ignition'], flaps: p['flaps.lever'], fuelSel: p['fuel.selector'],
+    mags: p['engine1.ignition'], flaps: p['flaps.lever'], fuelSel: p['fuel.selector'], pos: p,
   });
 }
 function frame() {
@@ -924,7 +1067,7 @@ function frame() {
       if (ui.assist === 0) { setControl('brakes.parking', 0); toast('Parking brake released.', 2); }
       else if (!parkHint) { parkHint = true; toast('The parking brake is set: P releases it.'); }
     }
-    A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, 0);
+    A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, input.starter);
     A.avd_advance(simDt);
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
@@ -982,10 +1125,10 @@ function frame() {
   panelT += dt; cabinT += dt; swT += dt;
   if (swT > 0.2) { swT = 0; readSwitches(); }
   if (P.jet) {
-    cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2] });
+    cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2], pos: sw.pos });
     if (ui.cam === 1 && cabinT > 1 / 20) { cabinT = 0; cabin.redraw(jetData()); }
   } else {
-    cabin.update({ elev: s[46], ail: s[45], rud: s[47], trim: s[27], thr: input.throttle, mix: input.mixture, flapLever: sw.flaps, fuelSel: sw.fuelSel });
+    cabin.update({ elev: s[46], ail: s[45], rud: s[47], trim: s[27], thr: input.throttle, mix: input.mixture, flapLever: sw.flaps, fuelSel: sw.fuelSel, shutoff: sw.pos?.['fuel.shutoff'], park: s[49] });
     if (ui.cam === 1 && cabinT > 1 / 30) { cabinT = 0; cabin.redraw(c, M, sw, s, c[K.compass]); }
   }
   if (ui.instr && ui.cam !== 1 && panelT > 1 / 30) {

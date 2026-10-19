@@ -95,6 +95,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 @media (max-width:760px){#flowLegend{bottom:auto;top:calc(176px + env(safe-area-inset-top));right:8px;width:200px}}
 #instr{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:2;padding:6px;width:min(1000px,calc(100% - 24px));height:var(--instr-h,150px)}
 #instr[hidden]{display:none}
+#cockpitTip{position:fixed;z-index:6;pointer-events:none;max-width:340px;padding:6px 9px;border-radius:7px;background:rgba(12,16,22,.92);border:1px solid rgba(80,200,255,.6);color:#e8eef5;font:500 12px var(--mono);line-height:1.35}#cockpitTip[hidden]{display:none}
 #instr canvas{width:100%;height:100%;display:block}
 #instr .grip{position:absolute;top:-7px;width:22px;height:22px;cursor:nwse-resize;touch-action:none;z-index:3;opacity:.55;transition:opacity .15s}
 #instr .grip.l{left:-7px;cursor:nwse-resize}#instr .grip.r{right:-7px;cursor:nesw-resize}
@@ -256,6 +257,7 @@ body.jet #hud .levers{display:none}
     <span><kbd>V</kbd></span><span>Airflow view: off, streamlines, wind tunnel, smoke</span>
     <span><kbd>T</kbd> <kbd>⇧T</kbd></span><span>Slow motion: slower / faster (real time to 1/5000×)</span>
     <span><kbd>C</kbd> · <kbd>I</kbd> · <kbd>R</kbd></span><span>Camera · instruments · restart</span>
+    <span>Cockpit view</span><span>Point at a switch, knob or lever: click to work it (right-click the other way), drag levers, scroll knobs; at BOTH, hold the key to start. Drag elsewhere to look around, double-click to look ahead.</span>
     <span><kbd>H</kbd> · <kbd>M</kbd> · <kbd>Space</kbd></span><span>Panel · sound · pause</span>
     <span>Mouse</span><span>Drag to look around (free camera), scroll to zoom</span>
     <span>Gamepad</span><span>Left stick pitch/roll, right stick rudder, RT/LT throttle, RB/LB flaps, A brakes, D-pad trim, Y restart, View camera</span>
@@ -291,6 +293,7 @@ body.jet #hud .levers{display:none}
 </div>
 <div id="instr" class="panel" aria-label="Instrument panel"><canvas id="panelCv"></canvas><i class="grip l" title="Drag to resize · double-click to reset"></i><i class="grip r" title="Drag to resize · double-click to reset"></i></div>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="cockpitTip" hidden></div>
 
 <div id="touch" aria-hidden="true">
   <div id="stick"><i></i></div>
