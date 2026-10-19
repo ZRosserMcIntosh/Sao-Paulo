@@ -7,6 +7,7 @@ import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/libs/meshopt_decoder.module.js';
 import createOrdModule from './ord.mjs';
 import { CarAudio } from './audio/audio.js';
+import { VOICES } from './audio/engines.js';
 import { loadCity, streetNamer } from './city.js';
 import { BikeView } from './bike.js';
 import { CrashDummies } from './dummies.js';
@@ -38,6 +39,9 @@ const BIKE_LOCK = [1.2, 0.9, 0.55];
 const BIKE_NAMES = ['Bicycle', 'E-scooter', 'Motorcycle'];
 const isBike = () => settings.car >= 6;
 const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000];
+// Engine voice per car (audio/engines.js): each layout sounds like itself. Index 8 = motorcycle.
+const VOICE = ['refSports', 'refHatch', 'refSaloon', 'refHyper', 'refRace', 'stella', null, null, 'motorcycle'];
+const setVoice = () => { try { audio.setVoice(VOICES[VOICE[settings.car]] || VOICES.stella); } catch { /* audio not built yet */ } };
 const G = 9.81;
 
 // ISO 8855 (x forward, y left, z up) -> three.js (y up): (x, z, -y)
@@ -700,6 +704,7 @@ const garage = new Garage(M, { store, toast, isBike, carIndex: () => settings.ca
 $('bGarage').onclick = (e) => { garage.toggle(); e.currentTarget.blur(); };
 $('bGarage2').onclick = (e) => { garage.toggle(true); e.currentTarget.blur(); };
 function createCar() {
+  setVoice();
   if (isBike()) { createBike(ZONES[0]); garage.afterCreate(); resetTimers(); return; }
   if (bikeView) { M._ord_bike_remove(); bikeView.root.visible = false; }
   carRoot.visible = true; document.querySelector('.tachp').style.display = '';
@@ -773,10 +778,25 @@ function applyAids() {
   $('iEsc').classList.toggle('on', settings.esc > 0); $('iCs').classList.toggle('on', settings.preset < 2);
 }
 function customised() { const d = presetAids(settings.preset); return d.abs !== settings.abs || d.tcs !== settings.tcs || d.esc !== settings.esc || d.auto !== settings.auto || d.drift !== settings.drift; }
+// Drift preset fits the drift kit (52° angle kit + tight LSD) on the cars: stock steering can only
+// catch ~32° of drift, the big, GTA-style angles need the lock. Leaving Drift puts the previous
+// setup back. A garage change, not an aid: the buttons under "Drift setup" still override it.
+let kitBefore = store.get('kitBefore', null);
+function fitDriftKit(on) {
+  if (isBike()) return;
+  if (on && !kitBefore) {
+    kitBefore = { lock: settings.lock, diff: settings.diff };
+    settings.lock = true; settings.diff = 2;
+  } else if (!on && kitBefore) {
+    settings.lock = kitBefore.lock; settings.diff = kitBefore.diff; kitBefore = null;
+  } else return;
+  store.set('kitBefore', kitBefore); store.set('driftLock', settings.lock); store.set('diff', settings.diff);
+}
 function setPreset(p) {
+  fitDriftKit(p === 3);
   settings.preset = p; Object.assign(settings, presetAids(p)); store.set('preset', p); applyAids();
   if (isBike()) toast(['FUN: ABS, traction and wheelie control, the rider leans for you', 'SPORT: ABS only', 'SIMULATION: no aids (L for bar-torque steering)', 'WHEELIE: open the throttle, the assist holds the front up'][p]);
-  else toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT: throw it sideways (handbrake), keep the throttle in, hold the turn to drift, let go to straighten. Donuts: full lock + full throttle from a crawl'][p]);
+  else toast(['FUN: every aid on', 'SPORT: ABS + light TCS', 'SIMULATION: no aids, manual gearbox (E/Q)', 'DRIFT (drift kit fitted: 52° lock, tight LSD): turn in on the throttle and the rear steps out; steer and throttle set the angle, centre to straighten. Handbrake for big entries. Donuts: full lock + throttle from a crawl'][p]);
 }
 document.querySelectorAll('[data-preset]').forEach((b) => (b.onclick = () => setPreset(+b.dataset.preset)));
 $('aAbs').onclick = () => { settings.abs = !settings.abs; applyAids(); };

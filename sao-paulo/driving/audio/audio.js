@@ -1,4 +1,5 @@
-// Car audio for the driving test track: synthesized flat-plane V8 (AudioWorklet), tyre squeal,
+// Car audio for the driving test track: synthesized engine (AudioWorklet, one voice per car - see
+// engines.js), tyre squeal,
 // wind and road noise, all driven by the physics state every frame. No recorded samples.
 //
 // Self-healing, because mobile browsers (iOS Safari especially) suspend, "interrupt" or quietly
@@ -11,7 +12,7 @@
 export class CarAudio {
   constructor() {
     this.ctx = null; this.ready = false; this.enabled = true; this.volume = 0.8;
-    this.starting = null; this.lastBeat = 0; this.listening = false;
+    this.starting = null; this.lastBeat = 0; this.listening = false; this.voice = null;
   }
   // Called from a user gesture the first time (browsers block audio until then).
   async start() {
@@ -44,6 +45,7 @@ export class CarAudio {
     const onError = () => this.rebuild('worklet error');
     this.engine = new AudioWorkletNode(ctx, 'v8-engine', { numberOfInputs: 0, outputChannelCount: [2] });
     this.engine.port.onmessage = beat; this.engine.onprocessorerror = onError;
+    if (this.voice) this.engine.port.postMessage({ voice: this.voice }); // survives a rebuild
     // Engine voicing EQ: more body down low, the harsh 2-5 kHz band (what hurt in headphones)
     // pulled back, and the fizzy top rolled off.
     const eq = (type, f, gain, q = 0.8) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.gain.value = gain; b.Q.value = q; return b; };
@@ -97,6 +99,11 @@ export class CarAudio {
       if (this.ctx.state !== 'running') { this.kick(); return; }
       if (this.ready && performance.now() - this.lastBeat > 2500) this.rebuild('no heartbeat');
     }, 1000);
+  }
+  // The engine's voice (a profile from engines.js); kept so a rebuilt graph gets it back.
+  setVoice(voice) {
+    this.voice = voice || null;
+    if (this.engine) this.engine.port.postMessage({ voice: this.voice || {} });
   }
   setEnabled(on) {
     this.enabled = on;
