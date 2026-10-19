@@ -1,0 +1,1021 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/sao-paulo/vehicle-dynamics/">
+<title>Motor Vehicle Dynamics · OpenRoad Dynamics</title>
+<meta name="description" content="Motor Vehicle Dynamics: the complete mathematics of OpenRoad Dynamics, the open-source C++ vehicle physics behind São Paulo World. Chassis, contact, suspension, Magic Formula tyres, the implicit drivetrain, aerodynamics, driver aids, rollover, two-wheelers, crash survivability, traffic and validation.">
+<meta property="og:title" content="Motor Vehicle Dynamics · OpenRoad Dynamics">
+<meta property="og:description" content="Every equation the OpenRoad Dynamics vehicle physics solves, as implemented, with its assumptions, constants and validation.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<style>
+:root{--bg:#eceeed;--paper:#f7f8f7;--ink:#0f1a2a;--mute:#5b6676;--line:#cfd5d8;--plate:#0a3a8c;--masp:#d22a1f;--good:#1f9d63;--warn:#b07a08;
+--display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;--body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--serif:"Source Serif 4",Georgia,serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b111b;--paper:#111a27;--ink:#e7ecf2;--mute:#93a0b2;--line:#233044;--plate:#6f9cff;--masp:#ec4a3c;--good:#36c483;--warn:#f0b43a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0b111b;--paper:#111a27;--ink:#e7ecf2;--mute:#93a0b2;--line:#233044;--plate:#6f9cff;--masp:#ec4a3c;--good:#36c483;--warn:#f0b43a;color-scheme:dark}
+*{box-sizing:border-box}html{scroll-padding-top:16px}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 var(--serif)}
+a{color:var(--plate)}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(16px,4vw,40px)}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding-top:16px;font:600 13.5px var(--body)}
+.top a{color:var(--ink);text-decoration:none}.top a:hover{color:var(--plate)}
+.top nav{display:flex;gap:16px;flex-wrap:wrap}
+header.title{padding-block:clamp(36px,7vw,80px) 28px;border-bottom:1px solid var(--line)}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+h1,h2,h3,h4{font-family:var(--display);line-height:1;text-wrap:balance;margin:0}
+h1{font-size:clamp(50px,9vw,118px);font-weight:900;text-transform:uppercase;margin-top:14px}
+.subtitle{font:500 clamp(18px,2vw,23px)/1.4 var(--body);margin-top:14px;max-width:60ch}
+.meta{font:500 13.5px/1.6 var(--body);color:var(--mute);margin-top:18px}
+.ctas{display:flex;flex-wrap:wrap;gap:10px 14px;margin-top:22px}
+.btn{display:inline-flex;align-items:center;gap:9px;text-decoration:none;border-radius:8px;padding:10px 16px;font:700 14.5px var(--body);border:0;cursor:pointer}
+.btn.gh{background:var(--ink);color:var(--bg)}.btn.drive{background:var(--masp);color:#fff}.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn:hover{filter:brightness(1.08)}.btn:focus-visible{outline:2px solid var(--plate);outline-offset:3px}
+.layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:48px;align-items:start;padding-block:36px 60px}
+@media(max-width:980px){.layout{grid-template-columns:1fr}.toc{position:static!important;max-height:none!important}}
+.toc{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;font:500 13.5px/1.45 var(--body);border-right:1px solid var(--line);padding-right:16px}
+@media(max-width:980px){.toc{border-right:0;border-bottom:1px solid var(--line);padding:0 0 16px}}
+.toc b{display:block;font:600 11.5px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin-bottom:8px}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}.toc li{margin:3px 0}
+.toc a{color:var(--ink);text-decoration:none;display:block;padding:2px 0}.toc a:hover{color:var(--plate)}
+.toc li li a{color:var(--mute);padding-left:14px;font-size:12.5px}
+main{min-width:0;max-width:820px}
+main p,main li{max-width:72ch}
+section.ch{padding-block:8px 34px;border-top:1px solid var(--line);margin-top:26px}
+section.ch:first-child{border-top:0;margin-top:0}
+h2{font-size:clamp(32px,4.4vw,50px);font-weight:800;text-transform:uppercase;margin:26px 0 14px}
+h2 .n{color:var(--masp);margin-right:12px}
+h3{font-size:25px;font-weight:800;text-transform:uppercase;margin:30px 0 8px}
+h4{font:700 16px var(--body);margin:20px 0 4px}
+.abstract{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:18px 22px;margin-top:6px}
+.abstract h4{margin-top:0;font:600 12px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.eq{overflow-x:auto;overflow-y:hidden;padding:2px 0}
+.katex-display{margin:.7em 0}
+.note,.inf{font:400 14.5px/1.6 var(--body);border-left:3px solid var(--line);padding:8px 14px;margin:14px 0;color:var(--mute);background:var(--paper);border-radius:0 8px 8px 0}
+.inf{border-left-color:var(--warn)}.inf b,.note b{color:var(--ink)}
+.limit{border-left-color:var(--masp)}
+code,.mono{font:500 .84em var(--mono)}
+.src{font:500 12px var(--mono);color:var(--mute)}
+.tbl{overflow-x:auto;margin:14px 0}
+table{border-collapse:collapse;width:100%;font:400 14px/1.45 var(--body);font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--mute)}
+td.n,th.n{text-align:right;font-family:var(--mono);font-size:13px}
+caption{caption-side:bottom;text-align:left;font:400 12.5px var(--body);color:var(--mute);padding-top:6px}
+ol.steps,ul.list{padding-left:22px}ol.steps li,ul.list li{margin:5px 0}
+.fig{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px;margin:16px 0}
+.fig figcaption{font:400 13px var(--body);color:var(--mute);margin-top:8px}
+.fig svg{display:block;width:100%;height:auto}
+.refs li{font-size:15px;margin:6px 0}
+footer{border-top:1px solid var(--line);padding-block:30px 50px;color:var(--mute);font:400 13.5px var(--body)}
+@media print{
+  :root{--bg:#fff;--paper:#fff;--ink:#000;--mute:#333;--line:#bbb;--plate:#000}
+  body{font-size:11pt}.top,.toc,.ctas,.noprint{display:none!important}.layout{display:block;padding:0}
+  main{max-width:none}section.ch{break-before:page;border:0}section.ch:first-child{break-before:auto}
+  h2,h3,h4{break-after:avoid}.eq,.tbl,table,.fig{break-inside:avoid}a{text-decoration:none}
+  header.title{padding-top:0}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap top">
+  <a href="/sao-paulo/"><b>São Paulo World</b></a>
+  <nav aria-label="Site"><a href="../physics/">Physics overview</a><a href="../driving/">Drive the car</a><a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">GitHub</a></nav>
+</div>
+<header class="title wrap">
+  <div class="eyebrow">OpenRoad Dynamics · technical reference</div>
+  <h1>Motor Vehicle Dynamics</h1>
+  <p class="subtitle">The mathematics of an open-source vehicle physics engine: every model, equation, constant and assumption as it is implemented, and how each one is checked.</p>
+  <p class="meta">Engine: OpenRoad Dynamics, C++20, MIT licence · Source: <a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">github.com/ZRosserMcIntosh/Vehicle-Dynamics</a> · Revision of 19 October 2026 (branch <code>claude/tuning-garage</code>, 140 automated tests)</p>
+  <div class="ctas">
+    <a class="btn gh" href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Source on GitHub</a>
+    <a class="btn drive" href="../driving/">▶ Drive it in the browser</a>
+    <button class="btn ghost" type="button" onclick="window.print()">Save as PDF</button>
+  </div>
+</header>
+<div class="wrap layout">
+<nav class="toc" aria-label="Contents">
+  <b>Contents</b>
+  <ol>
+    <li><a href="#abstract">Abstract</a></li>
+    <li><a href="#s1">1 · Conventions and notation</a></li>
+    <li><a href="#s2">2 · The simulation step</a></li>
+    <li><a href="#s3">3 · Rigid-body chassis</a></li>
+    <li><a href="#s4">4 · Wheel–ground contact</a></li>
+    <li><a href="#s5">5 · Suspension and the unsprung mass</a></li>
+    <li><a href="#s6">6 · Steering and wheel geometry</a></li>
+    <li><a href="#s7">7 · The tyre model</a></li>
+    <li><a href="#s8">8 · Wheel spin and the drivetrain</a></li>
+    <li><a href="#s9">9 · Brakes and ABS</a></li>
+    <li><a href="#s10">10 · Aerodynamics and the atmosphere</a></li>
+    <li><a href="#s11">11 · Driver aids</a></li>
+    <li><a href="#s12">12 · Rollover</a></li>
+    <li><a href="#s13">13 · Two-wheelers</a></li>
+    <li><a href="#s14">14 · Crash survivability</a></li>
+    <li><a href="#s15">15 · Level of detail and traffic</a></li>
+    <li><a href="#s16">16 · Validation</a></li>
+    <li><a href="#s17">17 · Limitations</a></li>
+    <li><a href="#refs">References</a></li>
+  </ol>
+</nav>
+<main>
+<section class="ch" id="abstract">
+<div class="abstract">
+<h4>Abstract</h4>
+<p>OpenRoad Dynamics is a free, engine-agnostic vehicle physics core written in C++20 and released under the MIT licence. It drives the cars, motorcycles, bicycles and e-scooters of São Paulo World in the browser (compiled to WebAssembly). It also ships an Unreal Engine 5 plugin, which has not yet been compiled against Unreal. This document derives and states every model the core solves, exactly as the source code implements it, at a fixed step of 1/240 s or 1/360 s:</p>
+<ul class="list">
+<li>a 6-degree-of-freedom rigid chassis;</li>
+<li>wheel–ground contact by multi-point ray sampling of an arbitrary ground;</li>
+<li>a linearly implicit unsprung-mass suspension;</li>
+<li>a reduced Pacejka Magic Formula tyre with relaxation-length transient slip, combined slip, camber, a one-node thermal model and compounds;</li>
+<li>one implicit linear system coupling engine, clutch, gearbox, differentials, wheel spin and longitudinal slip, with a stick/slip active set for friction elements;</li>
+<li>an ISA atmosphere and aerodynamics with ride-height-sensitive downforce and a wing that stalls (Viterna–Corrigan);</li>
+<li>driver aids that act only through actuators;</li>
+<li>body-hull contact for rollover;</li>
+<li>a constrained multibody single-track model reproducing the Meijaard et al. (2007) bicycle benchmark to 12 significant digits;</li>
+<li>a two-mass occupant model for crash survivability;</li>
+<li>level-of-detail traffic.</li>
+</ul>
+<p>Each chapter ends with what the model leaves out. Chapter 16 lists what is validated and what is not.</p>
+</div>
+<p class="note"><b>How to read this.</b> Equations are transcribed from the source, and each chapter names its files under <code>src/core/</code>. Constants are given as they appear in the code. Some statements are interpretation by the author of this document rather than a direct transcription of the code; those are set in amber-edged boxes marked <b>Interpretation</b>, and what a model leaves out is in red-edged boxes marked <b>Not modelled</b>. Notation is local to each chapter where symbols would otherwise collide.</p>
+</section>
+
+<section class="ch" id="s1">
+<h2><span class="n">1</span>Conventions and notation</h2>
+<p>The core uses SI units and double precision throughout (<code>Real = double</code>). Axes follow ISO 8855:</p>
+<ul class="list">
+<li>\(x\) points forward, \(y\) to the left and \(z\) up, right-handed;</li>
+<li>positive yaw is to the left;</li>
+<li>gravity is the world vector \(\mathbf g = (0,0,-g)\), with \(g = 9.80665\ \mathrm{m/s^2}\).</li>
+</ul>
+<p>Orientations are unit quaternions (Hamilton convention) mapping body to world:</p>
+<div class="eq">$$q_1\otimes q_2=\big(w_1w_2-\mathbf u_1\!\cdot\!\mathbf u_2,\ \ w_1\mathbf u_2+w_2\mathbf u_1+\mathbf u_1\times\mathbf u_2\big),\qquad R(q)\,\mathbf v=\mathbf v+w\,\mathbf t+\mathbf u\times\mathbf t,\quad \mathbf t=2\,\mathbf u\times\mathbf v .$$</div>
+<p>Four scalar helpers recur throughout:</p>
+<div class="eq">$$\operatorname{clamp}(x,a,b),\qquad \operatorname{sign}(x)\in\{-1,0,1\},\qquad \operatorname{smoothstep}(x)=s^2(3-2s),\ s=\operatorname{clamp}(x,0,1),\qquad \operatorname{approach}(c,t,\Delta)=c+\operatorname{clamp}(t-c,-\Delta,\Delta).$$</div>
+<p>The last one is the engine's universal rate limiter.</p>
+<div class="tbl"><table>
+<thead><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr></thead>
+<tbody>
+<tr><td>\(M\)</td><td>total vehicle mass, unsprung masses included</td><td>kg</td></tr>
+<tr><td>\(I_b=\operatorname{diag}(I_{xx},I_{yy},I_{zz})\)</td><td>principal inertia about the CoM, body frame (no products of inertia)</td><td>kg m²</td></tr>
+<tr><td>\(\mathbf x_o,\ \mathbf x_{cm},\ \mathbf c\)</td><td>body-origin position, CoM position, CoM offset in the body frame</td><td>m</td></tr>
+<tr><td>\(\mathbf v,\ \boldsymbol\omega\)</td><td>CoM velocity and angular velocity, both in the world frame</td><td>m/s, rad/s</td></tr>
+<tr><td>\(\hat u=R(q)\hat z\)</td><td>body up axis in the world</td><td>–</td></tr>
+<tr><td>\(\Delta t\)</td><td>vehicle step</td><td>s</td></tr>
+<tr><td>\(F_z,\ F_x,\ F_y,\ M_z\)</td><td>tyre load, longitudinal and lateral force, aligning moment</td><td>N, N m</td></tr>
+<tr><td>\(\kappa,\ \alpha,\ \gamma\)</td><td>longitudinal slip, slip angle, inclination (camber) angle</td><td>–, rad, rad</td></tr>
+<tr><td>\(\omega_i,\ r_i,\ I_w\)</td><td>wheel spin, rolling radius, wheel inertia</td><td>rad/s, m, kg m²</td></tr>
+<tr><td>\(x,\ \dot x,\ L\)</td><td>suspension compression (0 at full droop, \(L\) at full bump), its rate, travel</td><td>m, m/s, m</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="ch" id="s2">
+<h2><span class="n">2</span>The simulation step</h2>
+<p>One call to <code>Vehicle::step(Δt)</code> runs a fixed sequence (<span class="src">vehicle.cpp</span>):</p>
+<ol class="steps">
+<li><b>Assists.</b> The driver's input becomes actuator commands: steering angle, throttle, per-wheel brake torque, clutch and gear. These are computed from sensors read off the <em>previous</em> state; no aid acts on the chassis directly.</li>
+<li><b>Per wheel:</b>
+  <ul class="list">
+  <li>steer angle and heading;</li>
+  <li>contact rays against the ground;</li>
+  <li>the tilt fade (chapter 12);</li>
+  <li>the suspension, either the implicit unsprung degree of freedom or the algebraic massless wheel;</li>
+  <li>the contact frame and contact-point velocity;</li>
+  <li>camber.</li>
+  </ul></li>
+<li><b>Tyre pre-pass:</b> lateral transient slip, the longitudinal force at the start-of-step slip and its slope, low-speed damping and rolling resistance.</li>
+<li><b>Top-speed limiter</b>, then <b>one implicit solve</b> for engine, gearbox, wheel spins and longitudinal slips together.</li>
+<li><b>Force assembly:</b>
+  <ul class="list">
+  <li>tyre forces at the patches;</li>
+  <li>inertial relief of the unsprung masses;</li>
+  <li>the tread-temperature update;</li>
+  <li>aerodynamics;</li>
+  <li>body-hull contact (only when tilted or airborne);</li>
+  <li>gravity.</li>
+  </ul></li>
+<li><b>Chassis integration</b> (internal mode), or hand the force and torque to a host physics engine (external mode).</li>
+<li><b>Fault check:</b> any non-finite state restores the pre-step chassis, zeroes the forces and stops the car until it is reset.</li>
+</ol>
+<p>The step is fixed. A <code>FixedStepper</code> accumulates frame time \(A\), runs \(n=\lfloor A/\Delta t\rfloor\) steps, and drops the excess beyond 16 steps per frame. It returns \(A/\Delta t\) as the render-interpolation factor. The tiers run at different rates:</p>
+<ul class="list">
+<li>The browser demo steps at 1/360 s.</li>
+<li>The default for a game host is 60 Hz × 4 substeps = 240 Hz.</li>
+<li>Level-of-detail tiers run at 120 Hz (LOD1) and 30 Hz (LOD2).</li>
+</ul>
+<p>No step allocates memory; a test checks this after warm-up. Two runs from the same inputs are bit-identical.</p>
+<div class="tbl"><table>
+<caption>Table 2.1. Which couplings are implicit and which are explicit or lagged.</caption>
+<thead><tr><th>Implicit (solved at the end-of-step state)</th><th>Explicit or lagged by one step</th></tr></thead>
+<tbody>
+<tr><td>Unsprung wheel: own spring, damper slope, own side of the anti-roll bar, bump stop, tyre radial stiffness and damping</td><td>Anti-roll bar partner's compression; body acceleration seen by the wheel; bump-stop engagement and damper branch (frozen at \(x_0,\dot x_0\))</td></tr>
+<tr><td>Engine, gearbox, wheel spin, longitudinal slip, clutch/brake/differential friction (active set)</td><td>Engine torque (evaluated at \(\omega_e^0\)); limited-slip capacity (uses the previous drive torque)</td></tr>
+<tr><td>Lateral transient slip (backward Euler)</td><td>Contact geometry (rays cast once, at the start-of-step pose); tyre lateral force; aero; body hull</td></tr>
+<tr><td>—</td><td>Chassis: semi-implicit (symplectic) Euler</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="ch" id="s3">
+<h2><span class="n">3</span>Rigid-body chassis</h2>
+<p class="src">vehicle.cpp (integrateChassis, placeOnGround), math.hpp, fixed_step.hpp, host_frame.hpp</p>
+<h3>3.1 State and equations of motion</h3>
+<p>The chassis state is \((\mathbf x_o, q, \mathbf v, \boldsymbol\omega)\). Note that \(\mathbf x_o\) is the body origin, whereas \(\mathbf v\) is the velocity of the centre of mass, \(\mathbf x_{cm}=\mathbf x_o+R(q)\,\mathbf c\). With \(\mathbf F,\boldsymbol\tau\) the net force and the net torque about the CoM accumulated at state \(n\), the chassis obeys Newton–Euler in the world frame:</p>
+<div class="eq">$$M\dot{\mathbf v}=\mathbf F,\qquad I_w\dot{\boldsymbol\omega}=\boldsymbol\tau-\boldsymbol\omega\times I_w\boldsymbol\omega,\qquad I_w=R\,I_bR^{\top},\qquad \dot q=\tfrac12\,[0,\boldsymbol\omega]\otimes q .$$</div>
+<h3>3.2 Integration</h3>
+<p>The scheme is semi-implicit (symplectic) Euler. Velocities are updated first, and positions then use the new velocities:</p>
+<div class="eq">$$\begin{aligned}
+\mathbf v_{n+1}&=\mathbf v_n+\frac{\Delta t}{M}\,\mathbf F\\
+\boldsymbol\omega_{n+1}&=\boldsymbol\omega_n+\Delta t\;R_nI_b^{-1}R_n^{\top}\big(\boldsymbol\tau-\boldsymbol\omega_n\times R_nI_bR_n^{\top}\boldsymbol\omega_n\big)\\
+\mathbf x_{cm,n+1}&=\mathbf x_{cm,n}+\Delta t\,\mathbf v_{n+1}\\
+q_{n+1}&=\frac{\tilde q}{\lVert\tilde q\rVert},\qquad \tilde q=q_n+\tfrac{\Delta t}{2}\,[0,\boldsymbol\omega_{n+1}]\otimes q_n\\
+\mathbf x_{o,n+1}&=\mathbf x_{cm,n+1}-R(q_{n+1})\,\mathbf c
+\end{aligned}$$</div>
+<p>Three details matter:</p>
+<ul class="list">
+<li>The CoM is integrated, not the origin, so rotation about an offset CoM is exact.</li>
+<li>The quaternion is renormalised every step.</li>
+<li>The gyroscopic term is explicit.</li>
+</ul>
+<p class="inf"><b>Interpretation.</b> With an explicit gyroscopic term, free spin about the intermediate principal axis can slowly gain energy. For a car on its wheels this is irrelevant; it would matter only for a long tumble.</p>
+<p>The body acceleration used by the wheels (chapter 5) is a backward difference, \(\mathbf a=(\mathbf v_{n+1}-\mathbf v_n)/\Delta t\) and \(\boldsymbol\alpha=(\boldsymbol\omega_{n+1}-\boldsymbol\omega_n)/\Delta t\). It is therefore one step old when the next step uses it. Telemetry reports four derived quantities:</p>
+<ul class="list">
+<li>kinetic energy \(E_k=\tfrac12M\lVert\mathbf v\rVert^2+\tfrac12\boldsymbol\omega^{\top}I_w\boldsymbol\omega\) (wheel spin excluded);</li>
+<li>pitch \(-\arcsin(\hat x_b\cdot\hat z)\);</li>
+<li>roll \(\arcsin(\hat y_b\cdot\hat z)\);</li>
+<li>the uprightness \(\hat z_b\cdot\hat z\), which is −1 on the roof.</li>
+</ul>
+<h3>3.3 Gravity and the unsprung masses</h3>
+<p>Gravity \(M\mathbf g\) acts on the <em>total</em> mass at the CoM, and the chassis is integrated with the total mass and inertia. Each unsprung wheel has its own vertical degree of freedom (chapter 5). Its acceleration along the suspension axis is returned to the body as an inertial relief force, \(\mathbf f_i=-m_u\ddot x\,\hat u\). Along that axis the whole-vehicle momentum balance is then exact:</p>
+<div class="eq">$$M\,\mathbf a_{\text{body}}\cdot\hat u=\textstyle\sum\mathbf F_{\text{tyre}}\cdot\hat u+M g_u-\sum m_u\ddot x .$$</div>
+<p>The wheel's weight appears only in the wheel's own equation, so nothing is counted twice.</p>
+<h3>3.4 Placing a car and host coupling</h3>
+<p><b>Static placement.</b> Placing a car on the ground is analytic.</p>
+<ul class="list">
+<li>Static wheel loads come from the lever rule between the first and last axle, with left/right split \((c_y-y_r)/(y_l-y_r)\). Intermediate axles each take \(W/n_a\).</li>
+<li>Each wheel's static compression is \(x_s=\operatorname{clamp}((F_z-m_ug-F_p)/k,0,L)\) and its tyre deflection is \(p_s=F_z/k_t\). Its hardpoint must therefore sit \(r-p_s+(L-x_s)\) above the ground.</li>
+<li>A least-squares fit of height, pitch and roll to those heights (rows \([1,-x_{hp},y_{hp}]\), small angles) places the body.</li>
+<li>Reset then settles the car for 0.5 s on the brakes.</li>
+</ul>
+<p><b>External chassis mode.</b> The core can hand \((\mathbf F,\boldsymbol\tau)\) to a host rigid body, such as Unreal's Chaos, instead of integrating itself. With \(k\) substeps per host step \(H\), the core integrates a private copy of the chassis and returns the impulse-equivalent mean:</p>
+<div class="eq">$$\bar{\mathbf F}=\frac1H\sum_{j=1}^{k}\mathbf F_j\,h,\qquad\bar{\boldsymbol\tau}=\frac1H\sum_{j=1}^{k}\boldsymbol\tau_j\,h .$$</div>
+<p>When the host's pose differs from the core's prediction by \(\Delta=(\mathbf h_P-\mathbf h_H)\cdot\hat u_H\), each wheel keeps its absolute position as long as \(|\Delta|\le 0.05\) m:</p>
+<div class="eq">$$x\leftarrow x+\Delta,\qquad \dot x\leftarrow\dot x+(\mathbf v_{h,P}-\mathbf v_{h,H})\cdot\hat u_H .$$</div>
+<p>The suspension absorbs the host's integration error instead of the tyre. Conversion to Unreal mirrors \(y\) and scales lengths by 100:</p>
+<ul class="list">
+<li>polar vectors: \(\mathbf v'=100\operatorname{diag}(1,-1,1)\mathbf v\);</li>
+<li>axial vectors: \(\boldsymbol\omega'=(-\omega_x,\omega_y,-\omega_z)\);</li>
+<li>quaternions: \(q'=(w,-x,y,-z)\).</li>
+</ul>
+<p>Tests show the following:</p>
+<ul class="list">
+<li>External mode with the same integrator reproduces internal mode to \(10^{-9}\).</li>
+<li>A different host integrator stays within 1 % over 8 s.</li>
+<li>A 60 Hz host with 4 substeps matches a 240 Hz internal run within 1 %.</li>
+</ul>
+<p class="note limit"><b>Not modelled.</b> Products of inertia; implicit gyroscopics; the gyroscopic coupling of the spinning wheels; drivetrain reaction torque on the body (squat from torque reaction). Drive and brake reactions reach the body only through the tyre forces at the contact patches.</p>
+</section>
+<section class="ch" id="s4">
+<h2><span class="n">4</span>Wheel–ground contact</h2>
+<p class="src">vehicle.cpp (sampleContact), ground.hpp/.cpp, ground_cache.hpp/.cpp, tire.cpp (texture)</p>
+<p>The ground is anything that answers a ray query. <code>GroundQuery::raycast(origin, direction, maxDistance)</code> returns:</p>
+<ul class="list">
+<li>a hit point and distance;</li>
+<li>a normal;</li>
+<li>surface properties;</li>
+<li>an identifier.</li>
+</ul>
+<p>The demo implements it three ways:</p>
+<ul class="list">
+<li>a flat plane;</li>
+<li>a height function, which iterates \(t\leftarrow(h(\mathbf o+t\mathbf d)-o_z)/d_z\) six times, with normals from central differences, \(\varepsilon=0.01\) m;</li>
+<li>a measured heightfield of São Paulo.</li>
+</ul>
+<h3>4.1 Geometry of a wheel</h3>
+<p>The suspension is a straight slider along the body \(z\) axis. The hardpoint \(\mathbf h\) is the wheel-centre position at <em>full bump</em>, and the wheel travels down \(-\hat u\) from it:</p>
+<div class="eq">$$\mathbf c(x)=\mathbf h-\hat u\,(L-x),\qquad \mathbf h=\mathbf x_o+R(q)\,\mathbf h_{\text{body}} .$$</div>
+<p>Contact rays are cast along \(-\hat u\), the body's own down axis.</p>
+<ul class="list">
+<li>Each ray starts 0.15 m above the hardpoint plane, at an offset \((s,l)\) in the wheel's heading and lateral directions.</li>
+<li>Rays are \(0.15+L+r+0.05\) m long.</li>
+<li>A hit's distance below the hardpoint plane is \(d_k=t_{\text{hit}}-0.15\).</li>
+</ul>
+<p>The heading is \(\hat e_h=R(q)(\cos\delta,\sin\delta,0)\). The contact frame projects it onto the ground normal \(\hat n\):</p>
+<div class="eq">$$\hat e_x=\frac{\hat e_h-\hat n(\hat n\cdot\hat e_h)}{\lVert\cdot\rVert},\qquad \hat e_y=\hat n\times\hat e_x,\qquad \mathbf v_P=\mathbf v+\boldsymbol\omega\times(\mathbf p_{\text{patch}}-\mathbf x_{cm}),\qquad v_x=\mathbf v_P\cdot\hat e_x,\ v_y=\mathbf v_P\cdot\hat e_y .$$</div>
+<h3>4.2 Footprint sampling and envelope probes</h3>
+<p>A single ray per wheel makes a car feel every pebble as a spike. The patch is therefore sampled at offsets in units of its half-length \(a\) (default 0.09 m) and half-width \(b\) (default 0.10 m). Every patch sample gets weight \(w_s=1/n_{\text{patch}}\), so on a flat road the samples sum to exactly the tyre's stiffness.</p>
+<div class="tbl"><table>
+<thead><tr><th>Samples</th><th>Layout \((s/a,\ l/b)\)</th><th>Used by</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>\((0,0)\)</td><td>LOD1 traffic</td></tr>
+<tr><td>5</td><td>\((0,0),(\pm1,0),(0,\pm1)\)</td><td>LOD0 default</td></tr>
+<tr><td>8</td><td>perimeter of a 3×3 grid</td><td>quality option</td></tr>
+<tr><td>9</td><td>full 3×3 grid</td><td>quality option</td></tr>
+</tbody></table></div>
+<p>Envelope probes let a wheel feel an edge before the patch reaches it. They are added only with the unsprung wheel and more than one patch sample: up to three per side, at</p>
+<div class="eq">$$s_{\pm j}=\pm\max(f_j r,\ a+0.01),\qquad f=\{0.40,\ 0.55,\ 0.70\},$$</div>
+<p>and they test penetration radially against the tyre's circle rather than against the flat footprint (§5.2).</p>
+<p class="inf"><b>Interpretation.</b> On flat ground a probe at \(f_jr\) touches only when the static deflection exceeds \(r(1-\sqrt{1-f_j^2})\), that is \(0.084r\), \(0.165r\) or \(0.286r\). At normal loads (about 14 mm of deflection on a 0.33 m tyre) no probe touches, so the probes cost nothing on a smooth road.</p>
+<h3>4.3 Surface micro-texture</h3>
+<p>Cobbles and paving are a procedural height added under each sample, with amplitude \(A\), wavelength \(\lambda\), variation \(V\) and a hash \(\rho_{ij}\in[0,1)\) of the stone cell:</p>
+<div class="eq">$$h_{\text{tex}}(x,y)=A\big(1-\operatorname{clamp}(V,0,1)\,\rho_{ij}\big)\sin^2\!\frac{\pi x}{\lambda}\,\sin^2\!\frac{\pi y}{\lambda},\qquad d_k\leftarrow d_k-\frac{h_{\text{tex}}}{\max(\hat u_z,0.2)} .$$</div>
+<p>The texture moves the contact point but not the normal.</p>
+<h3>4.4 The ground prefetch cache</h3>
+<p>Ray casts into a game world are expensive and must happen on the game thread. Before each frame, the core therefore asks for one strip of ground per wheel. The strip runs along the wheel's horizontal velocity (or heading below 0.5 m/s):</p>
+<ul class="list">
+<li>its half-width is \(e=\max(a,b)+0.15\);</li>
+<li>its length is \(\lVert\mathbf v_h\rVert T+2e\), with horizon \(T=1.5/60\) s.</li>
+</ul>
+<p>The strip is sampled in two passes:</p>
+<ol class="steps">
+<li>A coarse line of rays at about 0.35 m spacing.</li>
+<li>If the line is rough, a 3-line grid at about 6 cm spacing. Rough means any miss, roughness above 0.05, a second difference \(|z_i-\tfrac12(z_{i-1}+z_{i+1})|\) above 4 mm, or a normal change above 0.03 rad. The grid is capped at 120 rays per strip.</li>
+</ol>
+<p>Queries are answered from the strip in one of two ways:</p>
+<ul class="list">
+<li><b>From a single line:</b> \(z\) and \(\hat n\) are interpolated, then extended sideways along the interpolated normal, which preserves road camber:
+<div class="eq">$$z=z_\ell-\frac{n_xo_x+n_yo_y}{\max(n_z,0.2)} .$$</div></li>
+<li><b>From a grid:</b> bilinear interpolation, with \(\hat n=\operatorname{normalize}(\hat z-\hat e_\parallel z_u-\hat e_\perp z_w)\).</li>
+</ul>
+<p>A query outside every strip is counted as a miss and extrapolated from the nearest strip, so a wheel never falls through the world. The cache matches direct ray queries within 10 % using at least three times fewer rays.</p>
+<p class="note limit"><b>Not modelled.</b> A toroidal car tyre: the profile is a circle in the wheel plane, and the lateral extent is the flat footprint. Patch growth with load. Contact geometry is sampled once per step, at the start-of-step pose. The 5- and 8/9-sample layouts differ by about 30 % on sharp edges; this is documented but not calibrated.</p>
+</section>
+
+<section class="ch" id="s5">
+<h2><span class="n">5</span>Suspension and the unsprung mass</h2>
+<p class="src">vehicle.cpp (per-wheel loop, damperForce), vehicle_def.hpp (SuspensionDef, AxleDef), setup.cpp</p>
+<p>At full fidelity each wheel has a vertical degree of freedom, its compression \(x\), and it is integrated linearly implicitly. The tyre's radial stiffness (about 250 kN/m) and the wheel's small mass (about 40 kg) give a wheel-hop mode near 14 Hz. That stiffness is why the scheme is implicit.</p>
+<h3>5.1 Damper, spring, anti-roll bar and bump stops</h3>
+<p>The damper is two-stage (slow and fast) with a knee speed \(v_k\). Velocity is positive in bump:</p>
+<div class="eq">$$F_d(v)=\begin{cases}c_s\,v,&|v|\le v_k\\[2pt]\operatorname{sign}(v)\,\big[c_s v_k+c_f(|v|-v_k)\big],&|v|>v_k\end{cases}\qquad c_s=\begin{cases}c_{\text{bump}}&v>0\\ c_{\text{reb}}&v\le0\end{cases}$$</div>
+<p>Defaults: bump 3000 and rebound 4500 N·s/m, fast equal to slow, knee 0.1 m/s. At \((x_0,\dot x_0)\) the suspension force, positive pushing the body up, is linearised in the end-of-step rate \(\dot x_1\) using \(x_1=x_0+\Delta t\,\dot x_1\):</p>
+<div class="eq">$$F_s(\dot x_1)=A_s+B_s\dot x_1,\qquad A_s=F_p+kx_0+k_{\text{arb}}(x_0-x_o)+F_d(\dot x_0)-c\,\dot x_0\ \big[+k_b(x_0-L)\big]_{x_0\gt L}\big[+k_bx_0\big]_{x_0\lt0},$$
+$$B_s=K_s\Delta t+c,\qquad K_s=k+k_{\text{arb}}\ [+k_b\ \text{when a stop is engaged}] .$$</div>
+<p>The symbols, with their defaults:</p>
+<ul class="list">
+<li>\(F_p\): preload;</li>
+<li>\(k\): wheel rate, 35 kN/m;</li>
+<li>\(k_b\): bump-stop rate, \(3\times10^5\) N/m;</li>
+<li>\(c=\partial F_d/\partial v\) at \(\dot x_0\);</li>
+<li>\(k_{\text{arb}}\): the anti-roll bar rate, acting on the difference from the axle partner's compression \(x_o\) at the start of the step.</li>
+</ul>
+<p>The anti-roll bar is therefore implicit on the wheel's own side and lagged on the partner's, which makes the result independent of wheel order.</p>
+<h3>5.2 The tyre as a radial spring</h3>
+<p>Each contact sample \(k\) has a penetration \(p_k\) and a sensitivity \(\sigma_k=-\partial p_k/\partial x\):</p>
+<ul class="list">
+<li><b>Patch sample</b> (flat footprint): \(p_k=(L-x)+r-d_k\), with direction the ground normal \(\hat n_k\) and \(\sigma_k=1\).</li>
+<li><b>Probe</b> (radial): \(\mathbf d=\mathbf c-\mathbf P_k\), \(p_k=r-\lVert\mathbf d\rVert\), with direction \(\hat\rho_k=\mathbf d/\lVert\mathbf d\rVert\) and \(\sigma_k=\max(0,\hat\rho_k\cdot\hat u)\).</li>
+</ul>
+<p>With \(\varrho_k=\max(0,\hat\rho_k\cdot\hat u)\,\tau\), where \(\tau\) is the tilt fade of chapter 12, the samples in contact are summed:</p>
+<div class="eq">$$P_0=\sum_k w_sp_k\varrho_k,\qquad P_{\text{prev}}=\sum_k w_sp_k^{\text{prev}}\varrho_k,\qquad W_{\text{act}}=\sum_k w_s\varrho_k\sigma_k .$$</div>
+<p>The tyre's force along \(\hat u\) is then linearised with radial stiffness \(k_t\) and damping \(c_t\) (defaults 250 kN/m and 400 N·s/m):</p>
+<div class="eq">$$F_{t,u}(\dot x_1)\approx A_t-B_t\dot x_1,\qquad A_t=k_tP_0+c_t\frac{P_0-P_{\text{prev}}}{\Delta t},\qquad B_t=(k_t\Delta t+c_t)\,W_{\text{act}} .$$</div>
+<h3>5.3 The implicit wheel update</h3>
+<p>Newton's law for the wheel mass \(m\) along \(\hat u\) uses the hardpoint's absolute acceleration, \(\mathbf a_{hp}=\mathbf a+\boldsymbol\alpha\times\mathbf r_{hp}+\boldsymbol\omega\times(\boldsymbol\omega\times\mathbf r_{hp})\), taken one step lagged, together with \(g_u=\mathbf g\cdot\hat u\):</p>
+<div class="eq">$$m\,(\mathbf a_{hp}\cdot\hat u+\ddot x)=F_{t,u}-F_s+m\,g_u .$$</div>
+<p>Backward Euler in velocity, with both forces linearised at the end of the step, gives one scalar equation per wheel with no iteration:</p>
+<div class="eq">$$\boxed{\ \dot x_1=\frac{\dfrac{m}{\Delta t}\dot x_0-A_s+m g_u-m\,\mathbf a_{hp}\cdot\hat u+A_t}{\dfrac{m}{\Delta t}+B_t+B_s}\ },\qquad x_1=x_0+\Delta t\,\dot x_1 .$$</div>
+<p>Contact is unilateral. If \(A_t-B_t\dot x_1\lt0\) the tyre would pull the road, so \(A_t\) and \(B_t\) are set to zero and the wheel is solved airborne. The per-sample forces are then recomputed nonlinearly at \(x_1\):</p>
+<div class="eq">$$f_k=\tau\,\max\!\Big(0,\ w_s\big[k_tp_k+c_t\,(p_k-p_k^{\text{prev}})/\Delta t\big]\Big),\qquad \mathbf F_t=\sum_kf_k\hat\rho_k,\qquad \hat n=\frac{\mathbf F_t}{\lVert\mathbf F_t\rVert},\qquad \mathbf p_{\text{patch}}=\frac{\sum f_k\mathbf P_k}{\sum f_k},\qquad F_z=\max(0,\mathbf F_t\cdot\hat n) .$$</div>
+<p>The full 3-D direction of \(\mathbf F_t\) is kept, so a kerb's slanted face pushes the wheel back as well as up. The chassis receives the tyre force and the inertial relief:</p>
+<div class="eq">$$\mathbf F\mathrel{+}=\mathbf F_t-m\ddot x\,\hat u,\qquad \boldsymbol\tau\mathrel{+}=(\mathbf p_{\text{patch}}-\mathbf x_{cm})\times\mathbf F_t+(\mathbf h-\mathbf x_{cm})\times(-m\ddot x\,\hat u) .$$</div>
+<p>The suspension force itself is internal and is not applied to the body.</p>
+<h3>5.4 The massless wheel (LOD1)</h3>
+<p>Distant cars use a rigid tyre and an algebraic suspension:</p>
+<div class="eq">$$x=\max_k(L+r-d_k),\qquad F=F_p+k\min(x,L)+k_b\max(0,x-L)+F_d\!\Big(\frac{x-x_{\text{prev}}}{\Delta t}\Big)+k_{\text{arb}}(x-x_o),\qquad F_z=\max(0,F)\,\tau .$$</div>
+<p>The load is applied along the mean normal of the samples within 5 mm of the deepest one.</p>
+<h3>5.5 Ride height and setup</h3>
+<p>The static compression \(x_{\text{ride}}=\operatorname{clamp}\big((F_z^{\text{static}}-mg-F_p)/k,0,L\big)\) is the reference for camber gain (chapter 6). The tuning garage converts setup-sheet units as follows:</p>
+<div class="tbl"><table>
+<thead><tr><th>Setup field</th><th>Engine parameter</th></tr></thead>
+<tbody>
+<tr><td>camber, toe (deg)</td><td><code>staticCamber</code>, <code>staticToe</code> in rad</td></tr>
+<tr><td>caster (deg, steered wheels only)</td><td><code>casterAngle</code> in rad</td></tr>
+<tr><td>camber gain (deg/cm)</td><td>rad/m: \(\times\pi/180\times100\)</td></tr>
+<tr><td>spring and ARB (N/mm)</td><td>N/m: \(\times1000\)</td></tr>
+<tr><td>bump/rebound, slow/fast</td><td>damper coefficients</td></tr>
+<tr><td>ride height (mm)</td><td>translates the hardpoint; travel and spring are unchanged</td></tr>
+</tbody></table></div>
+<p>Two analytic checks hold:</p>
+<ul class="list">
+<li>The heave and wheel-hop frequencies of the reference sports car match the analytic quarter car: 1.728 / 1.728 Hz and 13.689 / 13.688 Hz.</li>
+<li>The definition validator requires the springs and bump stops to carry \(1.6\,Mg/n_w\) per corner.</li>
+</ul>
+<p class="note limit"><b>Not modelled.</b> Suspension kinematics: there are no wishbone or strut linkages, roll centres, anti-dive, anti-squat, jacking, motion ratios, compliance or bushings (planned). The damper is linearised at the start-of-step speed, with no iteration across the knee. Bump stops are linear, with no gap and no damping. The wheel equation neglects the rotation of \(\hat u\) within the step, including the Coriolis term.</p>
+</section>
+
+<section class="ch" id="s6">
+<h2><span class="n">6</span>Steering and wheel geometry</h2>
+<p class="src">vehicle.cpp (wheelSteerAngle, camber), assists.cpp (shapeSteer)</p>
+<p>The driver's steer input \(s\in[-1,1]\) (positive to the left) maps to a <em>road-wheel</em> reference angle. There is no steering-wheel ratio or column model in the core. Shaping and rate limiting are described in chapter 11.</p>
+<h3>6.1 Per-wheel angle and Ackermann</h3>
+<p>Each steered wheel gets \(\delta=\delta_{\text{ref}}\,\delta_{\max,w}/\delta_{\max,\text{ref}}\). On the front axle a fraction \(A\) of ideal Ackermann is mixed in (default \(A=0.6\)), with wheelbase \(\ell\) and the wheel's lateral offset \(t\):</p>
+<div class="eq">$$R=\frac{\ell}{\tan|\delta|},\qquad \delta_{\text{ideal}}=\arctan\frac{\ell}{\max(R\mp t,\ 0.1)},\qquad |\delta|\leftarrow(1-A)|\delta|+A\,\delta_{\text{ideal}}$$</div>
+<p>The minus sign is for the inner wheel. Toe is added last (positive is toe-in): \(\delta\leftarrow\delta-\text{toe}\) on the left and \(\delta+\text{toe}\) on the right. Unsteered wheels get only toe.</p>
+<h3>6.2 Inclination: camber from geometry and roll</h3>
+<p>With \(\varsigma=+1\) for a left wheel and \(-1\) for a right one, the wheel's tilt in the body frame combines three terms:</p>
+<ul class="list">
+<li>static camber \(\gamma_0\) (negative tilts the top inward);</li>
+<li>linear camber gain \(G\) with travel;</li>
+<li>caster \(\theta_c\) acting through the steer angle.</li>
+</ul>
+<div class="eq">$$g=\varsigma\big[\gamma_0+G(x-x_{\text{ride}})\big]+\sin\theta_c\sin\delta .$$</div>
+<p>The axle direction is rotated into the world and measured against the contact normal:</p>
+<div class="eq">$$\hat a=R(q)\,(-\sin\delta\cos g,\ \cos\delta\cos g,\ -\sin g),\qquad \gamma=-\arcsin\big(\operatorname{clamp}(\hat a\cdot\hat n,-1,1)\big) .$$</div>
+<p>Body roll and road camber therefore enter through \(R(q)\) and \(\hat n\): a car rolled by \(\phi\) with no static camber sees \(\gamma=-\phi\). The tyre model then uses \(\gamma\) (chapter 7).</p>
+<p class="note limit"><b>Not modelled.</b> A kingpin axis, scrub radius, caster trail and geometric self-alignment: steering rotates the wheel about body \(z\) at the hardpoint. Bump steer and roll steer. Steering compliance. Ackermann on rear-steered axles.</p>
+</section>
+<section class="ch" id="s7">
+<h2><span class="n">7</span>The tyre model</h2>
+<p class="src">tire.hpp, tire.cpp, tire_generator.cpp, setup.cpp (compounds, pressure, camber model), vehicle.cpp (call sites)</p>
+<p>The tyre is a reduced Pacejka Magic Formula (Pacejka 2012, ch. 4) with:</p>
+<ul class="list">
+<li>first-order relaxation-length transient slip (ch. 7);</li>
+<li>combined slip by MF 5.2/6.x cosine weighting functions;</li>
+<li>load sensitivity;</li>
+<li>camber thrust and a camber peak-grip law;</li>
+<li>a one-node tread-temperature model.</li>
+</ul>
+<p>It is not a full MF 6.x coefficient set: there are no \(S_H/S_V\) shifts and no <code>.tir</code> files. That would fit behind the same interface later.</p>
+<h3>7.1 The Magic Formula</h3>
+<div class="eq">$$y(x)=D\sin\!\Big(C\arctan\big(Bx-E\,(Bx-\arctan Bx)\big)\Big),\qquad E\le1 .$$</div>
+<p>The peak is set by \(D\), the shape by \(C\) and the curvature by \(E\), and the initial slope is \(BCD\). Throughout, \(B\) is chosen as \(B=K/(CD)\), so the slip stiffness \(K\) is an input parameter that stays fixed whatever the friction does.</p>
+<h3>7.2 Slip without division by speed</h3>
+<p>The textbook slips, \(\kappa=(\omega r-v_x)/|v_x|\) and \(\tan\alpha=-v_y/|v_x|\), are singular at a standstill. The core never evaluates them. Slip exists only as the state of two relaxation equations, whose steady states are those textbook values:</p>
+<div class="eq">$$\sigma_x\,\dot\kappa+|v_x|\,\kappa=r\omega-v_x,\qquad\qquad \sigma_y\,\frac{d(\tan\alpha)}{dt}+|v_x|\tan\alpha=-v_y .$$</div>
+<p>The relaxation lengths default to \(\sigma_x=0.15\) m and \(\sigma_y=0.45\) m. At \(v_x=0\) each state integrates the carcass deflection divided by \(\sigma\), so a parked tyre behaves like a spring of stiffness about \(K/\sigma\). That gives exact standstill holding on a slope without any \(\varepsilon\) in a denominator. The lateral state is integrated by backward Euler, which is unconditionally stable:</p>
+<div class="eq">$$(\tan\alpha)_{n+1}=\frac{(\tan\alpha)_n-\Delta t\,v_y/\sigma_y}{1+\Delta t\,|v_x|/\sigma_y},\qquad |\tan\alpha|\le10,\qquad \alpha=\arctan(\tan\alpha) .$$</div>
+<p>The longitudinal state is solved simultaneously with the wheel spin and the drivetrain (chapter 8). Because the relaxation equations have no damping at rest, a load-proportional damper that fades out with speed holds a stopped car without chatter:</p>
+<div class="eq">$$c_d=d_{ls}\,F_z\max\!\Big(0,\ 1-\frac{\sqrt{v_x^2+v_y^2}}{v_{\text{fade}}}\Big),\qquad d_{ls}=3.0\ \tfrac{\mathrm{N\,s/m}}{\mathrm N},\ v_{\text{fade}}=3\ \mathrm{m/s};\qquad F_y\leftarrow F_y-c_dv_y .$$</div>
+<p>The same damper enters the longitudinal wheel equation through \(c_d(r\omega-v_x)\).</p>
+<h3>7.3 Load sensitivity and pure slip</h3>
+<p>Peak friction falls linearly with load (the role of MF \(p_{Dx2}\) and \(p_{Dy2}\)):</p>
+<div class="eq">$$df_z=\frac{F_z-F_{z0}}{F_{z0}},\qquad \mu_x=\max\big(0,\mu_{x0}(1+p_{\mu x}df_z)\big),\qquad \mu_y=\max\big(0,\mu_{y0}(1+p_{\mu y}df_z)\big) .$$</div>
+<p>Defaults: \(\mu_{x0}=1.10\), \(p_{\mu x}=-0.08\), \(\mu_{y0}=1.05\), \(p_{\mu y}=-0.10\), \(F_{z0}=4000\) N. Each pure-slip force is defined by its own \(D\), \(K\) and \(B\):</p>
+<div class="eq">$$\text{longitudinal:}\quad D_x=\mu_xs_xF_z,\quad K_x=k_xF_z,\quad B_x=\frac{K_x}{C_xD_x},\quad F_{x0}=y(\kappa;B_x,C_x,D_x,E_x)$$
+$$\text{lateral:}\quad D_y=\mu_ys_yF_z,\quad K_y=c_KF_{z0}\sin\!\Big(2\arctan\frac{F_z}{c_{KL}F_{z0}}\Big),\quad B_y=\frac{K_y}{C_yD_y},\quad F_{y0}=y(\alpha;B_y,C_y,D_y,E_y)$$</div>
+<p>Defaults: \(k_x=18\), \(C_x=1.65\), \(E_x=0.10\), \(c_K=16\), \(c_{KL}=1.9\), \(C_y=1.35\), \(E_y=-0.40\). The cornering stiffness \(K_y\) saturates with load, peaking at \(F_z=c_{KL}F_{z0}\); this is the MF 6.x form, without the camber term. The grip multipliers \(s_x\) and \(s_y\) carry the surface, temperature and camber effects of §§7.5–7.7.</p>
+<p class="inf"><b>Interpretation.</b> For the reference sports car's front tyre at \(F_z=F_{z0}=3600\) N, these formulas give:</p>
+<ul class="list">
+<li>\(K_y=47.5\) kN/rad and \(B_y=8.88\);</li>
+<li>a peak lateral force at a slip angle of about 12.7°;</li>
+<li>a peak longitudinal force at \(\kappa\approx0.153\);</li>
+<li>at \(\kappa=1\) (a locked or spinning wheel), 0.67 of the peak.</li>
+</ul>
+<p class="inf">The 12.7° peak is generous for a road tyre. It follows from \(E_y=-0.4\).</p>
+<h3>7.4 Combined slip and aligning moment</h3>
+<p>Each force is attenuated by the other slip through MF cosine weighting functions, without shifts:</p>
+<div class="eq">$$G_{x\alpha}=\cos\!\big(r_{Cx1}\arctan(B_{x\alpha}\alpha)\big),\quad B_{x\alpha}=r_{Bx1}\cos\!\big(\arctan(r_{Bx2}\kappa)\big),\qquad F_x=G_{x\alpha}F_{x0}$$
+$$G_{y\kappa}=\cos\!\big(r_{Cy1}\arctan(B_{y\kappa}\kappa)\big),\quad B_{y\kappa}=r_{By1}\cos\!\big(\arctan(r_{By2}\alpha)\big),\qquad F_y=G_{y\kappa}F_{y0}$$</div>
+<p>Defaults: \(r_{Bx1}=13\), \(r_{Bx2}=9.7\), \(r_{By1}=10.6\), \(r_{By2}=7.8\), \(r_{C\cdot1}=1\). No friction ellipse is imposed explicitly. A test checks that \((F_x/\mu_xF_z)^2+(F_y/\mu_yF_z)^2\le1.02\) over a grid of slips. The same quantity, under its square root, is the "grip used" readout in the demo.</p>
+<p>The aligning moment is a pneumatic trail that collapses linearly with slip, plus a camber twisting term:</p>
+<div class="eq">$$t_p=t_0\max\!\Big(0,1-\frac{|\alpha|}{\alpha_c}\Big),\qquad M_z=-t_pF_y+c_{tw}F_z\gamma,\qquad t_0=0.035\ \mathrm m,\ \alpha_c=0.20\ \mathrm{rad}.$$</div>
+<h3>7.5 Camber</h3>
+<p><b>Camber thrust.</b> This is the motorcycle MF form (Pacejka 2012 §11.5; Sharp, Evangelou and Limebeer 2004). Camber and slip share one friction limit:</p>
+<div class="eq">$$F_{y0}=D_y\sin\!\Big(\operatorname{clamp}\big[C_y\arctan(B_y\alpha-E_y(B_y\alpha-\arctan B_y\alpha))+C_\gamma\arctan(B_\gamma\gamma),\ \pm0.95\pi\big]\Big),\qquad B_\gamma=\frac{c_\gamma F_z}{C_\gamma D_y} .$$</div>
+<p>This gives \(\partial F_y/\partial\gamma|_0=c_\gamma F_z\), which a test checks to 1 %.</p>
+<p><b>Camber and peak grip (cars).</b> A car tyre grips best at a small inclination into the turn. With \(\gamma_{\text{in}}=\gamma\tanh(\alpha/0.03)\), the camber measured toward the lateral force:</p>
+<div class="eq">$$s_y\leftarrow s_y\max\!\big(0.5,\ 1-k_{\gamma y}(\gamma_{\text{in}}-\gamma_{\text{opt}})^2\big),\qquad s_x\leftarrow s_x\max\!\big(0.5,\ 1-k_{\gamma x}\gamma^2\big) .$$</div>
+<p>The garage switches this model on with \(c_\gamma=0.8\), \(k_{\gamma y}=30\), \(k_{\gamma x}=11\) and \(\gamma_{\text{opt}}=2°\). That costs about 8 % of lateral grip 3° from the optimum, and about 3 % of braking grip at 3°. Stock definitions leave it off, so the golden benchmarks are unaffected. The measured effect: 100–0 km/h braking takes 39.0 m at 0° of camber and 42.6 m at −6°.</p>
+<h3>7.6 Surfaces</h3>
+<div class="eq">$$s_{\text{base}}=\max(0,f_s)\cdot\frac{1}{1+\max(0,c_{wsf}s_{aq})\,|v|}\cdot\big(1+W(g_{\text{wet}}-1)\big)\big(1+L(g_{\text{loose}}-1)\big)\cdot g_T$$</div>
+<p>The terms are:</p>
+<ul class="list">
+<li>\(f_s\): the surface friction scale; dry asphalt is 1, and the demo's wet patches use 0.6.</li>
+<li>\(c_{wsf}\): a crude speed fall-off for standing water, scaled by the compound's aquaplaning sensitivity \(s_{aq}\).</li>
+<li>\(W\) and \(L\): wetness and looseness, each in [0, 1], weighting the compound's wet and loose-surface grip factors.</li>
+<li>\(g_T\): the temperature factor of §7.7.</li>
+</ul>
+<p>Surface roughness changes only the ground cache's sampling, not grip.</p>
+<h3>7.7 Tread temperature</h3>
+<p>Garage compounds carry a single thermal node. It heats from sliding power and rolling loss, and cools by convection that grows with speed:</p>
+<div class="eq">$$C_{th}\dot T=\eta\big(|F_x(\omega r-v_x)|+|F_yv_y|\big)+0.5f_{rr}F_z|v_x|-(h_0+h_vv)(T-T_{\text{amb}}),\qquad T\in[-30,250]\ ^\circ\mathrm C$$</div>
+<p>It is integrated explicitly with \(C_{th}=3000\) J/K, \(\eta=0.35\), \(h_0=5\) W/K and \(h_v=1\) W/(K·m/s). Grip follows a window around the optimum temperature:</p>
+<div class="eq">$$\xi=\frac{T-T_{\text{opt}}}{\max(\Delta T_w,1)},\qquad g_T=\max\big(\,\xi\lt0\ ?\ 0.75:0.60,\ \ 1-k_T\xi^2\big) .$$</div>
+<p>Tyre warmers start the tread at a chosen temperature. In the tests, cold slicks reach 0.74 g on the skidpad.</p>
+<h3>7.8 Compounds and pressure</h3>
+<div class="tbl"><table>
+<caption>Table 7.1. Compound multipliers and windows, as implemented. Values are representative, not data for any product.</caption>
+<thead><tr><th>Compound</th><th class="n">μ</th><th class="n">stiffness</th><th class="n">wet</th><th class="n">aquaplane</th><th class="n">loose</th><th class="n">T<sub>opt</sub> °C</th><th class="n">window °C</th><th class="n">k<sub>T</sub></th><th class="n">σ<sub>y</sub>×</th></tr></thead>
+<tbody>
+<tr><td>off-road</td><td class="n">0.85</td><td class="n">0.70</td><td class="n">0.95</td><td class="n">0.80</td><td class="n">1.30</td><td class="n">45</td><td class="n">50</td><td class="n">0.08</td><td class="n">1.3</td></tr>
+<tr><td>all-season</td><td class="n">0.95</td><td class="n">0.90</td><td class="n">1.05</td><td class="n">0.90</td><td class="n">1.05</td><td class="n">45</td><td class="n">45</td><td class="n">0.08</td><td class="n">1.05</td></tr>
+<tr><td>street</td><td class="n">1.00</td><td class="n">1.00</td><td class="n">1.00</td><td class="n">1.00</td><td class="n">1.00</td><td class="n">60</td><td class="n">45</td><td class="n">0.10</td><td class="n">1.0</td></tr>
+<tr><td>sport</td><td class="n">1.08</td><td class="n">1.10</td><td class="n">0.95</td><td class="n">1.10</td><td class="n">0.95</td><td class="n">75</td><td class="n">35</td><td class="n">0.12</td><td class="n">0.95</td></tr>
+<tr><td>semi-slick</td><td class="n">1.18</td><td class="n">1.25</td><td class="n">0.75</td><td class="n">1.60</td><td class="n">0.70</td><td class="n">85</td><td class="n">30</td><td class="n">0.15</td><td class="n">0.9</td></tr>
+<tr><td>slick</td><td class="n">1.30</td><td class="n">1.35</td><td class="n">0.45</td><td class="n">4.00</td><td class="n">0.58</td><td class="n">95</td><td class="n">25</td><td class="n">0.20</td><td class="n">0.85</td></tr>
+<tr><td>rain</td><td class="n">1.00</td><td class="n">0.95</td><td class="n">1.15</td><td class="n">0.40</td><td class="n">1.00</td><td class="n">50</td><td class="n">25</td><td class="n">0.18</td><td class="n">1.0</td></tr>
+</tbody></table></div>
+<p>Pressure is a set of static multipliers around 2.2 bar, with \(\delta p=\operatorname{clamp}((p-2.2)/2.2,-0.5,0.6)\):</p>
+<div class="eq">$$c_K\times\operatorname{clamp}(1+0.4\delta p,0.6,1.4),\quad k_t\times\operatorname{clamp}(1+0.8\delta p,0.5,1.6),\quad \sigma_y\times\operatorname{clamp}(1-0.3\delta p,0.7,1.3),\quad \mu\times(1-0.15\delta p^2-0.03\delta p),\quad f_{rr}\times\operatorname{clamp}(1-0.5\delta p,0.6,1.6).$$</div>
+<p>On the reference sports car the compounds give the following peak lateral acceleration:</p>
+<div class="tbl"><table>
+<thead><tr><th>Compound</th><th class="n">dry</th><th class="n">wet</th><th class="n">gravel</th></tr></thead>
+<tbody>
+<tr><td>off-road</td><td class="n">0.76 g</td><td class="n">0.40 g</td><td class="n">0.62 g</td></tr>
+<tr><td>street</td><td class="n">0.83 g</td><td class="n">0.47 g</td><td class="n">0.50 g</td></tr>
+<tr><td>slick</td><td class="n">0.94 g</td><td class="n">0.22 g</td><td class="n">0.37 g</td></tr>
+<tr><td>rain</td><td class="n">0.79 g</td><td class="n">0.56 g</td><td class="n">0.50 g</td></tr>
+</tbody></table></div>
+<h3>7.9 Parameters from a tyre size</h3>
+<p>A generator turns a size string \(W/AR\,R\,D\) plus a category into a parameter set, using round textbook-range scalings (Pacejka 2012 ch. 3–4; Milliken and Milliken 1995) rather than a fit to any product. With \(w=W/1000\), \(f_w=W/225\) and \(f_p=55/AR\):</p>
+<div class="eq">$$R_u=\tfrac{0.0254D}{2}+w\tfrac{AR}{100},\quad k_z=250\,000\,f_w^{0.7}f_p^{0.5},\quad c_K=16f_w^{0.4}f_p^{0.35}s_c,\quad k_x=18f_p^{0.2}s_c,\quad \sigma_y=1.8w\sqrt{AR/55},\quad \sigma_x=0.4\sigma_y,$$
+$$t_0=0.15\sqrt{2R_u\delta},\quad m=18+0.9(D-15)+0.03(W-205),\quad I=0.6\,mR_u^2,\qquad \delta=F_{z0}/k_z .$$</div>
+<p class="note limit"><b>Not modelled.</b> MF shifts, ply-steer and conicity. Load dependence of \(C\) and \(E\). The κ-induced side force \(S_{Vy\kappa}\). A full MF \(M_z\), and overturning and rolling moments. Relaxation lengths that vary with load or slip. Rigid-ring belt dynamics. A two-node thermal model, wear, and the pressure–temperature coupling. A water-film or hydroplaning model. In the implicit wheel solve the longitudinal force is linear in κ about the start-of-step value, with its slope clipped at zero past the peak. This favours stability over exactness on the falling side of the curve.</p>
+</section>
+<section class="ch" id="s8">
+<h2><span class="n">8</span>Wheel spin and the drivetrain</h2>
+<p class="src">drivetrain.hpp/.cpp, linear_solve.hpp, vehicle.cpp (WheelSolveInput), aero.cpp (power correction)</p>
+<p>Engine, clutch, gearbox, differentials, wheel spins and longitudinal slips are stiffly coupled. Integrating them separately at 240 Hz either oscillates or needs tiny steps. The core therefore assembles one linear system per step and solves it implicitly. Friction elements (clutch, brakes, limited-slip clutches) enter through a stick/slip active set.</p>
+<h3>8.1 Engine</h3>
+<p>Full-throttle torque \(T_{\text{wot}}(n)\) is piecewise-linear in a table of (rpm, N·m) points and held constant outside it. Throttle interpolates between the friction loss and full load:</p>
+<div class="eq">$$L(\omega_e)=a+b\,\omega_e\ \ (\omega_e\gt0),\qquad T_e=\theta_{\text{eff}}\big[T_{\text{wot}}(n)+L\big]-L .$$</div>
+<p>Defaults: \(a=18\) N·m and \(b=0.035\) N·m·s/rad. At closed throttle \(T_e=-(a+b\omega_e)\), which is the engine-braking model.</p>
+<p><b>Idle governor</b> (proportional, 250 rpm band, 35 % authority):</p>
+<div class="eq">$$\theta_{\text{idle}}=0.35\operatorname{clamp}\!\Big(\frac{n_{\text{idle}}-n}{250},0,1\Big),\qquad \theta_{\text{eff}}=\max(\theta,\theta_{\text{idle}}) .$$</div>
+<p><b>Rev limiter.</b> Fuel is cut above \(n_{\text{lim}}\) and restored below \(n_{\text{lim}}-150\) rpm. Torque is evaluated at the start-of-step engine speed, and gearbox efficiency 0.93 multiplies positive torque in gear.</p>
+<p><b>Altitude and temperature</b> (naturally aspirated engines). Torque is scaled by the density-ratio core of SAE J1349:</p>
+<div class="eq">$$k_P(h,T_C)=\frac{p(h)}{99\,000}\sqrt{\frac{298.15}{T_C+273.15}},\qquad T_{\text{wot}}\leftarrow T_{\text{wot}}\,\frac{k_P(h,T_C)}{k_P(0,15)} .$$</div>
+<h3>8.2 Unknowns and rows</h3>
+<p>The unknowns of one step are:</p>
+<div class="eq">$$\mathbf x=\big[\underbrace{\omega_e,\ \omega_g,\ \omega_1\ldots\omega_W}_{\text{shaft speeds}},\ \underbrace{\kappa_1\ldots\kappa_W}_{\text{slips}},\ \underbrace{\lambda_G}_{\text{gear mesh}},\ \underbrace{\lambda_c}_{\text{stuck friction rows}}\big]$$</div>
+<p>That is at most 33 unknowns, solved densely by Gaussian elimination with partial pivoting, with no heap allocation. The engine and gearbox-input shafts obey backward Euler:</p>
+<div class="eq">$$\frac{I_k}{\Delta t}\omega_k-\sum_cj_{c,k}\lambda_c=\frac{I_k}{\Delta t}\omega_k^0+T_e\,\delta_{k,e}+\sum_{\text{slipping}}j_{s,k}f_s .$$</div>
+<p>Each wheel row linearises its tyre force about the start-of-step slip \(\kappa_0\):</p>
+<div class="eq">$$F_x\approx F_{x0}+K'(\kappa_1-\kappa_0)+c_d(r\omega_1-v_x),\qquad K'=\max\!\Big(0,\frac{\partial F_x}{\partial\kappa}\Big)\ \text{(central difference, }h=10^{-4})$$
+$$\Big(\frac{I_w}{\Delta t}+r^2c_d\Big)\omega_1+rK'\kappa_1-\sum_cj_{c,i}\lambda_c=\frac{I_w}{\Delta t}\omega_0+T_{rr}-rF_{x0}+rK'\kappa_0+rc_dv_x+\sum j_{s,i}f_s$$</div>
+<p>The rolling-resistance torque in that row has a smooth sign:</p>
+<div class="eq">$$T_{rr}=-f_{rr}s_{rr}F_zr\tanh\!\Big(\frac{\omega r}{0.5}\Big),\qquad f_{rr}=0.012 .$$</div>
+<p>Each slip row is the backward-Euler relaxation equation of §7.2:</p>
+<div class="eq">$$\Big(\frac{\sigma_x}{\Delta t}+|v_x|\Big)\kappa_1-r\omega_1=\frac{\sigma_x}{\Delta t}\kappa_0-v_x .$$</div>
+<p>The force the chassis receives is the linearised \(F_x\) evaluated at the solution. Wheel and chassis therefore see the same impulse.</p>
+<h3>8.3 Gearbox, differentials and the constraint block</h3>
+<p>Gear ratio \(G\) and per-axle final drive \(R_a\) with torque share \(s_a\) (\(\sum s_a=1\)) give one equality constraint whenever a gear is engaged:</p>
+<div class="eq">$$\omega_g-\sum_a k_a(\omega_{a,L}+\omega_{a,R})=0,\qquad k_a=\tfrac12s_aGR_a .$$</div>
+<p>Its multiplier \(\lambda_G\) applies \(+\lambda_G\) to the gearbox input and \(-k_a\lambda_G\) to each wheel of axle \(a\). That is exactly an open differential (equal left/right torque) and an open centre (split \(s_a\)). Locking and limiting are added as friction rows:</p>
+<div class="tbl"><table>
+<thead><tr><th>Row</th><th>Jacobian \(\mathbf j\)</th><th>Capacity \(C\)</th></tr></thead>
+<tbody>
+<tr><td>Clutch</td><td>\(\omega_e-\omega_g\)</td><td>\(e\,T_{c,\max}\), \(T_{c,\max}=600\) N·m</td></tr>
+<tr><td>Brake \(i\)</td><td>\(\omega_i\)</td><td>\(T_{b,i}\) from the assist layer</td></tr>
+<tr><td>Axle differential</td><td>\(\omega_{a,L}-\omega_{a,R}\)</td><td>open 0 · locked \(10^9\) · clutch LSD \(P_a+\rho\,|\lambda_G^{\text{prev}}GR_a|\,s_a\) with preload 80 N·m and ramps 0.45 (power) / 0.25 (coast)</td></tr>
+<tr><td>Centre coupling (2 driven axles)</td><td>\(\tfrac12(\omega_{FL}+\omega_{FR})-\tfrac12(\omega_{RL}+\omega_{RR})\)</td><td>locked \(10^9\), or \(P_c+\rho_c|\lambda_G^{\text{prev}}G|\) with \(P_c=100\), \(\rho_c=0.3\)</td></tr>
+</tbody></table></div>
+<p>Every active constraint enters with a tiny compliance \(\varepsilon=10^{-7}\) (rad/s)/(N·m), so redundant locks stay well-posed (for example, a locked differential with both brakes locked):</p>
+<div class="eq">$$\begin{bmatrix}\mathbf M & -\mathbf J^{\top}\\ \mathbf J & -\varepsilon\mathbf I\end{bmatrix}\begin{bmatrix}\boldsymbol\omega\\ \boldsymbol\lambda\end{bmatrix}=\begin{bmatrix}\mathbf b\\ \mathbf 0\end{bmatrix}$$</div>
+<p>Here \(\mathbf M\) includes the tyre-slip coupling, so it is not symmetric.</p>
+<h3>8.4 Stick and slip</h3>
+<p>Each friction row is either stuck (a constraint with multiplier \(\lambda\)) or slipping (a known torque \(f=-C\operatorname{sign}(v)\)). The active set is resolved per step:</p>
+<ol class="steps">
+<li><b>Initial state.</b> A row whose relative speed \(|v_0|\lt10^{-3}\) rad/s starts stuck. Otherwise it keeps last step's state.</li>
+<li><b>Solve</b> the system.</li>
+<li><b>Break loose.</b> A stuck row with \(|\lambda|\gt C(1+10^{-9})\) starts slipping, with \(f=\operatorname{clamp}(\lambda,-C,C)\).</li>
+<li><b>Lock.</b> A slipping row whose friction would reverse its motion (\(v_1f\gt0\)) becomes stuck.</li>
+<li><b>Repeat</b> until nothing changes, at most 12 times.</li>
+</ol>
+<p>Brakes therefore hold a car on a slope exactly, with no Coulomb chatter, and a clutch slips above its capacity and locks when the speeds match. Tests check these behaviours, the equal split of an open differential, and that engine work equals the rotational kinetic energy gained.</p>
+<h3>8.5 Top-speed limiter</h3>
+<p>An electronic limiter \(V\) fades the throttle over the last 2 %:</p>
+<div class="eq">$$\theta\leftarrow\theta\Big[1-\operatorname{clamp}\Big(\frac{|v_x|-0.98V}{0.02V},0,1\Big)\Big] .$$</div>
+<p>The real-car approximations use it at 250 km/h for the AMG S 63 and 210 km/h for the S 600 Guard.</p>
+<p class="note limit"><b>Not modelled.</b> Torsional compliance and backlash; torque converters; viscous couplings; torque vectoring; electric motors; turbo lag; stalling; humidity in the power correction. The limited-slip capacity lags one step.</p>
+</section>
+
+<section class="ch" id="s9">
+<h2><span class="n">9</span>Brakes and ABS</h2>
+<p class="src">assists.cpp (ABS stage), drivetrain.cpp (brake rows), setup.cpp (balance)</p>
+<p>Each wheel's brake torque capacity is set by the pedal, a modulation factor \(p_w\in[0,1]\) and the handbrake:</p>
+<div class="eq">$$T_{b,w}=b\,T_{\max,w}\,p_w+b_h\,T_{hb,w} .$$</div>
+<p>It becomes a friction row on the wheel's spin (§8.4), so a locked wheel is a constraint \(\omega=0\), not an oscillating torque. Brake balance is the share of \(T_{\max}\) on the front axle; the garage sets \(\beta\in[0.2,0.85]\) and a pressure scale.</p>
+<p><b>ABS.</b> A slip-threshold controller with hysteresis. Slip is measured against the contact speed along the wheel heading, \(v_g\):</p>
+<div class="eq">$$s=\frac{\omega r-v_g}{\max(|v_g|,1)},\qquad s^*=0.12$$</div>
+<div class="tbl"><table>
+<thead><tr><th>Condition</th><th>Action on \(p_w\)</th></tr></thead>
+<tbody>
+<tr><td>pedal 0, wheel airborne, or \(v_g\lt2\) m/s</td><td>approach 1 at 10 /s</td></tr>
+<tr><td>\(s\lt-s^*\)</td><td>release at 8 /s</td></tr>
+<tr><td>\(s\gt-0.6s^*\)</td><td>re-apply at 4 /s</td></tr>
+<tr><td>otherwise</td><td>hold</td></tr>
+</tbody></table></div>
+<p>The handbrake is never modulated. On the reference sports car, 100–0 km/h takes 37.96 m with ABS and 47.62 m locked (golden baseline). The ABS mean deceleration falls within 0.9–1.15 g.</p>
+<p class="note limit"><b>Not modelled.</b> Hydraulics, pad friction against temperature, and fade. ABS uses the true ground speed rather than an estimate.</p>
+</section>
+
+<section class="ch" id="s10">
+<h2><span class="n">10</span>Aerodynamics and the atmosphere</h2>
+<p class="src">aero.hpp/.cpp, vehicle.cpp (aero block), setup.cpp (weather)</p>
+<h3>10.1 Atmosphere</h3>
+<p>The atmosphere is the International Standard Atmosphere troposphere, with the actual air temperature used for density:</p>
+<div class="eq">$$T_{\text{ISA}}=288.15-0.0065\min(h,11\,000),\qquad p=p_0\Big(\frac{T_{\text{ISA}}}{288.15}\Big)^{g_0/(R\cdot0.0065)},\qquad \rho=\frac{p}{R\,(T_C+273.15)},\qquad R=287.05\ \tfrac{\mathrm J}{\mathrm{kg\,K}} .$$</div>
+<p>The exponent is about 5.256. Air is dry. Without a weather setting, \(\rho=1.225\) kg/m³.</p>
+<h3>10.2 Body forces</h3>
+<p>Airspeed is taken relative to a steady world wind \(\mathbf w\): \(\mathbf v_a=\mathbf v-\mathbf w\), with body components \(\mathbf v_b=R^{\top}\mathbf v_a\). From these:</p>
+<div class="eq">$$\mathbf F_D=-\tfrac12\rho\,C_DA\,\lVert\mathbf v_a\rVert\,\mathbf v_a,\qquad \psi=\operatorname{atan2}(v_{b,y},v_{b,x}),\qquad q=\tfrac12\rho\max(0,v_{b,x})^2,\qquad F_{y,b}=-\tfrac12\rho\lVert\mathbf v_a\rVert^2A_s\sin\psi .$$</div>
+<p>Drag and side force act at the CoM. The default is \(C_DA=0.70\) m². Downforce on each axle acts at the midpoint of that axle's hardpoints. It falls with aero yaw, and it rises as the floor gets closer to the ground until the floor stalls (Katz 1995):</p>
+<div class="eq">$$F_{z,F/R}=q\,(C_LA)_{F/R}\cos^2\psi\;f_h(h),\qquad f_h=\min\!\Big(2.5,\ \Big(\frac{h_{\text{ref}}}{\max(h,0.005)}\Big)^{0.6}\Big[1-0.6\operatorname{smoothstep}\Big(\frac{h_{\text{stall}}-h}{0.015}\Big)\Big]\Big) .$$</div>
+<p>Below the stall height the floor loses up to 60 % of its downforce over 15 mm. On the reference car at 180 km/h the floor gives:</p>
+<ul class="list">
+<li>1457 N stock;</li>
+<li>1690 N lowered 40 mm;</li>
+<li>686 N once stalled.</li>
+</ul>
+<h3>10.3 A wing that stalls</h3>
+<p>The rear wing has span \(b\), chord \(c\) and aspect ratio \(AR=b/c\). Its angle of attack includes the body's pitch and heave motion:</p>
+<div class="eq">$$\alpha=\alpha_{\text{set}}-\operatorname{atan2}\big(-v_{b,z},\max(v_{b,x},0.1)\big),\qquad a_{3D}=\frac{2\pi AR}{2+\sqrt{(AR/\kappa)^2+4}},\quad \kappa=\frac{a_{2D}}{2\pi}=0.95 .$$</div>
+<p>The 3-D lift slope is the Helmbold/DATCOM form. Below stall the polar is linear lift with a quadratic drag bucket:</p>
+<div class="eq">$$C_l=a_{3D}(\alpha-\alpha_0),\qquad C_d=C_{d\min}+k(C_l-C_l^*)^2 .$$</div>
+<p>Past the stall angle \(\alpha_s=\alpha_0+C_{l\max}/a_{3D}\), lift and drag blend (over \(w=0.08\) rad, by smoothstep) into the Viterna–Corrigan post-stall model, anchored at the stall point with a 30 % lift drop:</p>
+<div class="eq">$$C_l^{VC}=\tfrac{C_{d\max}}{2}\sin2\alpha+A_2\frac{\cos^2\alpha}{\sin\alpha},\qquad C_d^{VC}=C_{d\max}\sin^2\alpha+B_2\cos\alpha,$$
+$$A_2=\frac{(C_{l,s}-C_{d\max}\sin\alpha_s\cos\alpha_s)\sin\alpha_s}{\cos^2\alpha_s},\qquad B_2=\frac{C_{d,s}-C_{d\max}\sin^2\alpha_s}{\cos\alpha_s} .$$</div>
+<p>The section defaults are \(\alpha_0=-0.07\), \(C_{l\max}=1.9\), \(C_{l\min}=-0.8\), \(C_{d\min}=0.012\), \(k=0.008\), \(C_l^*=0.5\) and \(C_{d\max}=1.6\). With span efficiency \(e=0.85\), the wing's downforce and drag act at its aerodynamic centre:</p>
+<div class="eq">$$C_{Di}=\frac{C_l^2}{\pi eAR},\qquad D_w=qSC_l\cos^2\psi,\qquad F_{D,w}=qS(C_d+C_{Di}) .$$</div>
+<p>At 200 km/h the default garage wing (1.4 × 0.28 m) peaks at 1394 N at 24° and stalls to 920 N at 30°.</p>
+<p class="note limit"><b>Not modelled.</b> Pitch and roll sensitivity of the body coefficients beyond ride height. Aero yaw and pitch moments from drag and side force. Balance shift with yaw. Gusts, wakes and slipstream. Ground effect on the wing: a McCormick factor exists in the code but is not called. Humidity.</p>
+</section>
+<section class="ch" id="s11">
+<h2><span class="n">11</span>Driver aids</h2>
+<p class="src">assists.hpp/.cpp, presets.hpp</p>
+<p>The aids are a layer between the driver and the car. They read the previous step's sensors and act only through the actuators a real car has: road-wheel angle, throttle, per-wheel brake torque, clutch and gear. Every preset drives the same physics; only the aids differ. Each step runs them in this order:</p>
+<ol class="steps">
+<li>steering (shaping, speed-sensitive range, countersteer, drift);</li>
+<li>a 0.3 s crossfade on preset changes;</li>
+<li>throttle rate limit;</li>
+<li>transmission and clutch;</li>
+<li>ABS;</li>
+<li>TCS;</li>
+<li>drift throttle trim;</li>
+<li>ESC.</li>
+</ol>
+<h3>11.1 Steering</h3>
+<p>The input is first shaped and rate-limited: \(u=\operatorname{sign}(s)|s|^{e}\), followed by an approach at the steering or return rate. In speed-sensitive mode (above 1 m/s) the stick's range is <em>scaled</em>, not clipped, to the lock that friction can use, plus a target front slip angle \(\alpha_T\):</p>
+<div class="eq">$$R_{\min}=\frac{v^2}{\max(\hat\mu g,0.5)},\qquad \delta_{\text{lim}}=\min\!\Big(\delta_{\max},\ \arctan\frac{\ell}{R_{\min}}+\alpha_T\Big),\qquad \theta_f=\operatorname{atan2}(v_y+a\,r,\ v_x) .$$</div>
+<p>The limit is asymmetric toward countersteer. The left and right limits are \(\max(\delta_{\text{lim}},\pm\theta_f+\alpha_T)\), clamped to \([0,\delta_{\max}]\). The countersteer aid (above 3 m/s) blends the angle toward \(\theta_f\), the direction the front axle is actually travelling, with weight \(c_{cs}\operatorname{smoothstep}((|\alpha_r|-0.06)/0.15)\). Here \(\alpha_r=\operatorname{atan2}(v_y-b\,r,v_x)\) is the rear slip angle.</p>
+<h3>11.2 Traction control</h3>
+<p>Full mode targets slip \(s_T=0.08\) and may cut all throttle; Sport targets 0.15 and cuts at most 80 %. Slip uses a 2 m/s floor on speed. TCS works in two ways:</p>
+<ul class="list">
+<li><b>Brake-based (diff-lock emulation).</b> On each driven axle the faster wheel is braked by its excess slip:
+<div class="eq">$$\epsilon=s_i-\max(s_{\text{least}},s_T),\qquad T^*=\min\!\Big(1,\frac{\epsilon}{0.3}\Big)\,0.35\,T_{b\max},$$</div>
+approached at \(6T_{b\max}\) per second.</li>
+<li><b>Engine cut.</b> The cut grows by \(6\Delta t\,(s_{\max}-s_T)/s_T\) while slip exceeds the target and decays at 2 per second. The throttle becomes \(\theta(1-c)\).</li>
+</ul>
+<h3>11.3 Stability control</h3>
+<p>Above 5 m/s ESC compares the yaw rate with a linear single-track reference bounded by friction. The understeer gradient is fixed at \(K=0.002\ \mathrm{s^2/m}\):</p>
+<div class="eq">$$r_{\text{ref}}=\operatorname{clamp}\!\Big(\frac{v\,\delta}{\ell+Kv^2},\ \pm\frac{0.85\,\hat\mu g}{v}\Big),\qquad \beta_{\text{ref}}=\frac{\arctan\!\big(\tfrac{b}{\ell}\tan\delta\big)}{1+(v/20)^2},\qquad \beta=\operatorname{atan2}(v_y,v)-\beta_{\text{ref}} .$$</div>
+<p>From these it forms an oversteer measure \(O=\max\big(|r-r_{\text{ref}}|-d,\ 4(|\beta|-\beta_{\max})\big)\) (when the error is in the direction of the yaw) and an understeer measure \(U=|r_{\text{ref}}|-|r|-d\). The settings are:</p>
+<ul class="list">
+<li>Full: deadband \(d=0.05\) rad/s and \(\beta_{\max}=0.08\);</li>
+<li>Sport: \(d=0.12\) rad/s and \(\beta_{\max}=0.20\).</li>
+</ul>
+<p>When ESC intervenes:</p>
+<ul class="list">
+<li><b>Oversteer:</b> it brakes the outer front wheel with \(\min(3000\,O,\ 0.6T_{b\max})\) N·m.</li>
+<li><b>Understeer</b> (above 10 m/s): it brakes the inner rear wheel with \(\min(2000\,U,\ 0.6T_{b\max})\).</li>
+<li>In Full mode it also trims the throttle.</li>
+</ul>
+<p>With ESC on, the reference car passes every amplitude of an FMVSS 126-style sine-with-dwell; with ESC off it fails at 7° and 9°.</p>
+<p class="inf"><b>Interpretation.</b> \(K=0.002\ \mathrm{s^2/m}\) corresponds to an understeer gradient of about 1.1°/g. It is a fixed constant, not derived from the car.</p>
+<h3>11.4 Automatic gearbox and clutch</h3>
+<p>Upshift and downshift points move with the throttle pedal:</p>
+<div class="eq">$$n_\uparrow=n_{\text{lim}}\operatorname{lerp}(0.55,0.985,\theta),\qquad n_\downarrow=n_{\text{lim}}\operatorname{lerp}(0.28,0.50,\theta) .$$</div>
+<p>The rules around those points:</p>
+<ul class="list">
+<li>A braking downshift is allowed as soon as the lower gear fits under 88 % of the limiter.</li>
+<li>Upshifts are held while the driven axle spins (slip above 0.3) or the car is drifting. The exception is a drift on the limiter, which upshifts if the next gear stays in the power band.</li>
+<li>During a shift the auto clutch opens for the shift time (0.25 s), giving a torque gap. Under power it shifts clutch-to-clutch instead (engagement 0.55, throttle × 0.6). Downshifts blip to match revs.</li>
+</ul>
+<p>The launch clutch engages with engine speed:</p>
+<div class="eq">$$e=\operatorname{smoothstep}\!\Big(\frac{n-1.05n_{\text{idle}}}{\max(n_L-1.05n_{\text{idle}},100)}\Big),\qquad n_L=\max(2500,\ 1.5n_{\text{idle}}) .$$</div>
+<h3>11.5 Drift assist</h3>
+<p>This is an aid with no real-car equivalent: a cascade controller that holds a sideslip the driver chooses. The driver's steer sets the target angle and the throttle scales it, from half the angle at no throttle to all of it above 80 %:</p>
+<div class="eq">$$\beta_T=-d\cdot\operatorname{lerp}\!\Big(0.5,1,\operatorname{clamp}\Big(\frac{\theta}{0.8},0,1\Big)\Big)\,\beta_{\max}\,\tau_u^{\,p},\qquad p=\frac{\ln(\beta_{1/2}/\beta_{\max})}{\ln0.5},\qquad \beta_{\max}=\min(1.0,\delta_{\max}) .$$</div>
+<p>Here \(d\) is the drift direction and \(\tau_u\) is the steer input toward it. The cascade turns angle error into a wanted angle rate and then a wheel angle, with an integral trim:</p>
+<div class="eq">$$\dot\beta^*=\operatorname{clamp}\big(-2.5(\beta-\beta_T),\ \pm\dot\beta_{\max}\big),\qquad \delta^*=\operatorname{clamp}\big(\theta_f+0.35(\dot\beta-\dot\beta^*)+I,\ \pm\delta_{\max}\big),\qquad I\in[-0.15,0.15] .$$</div>
+<p>The rate limit \(\dot\beta_{\max}\) is:</p>
+<ul class="list">
+<li>0.55 rad/s when straightening;</li>
+<li>otherwise \(1.8(0.5+0.5P)\,\text{room}\), where \(P\) rises with throttle and "room" shrinks near the steering lock.</li>
+</ul>
+<p>The output blends with the driver's steering by the engagement weight, with three exceptions:</p>
+<ul class="list">
+<li>it steps aside entirely for a <b>donut</b>, latched by full lock and throttle below 8.5 m/s;</li>
+<li>it hands back 30 % of the steering while the handbrake is held;</li>
+<li>it can only <em>remove</em> throttle, using a prediction 0.25 s ahead, capped at 60 % and scaled by the throttle.</li>
+</ul>
+<p>Around the drift, the clutch helps:</p>
+<ul class="list">
+<li>The handbrake opens the auto clutch (on a driven wheel), so it locks the rear even with the throttle held.</li>
+<li>A turn-in clutch kick (0.15 s, 2 s cooldown) breaks the rear loose from a keyboard input.</li>
+<li>Revs are held at 88 % of the limiter while the clutch is open.</li>
+</ul>
+<p>With the assist off, the same car simply spins.</p>
+<div class="tbl"><table>
+<caption>Table 11.1. Presets.</caption>
+<thead><tr><th></th><th>Fun</th><th>Sport</th><th>Drift</th><th>Simulation</th></tr></thead>
+<tbody>
+<tr><td>Steering</td><td>speed-sensitive, \(e\)=1.4, \(\alpha_T\)=0.10</td><td>speed-sensitive, \(e\)=1.2, \(\alpha_T\)=0.14</td><td>speed-sensitive, \(e\)=1.2, \(\alpha_T\)=0.14</td><td>direct, linear</td></tr>
+<tr><td>ABS / TCS / ESC</td><td>on / Full / Full</td><td>on / Sport / off</td><td>on / off / off</td><td>off / off / off</td></tr>
+<tr><td>Countersteer (pad)</td><td>0.6</td><td>0.25</td><td>0</td><td>0</td></tr>
+<tr><td>Drift assist</td><td>0</td><td>0</td><td>1.0</td><td>0</td></tr>
+<tr><td>Gearbox</td><td>auto</td><td>auto</td><td>auto</td><td>manual, auto clutch</td></tr>
+</tbody></table></div>
+<p class="note limit"><b>Not modelled.</b> State estimation: the aids read ground-truth speed. Gains are hand-set constants. ESC's understeer gradient is not derived from the car.</p>
+</section>
+
+<section class="ch" id="s12">
+<h2><span class="n">12</span>Rollover</h2>
+<p class="src">vehicle.cpp (hull construction, body contact, tilt fade), vehicle_def.hpp (BodyDef)</p>
+<p>A car tipped onto its side used to be held up by tyre contacts found by casting along its own tilted down axis. It could never land on its side or roof. Two mechanisms fix this.</p>
+<h3>12.1 Tyre support fades with tilt</h3>
+<p>Measured against the vertical, not the local ground normal (a kerb's face would otherwise trigger it), the tyre's support fades out by a smoothstep between about 53° and 70° of tilt:</p>
+<div class="eq">$$t_c=\operatorname{clamp}\!\Big(\frac{\hat u_z-0.34}{0.26},0,1\Big),\qquad \tau=t_c^2(3-2t_c) .$$</div>
+<p>\(\tau\) multiplies every tyre sample force and the massless wheel's load.</p>
+<h3>12.2 The body hull</h3>
+<p>Each car has a hull of 17 points plus one per wheel, 21 for a car. Unset dimensions are derived from the wheels: 0.9 m overhangs, half-width = track/2 + 0.12 m, a floor 13 cm above the static ground, and a roof 1.15 m above the floor. The points are:</p>
+<ul class="list">
+<li>12 box points: corners and side midpoints at the floor and at the belt line (55 % of the height);</li>
+<li>5 roof points: a narrower greenhouse at 80 % of the width and 30–65 % of the length, plus its centre;</li>
+<li>the outer shoulder of each tyre, at \((x_{hp},\ y_{hp}\pm0.12,\ z_{wc}-0.7r)\), which is what a tipping car pivots on.</li>
+</ul>
+<h3>12.3 Contact</h3>
+<p>The hull is checked only when the car is tilted past about 31° (\(\hat u_z\lt0.86\)) or has no wheel on the ground, so normal driving neither pays for it nor queries it. Each point below the ground gets a penalty force:</p>
+<div class="eq">$$k_{\text{pt}}=600M,\qquad c_{\text{pt}}=2(0.6)\sqrt{k_{\text{pt}}M/6},\qquad m_{\text{eff}}=\Big[\frac1M+(\mathbf r\times\hat n)\cdot I_w^{-1}(\mathbf r\times\hat n)\Big]^{-1}$$
+$$k=\min\!\Big(k_{\text{pt}},\ m_{\text{eff}}\Big(\frac{0.5}{\Delta t}\Big)^2\Big),\qquad c=\min\!\Big(c_{\text{pt}},\ \frac{0.8\,m_{\text{eff}}}{\Delta t}\Big),\qquad f_n=\max\big(0,\ k\min(\delta,0.25)-c\,v_n\big)$$
+$$\mathbf f=f_n\hat n-\mathbf v_t\frac{\mu f_n}{\lVert\mathbf v_t\rVert+0.3},\qquad \mu=0.5\cdot\text{frictionScale} .$$</div>
+<p>The stiffness and damping bounds make the explicit contact stable for whatever mass and inertia a point sees: \(\sqrt{k/m_{\text{eff}}}\,\Delta t\le0.5\) is well inside the symplectic-Euler limit of 2.</p>
+<p class="inf"><b>Interpretation.</b> With about six points carrying the car, the contact frequency is \(\omega=\sqrt{6k_{\text{pt}}/M}=\sqrt{3600}=60\) rad/s (about 9.5 Hz), and the static sinkage is \(g/3600\approx2.7\) mm.</p>
+<div class="tbl"><table>
+<caption>Table 12.1. Rollover behaviour (tests and the browser smoke test).</caption>
+<thead><tr><th>Case</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Released on its roof</td><td>settles at \(\hat u_z=-1.00\), with about 5 hull points carrying its weight</td></tr>
+<tr><td>Released at a static tilt</td><td>sports car recovers at 65° and falls at 70°; S 600 Guard (tall, 4.2 t) falls at 65°; F1 car stays up at 65°</td></tr>
+<tr><td>Sliding sideways into a 25 cm kerb</td><td>a bump at 15 km/h; over the roof at 45 km/h</td></tr>
+<tr><td>Sliding sideways on flat asphalt at 80 km/h</td><td>no roll</td></tr>
+<tr><td>One-sided 0.9 m corkscrew ramp</td><td>sports car up at 50 km/h, over at 110 km/h; Guard over at 75 km/h; F1 car up at 120 km/h</td></tr>
+<tr><td>Normal driving</td><td>the hull never touches</td></tr>
+</tbody></table></div>
+<p class="note limit"><b>Not modelled.</b> Roof and pillar crush, and parts breaking off. Tyre sidewall forces (the fade stands in for them). Sharp ridges between hull points. Static friction of the body (sliding is regularised Coulomb). Injury from a rollover.</p>
+</section>
+<section class="ch" id="s13">
+<h2><span class="n">13</span>Two-wheelers</h2>
+<p class="src">single_track.hpp/.cpp, two_wheeler.hpp/.cpp, tests/test_single_track.cpp, tests/test_two_wheeler.cpp</p>
+<p>A bicycle cannot be faked with a car model: it stays up because of steering geometry and gyroscopic and inertial coupling. So the two-wheeler is a separate constrained multibody model, derived from rigid bodies, joints and rolling contact, not from published linear matrices. The published matrices appear only in the tests, as an independent reference.</p>
+<h3>13.1 Bodies, joints and contact</h3>
+<p>The model has four rigid bodies in maximal coordinates (24 DOF):</p>
+<ul class="list">
+<li>the rear wheel \(R\);</li>
+<li>the rear frame with a rigid rider, \(B\);</li>
+<li>the front frame (fork and bars), \(H\);</li>
+<li>the front wheel \(F\).</li>
+</ul>
+<p>Three revolute joints connect them: the rear axle, the steer axis (tilted back by \(\lambda\)) and the front axle. Each joint is 5 constraint rows:</p>
+<div class="eq">$$\text{point: }(\mathbf x_a+\mathbf r_a)-(\mathbf x_b+\mathbf r_b)=\mathbf 0,\qquad \text{axis: }\hat u_a\cdot\hat p_{b,j}=0\ \ (j=1,2) .$$</div>
+<p>In the no-slip mode each wheel adds 3 rolling rows: the material contact point does not move. For a thin disc of radius \(R\) with axle \(\hat a\):</p>
+<div class="eq">$$\mathbf g=-\hat z+\hat a\,a_z,\qquad \hat d=\mathbf g/\lVert\mathbf g\rVert,\qquad \mathbf v_i+\boldsymbol\omega_i\times(R\hat d)=\mathbf 0 .$$</div>
+<p>Only the vertical row is holonomic. The constraint count is 15 + 6 = 21 rows on 24 DOF, which leaves the Whipple bicycle's three velocity degrees of freedom: forward speed, lean rate and steer rate.</p>
+<h3>13.2 Equations of motion and integration</h3>
+<p>The equations are constrained Newton–Euler at the acceleration level, with the velocity-product terms \(\boldsymbol\gamma\) of every constraint. They are solved densely:</p>
+<div class="eq">$$\mathbf M\mathbf a=\mathbf F+\mathbf J^{\top}\boldsymbol\lambda,\qquad \mathbf J\mathbf a=-\boldsymbol\gamma\ \ \Rightarrow\ \ (\mathbf J\mathbf M^{-1}\mathbf J^{\top})\,\boldsymbol\lambda=-\boldsymbol\gamma-\mathbf J\mathbf M^{-1}\mathbf F .$$</div>
+<p>The gyroscopic loads are \(-\boldsymbol\omega_i\times I_i^w\boldsymbol\omega_i\). Integration is classical RK4, with quaternions renormalised at every stage. Two mass-weighted projections then remove drift (Hairer, Lubich and Wanner, ch. IV.4):</p>
+<div class="eq">$$\Delta\mathbf q=\mathbf M^{-1}\mathbf J_h^{\top}(\mathbf J_h\mathbf M^{-1}\mathbf J_h^{\top})^{-1}(-\mathbf C_h),\qquad \Delta\mathbf v=-\mathbf M^{-1}\mathbf J^{\top}(\mathbf J\mathbf M^{-1}\mathbf J^{\top})^{-1}\mathbf J\mathbf v .$$</div>
+<p>The position projection runs up to 4 iterations, to \(|C|\lt10^{-14}\).</p>
+<h3>13.3 Validation against the bicycle benchmark</h3>
+<p>Meijaard, Papadopoulos, Ruina and Schwab (2007) give the linearised Whipple bicycle:</p>
+<div class="eq">$$\mathbf M\ddot{\mathbf q}+v\,\mathbf C_1\dot{\mathbf q}+(g\mathbf K_0+v^2\mathbf K_2)\,\mathbf q=\mathbf f,\qquad \mathbf q=[\phi,\delta]^{\top} .$$</div>
+<p>The test linearises the engine's nonlinear accelerations about upright running by central differences (\(h=10^{-6}\)). From that it recovers \(\mathbf M\), \(\mathbf C_1\), \(\mathbf K_0\) and \(\mathbf K_2\) and compares them with the published values. Critical speeds come from the characteristic quartic by Routh–Hurwitz:</p>
+<ul class="list">
+<li>weave: \(H_3=c_3c_2c_1-c_1^2-c_3^2c_0=0\);</li>
+<li>capsize: \(c_0=0\).</li>
+</ul>
+<div class="tbl"><table>
+<caption>Table 13.1. The engine against the published benchmark.</caption>
+<thead><tr><th>Quantity</th><th class="n">OpenRoad Dynamics</th><th class="n">Published</th><th class="n">Difference</th></tr></thead>
+<tbody>
+<tr><td>Weave speed</td><td class="n">4.292382536339 m/s</td><td class="n">4.292382536341 m/s</td><td class="n">2.2·10⁻¹²</td></tr>
+<tr><td>Capsize speed</td><td class="n">6.024262015383 m/s</td><td class="n">6.024262015388 m/s</td><td class="n">5.4·10⁻¹²</td></tr>
+<tr><td>M, C₁, K₀, K₂ (worst entry, relative)</td><td class="n">—</td><td class="n">—</td><td class="n">4.4·10⁻¹³</td></tr>
+<tr><td>Static eigenvalues</td><td class="n">±3.131643248, ±5.530943718</td><td class="n">±3.131643248, ±5.530943718</td><td class="n">3.1·10⁻¹³ rel.</td></tr>
+<tr><td>Eigenvalues at 0–8 m/s</td><td class="n">—</td><td class="n">—</td><td class="n">≤ 2.3·10⁻¹²</td></tr>
+</tbody></table></div>
+<p>In the time domain:</p>
+<ul class="list">
+<li>At 5 m/s (inside the self-stable band) a 0.05 rad lean decays, and the constraints hold to \(10^{-9}\).</li>
+<li>At 3 m/s the bicycle weaves and falls.</li>
+<li>With no drive, energy is conserved to \(10^{-10}\) J over 10 s.</li>
+<li>A right steer torque first leans the bike left, which is counter-steer emerging from the physics.</li>
+</ul>
+<h3>13.4 Tyres for leaning wheels</h3>
+<p>The rideable vehicles replace rolling constraints with tyres. Each wheel has a toroidal crown of radius \(\rho\le0.9R\):</p>
+<div class="eq">$$\hat d=\operatorname{normalize}\big(\hat a(\hat a\cdot\hat n)-\hat n\big),\qquad \mathbf r=(R-\rho)\hat d-\rho\hat n,\qquad p=-(\mathbf x_i+\mathbf r-\mathbf p_g)\cdot\hat n,\qquad F_z=\max(0,\ k_zp-c_z\,\mathbf v_P\cdot\hat n) .$$</div>
+<p>The contact point therefore walks around the crown as the wheel leans. The tyre forces are the Magic Formula of chapter 7, with three differences:</p>
+<ul class="list">
+<li>Camber thrust is on. With camber, a leaning bicycle corners at a summed slip angle of 0.0011 rad instead of 0.0303 rad.</li>
+<li>The relaxation states are updated once per step, before the RK4 stages (an operator split).</li>
+<li>Rolling resistance acts as an axle moment.</li>
+</ul>
+<p>With knife-edge tyres the model converges back to the no-slip benchmark.</p>
+<h3>13.5 The virtual rider</h3>
+<p>The rider acts only through handlebar torque, drive and brake torques, and a roll moment at walking pace. In lean mode the stick asks for a lean angle \(\phi^*\), limited by friction and by the tightest turn the lock allows:</p>
+<div class="eq">$$\phi_{\max}=\min\!\Big(\phi_{\text{cfg}},\ \arctan(0.65\mu),\ \arctan\frac{0.65\,v^2\delta_{\text{lock}}\cos\lambda}{g\,w}\Big) .$$</div>
+<p>An outer loop uses the point-mass lean equation \(\ddot\phi=(g/h)\phi-\tfrac{v^2}{hw}\delta\) to find the steer angle that produces a commanded lean acceleration \(-\omega_n^2(\phi-\phi^*)-2\zeta\omega_n\dot\phi\), with \(\omega_n=3\) rad/s and \(\zeta=0.9\):</p>
+<div class="eq">$$\delta^*=\frac{w\big[g\tan\phi+h\big(\omega_n^2(\phi-\phi^*)+2\zeta\omega_n\dot\phi\big)\big]}{v^2\cos\lambda} .$$</div>
+<p>An inner "arm" loop turns that into bar torque, relaxing its stiffness at speed:</p>
+<div class="eq">$$T=k_{\text{arm}}\big[k_s(\delta^*-\delta)-c_s\dot\delta\big]+r\big[K_p(\phi-\phi^*)+K_d\dot\phi\big] .$$</div>
+<p>The direct lean-error term has the counter-steer sign. To turn left at 20 m/s, the first bar torque steers right.</p>
+<p>Around the rider sit the bike's own aids:</p>
+<ul class="list">
+<li>a power-limited motor;</li>
+<li>a friction-circle ceiling on drive torque;</li>
+<li>slip-based TCS and ABS, including a cornering limit;</li>
+<li>wheelie and stoppie control;</li>
+<li>a steering lock whose stiffness is bounded by step stability.</li>
+</ul>
+<p>Measured results:</p>
+<ul class="list">
+<li>An ABS stop from 20 m/s takes 2.22 s, at 0.92 g.</li>
+<li>Without stoppie control, a hard front brake at 11 m/s goes over the bars.</li>
+<li>Without aids, full throttle on the motorcycle loops it.</li>
+</ul>
+<p class="note limit"><b>Not modelled.</b> Fork and swingarm suspension (the tyre's vertical stiffness stands in for it); frame compliance; rider body lean; contact between the ground and the foot, frame or bars; gearbox and clutch; fitted tyre data. The only external quantitative validation is of the no-slip model.</p>
+</section>
+
+<section class="ch" id="s14">
+<h2><span class="n">14</span>Crash survivability</h2>
+<p class="src">crash.hpp/.cpp, tests/test_crash.cpp</p>
+<p>This is a game estimate built from published relations, <b>not a validated crash simulation</b>. The car's own collision response stays a rigid impulse; only the occupants see a crash pulse.</p>
+<h3>14.1 The crash pulse</h3>
+<p>An impact's change of velocity \(\Delta v\) in the body frame becomes a half-sine deceleration whose area is exactly \(\Delta v\):</p>
+<div class="eq">$$a(t)=A\sin\big(\omega(t-t_0)\big),\quad 0\le\omega(t-t_0)\le\pi,\qquad A=\frac{\Delta v\,\omega}{2},\qquad T=\frac{\pi}{\omega} .$$</div>
+<p>Each zone has its own pulse:</p>
+<ul class="list">
+<li>front: \(\omega=32\) rad/s, 98 ms, 0.9 m of crush space;</li>
+<li>rear: \(\omega=28\) rad/s, 112 ms, 0.7 m;</li>
+<li>side: \(\omega=45\) rad/s, 70 ms, 0.3 m.</li>
+</ul>
+<p>If the crush needed, \(|\Delta v|\pi/(2\omega)\), exceeds the space, the pulse shortens to \(\omega'=\min(4\omega,\ \pi|\Delta v|/2x_{\max})\) and the excess becomes intrusion that closes the occupant's gaps.</p>
+<h3>14.2 The occupant</h3>
+<p>Each seat holds a torso and a head, each with a 2-D displacement relative to the seat. They are integrated by semi-implicit Euler at no more than 0.1 ms. Every restraint is a spring-damper per unit mass, \(s(\omega,\zeta)=-\omega^2x-2\zeta\omega\dot x\), engaging past its gap:</p>
+<ul class="list">
+<li><b>Torso, longitudinal:</b>
+  <ul class="list">
+  <li>muscle tone \(s(8,0.8)\);</li>
+  <li>seat back \(s(45,0.5)\);</li>
+  <li>belt after 3 cm of slack \(s(30,0.3)\);</li>
+  <li>front airbag past 15 cm \(s(26,0.5)\);</li>
+  <li>knee bolster (unbelted) \(s(30,0.2)\);</li>
+  <li>hard contact with the wheel or dash past the forward space \(s(180,0.2)\).</li>
+  </ul></li>
+<li><b>Torso, lateral:</b>
+  <ul class="list">
+  <li>belt hold;</li>
+  <li>door with side airbag \(s(70,0.4)\), or hard \(s(180,0.2)\) without one;</li>
+  <li>console or the other occupant \(s(60,0.4)\).</li>
+  </ul></li>
+<li><b>Head:</b>
+  <ul class="list">
+  <li>neck spring to the torso \(s(16,0.35)\), about 2.5 Hz;</li>
+  <li>head restraint;</li>
+  <li>front head airbag past 22 cm \(s(34,0.5)\), or hard contact;</li>
+  <li>sideways, a curtain airbag \(s(55,0.4)\).</li>
+  </ul></li>
+</ul>
+<h3>14.3 Injury criteria and risk</h3>
+<div class="eq">$$\mathrm{HIC}_{15}=\max_{t_2-t_1\le15\,\text{ms}}(t_2-t_1)\Big[\frac{1}{t_2-t_1}\int_{t_1}^{t_2}a_{\text{head}}\,dt\Big]^{2.5}\qquad(a\ \text{in}\ g)$$
+$$P_{\text{head AIS3+}}=\Phi\!\Big(\frac{\ln\mathrm{HIC}-7.45231}{0.73998}\Big),\qquad P_{\text{head AIS4+}}=\frac{1}{1+e^{\,5.02-0.00351\,\mathrm{HIC}}},\qquad P_{\text{chest AIS4+}}=\frac{1}{1+e^{\,5.55-0.0693\,A_{3\,\text{ms}}}}$$
+$$P_{\text{life-threatening}}=1-(1-P_h)(1-P_c),\qquad P_{\text{fatal}}^{\text{Joksch}}=\min\!\Big(1,\Big(\frac{\Delta v_{\text{mph}}}{71}\Big)^4\Big)$$</div>
+<p>The sources and limits:</p>
+<ul class="list">
+<li>The logistic curves are the NHTSA curves used before 2011.</li>
+<li>The AIS3+ head curve is from NHTSA's 1999 report on improved injury criteria.</li>
+<li>The Joksch (1993) statistic is a population average, reported beside the model and not combined with it.</li>
+<li>The chest value is the highest 3 ms <em>contiguous</em> clip.</li>
+<li>The reference limits are FMVSS 208: HIC₁₅ ≤ 700 and chest ≤ 60 g.</li>
+</ul>
+<div class="tbl"><table>
+<caption>Table 14.1. Results (frontal barrier delta-V includes 10 % rebound).</caption>
+<thead><tr><th>Case</th><th class="n">Δv</th><th class="n">chest 3 ms</th><th class="n">HIC₁₅</th><th class="n">AIS4+</th><th>verdict</th></tr></thead>
+<tbody>
+<tr><td>30 km/h frontal, belted</td><td class="n">33 km/h</td><td class="n">19.8 g</td><td class="n">69</td><td class="n">2.3 %</td><td>walks away</td></tr>
+<tr><td>56 km/h frontal, belted</td><td class="n">61.6 km/h</td><td class="n">40.9 g</td><td class="n">216</td><td class="n">7.5 %</td><td>bruised</td></tr>
+<tr><td>56 km/h, unbelted, no airbag</td><td class="n">61.6 km/h</td><td class="n">47.7 g</td><td class="n">4738</td><td class="n">100 %</td><td>critical</td></tr>
+<tr><td>80 km/h frontal, belted</td><td class="n">88 km/h</td><td class="n">66.0 g</td><td class="n">1505</td><td class="n">68.4 %</td><td>critical</td></tr>
+<tr><td>30 km/h side, near, airbags</td><td class="n">30 km/h</td><td class="n">28.4 g</td><td class="n">110</td><td class="n">3.6 %</td><td>bruised</td></tr>
+<tr><td>30 km/h side, near, no airbags</td><td class="n">30 km/h</td><td class="n">52.0 g</td><td class="n">703</td><td class="n">18.8 %</td><td>injured</td></tr>
+<tr><td>Helmeted rider into a wall, 30 km/h</td><td class="n">30 km/h</td><td class="n">52.3 g</td><td class="n">449</td><td class="n">15.4 %</td><td>injured</td></tr>
+</tbody></table></div>
+<p>The model is calibrated only to the NCAP range at 56 km/h: chest 30–50 g and HIC 100–500. Everything else is a check that the rankings come out in the right order.</p>
+<p class="note limit"><b>Not modelled.</b> Neck, femur and tibia metrics. Rollover and vertical (spinal) injury. Submarining under the belt. Vehicle-specific structure (stiffness is per zone). The head's mass loading the torso.</p>
+</section>
+
+<section class="ch" id="s15">
+<h2><span class="n">15</span>Level of detail and traffic</h2>
+<p class="src">lod_manager.hpp/.cpp, traffic.hpp/.cpp</p>
+<p>The engine runs three tiers of vehicle:</p>
+<ul class="list">
+<li><b>LOD0</b>, the player's car: full fidelity.</li>
+<li><b>LOD1</b>, up to 16 nearby cars: the same <code>Vehicle</code> with massless wheels and one contact sample, at 120 Hz. Promoted within 150 m and demoted beyond 190 m.</li>
+<li><b>LOD2</b>, everything else: kinematic traffic at 30 Hz following the Intelligent Driver Model (Treiber, Hennecke and Helbing 2000).</li>
+</ul>
+<div class="eq">$$a=a_{\max}\Big[1-\Big(\frac{v}{v_0}\Big)^4-\Big(\frac{s^*}{s}\Big)^2\Big],\qquad s^*=s_0+\max\!\Big(0,\ vT+\frac{v(v-v_l)}{2\sqrt{a_{\max}b}}\Big)$$</div>
+<p>The parameters are \(T=1.4\) s, \(s_0=2.5\) m, \(a_{\max}=1.6\) m/s² and \(b=2.5\) m/s². The desired speed is limited by the lane's curvature ahead, measured as the Menger curvature of points 2 m apart:</p>
+<div class="eq">$$v_0=\min\!\Big(v_{\text{des}},\ v_{\text{limit}},\ \sqrt{a_{\text{lat}}/\kappa_{\max}}\Big),\qquad a_{\text{lat}}=3.5\ \mathrm{m/s^2} .$$</div>
+<p>A friction circle with \(\mu=0.9\) caps acceleration (not braking) in corners. LOD1 cars steer by pure pursuit, \(\delta=\arctan(2L\sin\eta/l_d)\) with \(l_d=\max(6,0.9v)\), and hold speed with a PI loop.</p>
+<p>Promotion places the car analytically (§3.4) at the agent's speed and yaw rate. Measured on a 250 m curve at 70 km/h:</p>
+<ul class="list">
+<li>promotion changes speed and yaw rate by 0.000;</li>
+<li>it causes at most 0.12 g of vertical jolt;</li>
+<li>demotion moves the car by 0.25 m.</li>
+</ul>
+<p>One player car, 16 LOD1 cars and 1000 LOD2 cars cost 0.7 ms per frame.</p>
+<p class="note limit"><b>Not modelled.</b> Lane changes and intersections in LOD2. Promotion of both cars on a collision. LOD3 (lane-graph agents without physics).</p>
+</section>
+<section class="ch" id="s16">
+<h2><span class="n">16</span>Validation</h2>
+<p class="src">tests/*.cpp (140 cases), benchmarks/baseline.csv, docs/benchmarks/</p>
+<h3>16.1 The golden baseline</h3>
+<p>Key results of the reference cars are stored in <code>benchmarks/baseline.csv</code>, and a test fails if any of them moves beyond its tolerance. A regression therefore cannot be hidden by quietly re-running benchmarks. A change to the baseline has to be an explicit, documented regeneration.</p>
+<div class="tbl"><table>
+<thead><tr><th>Metric</th><th class="n">Value</th><th class="n">Tolerance</th></tr></thead>
+<tbody>
+<tr><td>Sports RWD 0–100 km/h (Sport)</td><td class="n">4.554 s</td><td class="n">1 %</td></tr>
+<tr><td>100–0 km/h with ABS / locked</td><td class="n">37.96 / 47.62 m</td><td class="n">1 %</td></tr>
+<tr><td>Skidpad R40</td><td class="n">0.9955 g</td><td class="n">1 %</td></tr>
+<tr><td>Step steer at 80 km/h, yaw rate</td><td class="n">0.2629 rad/s</td><td class="n">1 %</td></tr>
+<tr><td>Sine-with-dwell 9°, max sideslip</td><td class="n">0.5165 rad</td><td class="n">3 %</td></tr>
+<tr><td>Kerb at 120 km/h (cached ground), max heave</td><td class="n">0.01085 m</td><td class="n">3 %</td></tr>
+<tr><td>Cobbles at 40 km/h, RMS vertical</td><td class="n">0.02352 g</td><td class="n">2 %</td></tr>
+<tr><td>Pothole at 60 km/h, RMS frame acceleration</td><td class="n">0.09393 g</td><td class="n">2 %</td></tr>
+<tr><td>Heave / wheel-hop frequency</td><td class="n">1.72816 / 13.6891 Hz</td><td class="n">0.5 %</td></tr>
+<tr><td>Hatch 0–100 km/h (Simulation) / skidpad</td><td class="n">8.625 s / 0.8613 g</td><td class="n">1 %</td></tr>
+<tr><td>Drift, half lock / full lock, sideslip</td><td class="n">−16.41° / −31.67°</td><td class="n">5 %</td></tr>
+</tbody></table></div>
+<h3>16.2 Analytic and numerical checks</h3>
+<ul class="list">
+<li>Heave and wheel hop against the analytic quarter car. Coast-down against \(v=v_0/(1+kv_0t/m)\). Free fall.</li>
+<li>Understeer gradient within 20 % of the linear bicycle model built from the tyre's own cornering stiffness.</li>
+<li>Drivetrain: equal open-differential split; engine work equal to the rotational energy gained; clutch slip above capacity.</li>
+<li>Tyre: peak \(=\mu F_z\); combined slip inside the friction ellipse; camber slope \(=c_\gamma F_z\) to 1 %.</li>
+<li>Time step: 120 Hz within 2 % of 1000 Hz for braking and yaw, and 3 % for 0–100 km/h.</li>
+<li>Host coupling, determinism (bit-identical runs), no allocation after warm-up.</li>
+<li>Fuzzing of inputs, vehicle definitions and corrupted ground: no NaN.</li>
+<li>The bicycle benchmark to 12 digits (chapter 13).</li>
+<li>The real-car approximations reproduce their published 0–100 km/h and top speeds within stated bands. For example: 911 Carrera S 3.8 s and 316 km/h; AMG S 63 3.2 s and 248 km/h (limited); F1 2.6 s.</li>
+</ul>
+<h3>16.3 What is not validated</h3>
+<p class="note limit">The reference cars are fictional. Their plausibility envelopes (for example 0–100 km/h in 3.8–6.0 s, skidpad 0.85–1.12 g) guard against regressions; they are not claims about any real car. The real-car approximations use published specifications for the inputs, but the unpublished parameters are engineering estimates. Comparison with measured vehicle data (for example the BMW E90 data derived from SAE 2007-01-0818) is planned. The only external, independent quantitative validation today is the Meijaard bicycle benchmark, which covers the no-slip two-wheeler. The Unreal plugin has not been compiled against Unreal.</p>
+</section>
+
+<section class="ch" id="s17">
+<h2><span class="n">17</span>Limitations</h2>
+<p>Gathered from the chapters above, these are the largest gaps between this model and a real vehicle, roughly in order of how much they matter to how a car feels:</p>
+<ol class="steps">
+<li><b>No suspension kinematics.</b> Wheels slide along the body axis. Roll centres, anti-dive and anti-squat, bump steer and compliance steer are absent; camber gain is a linear stand-in. Hardpoint kinematics is the next planned step.</li>
+<li><b>Reduced tyre model.</b> There are no MF shifts or full aligning-moment model, and the thermal model has one node. Compound and generator values are representative, not fitted to data.</li>
+<li><b>No steering system.</b> There is no column ratio, compliance, kingpin or trail, so force feedback would have to come from \(M_z\) alone.</li>
+<li><b>Explicit couplings.</b> The body acceleration seen by the wheels lags one step. The anti-roll bar partner, limited-slip capacity and contact geometry are lagged, and the gyroscopic term is explicit. Convergence studies show these are small at 240–360 Hz, but they bound the usable step.</li>
+<li><b>Driver aids are game controllers</b> reading ground truth, with hand-set gains, not models of production ECUs.</li>
+<li><b>Aero</b> acts through ride-height factors only. There is no pitch or yaw sensitivity, wake or slipstream.</li>
+<li><b>Damage.</b> Rollover and crashes treat the body as rigid, and crash survivability is an estimate.</li>
+</ol>
+</section>
+
+<section class="ch" id="refs">
+<h2>References</h2>
+<ol class="refs">
+<li>H. B. Pacejka, <i>Tire and Vehicle Dynamics</i>, 3rd ed. Butterworth-Heinemann, 2012.</li>
+<li>E. Bakker, L. Nyborg, H. B. Pacejka, "Tyre modelling for use in vehicle dynamics studies," SAE 870421, 1987.</li>
+<li>R. S. Sharp, S. Evangelou, D. J. N. Limebeer, "Advances in the modelling of motorcycle dynamics," <i>Multibody System Dynamics</i> 12, 2004.</li>
+<li>J. P. Meijaard, J. M. Papadopoulos, A. Ruina, A. L. Schwab, "Linearized dynamics equations for the balance and steer of a bicycle: a benchmark and review," <i>Proc. R. Soc. A</i> 463, 2007.</li>
+<li>W. F. Milliken, D. L. Milliken, <i>Race Car Vehicle Dynamics</i>. SAE, 1995.</li>
+<li>J. Katz, <i>Race Car Aerodynamics</i>. Bentley, 1995.</li>
+<li>L. A. Viterna, R. D. Corrigan, "Fixed pitch rotor performance of large horizontal axis wind turbines," NASA, 1982.</li>
+<li>E. Hairer, C. Lubich, G. Wanner, <i>Geometric Numerical Integration</i>, 2nd ed. Springer, 2006.</li>
+<li>M. Treiber, A. Hennecke, D. Helbing, "Congested traffic states in empirical observations and microscopic simulations," <i>Phys. Rev. E</i> 62, 2000.</li>
+<li>H. C. Joksch, "Velocity change and fatality risk in a crash," <i>Accident Analysis and Prevention</i> 25(1), 1993.</li>
+<li>NHTSA, "Development of improved injury criteria for the assessment of advanced automotive restraint systems II," 1999; FMVSS 208 and FMVSS 126.</li>
+<li>SAE J1349, "Engine power test code: spark ignition and compression ignition."</li>
+<li>ISO 8855, "Road vehicles: vehicle dynamics and road-holding ability, vocabulary."</li>
+</ol>
+</section>
+</main>
+</div>
+<footer><div class="wrap">
+<p>OpenRoad Dynamics is MIT-licensed. Source, tests and architecture notes: <a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">github.com/ZRosserMcIntosh/Vehicle-Dynamics</a>. It contains no proprietary vehicle, game or engine code or data. Trademarks of the real cars it approximates belong to their owners. <a href="../physics/">Physics overview</a> · <a href="../driving/">Drive the car</a> · <a href="/sao-paulo/">São Paulo World</a></p>
+</div></footer>
+<script>
+addEventListener('DOMContentLoaded', () => {
+  const render = () => window.renderMathInElement && renderMathInElement(document.body, {
+    delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }],
+    throwOnError: false,
+  });
+  if (window.renderMathInElement) render(); else addEventListener('load', render);
+});
+</script>
+</body>
+</html>
