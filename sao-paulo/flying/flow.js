@@ -658,14 +658,15 @@ export function buildFlow({ mobile }) {
     // Draw: segments between consecutive points; the ends fade in and out, and
     // comets of smoke travel along each line at the speed of the air there
     // (phase = time of flight), so they bunch up at the stagnation point and
-    // race over the upper surface. flowT is flow time in simulated seconds:
-    // in real time the comets are shown at about half an aircraft length per
-    // second (the air itself would cross the screen in a blink); in slow
-    // motion they move at the true slowed speed. Comets are spaced so each
-    // line carries a few, at least six points apart.
-    const rate = Math.min(1 / slow, 0.55 * L / tas);  // simulated s per screen s
+    // race over the upper surface. flowT is flow time in simulated seconds,
+    // at the true (slowed) rate: in real time the comets cross the airplane at
+    // the air's own speed, so against the ground the air stands still. (Shown
+    // slower, they read as air dragged forward with the airplane.) Comets are
+    // spaced at least six points and almost half an airplane apart, and at
+    // least five frames' travel (at 60 frames/s) so they never strobe backward.
+    const rate = 1 / slow;  // simulated s per screen s
     flowT += dt * rate;
-    const spacing = Math.max(6 * 2.1 * L / NPT, Math.min(0.45 * L, 1.3 * tas * rate));
+    const spacing = Math.max(6 * 2.1 * L / NPT, 0.45 * L, 5 * tas * rate / 60);
     const period = spacing / tas, opacity = opts.light ? 0.9 : 0.8;
     let w = 0, cw = 0;
     for (let i = 0; i < NL; ++i) {

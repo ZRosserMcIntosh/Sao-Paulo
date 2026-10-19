@@ -554,16 +554,27 @@ export function drawJetStrip(ctx, w, h, d) {
   const on = powered(d);
   const show = (fn, x, y, ww, hh) => (on ? fn(ctx, x, y, ww, hh, d) : dark(ctx, x, y, ww, hh));
   const pad = 4, gap = 6;
-  if (w / h > 3.2) {
-    // PFD, map, engines at their natural proportions, centred.
-    const ih = h - 2 * pad;
-    let pw = ih * 1.35, nw = ih * 1.3, ew = ih * 1.0;
-    const k = Math.min(1, (w - 2 * pad - 2 * gap) / (pw + nw + ew));
-    pw *= k; nw *= k; ew *= k;
-    const x0 = (w - (pw + nw + ew + 2 * gap)) / 2;
-    show(drawPFD, x0, pad, pw, ih);
-    show(drawND, x0 + pw + gap, pad, nw, ih);
-    show(drawEICAS, x0 + pw + nw + 2 * gap, pad, ew, ih);
+  // Three layouts, the displays at their natural proportions, scaled to fit
+  // and centred: all three in a row; PFD and map over the engines (a tall
+  // panel); PFD and engines alone. The map goes only when keeping it would
+  // leave the PFD under two thirds the size (a phone). (The map used to go
+  // whenever the strip was less than 3.2 times as wide as tall: dragging the
+  // panel taller lost it.)
+  const H = h - 2 * pad, W = w - 2 * pad;
+  const row = Math.min(H, (W - 2 * gap) / 3.65), stack = Math.min((H - gap) / 2, (W - gap) / 2.65);
+  const alone = Math.min(H, (W - gap) * 0.6 / 1.35);
+  if (alone <= 1.5 * Math.max(row, stack) && row >= stack) {
+    const pw = row * 1.35, nw = row * 1.3, ew = row;
+    const x0 = (w - (pw + nw + ew + 2 * gap)) / 2, y0 = (h - row) / 2;
+    show(drawPFD, x0, y0, pw, row);
+    show(drawND, x0 + pw + gap, y0, nw, row);
+    show(drawEICAS, x0 + pw + nw + 2 * gap, y0, ew, row);
+  } else if (alone <= 1.5 * Math.max(row, stack)) {
+    const pw = stack * 1.35, nw = stack * 1.3, ew = Math.min(W, stack * 1.35);
+    const x0 = (w - (pw + nw + gap)) / 2, y0 = (h - (2 * stack + gap)) / 2;
+    show(drawPFD, x0, y0, pw, stack);
+    show(drawND, x0 + pw + gap, y0, nw, stack);
+    show(drawEICAS, (w - ew) / 2, y0 + stack + gap, ew, stack);
   } else {
     const pw = (w - gap - 2 * pad) * 0.6;
     show(drawPFD, pad, pad, pw, h - 2 * pad);

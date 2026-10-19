@@ -137,8 +137,29 @@ const scene = new THREE.Scene();
 const SKY = new THREE.Color('#a9c2dc');
 scene.background = SKY;
 scene.fog = new THREE.Fog(SKY, 3000, 26000);
+// Fog layer (Weather → Visibility): fog from the ground up to its top, with
+// the visibility V inside it (extinction 3/V, the meteorological optical
+// range). Every fogged material takes the optical depth of its line of sight
+// inside the layer: the path's length times the fraction of it below the top
+// (height varies linearly along a ray). Inside, the world greys out at V; from
+// above, the ground fades under a white blanket. Uniform shared by reference:
+// x top (scene y, m), y extinction (1/m, 0 = no layer), z grey level.
+const FOG = { x: -1e9, y: 0, z: 0.8, w: 0 };
+for (const k of Object.keys(THREE.ShaderLib)) { const u = THREE.ShaderLib[k].uniforms; if (u && u.fogColor) u.fogLayer = { value: FOG }; }
+THREE.ShaderChunk.fog_pars_vertex += '\n#ifdef USE_FOG\n\tvarying vec3 vFogWorld;\n#endif';
+THREE.ShaderChunk.fog_vertex += '\n#ifdef USE_FOG\n\tvFogWorld = transpose( mat3( viewMatrix ) ) * ( mvPosition.xyz - viewMatrix[ 3 ].xyz );\n#endif';
+THREE.ShaderChunk.fog_pars_fragment += '\n#ifdef USE_FOG\n\tvarying vec3 vFogWorld;\n\tuniform vec4 fogLayer;\n#endif';
+THREE.ShaderChunk.fog_fragment += `
+#ifdef USE_FOG
+	if ( fogLayer.y > 0.0 ) {
+		float fLo = min( cameraPosition.y, vFogWorld.y ), fHi = max( cameraPosition.y, vFogWorld.y );
+		float fIn = fHi - fLo > 0.01 ? clamp( ( fogLayer.x - fLo ) / ( fHi - fLo ), 0.0, 1.0 ) : step( fLo, fogLayer.x );
+		gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( fogLayer.z ), 1.0 - exp( - fogLayer.y * distance( vFogWorld, cameraPosition ) * fIn ) );
+	}
+#endif`;
 const camera = new THREE.PerspectiveCamera(60, 1, 0.12, 90000);
-scene.add(new THREE.AmbientLight('#ffffff', 0.58));
+const ambient = new THREE.AmbientLight('#ffffff', 0.58);
+scene.add(ambient);
 const sun = new THREE.DirectionalLight('#fff6e8', 0.6);
 const SUN_DIR = new THREE.Vector3(-0.45, 1, 0.3).normalize();
 sun.castShadow = true;
@@ -368,7 +389,7 @@ const bodyPoint = (x, y, z) => acGroup.localToWorld(new THREE.Vector3(x, y, z));
 // ---------- State ----------
 const ui = {
   assist: store.get('assist', 0), cam: store.get('cam', 0), instr: store.get('instr', true),
-  start: 0, paused: false, crashed: false, sound: false, vol: store.get('vol', 80), slow: 0,
+  start: 0, paused: false, crashed: false, sound: false, vol: store.get('vol', 80), slow: 0, vis: 0,
 };
 // Slow motion: the whole simulation (flight, airflow, smoke, propeller) runs
 // this many times slower than real time, as in the golf ball's wind tunnel.
@@ -565,6 +586,9 @@ function applyWeather() {
   A.avd_set_weather(kt * 0.5144, dir, turb, temp, 0.6);
   A.avd_set_wind_detail(+$('turbClass').value, +$('thermals').value, 1500);
   A.avd_set_runway_water(+$('rwyWater').value);
+  ui.vis = +$('vis').value || 0;
+  $('visNote').hidden = !ui.vis;
+  $('visNote').textContent = ui.vis >= 2 ? `${VIS_NOTES[ui.vis]} For an approach: Flight → Destination, pick a runway, then start on its approach.` : VIS_NOTES[ui.vis];
   $('windV').textContent = kt ? `${kt} kt` : 'calm';
   $('windDirV').textContent = `${String(dir).padStart(3, '0')}°`;
   $('turbV').textContent = turb ? `${turb.toFixed(1)} m/s` : 'none';
@@ -572,7 +596,18 @@ function applyWeather() {
 }
 for (const id of ['wind', 'windDir', 'turb', 'temp']) $(id).addEventListener('input', applyWeather);
 // Turbulence class, thermals, hazard and runway: kept across reloads.
-for (const id of ['turbClass', 'thermals', 'hazard', 'rwyWater']) {
+// What each visibility means for an approach (ICAO categories: decision height and RVR).
+const VIS_NOTES = [
+  '',
+  'Haze: the far city fades. Visual flying.',
+  'Mist: 1,500 m up to about 1,000 ft, under the 5 km visual minimum: fly an instrument approach.',
+  'Fog, RVR 550 m, top about 650 ft: CAT I. On the ILS, the approach lights must be in sight at the 200 ft decision height, or go around.',
+  'Fog, RVR 300 m, top about 500 ft: CAT II. Decision height 100 ft on the radio altimeter.',
+  'Fog, RVR 175 m, top about 400 ft: CAT IIIa. Decision height under 100 ft; airliners land on the autoland or a head-up display.',
+  'Fog, RVR 75 m, top about 330 ft: CAT IIIb. The runway shows only in the flare: land on the instruments.',
+  'Fog, zero visibility: CAT IIIc. Nothing outside: fly the ILS or GPS needles to the flare on the radio altimeter and steer the rollout on the localizer. The core lands every aircraft this way, blind, within CAT III limits (the Aviation Dynamics blind-landing validation).',
+];
+for (const id of ['turbClass', 'thermals', 'hazard', 'rwyWater', 'vis']) {
   $(id).value = String(store.get(`wx:${id}`, $(id).value));
   $(id).addEventListener('change', (e) => {
     store.set(`wx:${id}`, e.target.value);
@@ -606,7 +641,7 @@ function restart(i = ui.start) {
     toast(`Runway ${AP.runway}: flaps ${Math.round(jj[49])} (${MOBILE ? 'FL+' : '.'}), full thrust (${MOBILE ? 'slide THR up' : '+ or X'}), rotate at ${vr} kt, gear up (${MOBILE ? 'GEAR' : 'G'}) once climbing.`, 7);
   }
   else if (i === 0) toast(`Runway ${AP.runway}: full throttle (${MOBILE ? 'slide THR up' : '+ or X'}), keep straight, ease back at 55 kt.`, 6);
-  else if (i === 1) toast('Cold and dark: run the Quick Start in Settings, or work the switches.', 6);
+  else if (i === 1) toast('Cold and dark: run the Quick Start (Flight menu), or work the switches.', 6);
   else toast(`${st.name}: trimmed and level, ${st.sub}.`);
 }
 
@@ -812,16 +847,33 @@ function toggleInstr() { ui.instr = !ui.instr; store.set('instr', ui.instr); $('
 $('instr').hidden = !ui.instr; $('bInstr').setAttribute('aria-pressed', String(ui.instr));
 $('bInstr').addEventListener('click', (e) => { toggleInstr(); e.currentTarget.blur(); });
 $('bReset').addEventListener('click', (e) => { restart(); e.currentTarget.blur(); });
-function togglePanel(force) {
-  const side = $('side'), show = force ?? side.hidden;
-  side.hidden = !show; $('bPanel').setAttribute('aria-expanded', String(show));
-  document.body.classList.toggle('side-open', show);
+// ---------- Menus: Flight, Load, Weather, Controls, Options (one open at a time) ----------
+const MENUS = ['flight', 'load', 'weather', 'controls', 'options'];
+let menu = MENUS.includes(store.get('menu', 'flight')) ? store.get('menu', 'flight') : 'flight';
+function showMenu(name, open = true) {
+  const side = $('side');
+  if (MENUS.includes(name)) { menu = name; store.set('menu', name); }
+  side.hidden = !open;
+  document.querySelectorAll('#side .menu').forEach((m) => { m.hidden = m.dataset.menu !== menu; });
+  document.querySelectorAll('#side [role="tab"]').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === menu)));
+  document.querySelectorAll('.top [data-open]').forEach((b) => b.setAttribute('aria-expanded', String(open && b.dataset.open === menu)));
+  $('bPanel').setAttribute('aria-expanded', String(open));
+  document.body.classList.toggle('side-open', open);
+  if (open) side.scrollTop = 0;
   requestAnimationFrame(sizePanel);
 }
+// H (and the Menu button) opens the last menu or closes it; a top-bar menu
+// button opens its menu, or closes it when it is the one showing.
+function togglePanel(force) { showMenu(menu, force ?? $('side').hidden); }
+document.querySelectorAll('.top [data-open]').forEach((b) => b.addEventListener('click', (e) => {
+  const name = e.currentTarget.dataset.open;
+  showMenu(name, $('side').hidden || menu !== name);
+  e.currentTarget.blur();
+}));
+document.querySelectorAll('#side [role="tab"]').forEach((t) => t.addEventListener('click', (e) => { showMenu(e.currentTarget.dataset.tab); e.currentTarget.blur(); }));
 $('bPanel').addEventListener('click', (e) => { togglePanel(); e.currentTarget.blur(); });
 $('sideClose').addEventListener('click', () => togglePanel(false));
-if (MOBILE || innerWidth < 900) togglePanel(false);
-else document.body.classList.add('side-open');
+showMenu(menu, !(MOBILE || innerWidth < 900));
 // The automatic ground spoilers and thrust reversers, called out as they act.
 let revPhaseWas = 0, gndSpWas = 0;
 function landingRollCallouts() {
@@ -995,7 +1047,7 @@ canvas.addEventListener('dblclick', () => { if (ui.cam === 1 && !hot) { look.yaw
 
 // ---------- Instrument panel ----------
 const panelCv = $('panelCv'), pctx = panelCv.getContext('2d');
-let panelLayout = 'row';
+let panelLayout = 'row', panelT = 0;
 function sizePanel() {
   const r = panelCv.getBoundingClientRect();
   if (!r.width) return;
@@ -1003,6 +1055,7 @@ function sizePanel() {
   panelCv.width = Math.round(r.width * dpr); panelCv.height = Math.round(r.height * dpr);
   pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   panelLayout = 'row';
+  panelT = 1;  // resizing clears the canvas: draw it again on the next frame
 }
 // The instrument panel's size: drag a grip at its corner (double-click resets).
 // Kept per aircraft in this browser; the flow legend sits above it.
@@ -1192,6 +1245,36 @@ function updateCamera(dt) {
   sun.shadow.camera.far = agl / SUN_DIR.y + 120; sun.shadow.camera.updateProjectionMatrix();
   if (ui.flow === 2) { scene.fog.near = 1.5 * P.chase; scene.fog.far = 7 * P.chase; }
   else { scene.fog.near = 2500 + agl * 3; scene.fog.far = 22000 + agl * 12; }
+  updateFogLayer();
+}
+
+// ---------- Visibility: haze, mist and fog ----------
+// [visibility (m, MOR; RVR for the fogs), top of the layer above the ground (m)].
+const VIS = [null, [5000, 1200], [1500, 300], [550, 200], [300, 150], [175, 120], [75, 100], [15, 100]];
+const FOG_GREY = new THREE.Color().setRGB(0.8, 0.8, 0.8), SKY_ZEN = skyDome.material.uniforms.zen.value.clone();
+function updateFogLayer() {
+  const p = VIS[ui.vis], u = skyDome.material.uniforms;
+  if (!p || ui.flow === 2) {
+    FOG.y = 0; u.hor.value.copy(SKY); u.zen.value.copy(SKY_ZEN); sun.intensity = 0.6; ambient.intensity = 0.58;
+    return;
+  }
+  const [vis, top] = p;
+  FOG.x = groundAt(s[0], s[1]) + top;  // the layer follows the ground under the airplane
+  FOG.y = 3 / vis;
+  // The sky through the fog overhead; the horizon is fog all the way inside it.
+  const over = Math.max(0, FOG.x - camera.position.y), tUp = Math.exp(-FOG.y * over);
+  u.hor.value.copy(SKY).lerp(FOG_GREY, over > 0 ? 1 : 0.6);
+  u.zen.value.copy(SKY_ZEN).lerp(FOG_GREY, 1 - tUp);
+  // Sunlight through the layer: no shadows under thick fog, light all diffuse.
+  const tSun = Math.exp(-FOG.y * top / SUN_DIR.y);
+  sun.intensity = 0.6 * tSun; ambient.intensity = 0.58 + 0.42 * (1 - tSun);
+}
+// Transmission of a line of sight from the camera to a point (scene coords) through the layer.
+function fogTransmission(x, y, z) {
+  if (!FOG.y) return 1;
+  const c = camera.position, lo = Math.min(c.y, y), hi = Math.max(c.y, y);
+  const inside = hi - lo > 0.01 ? clamp((FOG.x - lo) / (hi - lo), 0, 1) : (lo < FOG.x ? 1 : 0);
+  return Math.exp(-FOG.y * Math.hypot(x - c.x, y - c.y, z - c.z) * inside);
 }
 
 // ---------- Landmark labels ----------
@@ -1232,8 +1315,10 @@ function drawLabels() {
       }
       if (occluded.get(name)) continue;
     }
+    const fogT = fogTransmission(x, base + up, -y);
+    if (fogT < 0.05) continue;  // lost in the fog
     const px = (v.x + 1) / 2 * w, py = (1 - v.y) / 2 * h;
-    const a = clamp(1.4 - dist / 10000, 0.35, 1);
+    const a = clamp(1.4 - dist / 10000, 0.35, 1) * Math.min(1, fogT * 1.5);
     lctx.globalAlpha = a;
     lctx.strokeStyle = 'rgba(255,255,255,.7)'; lctx.lineWidth = 1;
     lctx.beginPath(); lctx.moveTo(px, py); lctx.lineTo(px, py - 12); lctx.stroke();
@@ -1338,7 +1423,7 @@ restart(0);
 $('loading').hidden = true;
 $('loading').style.display = 'none';
 const clock = new THREE.Clock();
-let panelT = 0, cabinT = 1, swT = 1;
+let cabinT = 1, swT = 1;
 const sw = { bat: 1, alt: 1, avionics: 1, beacon: 0, land: 0, taxi: 0, nav: 0, strobe: 0, pitot: 0, mags: 3, flaps: 0, fuelSel: 1 };
 function readSwitches() {
   const p = Object.fromEntries(A.cockpit().map((x) => [x.id, x.position]));
