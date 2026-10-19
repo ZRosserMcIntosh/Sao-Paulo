@@ -49,7 +49,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .note{color:var(--mute);font-size:12px;margin:8px 0 0}
 .keys{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:12px;color:var(--mute);align-items:center}
 .keys span:nth-child(odd){white-space:nowrap}
-.ctl{display:grid;grid-template-columns:86px 1fr 64px;gap:8px;align-items:center;font-size:12px;color:var(--mute);margin-top:6px}
+.ctl{display:grid;grid-template-columns:86px minmax(0,1fr) 64px;gap:8px;align-items:center;font-size:12px;color:var(--mute);margin-top:6px}
 .ctl output{font:500 11px var(--mono);color:var(--ink);text-align:right}
 .starts{display:grid;gap:5px}
 .ctl select{width:100%;min-width:0;background:rgba(255,255,255,.06);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 4px;font:inherit}
@@ -161,14 +161,25 @@ body.jet #hud .levers{display:none}
   #side{width:min(310px,calc(100% - 24px));touch-action:pan-y}
 }
 @media (max-width:760px){#instr{height:var(--instr-h,110px)}body.jet{--instr-h:min(220px,45vh)}.read{display:none}}
-/* Desktop: with the settings panel open, the strip and legend make room for it. */
+/* Desktop: with a menu open, the strip and legend make room for it. */
 @media (min-width:900px) and (pointer:fine){
   body.side-open #instr{left:calc(50% - 161px);width:min(1000px,calc(100% - 358px))}
   body.jet.side-open #instr{width:min(1500px,calc(100% - 358px))}
   body.side-open #flowLegend{right:334px}
 }
-#sideClose{display:none;position:sticky;top:-12px;margin:-12px -12px 8px auto;float:right;z-index:1}
-/* Phones: compact top bar; settings as a sheet over everything, with its own close button. */
+/* Menus: one at a time in the side panel, chosen from the top bar (or the tabs at its head). */
+.menus{display:inline-flex;gap:6px;padding-left:6px;border-left:1px solid var(--line)}
+.top .menus button[aria-expanded="true"]{background:#fff;color:#0a1830;border-color:#fff}
+#bPanel{display:none}
+.tabs{position:sticky;top:-12px;z-index:2;display:flex;gap:4px;align-items:center;margin:-12px -12px 10px;padding:8px 8px 8px;background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line);border-radius:10px 10px 0 0}
+.tabs [role="tab"]{flex:1 1 auto;padding:5px 4px;font-size:11px;background:none;border-color:transparent}
+.tabs [role="tab"][aria-selected="true"]{background:#fff;color:#0a1830;border-color:#fff}
+#sideClose{flex:0 0 auto;padding:5px 8px;font-size:11px;background:none;border-color:transparent}
+.menu[hidden]{display:none}
+.menu h2:first-child{margin-top:2px}
+/* Narrow screens: one Menu button; the tabs inside switch between the menus. */
+@media (max-width:1100px){.menus{display:none}#bPanel{display:inline-block}}
+/* Phones: compact top bar; the menus as a sheet over everything. */
 @media (max-width:760px){
   .top{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));gap:6px}
   .top .row{gap:4px;justify-content:flex-end}
@@ -176,7 +187,6 @@ body.jet #hud .levers{display:none}
   .plate{padding:4px 8px}.plate b{font-size:15px}.plate span{font-size:8px}
   #toast{top:calc(64px + env(safe-area-inset-top))}
   #side{z-index:6;left:8px;right:8px;width:auto;top:calc(8px + env(safe-area-inset-top));max-height:calc(100% - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
-  #sideClose{display:block}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -192,12 +202,27 @@ body.jet #hud .levers{display:none}
     <button id="bCam" title="Camera (C)">Camera</button>
     <button id="bInstr" title="Instruments (I)" aria-pressed="true">Instruments</button>
     <button id="bReset" title="Restart (R)">Restart</button>
-    <button id="bPanel" aria-expanded="true" aria-controls="side" title="Settings and help (H)">Settings</button>
+    <span class="menus" role="group" aria-label="Menus">
+      <button data-open="flight" aria-expanded="false" aria-controls="side" title="Aircraft, airport, destination and start">Flight</button>
+      <button data-open="load" aria-expanded="false" aria-controls="side" title="Weight and fuel">Load</button>
+      <button data-open="weather" aria-expanded="false" aria-controls="side" title="Wind, visibility and fog, turbulence, runway">Weather</button>
+      <button data-open="controls" aria-expanded="false" aria-controls="side" title="Keys, mouse and gamepad">Controls</button>
+      <button data-open="options" aria-expanded="false" aria-controls="side" title="Assists, display, sound and failures">Options</button>
+    </span>
+    <button id="bPanel" aria-expanded="false" aria-controls="side" title="Menus (H)">Menu</button>
   </div>
 </div>
 
-<aside id="side" class="panel" aria-label="Settings">
-  <button id="sideClose" aria-label="Close settings">✕ Close</button>
+<aside id="side" class="panel" aria-label="Settings" hidden>
+  <div class="tabs" role="tablist" aria-label="Menus">
+    <button role="tab" data-tab="flight" aria-selected="true">Flight</button>
+    <button role="tab" data-tab="load" aria-selected="false">Load</button>
+    <button role="tab" data-tab="weather" aria-selected="false">Weather</button>
+    <button role="tab" data-tab="controls" aria-selected="false">Controls</button>
+    <button role="tab" data-tab="options" aria-selected="false">Options</button>
+    <button id="sideClose" aria-label="Close the menu" title="Close (H)">✕</button>
+  </div>
+  <section class="menu" data-menu="flight" role="tabpanel" aria-label="Flight">
   <h2>Aircraft</h2>
   <div class="row" role="group" aria-label="Aircraft">
     <button data-aircraft="c172" aria-pressed="true">172 <small style="font-weight:500;opacity:.7">· piston single</small></button>
@@ -229,9 +254,76 @@ body.jet #hud .levers{display:none}
   <div class="starts" id="starts"></div>
   <div class="row" style="margin-top:8px"><button id="bQuick" title="Run the Quick Start checklist through the cockpit switches">Quick Start (from cold and dark)</button></div>
 
+  </section>
+  <section class="menu" data-menu="load" role="tabpanel" aria-label="Weight and fuel" hidden>
   <h2>Weight &amp; fuel</h2>
   <div id="loadPanel"></div>
 
+  </section>
+  <section class="menu" data-menu="weather" role="tabpanel" aria-label="Weather" hidden>
+  <h2>Wind and weather</h2>
+  <label class="ctl">Wind <input id="wind" type="range" min="0" max="30" value="0"><output id="windV">calm</output></label>
+  <label class="ctl">From <input id="windDir" type="range" min="0" max="350" step="10" value="120"><output id="windDirV">120°</output></label>
+  <label class="ctl">Visibility <select id="vis">
+    <option value="0">clear (CAVOK)</option>
+    <option value="1">haze · 5 km</option>
+    <option value="2">mist · 1,500 m</option>
+    <option value="3">CAT I fog · 550 m</option>
+    <option value="4">CAT II fog · 300 m</option>
+    <option value="5">CAT IIIa fog · 175 m</option>
+    <option value="6">CAT IIIb fog · 75 m</option>
+    <option value="7">CAT IIIc fog · zero</option>
+  </select><output></output></label>
+  <p class="note" id="visNote" hidden></p>
+  <label class="ctl">Turbulence <input id="turb" type="range" min="0" max="4" step="0.2" value="0"><output id="turbV">none</output></label>
+  <label class="ctl">Temperature <input id="temp" type="range" min="-25" max="25" value="0"><output id="tempV">ISA</output></label>
+  <label class="ctl">Turbulence class <select id="turbClass"><option value="0">none</option><option value="1">light</option><option value="2">moderate</option><option value="3">severe</option></select><output></output></label>
+  <label class="ctl">Thermals <select id="thermals"><option value="0">none</option><option value="1.5">weak (w* 1.5 m/s)</option><option value="2.5">good (w* 2.5 m/s)</option><option value="3.5">strong (w* 3.5 m/s)</option></select><output></output></label>
+  <label class="ctl">Hazard <select id="hazard"><option value="0">none</option><option value="1">microburst on final</option><option value="2">gust front from the SW</option></select><output></output></label>
+  <label class="ctl">Runway <select id="rwyWater"><option value="0">dry</option><option value="1">wet</option><option value="6">standing water (6 mm)</option><option value="13">flooded (13 mm)</option></select><output></output></label>
+  <p class="note">The wind is the airfield report: it grows and backs with height and brings its own gusts over the city. Turbulence follows MIL-HDBK-1797; a wet runway brakes like the certification wet-runway curve, and in standing water the tyres hydroplane above 9·√(tyre psi) kt (about 124 kt for the Top G, 55 kt for the 172).</p>
+
+  </section>
+  <section class="menu" data-menu="controls" role="tabpanel" aria-label="Controls" hidden>
+  <h2>Flying</h2>
+  <div class="keys">
+    <span><kbd>W</kbd><kbd>S</kbd> <kbd>↑</kbd><kbd>↓</kbd></span><span>Pitch (S / ↓ pulls the nose up)</span>
+    <span><kbd>A</kbd><kbd>D</kbd> <kbd>←</kbd><kbd>→</kbd></span><span>Roll</span>
+    <span><kbd>Q</kbd><kbd>E</kbd></span><span>Rudder (steers on the ground; on the Top G below 5 kt, the nose-wheel tiller)</span>
+    <span><kbd>[</kbd> <kbd>]</kbd></span><span>Elevator trim nose down / up</span>
+    <span><kbd>L</kbd></span><span>Auto-trim: hold straight and level, on / off</span>
+  </div>
+  <h2>Engines and configuration</h2>
+  <div class="keys">
+    <span><kbd>+</kbd><kbd>−</kbd> · <kbd>X</kbd><kbd>Z</kbd></span><span>Throttle up / down</span>
+    <span><kbd>,</kbd> <kbd>.</kbd></span><span>Flaps up / down a notch</span>
+    <span class="jetonly" hidden><kbd>G</kbd></span><span class="jetonly" hidden>Landing gear</span>
+    <span class="jetonly" hidden><kbd>/</kbd></span><span class="jetonly" hidden>Speedbrake (RET, half, full)</span>
+    <span><kbd>B</kbd> · <kbd>P</kbd></span><span>Brakes · parking brake</span>
+  </div>
+  <h2>Instruments</h2>
+  <div class="keys">
+    <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level) · sync the heading to the compass</span>
+    <span><kbd>;</kbd> <kbd>'</kbd></span><span>Heading bug left / right (Shift: 1°)</span>
+    <span><kbd>O</kbd></span><span>Altimeter +0.01 inHg (Shift: −)</span>
+  </div>
+  <h2>View and simulation</h2>
+  <div class="keys">
+    <span><kbd>C</kbd> · <kbd>I</kbd></span><span>Camera · instruments</span>
+    <span><kbd>V</kbd></span><span>Airflow view: off, streamlines, wind tunnel, smoke</span>
+    <span><kbd>T</kbd> <kbd>⇧T</kbd></span><span>Slow motion: slower / faster (real time to 1/5000×)</span>
+    <span><kbd>R</kbd> · <kbd>Space</kbd></span><span>Restart · pause</span>
+    <span><kbd>H</kbd> · <kbd>M</kbd></span><span>Menu · sound</span>
+  </div>
+  <h2>Mouse, cockpit and gamepad</h2>
+  <div class="keys">
+    <span>Mouse</span><span>Drag to look around (free camera), scroll to zoom</span>
+    <span>Cockpit view</span><span>Point at a switch, knob or lever: click to work it (right-click the other way), drag levers, scroll knobs; at BOTH, hold the key to start. Drag elsewhere to look around, double-click to look ahead.</span>
+    <span>Gamepad</span><span>Left stick pitch/roll, right stick rudder, RT/LT throttle, RB/LB flaps, A brakes, D-pad trim, Y restart, View camera</span>
+  </div>
+  <p class="note">Take-off in the 172: full throttle, keep it straight with <kbd>Q</kbd>/<kbd>E</kbd>, ease back at 55 knots. Climb at 75. Land at 65 with flaps down, idle over the runway, flare gently.</p>
+  </section>
+  <section class="menu" data-menu="options" role="tabpanel" aria-label="Options" hidden>
   <h2>Flying</h2>
   <div class="row" role="group" aria-label="Assistance">
     <button data-assist="0" aria-pressed="true">Easy</button>
@@ -255,17 +347,6 @@ body.jet #hud .levers{display:none}
   <p class="note pistononly">Synthesized from the simulation: firing pulses at the engine rpm, louder with manifold pressure, wind from the airspeed, and the stall-warning reed horn.</p>
   <p class="note jetonly" hidden>Synthesized from the simulation: fan tone and core whine from each engine's N1 and N2, roar with thrust, wind from the airspeed, and the stall warning.</p>
 
-  <h2>Weather</h2>
-  <label class="ctl">Wind <input id="wind" type="range" min="0" max="30" value="0"><output id="windV">calm</output></label>
-  <label class="ctl">From <input id="windDir" type="range" min="0" max="350" step="10" value="120"><output id="windDirV">120°</output></label>
-  <label class="ctl">Turbulence <input id="turb" type="range" min="0" max="4" step="0.2" value="0"><output id="turbV">none</output></label>
-  <label class="ctl">Temperature <input id="temp" type="range" min="-25" max="25" value="0"><output id="tempV">ISA</output></label>
-  <label class="ctl">Turbulence class <select id="turbClass"><option value="0">none</option><option value="1">light</option><option value="2">moderate</option><option value="3">severe</option></select><output></output></label>
-  <label class="ctl">Thermals <select id="thermals"><option value="0">none</option><option value="1.5">weak (w* 1.5 m/s)</option><option value="2.5">good (w* 2.5 m/s)</option><option value="3.5">strong (w* 3.5 m/s)</option></select><output></output></label>
-  <label class="ctl">Hazard <select id="hazard"><option value="0">none</option><option value="1">microburst on final</option><option value="2">gust front from the SW</option></select><output></output></label>
-  <label class="ctl">Runway <select id="rwyWater"><option value="0">dry</option><option value="1">wet</option><option value="6">standing water (6 mm)</option><option value="13">flooded (13 mm)</option></select><output></output></label>
-  <p class="note">The wind is the airfield report: it grows and backs with height and brings its own gusts over the city. Turbulence follows MIL-HDBK-1797; a wet runway brakes like the certification wet-runway curve, and in standing water the tyres hydroplane above 9·√(tyre psi) kt (about 124 kt for the Top G, 55 kt for the 172).</p>
-
   <h2>Failures</h2>
   <div class="row">
     <button data-fail="fuel" aria-pressed="false" title="Close the fuel shutoff valve: the engine runs on the fuel in the lines, then quits">Fuel shutoff</button>
@@ -276,29 +357,9 @@ body.jet #hud .levers{display:none}
   </div>
   <p class="note">Failures act on the physical systems: with the fuel off the engine starves after the line fuel is used; a failed vacuum pump lets the gyros spin down; a blocked pitot bleeds the airspeed to zero.</p>
 
-  <h2>Controls</h2>
-  <div class="keys">
-    <span><kbd>W</kbd><kbd>S</kbd> <kbd>↑</kbd><kbd>↓</kbd></span><span>Pitch (S / ↓ pulls the nose up)</span>
-    <span><kbd>A</kbd><kbd>D</kbd> <kbd>←</kbd><kbd>→</kbd></span><span>Roll</span>
-    <span><kbd>Q</kbd><kbd>E</kbd></span><span>Rudder (steers on the ground; on the Top G below 5 kt, the nose-wheel tiller)</span>
-    <span><kbd>L</kbd></span><span>Auto-trim: hold straight and level, on / off</span>
-    <span><kbd>+</kbd><kbd>−</kbd> · <kbd>X</kbd><kbd>Z</kbd></span><span>Throttle up / down</span>
-    <span><kbd>,</kbd> <kbd>.</kbd></span><span>Flaps up / down a notch (0–10–20–30°)</span>
-    <span><kbd>[</kbd> <kbd>]</kbd></span><span>Elevator trim nose down / up</span>
-    <span><kbd>B</kbd> · <kbd>P</kbd></span><span>Brakes · parking brake</span>
-    <span class="jetonly" hidden><kbd>G</kbd> · <kbd>/</kbd></span><span class="jetonly" hidden>Landing gear · speedbrake (RET, half, full)</span>
-    <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level) · sync the heading to the compass</span>
-    <span><kbd>;</kbd> <kbd>'</kbd> · <kbd>O</kbd></span><span>Heading bug left / right (Shift: 1°) · altimeter +0.01 inHg (Shift: −)</span>
-    <span><kbd>V</kbd></span><span>Airflow view: off, streamlines, wind tunnel, smoke</span>
-    <span><kbd>T</kbd> <kbd>⇧T</kbd></span><span>Slow motion: slower / faster (real time to 1/5000×)</span>
-    <span><kbd>C</kbd> · <kbd>I</kbd> · <kbd>R</kbd></span><span>Camera · instruments · restart</span>
-    <span>Cockpit view</span><span>Point at a switch, knob or lever: click to work it (right-click the other way), drag levers, scroll knobs; at BOTH, hold the key to start. Drag elsewhere to look around, double-click to look ahead.</span>
-    <span><kbd>H</kbd> · <kbd>M</kbd> · <kbd>Space</kbd></span><span>Panel · sound · pause</span>
-    <span>Mouse</span><span>Drag to look around (free camera), scroll to zoom</span>
-    <span>Gamepad</span><span>Left stick pitch/roll, right stick rudder, RT/LT throttle, RB/LB flaps, A brakes, D-pad trim, Y restart, View camera</span>
-  </div>
-  <p class="note">Take-off: full throttle, keep it straight with <kbd>Q</kbd>/<kbd>E</kbd>, ease back at 55 knots. Climb at 75. Land at 65 with flaps down, idle over the runway, flare gently.</p>
+  <h2>About</h2>
   <p class="note">Physics: the Aviation Dynamics core (the C++ the game will use, <a href="https://github.com/ZRosserMcIntosh/Aviation-Dynamics" style="color:var(--ink)">github.com/ZRosserMcIntosh/Aviation-Dynamics</a>) compiled to WebAssembly, stepping at 240 Hz: strip-theory wings, a blade-element propeller and piston engine (172) or two-spool turbofans (Top G), fuel, electrics and instruments; the 172 is validated against its published handbook performance, the Top G against the G650ER's published figures. Every airport of the region sits at its own elevation (Congonhas 802 m, Campo de Marte 722 m, Guarulhos 750 m, Viracopos 661 m, São José dos Campos 646 m, Jundiaí 753 m), the ground blended smoothly between them under the São Paulo World map; real terrain and buildings arrive with the world tile export.</p>
+  </section>
 </aside>
 
 <div id="hud">
@@ -321,7 +382,7 @@ body.jet #hud .levers{display:none}
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>
   <div class="lg slow"><span class="ends"><span>Slow motion <kbd>T</kbd></span><b id="slowO">real time</b></span><input id="slowR" type="range" min="0" max="4" step="1" value="0" aria-label="Slow motion: real time, 1/10, 1/100, 1/1000 or 1/5000"><span class="sm">At 1/1000× and slower the propeller is resolved: its blades, tip vortices and the slipstream they drive.</span></div>
-  <div class="lg lines"><span>Streamlines · local speed / free stream</span><i class="bar"></i><span class="ends"><b>0.85 slower</b><b>1.15 faster</b></span><span><i class="sw air"></i> grey: air the aircraft leaves alone</span><span>Wheels, struts and raised spoilers leave a slow wake that carries their drag, and shed a Kármán street. Comets travel with the air.</span></div>
+  <div class="lg lines"><span>Streamlines · local speed / free stream</span><i class="bar"></i><span class="ends"><b>0.85 slower</b><b>1.15 faster</b></span><span><i class="sw air"></i> grey: air the aircraft leaves alone</span><span>Wheels, struts and raised spoilers leave a slow wake that carries their drag, and shed a Kármán street. Comets travel with the air at its real speed (<kbd>T</kbd> slows it down).</span></div>
   <div class="lg"><span>Wing strips α/α<sub>stall</sub></span><i class="bar half"></i><span class="ends"><b>0</b><b>stall</b></span></div>
   <div class="lg smokeLg"><span>Smoke · <i class="sw tip"></i>wingtips <i class="sw te"></i>trailing edge, wheels, struts, spoilers <i class="sw air"></i>exhaust <i class="sw amber"></i>propeller tips (slow motion)</span><span>It stays in the air: the wake rolls up, sinks and drifts with the wind.</span></div>
   <div class="lg"><span>Tufts · <i class="sw tuft"></i>attached <i class="sw amber"></i>near the stall <i class="sw stall"></i>separated (stall, or behind a raised spoiler)</span></div>
