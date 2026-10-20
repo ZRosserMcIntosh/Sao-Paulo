@@ -239,7 +239,7 @@ export class Garage {
   buildHud() {
     const d = document.createElement('div');
     d.className = 'panel'; d.id = 'hTyres';
-    d.title = 'Tyre tread temperature and camber (negative = top in); colour = how far from the working window. Aero: downforce and drag from the physics.';
+    d.title = 'Tyre tread temperature and camber (negative = top in); colour = how far from the working window. Aero: downforce and drag from the physics. Roll centres: front / rear height above the ground from the suspension linkage (cars with wishbones or struts); lowering the car drops them.';
     d.innerHTML = `<div class="tg">${['FL', 'FR', 'RL', 'RR'].map((n) => `<div>${n} <b data-t></b><br><span data-c></span></div>`).join('')}</div><div class="aero"></div>`;
     document.getElementById('hud').append(d);
     this.hud = d;
@@ -251,7 +251,7 @@ export class Garage {
     if (this.isBike() || ++this.hudTick % 6) return; // ~10 Hz is plenty to read
     const g = this.gs();
     for (let w = 0; w < 4; ++w) {
-      const cam = g[12 + 4 * w] * 57.2958, t = g[13 + 4 * w], opt = g[14 + 4 * w], grip = g[15 + 4 * w];
+      const cam = g[14 + 4 * w] * 57.2958, t = g[15 + 4 * w], opt = g[16 + 4 * w], grip = g[17 + 4 * w];
       const off = t - opt;
       this.tEls[w].textContent = `${t.toFixed(0)}°C`;
       this.tEls[w].style.color = grip > 0.98 ? 'var(--good)' : off < 0 ? '#7cc4ff' : grip > 0.9 ? 'var(--warn)' : 'var(--bad)';
@@ -260,6 +260,7 @@ export class Garage {
     }
     const down = (g[2] + g[3]) / 1000, drag = g[4] / 1000;
     let a = `Down ${down.toFixed(2)} kN · drag ${drag.toFixed(2)} kN`;
+    if (Math.abs(g[12]) > 1e-6 || Math.abs(g[13]) > 1e-6) a += ` · roll centres ${(g[12] * 1000).toFixed(0)} / ${(g[13] * 1000).toFixed(0)} mm`;
     if (g[5] > 20) a += `<br>Wing ${(g[5] / 1000).toFixed(2)} kN${g[8] ? ' <b style="color:var(--bad)">STALLED</b>' : ''}`;
     if (g[9]) a += ' <b style="color:var(--bad)">FLOOR STALL</b>';
     if (Math.abs(g[1]) > 0.03 && g[0] > 5) a += `<br>Airflow yaw ${(g[1] * 57.3).toFixed(0)}°`;
