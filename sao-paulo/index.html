@@ -197,7 +197,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
 </head>
 <body>
 
-<header class="hero"><div class="wrap topbar"><nav aria-label="Sections"><a href="#film">Film</a><a href="#explore">Map &amp; tiles</a><a href="#north">The blocks</a><a href="#metro">Metrô</a><a href="#qa">Quality</a><a href="physics/">Physics engine</a><a href="vehicle-dynamics/">Vehicle dynamics (math)</a><a class="navfly" href="flying/">Fly the 172</a><a class="navfly" href="golf/">Golf ball wind tunnel</a><a class="navfly" href="glass/">Glass lab</a><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive the car</b></a></nav></div>
+<header class="hero"><div class="wrap topbar"><nav aria-label="Sections"><a href="#film">Film</a><a href="#explore">Map &amp; tiles</a><a href="#north">The blocks</a><a href="#metro">Metrô</a><a href="#qa">Quality</a><a href="#balneario">Balneário</a><a href="physics/">Physics engine</a><a href="vehicle-dynamics/">Vehicle dynamics (math)</a><a class="navfly" href="flying/">Fly the 172</a><a class="navfly" href="golf/">Golf ball wind tunnel</a><a class="navfly" href="glass/">Glass lab</a><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive the car</b></a></nav></div>
 <div class="wrap herotop">
   <div>
     <div class="eyebrow">An open-world game, one tile at a time</div>
@@ -389,6 +389,18 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
     <div class="panel tblwrap"><table class="etable" id="etab"></table><p style="margin-top:14px;color:var(--mute);font-size:14px">Tiles inside the city use the same GeoSampa survey layers as today. Tiles outside it (São Caetano, Santo André, Guarulhos) will be built from OpenStreetMap alone, with a coarser terrain model.</p></div>
   </div>
 </div></section>
+
+<section id="balneario"><div class="wrap">
+  <div class="sechead"><div><div class="eyebrow">Santa Catarina · the second city</div><h2>Balneário Camboriú</h2></div>
+    <p>The same pipeline, pointed 600 km south at Brazil's tallest skyline. 116 tiles from the Barra Sul jetty to Praia Brava, built from the city's own pseudo-3D cadastre: every building carries a height and a confidence flag, every street its name, house-number range and CEP. It is the second of four 1:1 cities the road network will join.</p></div>
+  <div class="expgrid">
+    <a class="panel" href="balneario/" style="display:block;padding:0;overflow:hidden;text-decoration:none"><img src="balneario/img/mosaic_small.jpg" alt="Tile mosaic of Balneário Camboriú and Praia Brava" style="width:100%;display:block" loading="lazy"></a>
+    <div class="panel"><div class="facts" id="bcfacts" style="margin-top:0"></div>
+      <p style="margin-top:14px;color:var(--mute);font-size:14px">Heights come from the cadastre's 3D units (checked against OpenStreetMap floor counts), from the CTBUH list for the named towers, or are flagged as provisional. Cross streets are named by number and houses numbered by the metre, so the CEP ranges from Correios fall into place along each axis.</p>
+      <p style="margin-top:14px"><a class="ghost" href="balneario/">Open the Balneário Camboriú section →</a></p></div>
+  </div>
+</div></section>
+<script>fetch("balneario/site_data.json").then(r=>r.json()).then(d=>{const t=d.totals;document.getElementById("bcfacts").innerHTML=[["tiles",t.tiles],["buildings",t.buildings.toLocaleString("en")],["named streets",t.named_streets],["CEPs",t.ceps],["tallest",t.tallest_m+" m"]].map(([k,v])=>`<span><b>${v}</b> ${k}</span>`).join("")}).catch(()=>{})</script>
 
 <section id="engine"><div class="wrap">
   <div class="sechead"><div><div class="eyebrow">Headed for Unreal Engine 5</div><h2>Hit a pole, it falls</h2></div>
