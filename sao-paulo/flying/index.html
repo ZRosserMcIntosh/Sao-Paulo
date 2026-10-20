@@ -99,6 +99,10 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .lev i{position:absolute;left:0;right:0;bottom:0;background:var(--ink)}
 .lev.mix i{background:var(--bad)}
 .lev.flp i{background:var(--hot)}
+.lev i.r{display:none}
+.lev.split i{right:52%}
+.lev.split i.r{display:block;left:52%;right:0}
+#coreId{margin:14px 0 0;font:500 10px var(--mono);color:var(--mute);letter-spacing:.03em;opacity:.8}
 #warn{position:fixed;left:50%;top:70px;transform:translateX(-50%);font:900 26px/1 var(--display);letter-spacing:.06em;color:#fff;background:var(--bad);border-radius:6px;padding:6px 14px;z-index:2;display:none;pointer-events:none}
 #warn.on{display:block}
 #flowLegend{position:fixed;right:12px;bottom:calc(var(--instr-h,150px) + 24px);z-index:2;width:250px;display:grid;gap:7px;pointer-events:none}
@@ -295,7 +299,8 @@ body.jet #hud .levers{display:none}
   </div>
   <h2>Engines and configuration</h2>
   <div class="keys">
-    <span><kbd>+</kbd><kbd>−</kbd> · <kbd>X</kbd><kbd>Z</kbd></span><span>Throttle up / down</span>
+    <span><kbd>+</kbd><kbd>−</kbd> · <kbd>X</kbd><kbd>Z</kbd></span><span>Throttle up / down<span class="jetonly" hidden> (both levers; rejoins them)</span></span>
+    <span class="jetonly" hidden><kbd>⇧X</kbd><kbd>⇧Z</kbd> · <kbd>Alt X</kbd><kbd>Alt Z</kbd></span><span class="jetonly" hidden>Engine 1 lever alone · engine 2 lever alone (split thrust: asymmetric, or differential taxi)</span>
     <span><kbd>,</kbd> <kbd>.</kbd></span><span>Flaps up / down a notch</span>
     <span class="jetonly" hidden><kbd>G</kbd></span><span class="jetonly" hidden>Landing gear</span>
     <span class="jetonly" hidden><kbd>/</kbd></span><span class="jetonly" hidden>Speedbrake (RET, half, full)</span>
@@ -318,7 +323,7 @@ body.jet #hud .levers{display:none}
   <h2>Mouse, cockpit and gamepad</h2>
   <div class="keys">
     <span>Mouse</span><span>Drag to look around (free camera), scroll to zoom</span>
-    <span>Cockpit view</span><span>Point at a switch, knob or lever: click to work it (right-click the other way), drag levers, scroll knobs; at BOTH, hold the key to start. Drag elsewhere to look around, double-click to look ahead.</span>
+    <span>Cockpit view</span><span>Point at a switch, knob or lever: click to work it (right-click the other way), drag levers (on the Top G each thrust lever moves alone), scroll knobs; at BOTH, hold the key to start. Drag elsewhere to look around, double-click to look ahead.</span>
     <span>Gamepad</span><span>Left stick pitch/roll, right stick rudder, RT/LT throttle, RB/LB flaps, A brakes, D-pad trim, Y restart, View camera</span>
   </div>
   <p class="note">Take-off in the 172: full throttle, keep it straight with <kbd>Q</kbd>/<kbd>E</kbd>, ease back at 55 knots. Climb at 75. Land at 65 with flaps down, idle over the runway, flare gently.</p>
@@ -350,16 +355,19 @@ body.jet #hud .levers{display:none}
   <h2>Failures</h2>
   <div class="row">
     <button data-fail="fuel" aria-pressed="false" title="Close the fuel shutoff valve: the engine runs on the fuel in the lines, then quits">Fuel shutoff</button>
-    <button data-fail="2" aria-pressed="false">Vacuum pump</button>
+    <button data-fail="2" class="pistononly" aria-pressed="false">Vacuum pump</button>
     <button data-fail="0" aria-pressed="false">Pitot blocked</button>
     <button data-fail="1" aria-pressed="false">Static blocked</button>
-    <button data-fail="3" aria-pressed="false">Alternator</button>
+    <button data-fail="3" class="pistononly" aria-pressed="false">Alternator</button>
+    <button data-fail="4" class="jetonly" hidden aria-pressed="false" title="Engine 1's generator off line: the other carries the bus">GEN 1</button>
+    <button data-fail="5" class="jetonly" hidden aria-pressed="false" title="Engine 2's generator off line: the other carries the bus">GEN 2</button>
   </div>
-  <p class="note">Failures act on the physical systems: with the fuel off the engine starves after the line fuel is used; a failed vacuum pump lets the gyros spin down; a blocked pitot bleeds the airspeed to zero.</p>
+  <p class="note">Failures act on the physical systems: with the fuel off the engine starves after the line fuel is used; a failed vacuum pump lets the gyros spin down; a blocked pitot bleeds the airspeed to zero<span class="jetonly" hidden>; with both generators off the battery carries the bus until it is flat</span>.</p>
 
   <h2>About</h2>
   <p class="note">Physics: the Aviation Dynamics core (the C++ the game will use, <a href="https://github.com/ZRosserMcIntosh/Aviation-Dynamics" style="color:var(--ink)">github.com/ZRosserMcIntosh/Aviation-Dynamics</a>) compiled to WebAssembly, stepping at 240 Hz: strip-theory wings, a blade-element propeller and piston engine (172) or two-spool turbofans (Top G), fuel, electrics and instruments; the 172 is validated against its published handbook performance, the Top G against the G650ER's published figures. Every airport of the region sits at its own elevation (Congonhas 802 m, Campo de Marte 722 m, Guarulhos 750 m, Viracopos 661 m, São José dos Campos 646 m, Jundiaí 753 m), the ground blended smoothly between them under the São Paulo World map; real terrain and buildings arrive with the world tile export.</p>
   </section>
+  <p id="coreId" aria-label="Flight core build"></p>
 </aside>
 
 <div id="hud">
@@ -373,7 +381,7 @@ body.jet #hud .levers{display:none}
   <div class="panel read" id="hRead"></div>
   <div class="panel read nav" id="hNav" hidden></div>
   <div class="panel levers">
-    <div><div class="lev"><i id="lThr"></i></div>THR</div>
+    <div><div class="lev"><i id="lThr"></i><i id="lThr2" class="r"></i></div>THR</div>
     <div><div class="lev mix"><i id="lMix"></i></div><span id="lMixLbl">MIX</span></div>
     <div><div class="lev flp"><i id="lFlp"></i></div>FLAPS</div>
   </div>
