@@ -321,8 +321,16 @@ export function buildSmoke({ renderer, mobile }) {
   function clear() {
     // Every particle dead (age < 0).
     simMat.uniforms.uClear.value = true;
-    for (const r of rt) { renderer.setRenderTarget(r); renderer.render(simScene, simCam); }
-    renderer.setRenderTarget(null);
+    // The clear pass reads nothing, but the sampler stays bound: point it
+    // at the target NOT being written, or WebGL flags a feedback loop
+    // (rendering into a texture that is also bound for sampling).
+    const prevTarget = renderer.getRenderTarget();
+    for (let k = 0; k < 2; ++k) {
+      simMat.uniforms.uState.value = rt[1 - k].texture;
+      renderer.setRenderTarget(rt[k]);
+      renderer.render(simScene, simCam);
+    }
+    renderer.setRenderTarget(prevTarget);
     simMat.uniforms.uClear.value = false;
     head = 0; carry = 0; cleared = true;
   }
