@@ -22,6 +22,13 @@ function box(ctx, x, y, w, h, stroke, fill, lw = 1.5) {
   if (fill) { ctx.fillStyle = fill; ctx.fillRect(x, y, w, h); }
   if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.strokeRect(x, y, w, h); }
 }
+// A line of differently coloured pieces, laid left to right from x (or ending at it).
+function runText(ctx, x, y, size, parts, align = 'left') {
+  ctx.font = `600 ${size}px ${MONO}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  const widths = parts.map(([s]) => ctx.measureText(s).width);
+  let px = align === 'right' ? x - widths.reduce((a, b) => a + b, 0) : align === 'center' ? x - widths.reduce((a, b) => a + b, 0) / 2 : x;
+  parts.forEach(([s, color], i) => { ctx.fillStyle = color; ctx.fillText(s, px, y); px += widths[i]; });
+}
 
 // Speed limits shared by the PFD and the crew alerting: the barber pole is
 // the lowest of Vmo, the Mmo speed at this altitude, VFE (flaps out) and VLE
@@ -69,7 +76,21 @@ export function casMessages(d) {
   if (d.stall) m.push(['STALL', 3]);
   if (d.wow && d.thrLever > 0.7 && (d.flaps < 9 || d.flaps > 21 || d.spd > 0.02 || d.park)) m.push(['NO TAKEOFF CONFIG', 3]);
   if (d.fuelKg < 1500) m.push(['FUEL LOW', 2]);
-  if ((d.run[0] || d.run[1]) && !d.gen) m.push(['GEN OFF', 2]);
+  // Electrics: one message a generator on a type with the systems model
+  // (hydraulics fitted: the generated jets report one generator), else the aggregate.
+  const perGen = d.hydFit && d.gens;
+  if (perGen) { for (let i = 0; i < 2; ++i) if (d.run[i] && !d.gens[i]) m.push([`${side(i)} GEN OFF`, 2]); }
+  else if ((d.run[0] || d.run[1]) && !d.gen) m.push(['GEN OFF', 2]);
+  // The battery carries the bus (the core counts discharge positive).
+  if ((d.battA || 0) > 5 && !d.gen) m.push(['BATT DISCHARGE', 2]);
+  // Hydraulics: a system's pressure low while its engine runs; both, a warning.
+  if (d.hydFit) {
+    const low = [0, 1].map((i) => d.run[i] && d.hyd[i] < 1500);
+    if (low[0] && low[1]) m.push(['HYD PRESS LOW', 3]);
+    else for (let i = 0; i < 2; ++i) if (low[i]) m.push([`HYD ${i ? 'B' : 'A'} LOW`, 2]);
+    if (d.hyd[0] < 1500 && d.hyd[1] < 1500 && d.brakeAccum >= 0 && d.brakeAccum <= 2) m.push(['BRAKE ACCUM LOW', 2]);
+    if (d.gearFreeFall) m.push(['GEAR FREE FALL', 1]);
+  }
   const sbBad = !d.gndSpoilers && d.spd > 0.02 && (d.flaps > 25 || d.thrLever > 0.6 || (!d.wow && d.ra < 1000));
   if (d.gndSpoilers) m.push(['GROUND SPOILERS', 1]);
   if ((d.rev?.[0] || 0) > 0.02 || (d.rev?.[1] || 0) > 0.02) m.push(['THRUST REVERSERS', 1]);
@@ -381,7 +402,8 @@ export function drawEICAS(ctx, x, y, w, h, d) {
   text(ctx, 'N1', x + w * 0.5, y + 6 * u, u * 3.4, C.grey);
   text(ctx, `${rating} ${limit.toFixed(1)}`, x + w * 0.97, y + 4 * u, u * 2.8, C.green, 'right');
   text(ctx, `SAT ${Math.round(d.sat)}°C`, x + w * 0.03, y + 4 * u, u * 2.6, C.white, 'left');
-  for (let i = 0; i < 2; ++i) n1Dial(ctx, x + w * (i ? 0.72 : 0.28), y + 21 * u, 12 * u, d.n1[i], d.n1cmd, d.run[i], u, limit);
+  // The cyan caret is each engine's own lever (the levers can be split).
+  for (let i = 0; i < 2; ++i) n1Dial(ctx, x + w * (i ? 0.72 : 0.28), y + 21 * u, 12 * u, d.n1[i], Array.isArray(d.n1cmd) ? d.n1cmd[i] : d.n1cmd, d.run[i], u, limit);
   // Thrust reversers: REV in amber while the sleeves travel, green deployed.
   for (let i = 0; i < 2; ++i) {
     const rv = d.rev?.[i] || 0;
@@ -391,11 +413,21 @@ export function drawEICAS(ctx, x, y, w, h, d) {
     text(ctx, label, x + w * 0.5, yy, u * 2.9, C.grey);
     vals.forEach((v, i) => text(ctx, fmt(v, i), x + w * (i ? 0.72 : 0.28), yy, u * 3.6, typeof color === 'function' ? color(v, i) : color));
   };
-  row('ITT °C', d.itt, y + 39 * u, (v) => String(Math.round(v)), (v) => (v > 900 ? C.red : v > 860 ? C.amber : C.green));
-  row('N2 %', d.n2, y + 45 * u, (v) => v.toFixed(1), (v) => (v > 102 ? C.red : C.green));
-  row('FF PPH', d.ff, y + 51 * u, (v) => String(Math.round(v * LB / 10) * 10));
-  row('OIL PSI', d.oil, y + 57 * u, (v) => String(Math.round(v)), (v, i) => (d.run[i] && v < 25 ? C.red : C.green));
-  ctx.strokeStyle = '#2b323b'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + w * 0.03, y + 61 * u); ctx.lineTo(x + w * 0.97, y + 61 * u); ctx.stroke();
+  const sys = !!d.hydFit;  // the systems line takes a row: the engine rows close up for it
+  const dy = sys ? 5.4 : 6, y0 = sys ? 37.6 : 39;
+  row('ITT °C', d.itt, y + y0 * u, (v) => String(Math.round(v)), (v) => (v > 900 ? C.red : v > 860 ? C.amber : C.green));
+  row('N2 %', d.n2, y + (y0 + dy) * u, (v) => v.toFixed(1), (v) => (v > 102 ? C.red : C.green));
+  row('FF PPH', d.ff, y + (y0 + 2 * dy) * u, (v) => String(Math.round(v * LB / 10) * 10));
+  row('OIL PSI', d.oil, y + (y0 + 3 * dy) * u, (v) => String(Math.round(v)), (v, i) => (d.run[i] && v < 25 ? C.red : C.green));
+  if (sys) {
+    // Systems synoptic: hydraulic pressure a system (amber low), generators on line.
+    const yy = y + 59.2 * u, hydCol = (p) => (p < 1500 ? C.amber : C.green);
+    runText(ctx, x + w * 0.03, yy, u * 2.5, [['HYD ', C.grey], ['A ', C.white], [String(Math.round(d.hyd[0])).padStart(4, ' '), hydCol(d.hyd[0])], ['  B ', C.white], [String(Math.round(d.hyd[1])).padStart(4, ' '), hydCol(d.hyd[1])]], 'left');
+    const gens = d.gens || [d.gen, d.gen];
+    const genCol = (i) => (gens[i] ? C.green : d.run[i] ? C.amber : C.grey);
+    runText(ctx, x + w * 0.97, yy, u * 2.5, [['GEN 1 ', C.grey], [gens[0] ? 'ON ' : 'OFF', genCol(0)], ['  GEN 2 ', C.grey], [gens[1] ? 'ON ' : 'OFF', genCol(1)]], 'right');
+  }
+  ctx.strokeStyle = '#2b323b'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + w * 0.03, y + 61.6 * u); ctx.lineTo(x + w * 0.97, y + 61.6 * u); ctx.stroke();
   // Fuel, weight, trim.
   const ffTot = (d.ff[0] + d.ff[1]) * LB;
   text(ctx, `FUEL ${(Math.round(d.fuelKg * LB / 10) * 10).toLocaleString('en-US')} LB`, x + w * 0.03, y + 65 * u, u * 2.9, d.fuelKg < 1500 ? C.amber : C.white, 'left');
@@ -403,6 +435,11 @@ export function drawEICAS(ctx, x, y, w, h, d) {
   text(ctx, `FF ${(Math.round(ffTot / 10) * 10).toLocaleString('en-US')} PPH`, x + w * 0.03, y + 70 * u, u * 2.7, C.grey, 'left');
   const trimDeg = (d.trim || 0) * 14;
   text(ctx, `TRIM ${Math.abs(trimDeg).toFixed(1)} ${trimDeg >= 0 ? 'NU' : 'ND'}`, x + w * 0.97, y + 70 * u, u * 2.7, C.grey, 'right');
+  if (sys && d.battA !== undefined) {
+    // Battery: bus volts and the battery ammeter (discharge negative, as the gauge reads).
+    const dis = d.battA > 5 && !d.gen;
+    text(ctx, `BATT ${d.volts.toFixed(1)}V ${d.battA > 0.5 ? '−' : '+'}${Math.round(Math.abs(d.battA))}A`, x + w * 0.5, y + 70 * u, u * 2.5, dis ? C.amber : C.grey);
+  }
   // Gear, flaps, speedbrake.
   const gx = x + w * 0.04, gy = y + 74 * u;
   const gState = d.gear > 0.999 ? 'DN' : d.gear < 0.001 ? 'UP' : '';
