@@ -368,6 +368,95 @@ class FragmentView {
   dispose() { if (R) { this.geo.dispose(); groupPane.remove(this.mesh); } }
 }
 
+// The real dice. The engine draws a tempered pane coarser than its dice and
+// bursts each piece into a spray of them where it lands; here every spray
+// scatters its dice over the floor, each on a closed-form path in engine time
+// (a hop, then sliding to rest), so slow motion and replays show the same pile.
+const DICE_CAP = [1500, 4000, 12000, 25000, 50000];
+function hash01(i, k) {
+  let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(k + 0x27d4eb2f, 0xc2b2ae35);
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+class DiceView {
+  constructor() {
+    this.cap = DICE_CAP[clamp(tier, 0, 4)];
+    this.n = 0;
+    this.dice = [];       // per die: born, x0, y0, z0, vx, vy, vz, size, thick, axis, spin
+    this.active = [];     // dice still moving
+    this.sprays = 0;
+    // Thin dice across every dicing ply; the shown ones grow so the pile keeps its area.
+    let expected = 0;
+    for (const pl of P.plies) if (pl.dicing && pl.dice > 0) expected += (P.W * P.H) / (pl.dice * pl.dice);
+    this.keep = expected > this.cap ? this.cap / expected : 1;
+    if (!R) return;
+    this.mat = new THREE.MeshStandardMaterial({ color: 0xcfeee4, metalness: 0.1, roughness: 0.08, transparent: true, opacity: 0.75,
+      envMapIntensity: 1.8 });
+    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), this.mat, this.cap);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 2;
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    groupPane.add(this.mesh);
+    this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.sc = new THREE.Vector3();
+    this.axis = new THREE.Vector3();
+  }
+  // sprays: 11 floats each (see glass_web.cpp).
+  add(sp) {
+    const first = this.sprays;
+    this.sprays += Math.floor(sp.length / 11);
+    for (let o = 0; o + 10 < sp.length; o += 11) {
+      const id = first + o / 11;
+      const want = sp[o + 6] * this.keep;
+      let count = Math.floor(want) + (hash01(id, 1) < want - Math.floor(want) ? 1 : 0);
+      if (!count) continue;
+      const grow = 1 / Math.sqrt(this.keep), size = sp[o + 7] * grow, thick = sp[o + 8];
+      const spread = 0.5 * Math.sqrt(sp[o + 6]) * sp[o + 7];
+      const [cx, , cz] = toThree(sp[o], 0, sp[o + 2]);
+      const vh = Math.hypot(sp[o + 3], sp[o + 5]);
+      for (let k = 0; k < count; ++k) {
+        if (this.n >= this.cap) break;
+        const a = 2 * Math.PI * hash01(id, 10 + 7 * k), r = spread * Math.sqrt(hash01(id, 11 + 7 * k));
+        // Outward from where it hit, faster for a harder landing.
+        const burst = (0.25 + 0.9 * hash01(id, 12 + 7 * k)) * (0.4 + 0.25 * Math.abs(sp[o + 4]));
+        const d = { born: sp[o + 9], x0: cx + r * Math.cos(a), z0: cz + r * Math.sin(a), y0: thick,
+          vx: Math.cos(a) * burst + 0.4 * sp[o + 3] * hash01(id, 13 + 7 * k), vz: Math.sin(a) * burst - 0.4 * sp[o + 5] * hash01(id, 13 + 7 * k),
+          vy: 0.3 + 0.9 * hash01(id, 14 + 7 * k) + 0.1 * vh,
+          size: size * (0.75 + 0.5 * hash01(id, 15 + 7 * k)), thick, ax: hash01(id, 16 + 7 * k), spin: 20 + 60 * hash01(id, 17 + 7 * k),
+          slot: this.n++, done: false };
+        this.dice.push(d);
+        this.active.push(d);
+      }
+    }
+    if (R) this.mesh.count = this.n;
+  }
+  update(t) {
+    if (!R || !this.active.length) return;
+    const k = 6;  // 1/s, sliding friction on glass and stone
+    let w = 0;
+    for (const d of this.active) {
+      const tau = Math.max(0, t - d.born);
+      const slide = (1 - Math.exp(-k * tau)) / k;
+      const tHop = 2 * d.vy / 9.81;
+      const y = tau < tHop ? d.thick / 2 + d.vy * tau - 4.905 * tau * tau : d.thick / 2;
+      this.v.set(d.x0 + d.vx * slide, y, d.z0 + d.vz * slide);
+      // Tumbles in the hop, lies flat once it slides.
+      const flat = tau >= tHop;
+      const ang = flat ? 0 : d.spin * tau;
+      this.axis.set(Math.cos(6.283 * d.ax), 0.3, Math.sin(6.283 * d.ax)).normalize();
+      this.q.setFromAxisAngle(this.axis, ang);
+      if (flat) this.q.setFromAxisAngle(this.axis.set(0, 1, 0), 6.283 * d.ax);
+      this.sc.set(d.size, d.thick, d.size * (0.8 + 0.4 * d.ax));
+      this.m.compose(this.v, this.q, this.sc);
+      this.mesh.setMatrixAt(d.slot, this.m);
+      if (tau < 1.2) this.active[w++] = d;
+    }
+    this.active.length = w;
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+  dispose() { if (R) { groupPane.remove(this.mesh); this.mesh.geometry.dispose(); this.mat.dispose(); } }
+}
+
 // Deflection lattice shared by the slab, the cracks and the stress view.
 const FX = 40, FY = 32;
 const deflData = new Uint16Array(FX * FY);
@@ -402,6 +491,7 @@ function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false) {
   if (P) {
     for (const c of P.cracks) c.dispose();
     P.frags.dispose();
+    if (P.dice) P.dice.dispose();
     for (const m of P.meshes) groupPane.remove(m);
     for (const m of P.impMeshes) if (m) groupPane.remove(m);
   }
@@ -419,6 +509,7 @@ function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false) {
     P.cracks.push(new CrackView((pl[12 * k] + pl[12 * k + 1]) / 2));
   }
   P.frags = new FragmentView();
+  P.dice = new DiceView();
   buildSlab();
   aim = { x: P.W / 2, y: P.H / 2 };
   placeAimMarker();
@@ -680,7 +771,8 @@ function autoTarget(imps, plies) {
   if (membrane) return 1 / 400;
   if (approach < Infinity) return clamp(approach / 0.8, 1 / 5000, 1);
   const s = G.state();
-  if (s[12] > 0 && !s[1]) return 0.25;
+  // Quarter speed while the glass is coming down, not for the last strays.
+  if (s[12] > 30 && !s[1]) return 0.25;
   return 1;
 }
 
@@ -1221,6 +1313,22 @@ function frame(now) {
   if (nFrag > 0) {
     poses = G.fragmentPoses(nFrag).slice();
     P.frags.update(poses, Math.max(0, tEng - s[23]));  // pieces step every 0.5 ms; extrapolate between
+  }
+  if (s[24] > P.dice.sprays) {
+    // The first dice to land: bring the floor into the shot.
+    if (!P.dice.sprays && !pointers.size) P.glide = { ty: (FLOOR + P.H) / 2, r: cam.r * 1.2 };
+    P.dice.add(G.sprays(P.dice.sprays).slice());
+  }
+  P.dice.update(tEng);
+  if (P.glide) {
+    if (pointers.size) P.glide = null;
+    else {
+      const k = 1 - Math.exp(-2.5 * dt);
+      cam.ty += (P.glide.ty - cam.ty) * k;
+      cam.r += (P.glide.r - cam.r) * k;
+      applyCamera();
+      if (Math.abs(P.glide.ty - cam.ty) < 1e-3) P.glide = null;
+    }
   }
   // The intact sheet goes once a monolithic pane is in pieces.
   if (slab) {
