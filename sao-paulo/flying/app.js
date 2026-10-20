@@ -1226,6 +1226,8 @@ function jetData() {
     rev: [j[52], j[54]], gndSpoilers: !!j[56], typeName: def.visual?.short_name || 'TOP G',
     // Systems: generators on line, hydraulic pressure A/B, brake accumulator, gear free fall, battery.
     gens: [j[60], j[61]], hyd: [j[62], j[63]], brakeAccum: j[69], gearFreeFall: !!j[70], hydFit: !!j[71], battSoc: j[72], battA: j[73],
+    // Essential bus: load shed on (controller or pilot), the controller's own shed, a controller fitted.
+    loadShed: !!j[82], autoShed: !!j[83], shedFit: !!j[84],
     // Navigation: the GPS route and leg, the destination runway, NAV 1.
     route: DEST ? A.route() : null, gps: DEST ? A.gps().slice() : null, dest: DEST,
     destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,

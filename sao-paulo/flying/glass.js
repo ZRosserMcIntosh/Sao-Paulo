@@ -83,6 +83,9 @@ export function casMessages(d) {
   else if ((d.run[0] || d.run[1]) && !d.gen) m.push(['GEN OFF', 2]);
   // The battery carries the bus (the core counts discharge positive).
   if ((d.battA || 0) > 5 && !d.gen) m.push(['BATT DISCHARGE', 2]);
+  // Essential bus only: the bus controller (or the pilot) has shed the
+  // non-essential loads; MFD, PFD 2, COM 2/NAV 2 and the cabin are dark.
+  if (d.loadShed) m.push([d.autoShed ? 'ESS BUS ONLY' : 'LOAD SHED', 2]);
   // Hydraulics: a system's pressure low while its engine runs; both, a warning.
   if (d.hydFit) {
     const low = [0, 1].map((i) => d.run[i] && d.hyd[i] < 1500);
@@ -438,7 +441,7 @@ export function drawEICAS(ctx, x, y, w, h, d) {
   if (sys && d.battA !== undefined) {
     // Battery: bus volts and the battery ammeter (discharge negative, as the gauge reads).
     const dis = d.battA > 5 && !d.gen;
-    text(ctx, `BATT ${d.volts.toFixed(1)}V ${d.battA > 0.5 ? '−' : '+'}${Math.round(Math.abs(d.battA))}A`, x + w * 0.5, y + 70 * u, u * 2.5, dis ? C.amber : C.grey);
+    text(ctx, `BATT ${d.volts.toFixed(1)}V ${d.battA > 0.5 ? '−' : '+'}${Math.round(Math.abs(d.battA))}A${d.loadShed ? ' ESS' : ''}`, x + w * 0.5, y + 70 * u, u * 2.5, dis || d.loadShed ? C.amber : C.grey);
   }
   // Gear, flaps, speedbrake.
   const gx = x + w * 0.04, gy = y + 74 * u;
