@@ -67,6 +67,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .presets{display:grid;grid-template-columns:1fr;gap:5px}
 .presets button{text-align:left;white-space:normal;line-height:1.3}
 .presets button small{display:block;color:var(--mute);font-weight:500}
+.presets button.feature{border-color:rgba(255,211,107,.55);background:linear-gradient(180deg,rgba(255,211,107,.16),rgba(255,211,107,.05))}
 /* right: results */
 #res{position:fixed;right:12px;top:66px;width:300px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
 #outcome{font:700 14px/1.35 var(--body);margin:0}
@@ -122,6 +123,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   #banner{top:64px}
   .legend{bottom:auto;top:64px}
 }
+@media (max-width:860px){#gtHud{top:auto!important;bottom:calc(96px + env(safe-area-inset-bottom));font-size:12px!important;gap:6px!important}#gtHud>b{display:none}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -214,9 +216,11 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <li><b>Contact:</b> Hertz with Thornton plasticity and Hunt-Crossley damping for balls, cone indentation at the glass hardness for sharp tips, a flat punch that crushes (timber, brick), Wilbeck's shock and steady-flow pressures for the bird.</li>
       <li><b>Strength:</b> Weibull flaw populations over each face and edge, sped up by the stress-corrosion rate law (a microsecond impact finds glass about twice as strong as a minute-long load). Tempered and chemically strengthened plies carry their residual stress profile.</li>
       <li><b>Cracks:</b> through-cracks grow tip by tip at up to the terminal crack speed (~1,500 m/s), turn by the maximum hoop-stress kink criterion, fork where stress times the square root of the run passes the branching constant (the fracture-mirror relation), shield and arrest each other, and stop at existing cracks. Radial cracks, concentric rings, Hertzian cones, crush zones and tempered dicing all come out of that.</li>
-      <li><b>Laminates and armour:</b> broken plies hand the load to the interlayer as an axisymmetric membrane that tears at its rim; bullets crush a cone through each ply, mushroom if soft and are caught (or not) by the layers behind, calibrated against UL 752 ratings.</li>
-      <li><b>Pieces:</b> enclosed regions are cut out as polygons and flown as rigid bodies (gravity, drag, floor friction); hard landings break them again. Pieces wedged in the frame stay; tempered dice unlock and cascade from the hole outward.</li>
+      <li><b>Laminates and armour:</b> broken plies hand the load to the interlayer as an axisymmetric membrane that tears at its rim; bullets crush a cone through each ply (the white crater), mushroom if soft and are caught (or not) by the layers behind, calibrated against UL 752 ratings. A round off square meets each layer at its slant thickness and glances off near grazing; one landing in an old crater only has to push the rubble aside.</li>
+      <li><b>Pieces:</b> enclosed regions are cut out as polygons and flown as rigid bodies (gravity, drag, floor friction); hard landings break them again. A shattered tempered pane is a sheet of dice held only by friction: it lets go from the hole up, in slabs that burst into dice on the floor, and the frame keeps a ragged fringe.</li>
     </ul>
+    <h3>Armoured GT under fire</h3>
+    <p>The first scenario puts you in the driver's seat of a 1960s grand tourer with a 32 mm armoured windscreen while five gunmen fire about 190 rounds of 9 mm in ten seconds. Every round that reaches the glass is fired into the engine with its real angle and arrival time; the craters, spider webs and the driver's view all come from the physics, and nothing is pre-scripted except where the gunmen aim. <kbd>C</kbd> switches between the driver, the outside and a gunman; Replay shows it again at any speed.</p>
     <h3>Runs on anything</h3>
     <p>The <b>Auto</b> quality setting benchmarks this device and picks a tier: fewer plate modes, a coarser crack grid and fewer pieces on a weak chip, the same physics. If the device can't keep up, the clock slows down instead of skipping physics (the bar shows "device-limited"). Without WebGL the lab draws a flat front view.</p>
     <h3>Honest limits</h3>

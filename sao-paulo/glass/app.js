@@ -5,6 +5,7 @@
 // fragment and force comes from the core.
 import * as THREE from 'three';
 import createGlassModule from './glass.mjs';
+import { createGTScene } from './scene_gt.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -86,12 +87,16 @@ function resize() {
   else { const d = Math.min(window.devicePixelRatio || 1, 2); canvas2d.width = w * d; canvas2d.height = h * d; }
   camera.aspect = w / h;
   // On phones the bench sheet covers the lower part: centre the view above it.
-  if (w <= 860) camera.setViewOffset(w, h, 0, h * 0.2, w, h);
+  if (w <= 860 && !(GT && GT.active)) camera.setViewOffset(w, h, 0, h * 0.2, w, h);
   else camera.clearViewOffset();
   camera.updateProjectionMatrix();
+  if (GT && GT.active) GT.frameCamera();
 }
 
 let glassMat, fragMat, frameMat;
+const labObjects = [];  // the test hall: hidden when a scene takes over
+let GT = null;          // the armoured-car scene (3D only)
+let tierCap = null;     // a scene that must run in real time caps the automatic tier
 if (R) {
   R.outputColorSpace = THREE.SRGBColorSpace;
   R.toneMapping = THREE.ACESFilmicToneMapping;
@@ -116,7 +121,8 @@ if (R) {
   scene.environment = pm.fromScene(env, 0.03).texture;
   pm.dispose();
 
-  scene.add(new THREE.HemisphereLight(0xbcd2ff, 0x1a1410, 0.55));
+  const hemi = new THREE.HemisphereLight(0xbcd2ff, 0x1a1410, 0.55);
+  scene.add(hemi);
   const key = new THREE.DirectionalLight(0xffffff, 2.2);
   key.position.set(-2.5, 4.5, 3.5);
   key.castShadow = tier >= 3;
@@ -137,6 +143,7 @@ if (R) {
   grid.material.transparent = true;
   grid.material.opacity = 0.35;
   scene.add(grid);
+  labObjects.push(hemi, key, rim, floor, grid);
 
   glassMat = tier >= 3
     ? new THREE.MeshPhysicalMaterial({ color: 0xeaf7f3, metalness: 0, roughness: 0.03, transmission: 1, thickness: 0.006, ior: 1.52,
@@ -457,6 +464,121 @@ class DiceView {
   dispose() { if (R) { groupPane.remove(this.mesh); this.mesh.geometry.dispose(); this.mat.dispose(); } }
 }
 
+// Crushed glass. Each disc of comminuted glass the engine reports is white and
+// nearly opaque: a bullet leaves a small dense crater in the struck ply and
+// wider, fainter blooms in the plies behind, round a splash of its own lead.
+let bloomTex = null;
+function bloomTexture() {
+  if (bloomTex) return bloomTex;
+  const n = 256, cv = document.createElement('canvas');
+  cv.width = cv.height = n;
+  const c = cv.getContext('2d'), h = n / 2;
+  const g = c.createRadialGradient(h, h, 0, h, h, h);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.45, 'rgba(250,252,252,0.97)');
+  g.addColorStop(0.68, 'rgba(242,247,247,0.8)');
+  g.addColorStop(0.86, 'rgba(236,243,243,0.35)');
+  g.addColorStop(1, 'rgba(235,242,242,0)');
+  c.fillStyle = g;
+  c.fillRect(0, 0, n, n);
+  // Crushed grains and the streaks of the cone cracks between them.
+  for (let i = 0; i < 1400; ++i) {
+    const a = Math.random() * 2 * Math.PI, r = h * Math.pow(Math.random(), 0.7) * 0.9;
+    c.fillStyle = Math.random() < 0.25 ? `rgba(120,135,140,${0.25 * Math.random()})` : `rgba(255,255,255,${0.5 * Math.random()})`;
+    c.fillRect(h + r * Math.cos(a), h + r * Math.sin(a), 1 + 2 * Math.random(), 1 + 2 * Math.random());
+  }
+  for (let i = 0; i < 70; ++i) {
+    const a = Math.random() * 2 * Math.PI, r0 = h * 0.12, r1 = h * (0.45 + 0.5 * Math.random());
+    c.strokeStyle = `rgba(255,255,255,${0.15 + 0.3 * Math.random()})`;
+    c.lineWidth = 0.6 + Math.random() * 1.6;
+    c.beginPath();
+    c.moveTo(h + r0 * Math.cos(a), h + r0 * Math.sin(a));
+    c.lineTo(h + r1 * Math.cos(a + 0.05 * (Math.random() - 0.5)), h + r1 * Math.sin(a + 0.05 * (Math.random() - 0.5)));
+    c.stroke();
+  }
+  bloomTex = new THREE.CanvasTexture(cv);
+  bloomTex.colorSpace = THREE.SRGBColorSpace;
+  return bloomTex;
+}
+class CrushView {
+  constructor() {
+    this.count = 0;  // engine records consumed
+    this.n = 0;
+    this.lead = 0;
+    this.discs = [];  // for the 2D view: x, y, r, alpha
+    if (!R) return;
+    this.cap = 8192;
+    const geo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(1, 1));
+    geo.instanceCount = 0;
+    this.alpha = new THREE.InstancedBufferAttribute(new Float32Array(this.cap), 1);
+    geo.setAttribute('aAlpha', this.alpha);
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { map: { value: bloomTexture() } },
+      vertexShader: 'attribute float aAlpha; varying vec2 vUv; varying float vA; void main(){ vUv = uv; vA = aAlpha; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.); }',
+      fragmentShader: 'uniform sampler2D map; varying vec2 vUv; varying float vA; void main(){ vec4 c = texture2D(map, vUv); gl_FragColor = vec4(c.rgb * 0.92, c.a * vA); }',
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    });
+    this.mesh = new THREE.InstancedMesh(geo, this.mat, this.cap);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 3;
+    groupPane.add(this.mesh);
+    this.leadMat = new THREE.MeshStandardMaterial({ color: 0x6b6259, metalness: 0.7, roughness: 0.45 });
+    this.leadMesh = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 14), this.leadMat, 2048);
+    this.leadMesh.count = 0;
+    this.leadMesh.frustumCulled = false;
+    this.leadMesh.renderOrder = 4;
+    groupPane.add(this.leadMesh);
+    this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.sc = new THREE.Vector3();
+    this.z = new THREE.Vector3(0, 0, 1);
+  }
+  // rows: 6 floats each (see glass_web.cpp).
+  add(rows) {
+    this.count += Math.floor(rows.length / 6);
+    for (let o = 0; o + 5 < rows.length; o += 6) {
+      const g = rows[o], x = rows[o + 1], y = rows[o + 2], r = rows[o + 3], kind = rows[o + 5];
+      const pl = P.plies[g];
+      if (!pl) continue;
+      // The engine gives the crushed cone's radius where it enters each ply;
+      // it widens through the ply, and seen from the front the whole cone is
+      // white, so each disc is drawn out to about where the cone leaves.
+      const depth = fromBack ? P.nGlass - 1 - g : g;
+      const alpha = kind === 1 ? 0.95 - 0.06 * Math.min(depth, 4) : 0.75;
+      this.discs.push([x, y, r, alpha]);
+      if (!R || this.n >= this.cap) continue;
+      const [px, py, pz] = toThree(x, y, (pl.z0 + pl.z1) / 2);
+      this.v.set(px, py, pz);
+      this.q.setFromAxisAngle(this.z, ((x * 7919 + y * 104729) % 1) * 2 * Math.PI);
+      const d = (kind === 1 ? 3.4 : 2.4) * r;
+      this.sc.set(d, d, 1);
+      this.m.compose(this.v, this.q, this.sc);
+      this.mesh.setMatrixAt(this.n, this.m);
+      this.alpha.array[this.n] = alpha;
+      this.n++;
+      if (kind === 1 && depth === 0 && this.lead < 2048) {
+        // The bullet's own lead, flattened into the crater.
+        this.v.set(px, py, fromBack ? -(P.T - 0.0005) : -0.0005);
+        const s = Math.min(0.009, 0.6 * r);
+        this.sc.set(s, s * (0.8 + 0.3 * Math.abs(Math.sin(x * 991))), 1);
+        this.m.compose(this.v, this.q, this.sc);
+        this.leadMesh.setMatrixAt(this.lead++, this.m);
+      }
+    }
+    if (!R) return;
+    this.mesh.count = this.n;
+    this.mesh.geometry.instanceCount = this.n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.alpha.needsUpdate = true;
+    this.leadMesh.count = this.lead;
+    this.leadMesh.instanceMatrix.needsUpdate = true;
+  }
+  dispose() {
+    if (!R) return;
+    groupPane.remove(this.mesh); groupPane.remove(this.leadMesh);
+    this.mesh.geometry.dispose(); this.mat.dispose(); this.leadMesh.geometry.dispose(); this.leadMat.dispose();
+  }
+}
+
 // Deflection lattice shared by the slab, the cracks and the stress view.
 const FX = 40, FY = 32;
 const deflData = new Uint16Array(FX * FY);
@@ -492,10 +614,11 @@ function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false) {
     for (const c of P.cracks) c.dispose();
     P.frags.dispose();
     if (P.dice) P.dice.dispose();
+    if (P.crush) P.crush.dispose();
     for (const m of P.meshes) groupPane.remove(m);
     for (const m of P.impMeshes) if (m) groupPane.remove(m);
   }
-  if (!G.gls_new_pane(gIdx, tier, seed)) throw new Error('could not build the pane');
+  if (!G.gls_new_pane(gIdx, tierCap === null ? tier : Math.min(tier, tierCap), seed)) throw new Error('could not build the pane');
   G.gls_set_floor(-FLOOR);
   const s = G.state();
   const g = cat.glazings[gIdx];
@@ -510,6 +633,7 @@ function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false) {
   }
   P.frags = new FragmentView();
   P.dice = new DiceView();
+  P.crush = new CrushView();
   buildSlab();
   aim = { x: P.W / 2, y: P.H / 2 };
   placeAimMarker();
@@ -575,6 +699,7 @@ function buildSlab() {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, fd), frameMat);
     m.position.set(x, y, -T / 2);
     m.castShadow = m.receiveShadow = tier >= 3;
+    m.userData.lab = true;
     groupPane.add(m);
     P.meshes.push(m);
   };
@@ -583,9 +708,11 @@ function buildSlab() {
   for (const sx of [-1, 1]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, FLOOR - fw, 0.05), frameMat);
     leg.position.set(sx * (W / 2 + fw / 2), (FLOOR - fw) / 2, -T / 2);
+    leg.userData.lab = true;
     groupPane.add(leg); P.meshes.push(leg);
     const foot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.6), frameMat);
     foot.position.set(sx * (W / 2 + fw / 2), 0.015, -T / 2);
+    foot.userData.lab = true;
     groupPane.add(foot); P.meshes.push(foot);
   }
   // Stress view: the front sheet again, drawn with the fringe texture.
@@ -601,6 +728,7 @@ function buildSlab() {
   P.meshes.push(stressMesh);
   aimMarker = new THREE.Mesh(new THREE.RingGeometry(0.012, 0.016, 32), new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0.9, depthTest: false }));
   aimMarker.renderOrder = 6;
+  aimMarker.userData.lab = true;
   groupPane.add(aimMarker);
   P.meshes.push(aimMarker);
 }
@@ -723,6 +851,7 @@ function replay() {
   if (!P || !P.shots.length) { toast('Nothing to replay yet'); return; }
   const shots = P.shots.slice();
   newPane(P.seed, true);
+  if (GT && GT.active) GT.attach(P, P.seed, shots[0].iIdx);
   P.shots = shots;
   P.pendingShots = shots.slice();
   simClockReset();
@@ -863,6 +992,7 @@ function updateReadouts(final) {
 
 // Announce what happened to each shot once.
 function announce() {
+  if (GT && GT.active) return;
   for (let k = 0; k < P.nImp; ++k) {
     if (P.announced.has(k)) continue;
     const r = G.report(k), v = r.v;
@@ -917,8 +1047,10 @@ function updateField() {
 
 // ---------- Camera ----------
 const cam = { theta: -0.55, phi: 1.32, r: 2.6, tx: 0, ty: 1.4, tz: 0 };
+if (R) GT = createGTScene({ THREE, scene, groupPane, camera, cam, applyCamera, FLOOR, tier, labObjects, leave: () => leaveScene(true), layout: resize });
 let camMode = 0;
 function frameCamera(keepAngles = true) {
+  if (GT && GT.active) { GT.frameCamera(); return; }
   const m = Math.max(P.W, P.H);
   cam.tx = 0; cam.ty = FLOOR + P.H / 2; cam.tz = -P.T / 2;
   if (!keepAngles) {
@@ -949,8 +1081,11 @@ function panePointFromEvent(ev) {
   }
   const ndc = new THREE.Vector2((x / rect.width) * 2 - 1, -(y / rect.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
+  // Into the pane group's frame (the pane may be mounted in a car).
+  const inv = new THREE.Matrix4().copy(groupPane.matrixWorld).invert();
+  const local = ray.ray.clone().applyMatrix4(inv);
   const zPlane = fromBack ? -P.T : 0;
-  const o = ray.ray.origin, d = ray.ray.direction;
+  const o = local.origin, d = local.direction;
   if (Math.abs(d.z) < 1e-6) return null;
   const t = (zPlane - o.z) / d.z;
   if (t <= 0) return null;
@@ -1013,8 +1148,8 @@ window.addEventListener('keydown', (e) => {
   if (k === ' ') { e.preventDefault(); fire(); }
   else if (k === 'p') { playing = !playing; syncPlay(); }
   else if (k === 'z') replay();
-  else if (k === 'r') { newPane(); simClockReset(); }
-  else if (k === 'c') { camMode = (camMode + 1) % 3; frameCamera(false); }
+  else if (k === 'r') $('bReset').click();
+  else if (k === 'c') { if (GT && GT.active) GT.nextView(); else { camMode = (camMode + 1) % 3; frameCamera(false); } }
   else if (k === 's') $('bStress').click();
   else if (k === 'a') $('bAuto').click();
   else if (k === 'h' || k === '?') $('help').classList.toggle('on');
@@ -1053,6 +1188,7 @@ function chipGroup(box, list, current, onPick) {
   });
 }
 function pickGlazing(i) {
+  if (GT && GT.active) leaveScene(false);
   gIdx = i;
   store.set('glazing', cat.glazings[i].id);
   chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
@@ -1088,14 +1224,58 @@ const PRESETS = [
   ['BB gun vs plate glass', 'annealed_6', 'bb', 120, 'Hertzian cone: the classic conical hole'],
   ['Brick vs tempered', 'tempered_6', 'brick', 10, 'Tempered glass is four to five times stronger'],
 ];
+// ---------- The armoured car ----------
+function startScene() {
+  if (!GT) { toast('The armoured-car scene needs WebGL; this device is drawing in 2D'); return; }
+  const gi = cat.glazings.findIndex((g) => g.id === 'armoured_windscreen'), ii = cat.impactors.findIndex((g) => g.id === 'smg_9mm');
+  if (gi < 0 || ii < 0) return;
+  gIdx = gi;
+  chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+  pickImpactor(ii);
+  speed = cat.impactors[ii].speed;
+  yaw = 0; pitch = 0; fromBack = false;
+  $('bSide').setAttribute('aria-pressed', 'false');
+  syncSpeed();
+  // ~190 rounds in ten seconds: keep the automatic tier where that runs in real time.
+  tierCap = tierChoice === 'auto' ? 2 : null;
+  newPane();
+  GT.enter(P, P.seed, ii);
+  P.shots = GT.schedule.shots.slice();
+  P.pendingShots = GT.schedule.shots.slice();
+  auto = false; scaleManual = 1; scaleNow = 1;
+  syncAuto(); buildScaleButtons();
+  simClockReset();
+  playing = true; syncPlay();
+  updatePaneInfo();
+  if (window.innerWidth <= 860) showTab('none'); else $('lab').hidden = true;
+  toast('Drag to look around · Camera switches view · Replay shows it again, at any speed', 4500);
+}
+function leaveScene(rebuild) {
+  if (!GT || !GT.active) return;
+  GT.leave();
+  tierCap = null;
+  if (window.innerWidth > 860) $('lab').hidden = false;
+  auto = store.get('auto', true); syncAuto(); buildScaleButtons();
+  if (rebuild) { newPane(); simClockReset(); updatePaneInfo(); }
+  frameCamera(false);
+}
+
 function buildPresets() {
   const box = $('presets');
+  {
+    const b = document.createElement('button');
+    b.className = 'feature';
+    b.innerHTML = 'Armoured GT under fire<small>Sit in a 1960s grand tourer with armoured glass while five gunmen empty submachine guns into it</small>';
+    b.onclick = startScene;
+    box.appendChild(b);
+  }
   for (const [name, gid, iid, v, sub, opt = {}] of PRESETS) {
     const gi = cat.glazings.findIndex((g) => g.id === gid), ii = cat.impactors.findIndex((g) => g.id === iid);
     if (gi < 0 || ii < 0) continue;
     const b = document.createElement('button');
     b.innerHTML = `${name}<small>${sub}</small>`;
     b.onclick = () => {
+      if (GT && GT.active) leaveScene(false);
       gIdx = gi;
       chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
       pickImpactor(ii);
@@ -1152,8 +1332,8 @@ $('fire').onclick = () => fire();
 $('bPlay').onclick = () => { playing = !playing; syncPlay(); };
 $('bReplay').onclick = replay;
 $('bAuto').onclick = () => { auto = !auto; store.set('auto', auto); syncAuto(); buildScaleButtons(); };
-$('bReset').onclick = () => { newPane(); simClockReset(); };
-$('bCam').onclick = () => { camMode = (camMode + 1) % 3; frameCamera(false); };
+$('bReset').onclick = () => { if (GT && GT.active) startScene(); else { newPane(); simClockReset(); } };
+$('bCam').onclick = () => { if (GT && GT.active) GT.nextView(); else { camMode = (camMode + 1) % 3; frameCamera(false); } };
 $('bStress').onclick = () => {
   stressOn = !stressOn;
   $('bStress').setAttribute('aria-pressed', String(stressOn));
@@ -1224,6 +1404,17 @@ function draw2d(tShow, poses) {
       c.lineWidth = 0.6;
       c.stroke();
     }
+  }
+  // Crushed glass.
+  for (const [x, y, r, a] of P.crush.discs) {
+    const g = c.createRadialGradient(X(x), Y(y), 0, X(x), Y(y), r * 1.2 * v.s);
+    g.addColorStop(0, `rgba(250,252,252,${a})`);
+    g.addColorStop(0.5, `rgba(240,246,246,${0.5 * a})`);
+    g.addColorStop(1, 'rgba(240,246,246,0)');
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(X(x), Y(y), r * 1.2 * v.s, 0, 2 * Math.PI);
+    c.fill();
   }
   // Cracks born by now.
   c.strokeStyle = 'rgba(235,245,255,0.85)';
@@ -1314,9 +1505,10 @@ function frame(now) {
     poses = G.fragmentPoses(nFrag).slice();
     P.frags.update(poses, Math.max(0, tEng - s[23]));  // pieces step every 0.5 ms; extrapolate between
   }
+  if (s[26] > P.crush.count) P.crush.add(G.crushes(P.crush.count).slice());
   if (s[24] > P.dice.sprays) {
     // The first dice to land: bring the floor into the shot.
-    if (!P.dice.sprays && !pointers.size) P.glide = { ty: (FLOOR + P.H) / 2, r: cam.r * 1.2 };
+    if (!P.dice.sprays && !pointers.size && !(GT && GT.active)) P.glide = { ty: (FLOOR + P.H) / 2, r: cam.r * 1.2 };
     P.dice.add(G.sprays(P.dice.sprays).slice());
   }
   P.dice.update(tEng);
@@ -1364,6 +1556,7 @@ function frame(now) {
       }
     }
   }
+  if (GT) GT.update(tEng, scaleNow, s);
   // Readouts.
   if ((uiTick += dt) > 0.12) {
     uiTick = 0;
@@ -1383,7 +1576,7 @@ function frame(now) {
 }
 
 // Hook for automated browser tests.
-window.__glass = { get P() { return P; }, THREE, scene, camera, G };
+window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, groupPane };
 
 // ---------- Boot ----------
 resize();
@@ -1400,4 +1593,5 @@ if (window.innerWidth <= 860) showTab('lab');
 $('loading').remove();
 if (!store.get('seenHelp', false)) { toast('Tap the glass to fire · drag to orbit · ? for how it works', 4500); store.set('seenHelp', true); }
 if (flat) toast('No WebGL here: drawing the front view in 2D. The physics is the same.', 4000);
+if (new URLSearchParams(location.search).get('scene') === 'gt') startScene();
 requestAnimationFrame(frame);

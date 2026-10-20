@@ -72,6 +72,11 @@ export default async function createGlassModule(wasmBytes) {
     const p = ex.gls_sprays(from), n = new Float32Array(memory.buffer, p, 1)[0];
     return new Float32Array(memory.buffer, p + 4, n * 11);
   };
+  // Crushed discs since `from`: Float32Array of 6 per disc.
+  G.crushes = (from) => {
+    const p = ex.gls_crushes(from), n = new Float32Array(memory.buffer, p, 1)[0];
+    return new Float32Array(memory.buffer, p + 4, n * 6);
+  };
   G.fragmentPoses = (n) => new Float32Array(memory.buffer, ex.gls_fragment_poses(), 12 * n);
   G.field = (g, nx, ny) => new Float32Array(memory.buffer, ex.gls_field(g, nx, ny), 3 * nx * ny);
   return G;
