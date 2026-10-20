@@ -56,14 +56,17 @@ export default async function createGlassModule(wasmBytes) {
     const p = ex.gls_cracks(g, from), n = new Float32Array(memory.buffer, p, 1)[0];
     return new Float32Array(memory.buffer, p + 4, n * 7);
   };
-  // New fragment shapes since record `from`: [{index, ply, chip, thickness, outline: [x, y, ...]}].
+  // New fragment shapes since record `from`: [{index, ply, chip, thickness, outline: [x, y, ...], holes: [[x, y, ...]]}].
   G.fragmentShapes = (from) => {
     const p = ex.gls_fragment_shapes(from), n = new Float32Array(memory.buffer, p, 1)[0];
     const out = []; let k = 1; const f = new Float32Array(memory.buffer, p, (memory.buffer.byteLength - p) >> 2);
     for (let i = 0; i < n; ++i) {
       const index = f[k], ply = f[k + 1], chip = f[k + 2] > 0, thickness = f[k + 3], nv = f[k + 4];
-      out.push({ index, ply, chip, thickness, outline: Array.from(f.subarray(k + 5, k + 5 + 2 * nv)) });
+      const outline = Array.from(f.subarray(k + 5, k + 5 + 2 * nv));
       k += 5 + 2 * nv;
+      const holes = [];
+      for (let h = 0, nh = f[k++]; h < nh; ++h) { const m = f[k++]; holes.push(Array.from(f.subarray(k, k + 2 * m))); k += 2 * m; }
+      out.push({ index, ply, chip, thickness, outline, holes });
     }
     return out;
   };
@@ -76,6 +79,11 @@ export default async function createGlassModule(wasmBytes) {
   G.crushes = (from) => {
     const p = ex.gls_crushes(from), n = new Float32Array(memory.buffer, p, 1)[0];
     return new Float32Array(memory.buffer, p + 4, n * 6);
+  };
+  // Which piece each crack-grid cell of glazing ply `ply` belongs to: { nx, ny, label: Int32Array } (copy).
+  G.fragmentMap = (ply) => {
+    const p = ex.gls_fragment_map(ply), h = new Int32Array(memory.buffer, p, 2);
+    return { nx: h[0], ny: h[1], label: new Int32Array(memory.buffer, p + 8, h[0] * h[1]).slice() };
   };
   G.fragmentPoses = (n) => new Float32Array(memory.buffer, ex.gls_fragment_poses(), 12 * n);
   G.field = (g, nx, ny) => new Float32Array(memory.buffer, ex.gls_field(g, nx, ny), 3 * nx * ny);
