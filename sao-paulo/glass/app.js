@@ -205,23 +205,37 @@ function toThree(x, y, z) { return [x - P.W / 2, y + FLOOR, -z]; }
 // Crack lines of one glass ply: a growing line buffer with a birth time per
 // vertex. The shader hides cracks not yet born at the display time and makes
 // a fresh crack front glow, so slow motion shows the front racing out.
+// On WebGL2 each crack segment knows the pieces either side of it (from the
+// engine's cell map) and is drawn while either is still in the frame, so a
+// held pane keeps its spider web and the lines go with the glass that falls.
+const CRACK_PIECES = R && R.capabilities.isWebGL2;
 class CrackView {
   constructor(zMid) {
     this.zMid = zMid;
     this.count = 0;
     this.cap = 0;
+    this.map = null;
     this.segs = [];  // flat copies for the 2D view: ax, ay, bx, by, ta, tb, kind
     if (!R) return;
     this.geo = new THREE.BufferGeometry();
     this.mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       uniforms: { uTime: { value: 0 }, uGlow: { value: 1e3 }, uDefl: { value: deflTex }, uExag: { value: 1 }, uSize: { value: new THREE.Vector2(1, 1) },
-        uOff: { value: new THREE.Vector2(0, FLOOR) }, uZ: { value: -zMid } },
+        uOff: { value: new THREE.Vector2(0, FLOOR) }, uZ: { value: -zMid }, uPose: { value: null }, uUsePieces: { value: 0 } },
       vertexShader: `
         attribute float aTime; uniform float uTime; uniform sampler2D uDefl; uniform float uExag; uniform vec2 uSize; uniform vec2 uOff; uniform float uZ;
         varying float vAge;
+        ${CRACK_PIECES ? `attribute vec2 aPiece; uniform highp sampler2D uPose; uniform float uUsePieces;
+        float held(float p) {
+          if (p < -1.5) return 1.0;          // not yet known
+          if (p < 0.0) return 0.0;           // no glass there
+          int i = int(p + 0.5);
+          float st = texelFetch(uPose, ivec2((i % ${PPR}) * 3, i / ${PPR}), 0).w;
+          return abs(st) < 0.5 ? 1.0 : 0.0;  // held in the frame
+        }` : ''}
         void main(){
           vAge = uTime - aTime;
+          ${CRACK_PIECES ? `if (uUsePieces > 0.5 && max(held(aPiece.x), held(aPiece.y)) < 0.5) vAge = -1.0;` : ''}
           vec2 uv = (position.xy - vec2(-uSize.x*0.5, uOff.y)) / uSize;
           float w = texture2D(uDefl, uv).r;
           vec3 p = vec3(position.xy, uZ - w * uExag);
@@ -243,13 +257,15 @@ class CrackView {
   grow(n) {
     if (!R || n <= this.cap) return;
     const cap = Math.max(1024, 1 << Math.ceil(Math.log2(n)));
-    const pos = new Float32Array(cap * 6), tim = new Float32Array(cap * 2);
+    const pos = new Float32Array(cap * 6), tim = new Float32Array(cap * 2), pc = new Float32Array(cap * 4).fill(-2);
     if (this.cap) {
       pos.set(this.geo.attributes.position.array.subarray(0, this.count * 6));
       tim.set(this.geo.attributes.aTime.array.subarray(0, this.count * 2));
+      if (CRACK_PIECES) pc.set(this.geo.attributes.aPiece.array.subarray(0, this.count * 4));
     }
     this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     this.geo.setAttribute('aTime', new THREE.BufferAttribute(tim, 1));
+    if (CRACK_PIECES) this.geo.setAttribute('aPiece', new THREE.BufferAttribute(pc, 2));
     this.cap = cap;
   }
   add(buf) {
@@ -266,10 +282,33 @@ class CrackView {
       tim[(this.count + i) * 2] = buf[b + 4];
       tim[(this.count + i) * 2 + 1] = buf[b + 5];
     }
+    if (this.map) this.label(this.count, this.count + n);
     this.count += n;
     this.geo.attributes.position.needsUpdate = true;
     this.geo.attributes.aTime.needsUpdate = true;
     this.geo.setDrawRange(0, this.count * 2);
+  }
+  // The engine's cell map for this ply changed: which pieces border each segment.
+  setMap(map, cell) {
+    if (!CRACK_PIECES) return;
+    this.map = map; this.cell = cell;
+    this.label(0, this.count);
+  }
+  label(from, to) {
+    if (!CRACK_PIECES || !this.map || to <= from) return;
+    const { nx, ny, label } = this.map, cell = this.cell, s = this.segs, pc = this.geo.attributes.aPiece.array;
+    const at = (x, y) => {
+      const i = Math.floor(x / cell), j = Math.floor(y / cell);
+      return i < 0 || j < 0 || i >= nx || j >= ny ? -1 : label[j * nx + i];
+    };
+    for (let k = from; k < to; ++k) {
+      const b = k * 7, mx = (s[b] + s[b + 2]) / 2, my = (s[b + 1] + s[b + 3]) / 2;
+      const ex = s[b + 2] - s[b], ey = s[b + 3] - s[b + 1], l = Math.hypot(ex, ey) || 1;
+      const ox = -ey / l * 0.9 * cell, oy = ex / l * 0.9 * cell;
+      const a = at(mx + ox, my + oy), c = at(mx - ox, my - oy);
+      pc.set([a, c, a, c], k * 4);
+    }
+    this.geo.attributes.aPiece.needsUpdate = true;
   }
   dispose() { if (R) { this.geo.dispose(); this.mat.dispose(); groupPane.remove(this.lines); } }
 }
@@ -300,15 +339,28 @@ class FragmentView {
       const k = rmax > 0 ? Math.max(0.6, 1 - 0.0006 / rmax) : 1;
       const pts = [];
       for (let i = 0; i < n; ++i) pts.push(new THREE.Vector2(s.outline[2 * i] * k, s.outline[2 * i + 1] * k));
+      const holeLoops = (s.holes || []).map((hl) => {
+        const l = [];
+        for (let i = 0; i + 1 < hl.length; i += 2) l.push(new THREE.Vector2(hl[i], hl[i + 1]));
+        return l;
+      }).filter((l) => l.length >= 3);
       let tris = [];
-      try { tris = THREE.ShapeUtils.triangulateShape(pts, []); } catch { tris = []; }
+      try { tris = THREE.ShapeUtils.triangulateShape(pts, holeLoops); } catch { tris = []; }
+      const allPts = pts.concat(...holeLoops);
       const h = s.thickness / 2;
       const v = [], nrm = [], col = [];
       const push = (x, y, z, nx, ny, nz, c) => { v.push(x, y, z); nrm.push(nx, ny, nz); col.push(c[0], c[1], c[2]); };
       const face = [0.92, 0.97, 0.98], edge = s.chip ? [0.85, 0.95, 0.92] : [0.45, 0.78, 0.62];
       for (const [a, b, c] of tris) {
-        push(pts[a].x, pts[a].y, -h, 0, 0, -1, face); push(pts[b].x, pts[b].y, -h, 0, 0, -1, face); push(pts[c].x, pts[c].y, -h, 0, 0, -1, face);
-        push(pts[a].x, pts[a].y, h, 0, 0, 1, face); push(pts[c].x, pts[c].y, h, 0, 0, 1, face); push(pts[b].x, pts[b].y, h, 0, 0, 1, face);
+        const A = allPts[a], B = allPts[b], C = allPts[c];
+        push(A.x, A.y, -h, 0, 0, -1, face); push(B.x, B.y, -h, 0, 0, -1, face); push(C.x, C.y, -h, 0, 0, -1, face);
+        push(A.x, A.y, h, 0, 0, 1, face); push(C.x, C.y, h, 0, 0, 1, face); push(B.x, B.y, h, 0, 0, 1, face);
+      }
+      for (const hl of holeLoops) for (let i = 0; i < hl.length; ++i) {
+        const p = hl[i], q = hl[(i + 1) % hl.length];
+        const ex = q.x - p.x, ey = q.y - p.y, l = Math.hypot(ex, ey) || 1, nx = -ey / l, ny = ex / l;
+        push(p.x, p.y, -h, nx, ny, 0, edge); push(q.x, q.y, -h, nx, ny, 0, edge); push(q.x, q.y, h, nx, ny, 0, edge);
+        push(p.x, p.y, -h, nx, ny, 0, edge); push(q.x, q.y, h, nx, ny, 0, edge); push(p.x, p.y, h, nx, ny, 0, edge);
       }
       for (let i = 0; i < n; ++i) {
         const p = pts[i], q = pts[(i + 1) % n];
@@ -330,7 +382,8 @@ class FragmentView {
           }
       }
       const rec = { index: s.index, ply: s.ply, chip: s.chip, start: this.nVerts, count: v.length / 3, local: new Float32Array(v),
-        localN: new Float32Array(nrm), col: new Float32Array(col), poly: pts.map((p) => [p.x, p.y]), state: -2, still: 0 };
+        localN: new Float32Array(nrm), col: new Float32Array(col), poly: pts.map((p) => [p.x, p.y]), holes: holeLoops.map((l) => l.map((p) => [p.x, p.y])),
+        state: -2, still: 0 };
       this.nVerts += rec.count;
       this.recs.push(rec);
       this.byIndex.set(s.index, rec);
@@ -654,7 +707,7 @@ function clipHalf(poly, nx, ny, d) {  // keep nx x + ny y <= d
 }
 // Cuts a piece's outline into cells about `size` across: seeds on a jittered
 // hexagonal lattice at a seeded angle, Voronoi cells clipped to the outline.
-function diceCells(outline, size, seed) {
+function diceCells(outline, size, seed, holes = []) {
   const ang = 2 * Math.PI * hash01(seed, 21), ca = Math.cos(ang), sa = Math.sin(ang);
   const a = size * 1.075, rowH = a * 0.866;
   let r = 0;
@@ -667,7 +720,7 @@ function diceCells(outline, size, seed) {
       const u = (i + (j & 1) * 0.5) * a + (hash01(seed, 100 + 7 * k) - 0.5) * 0.6 * a;
       const v = j * rowH + (hash01(seed, 101 + 7 * k) - 0.5) * 0.6 * a;
       const x = u * ca - v * sa, y = u * sa + v * ca;
-      if (Math.hypot(x, y) <= r + a && insidePoly(outline, x, y)) seeds.push([x, y]);
+      if (Math.hypot(x, y) <= r + a && insidePoly(outline, x, y) && !holes.some((hl) => insidePoly(hl, x, y))) seeds.push([x, y]);
     }
   if (seeds.length < 2) return [{ cell: outline, nb: [] }];
   const reach = 3.2 * a, near = 1.6 * a;
@@ -748,9 +801,10 @@ class PieceView {
   }
   // One die (or a whole piece): its outline in the piece frame, extruded +-h.
   // Triangles wind inward: the pane-to-scene mirror (z -> -z) turns them out.
-  pushPrism(pts, h, dieIndex) {
-    const n = pts.length;
-    const needV = this.nVerts + 6 * n, needI = this.nIdx + 6 * (n - 2) + 6 * n;
+  pushPrism(pts, h, dieIndex, holes = []) {
+    const loops = [pts, ...holes], all = [].concat(...loops);
+    const n = all.length;
+    const needV = this.nVerts + 6 * n, needI = this.nIdx + 6 * n + 6 * n;
     if (needV > this.die.length || needI > this.idx.length) {
       const cv = Math.max(2 * this.die.length, needV), ci = Math.max(2 * this.idx.length, needI);
       const pos = new Float32Array(3 * cv), nor = new Float32Array(3 * cv), die = new Float32Array(cv), idx = new Uint32Array(ci);
@@ -760,13 +814,14 @@ class PieceView {
       this.flushV = 0; this.flushI = 0;   // new buffers: upload them whole
     }
     let tris = [];
-    let convex = true;
-    for (let i = 0; i < n && convex; ++i) {
-      const a = pts[i], b = pts[(i + 1) % n], c = pts[(i + 2) % n];
+    let convex = !holes.length;
+    for (let i = 0, m = pts.length; i < m && convex; ++i) {
+      const a = pts[i], b = pts[(i + 1) % m], c = pts[(i + 2) % m];
       convex = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) >= -1e-12;
     }
+    const V2 = (l) => l.map((p) => new THREE.Vector2(p[0], p[1]));
     if (convex) for (let i = 1; i + 1 < n; ++i) tris.push([0, i, i + 1]);
-    else try { tris = THREE.ShapeUtils.triangulateShape(pts.map((p) => new THREE.Vector2(p[0], p[1])), []); } catch { tris = []; }
+    else try { tris = THREE.ShapeUtils.triangulateShape(V2(pts), holes.map(V2)); } catch { tris = []; }
     const v0 = this.nVerts;
     const vert = (x, y, z, nx, ny, nz) => {
       const i = this.nVerts++;
@@ -775,12 +830,14 @@ class PieceView {
       this.die[i] = dieIndex;
       return i;
     };
-    for (const p of pts) vert(p[0], p[1], -h, 0, 0, -1);
-    for (const p of pts) vert(p[0], p[1], h, 0, 0, 1);
+    for (const p of all) vert(p[0], p[1], -h, 0, 0, -1);
+    for (const p of all) vert(p[0], p[1], h, 0, 0, 1);
     const I = (a) => { this.idx[this.nIdx++] = a; };
     for (const [a, b, c] of tris) { I(v0 + a); I(v0 + b); I(v0 + c); I(v0 + n + a); I(v0 + n + c); I(v0 + n + b); }
-    for (let i = 0; i < n; ++i) {
-      const p = pts[i], q = pts[(i + 1) % n];
+    // Walls round the outline and round each hole (holes run clockwise, so
+    // the same rule points their walls into the hole).
+    for (const loop of loops) for (let i = 0, m = loop.length; i < m; ++i) {
+      const p = loop[i], q = loop[(i + 1) % m];
       const ex = q[0] - p[0], ey = q[1] - p[1], l = Math.hypot(ex, ey) || 1, nx = ey / l, ny = -ex / l;
       const a = vert(p[0], p[1], -h, nx, ny, 0), b = vert(q[0], q[1], -h, nx, ny, 0);
       const c = vert(q[0], q[1], h, nx, ny, 0), d = vert(p[0], p[1], h, nx, ny, 0);
@@ -801,11 +858,16 @@ class PieceView {
       const pts = [];
       for (let i = 0; i < n; ++i) pts.push([s.outline[2 * i], s.outline[2 * i + 1]]);
       if (polyArea(pts) < 0) pts.reverse();
+      const holes = (s.holes || []).map((hl) => {
+        const l = [];
+        for (let i = 0; i + 1 < hl.length; i += 2) l.push([hl[i], hl[i + 1]]);
+        return polyArea(l) > 0 ? l.reverse() : l;
+      }).filter((l) => l.length >= 3);
       const h = s.thickness / 2;
       const pl = P.plies.find((q) => q.ply === s.ply);
       const dicing = !!(pl && pl.dicing && !s.chip && pl.dice > 0);
-      const rec = { index: s.index, poly: pts, h, clumps: null, whole: -1, pending: false };
-      this.cut(rec, pts, h, [{ cell: pts, nb: [] }], false);
+      const rec = { index: s.index, poly: pts, holes, h, clumps: null, whole: -1, pending: false };
+      this.cut(rec, pts, h, [{ cell: pts, nb: [], holes }], false);
       rec.whole = rec.clumps[0][0];
       if (dicing && Math.abs(polyArea(pts)) > 1.6 * this.cellArea(pl)) { rec.pending = true; rec.size = Math.sqrt(this.cellArea(pl)); this.queue.push(rec); }
       this.pieces.set(s.index, rec);
@@ -824,7 +886,7 @@ class PieceView {
   }
   dice(rec) {
     rec.pending = false;
-    this.cut(rec, rec.poly, rec.h, diceCells(rec.poly, rec.size, rec.index), true);
+    this.cut(rec, rec.poly, rec.h, diceCells(rec.poly, rec.size, rec.index, rec.holes), true);
     const o = this.dieOffset(rec.whole), D = this.diceTex.image.data;
     D[o + 2] = -1;   // the whole piece gives way to its dice
   }
@@ -859,10 +921,11 @@ class PieceView {
       // A seam between dice, and each die a hair out of line so it catches the light.
       let rmax = 0;
       for (const p of c.cell) rmax = Math.max(rmax, Math.hypot(p[0] - cen[i][0], p[1] - cen[i][1]));
-      const k = dicing ? Math.max(0.5, 1 - 0.00028 / Math.max(rmax, 1e-4)) : Math.max(0.6, 1 - 0.0006 / Math.max(rmax, 1e-4));
+      // A whole pane with a hole needs no seam: only cut pieces shrink.
+      const k = dicing ? Math.max(0.5, 1 - 0.00028 / Math.max(rmax, 1e-4)) : c.holes && c.holes.length ? 1 : Math.max(0.6, 1 - 0.0006 / Math.max(rmax, 1e-4));
       const cell = c.cell.map((p) => [cen[i][0] + (p[0] - cen[i][0]) * k, cen[i][1] + (p[1] - cen[i][1]) * k]);
       const v0 = this.nVerts;
-      this.pushPrism(cell, h, di);
+      this.pushPrism(cell, h, di, c.holes || []);
       if (dicing) {
         const tilt = (hash01(di, 3) - 0.5) * 0.05, a = 2 * Math.PI * hash01(di, 4), ax = Math.cos(a) * tilt, ay = Math.sin(a) * tilt;
         for (let v = v0; v < this.nVerts; ++v) {
@@ -1245,6 +1308,7 @@ function impactorMesh(def) {
       g.add(seam);
       break;
     }
+    case 'buckshot_00': body = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10), std(0x8e9196, { metalness: 0.6, roughness: 0.45 })); break;
     case 'golf_ball': body = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 3), std(0xffffff, { roughness: 0.35, flatShading: true })); break;
     case 'hail_50': body = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 2), std(0xd8f0ff, { roughness: 0.25, transparent: true, opacity: 0.8 })); break;
     case 'stone': body = new THREE.Mesh(new THREE.DodecahedronGeometry(r * 0.9, 0), std(0x8a8580, { roughness: 0.9, flatShading: true })); break;
@@ -1319,15 +1383,19 @@ function fire(at = aim, record = true) {
   const h = G.gls_fire(iIdx, at.x, at.y, speed, yaw * Math.PI / 180, pitch * Math.PI / 180, fromBack ? 1 : 0, lead);
   if (h < 0) return;
   if (record) P.shots.push({ t, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack });
-  P.nImp = h + 1;
-  P.shotDefs[h] = iIdx;
-  if (R) {
-    const m = impactorMesh(def);
-    groupPane.add(m);
-    P.impMeshes[h] = m;
+  // A shot load fires several pellets; they follow the first one's index.
+  const n = Math.max(h + 1, G.state()[3]);
+  for (let k = h; k < n; ++k) {
+    P.shotDefs[k] = iIdx;
+    P.announced.delete(k);
+    if (R) {
+      const m = impactorMesh(def);
+      groupPane.add(m);
+      P.impMeshes[k] = m;
+    }
   }
+  P.nImp = n;
   P.lastShot = h;
-  P.announced.delete(h);
   if (auto) { scaleNow = Math.min(scaleNow, approachScale(def, lead)); }
   playing = true;
   syncPlay();
@@ -1713,6 +1781,8 @@ const PRESETS = [
   ['Rifle vs Level 3', 'ul752_l3', 'rifle_762', 850, 'A handgun rating does not stop 7.62 mm'],
   ['Rifle vs Level 8', 'ul752_l8', 'rifle_762', 850, 'Rifle-rated: stopped deep in the layup'],
   ['BB gun vs plate glass', 'annealed_6', 'bb', 120, 'Hertzian cone: the classic conical hole'],
+  ['Buckshot through a window', 'annealed_6', 'buckshot_00', 395, 'A 12-gauge 00 buck shell from 7 m: nine pellets, one after another'],
+  ['Buckshot vs car door glass', 'car_side_tempered', 'buckshot_00', 395, 'Nine pellets into tempered side glass'],
   ['Brick vs tempered', 'tempered_6', 'brick', 10, 'Tempered glass is four to five times stronger'],
 ];
 // ---------- The armoured car ----------
@@ -1883,14 +1953,16 @@ function draw2d(tShow, poses) {
       if (st < 0) continue;
       const qw = poses[o + 3], qx = poses[o + 4], qy = poses[o + 5], qz = poses[o + 6];
       c.beginPath();
-      r.poly.forEach(([px, py], i) => {
-        const a = quatRotate(qw, qx, qy, qz, px, py, 0);
-        const sx = X(poses[o] + a[0]), sy = Y(poses[o + 1] + a[1]);
-        if (i) c.lineTo(sx, sy); else c.moveTo(sx, sy);
-      });
-      c.closePath();
+      for (const loop of [r.poly, ...(r.holes || [])]) {
+        loop.forEach(([px, py], i) => {
+          const a = quatRotate(qw, qx, qy, qz, px, py, 0);
+          const sx = X(poses[o] + a[0]), sy = Y(poses[o + 1] + a[1]);
+          if (i) c.lineTo(sx, sy); else c.moveTo(sx, sy);
+        });
+        c.closePath();
+      }
       c.fillStyle = st === 0 ? 'rgba(190,225,235,0.42)' : 'rgba(205,235,240,0.6)';
-      c.fill();
+      c.fill('evenodd');
       c.strokeStyle = 'rgba(120,200,170,0.8)';
       c.lineWidth = 0.6;
       c.stroke();
@@ -1985,12 +2057,27 @@ function frame(now) {
       cv.mat.uniforms.uGlow.value = 1 / Math.max(1e-7, 0.25 * scaleNow);
       cv.mat.uniforms.uExag.value = exaggeration;
       cv.mat.uniforms.uSize.value.set(P.W, P.H);
-      cv.lines.visible = !(P.monolithic && pl[12 * k + 4] > 0);
+      // A pane in pieces: tempered dice draw their own pattern; other glass keeps
+      // its cracks while the pieces they lie on are in the frame.
+      cv.lines.visible = !(P.monolithic && pl[12 * k + 4] > 0) || (CRACK_PIECES && !!P.frags.uniforms && !P.plies[k].dicing);
+      if (CRACK_PIECES && P.frags.uniforms) cv.mat.uniforms.uPose.value = P.frags.uniforms.uPose.value;
     }
   }
   // New pieces, then where every piece is.
   const nFrag = s[4];
-  if (nFrag > P.fragShapes) { P.frags.add(G.fragmentShapes(P.fragShapes)); P.fragShapes = nFrag; }
+  if (nFrag > P.fragShapes) {
+    P.frags.add(G.fragmentShapes(P.fragShapes)); P.fragShapes = nFrag;
+    // Monolithic plies in pieces: tell their crack lines which pieces they lie on.
+    if (CRACK_PIECES && P.frags.uniforms) {
+      const plk = G.plies(P.nGlass);
+      for (let k = 0; k < P.nGlass; ++k) {
+        if (!(plk[12 * k + 4] > 0) || P.plies[k].dicing) continue;
+        const cv = P.cracks[k];
+        cv.mat.uniforms.uUsePieces.value = 1;
+        cv.setMap(G.fragmentMap(P.plies[k].ply), plk[12 * k + 3]);
+      }
+    }
+  }
   if (P.frags.tick) P.frags.tick(tier >= 3 ? 6 : 4);   // cut whole tempered pieces into their dice, a few per frame
   let poses = null;
   if (nFrag > 0) {
