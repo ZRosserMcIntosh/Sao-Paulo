@@ -317,6 +317,18 @@ class FragmentView {
         push(p.x, p.y, -h, nx, ny, 0, edge); push(q.x, q.y, -h, nx, ny, 0, edge); push(q.x, q.y, h, nx, ny, 0, edge);
         push(p.x, p.y, -h, nx, ny, 0, edge); push(q.x, q.y, h, nx, ny, 0, edge); push(p.x, p.y, h, nx, ny, 0, edge);
       }
+      // Crazed tempered dice sit a degree or so out of line with each other
+      // and catch the light piece by piece.
+      const pl = P.plies.find((q) => q.ply === s.ply);
+      if (pl && pl.dicing && !s.chip) {
+        const tilt = (hash01(s.index, 3) - 0.5) * 0.05, a = 2 * Math.PI * hash01(s.index, 4);
+        const ax = Math.cos(a) * tilt, ay = Math.sin(a) * tilt;
+        for (const arr of [v, nrm])
+          for (let i = 0; i < arr.length; i += 3) {
+            const x = arr[i], y = arr[i + 1], z = arr[i + 2];
+            arr[i] = x + ay * z; arr[i + 1] = y - ax * z; arr[i + 2] = z + ax * y - ay * x;
+          }
+      }
       const rec = { index: s.index, ply: s.ply, chip: s.chip, start: this.nVerts, count: v.length / 3, local: new Float32Array(v),
         localN: new Float32Array(nrm), col: new Float32Array(col), poly: pts.map((p) => [p.x, p.y]), state: -2, still: 0 };
       this.nVerts += rec.count;
@@ -375,92 +387,153 @@ class FragmentView {
   dispose() { if (R) { this.geo.dispose(); groupPane.remove(this.mesh); } }
 }
 
-// The real dice. The engine draws a tempered pane coarser than its dice and
-// bursts each piece into a spray of them where it lands; here every spray
-// scatters its dice over the floor, each on a closed-form path in engine time
-// (a hop, then sliding to rest), so slow motion and replays show the same pile.
-const DICE_CAP = [1500, 4000, 12000, 25000, 50000];
+// The real dice. The engine draws a tempered pane coarser than its dice; a
+// coarse piece comes apart into its real dice in the air (or on landing), and
+// the engine reports each such spray. Every die then flies, bounces, slides
+// and tumbles on a closed-form path in engine time, evaluated on the GPU: no
+// per-frame work on the CPU, and slow motion or a replay shows the same pile.
+const DICE_CAP = [2000, 6000, 16000, 32000, 60000];
 function hash01(i, k) {
   let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(k + 0x27d4eb2f, 0xc2b2ae35);
   h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
   return (h >>> 0) / 4294967296;
 }
+const DICE_VERT_HEAD = `
+attribute vec4 aT;   // born, landing (s after born), hop speed, tumble rate
+attribute vec3 aP;   // start position
+attribute vec3 aV;   // start velocity
+attribute vec3 aS;   // size x, thickness, size z
+attribute vec4 aR;   // tumble axis, resting yaw
+attribute vec3 aSl;  // slide velocity x, z; brightness
+uniform float uTime;
+varying float vK;
+mat3 diceAxisAngle(vec3 a, float t) {
+  float c = cos(t), s = sin(t), k = 1.0 - c;
+  return mat3(k * a.x * a.x + c, k * a.x * a.y + s * a.z, k * a.x * a.z - s * a.y,
+              k * a.x * a.y - s * a.z, k * a.y * a.y + c, k * a.y * a.z + s * a.x,
+              k * a.x * a.z + s * a.y, k * a.y * a.z - s * a.x, k * a.z * a.z + c);
+}`;
+const DICE_VERT_BODY = `
+  float tau = max(0.0, uTime - aT.x);
+  float tL = aT.y;
+  vec3 axis = normalize(aR.xyz);
+  mat3 lie = diceAxisAngle(vec3(0.0, 1.0, 0.0), aR.w);
+  vec3 dPos; mat3 dRot;
+  if (tau < tL) {
+    // In the air: gravity, and a tumble.
+    dPos = aP + aV * tau + vec3(0.0, -4.905 * tau * tau, 0.0);
+    dRot = diceAxisAngle(axis, aT.w * tau) * lie;
+  } else {
+    // On the floor: a hop, then sliding to rest, the tumble settling flat.
+    float u = tau - tL;
+    vec3 pL = aP + aV * tL + vec3(0.0, -4.905 * tL * tL, 0.0);
+    float sl = (1.0 - exp(-6.0 * u)) / 6.0;
+    float hopT = 2.0 * aT.z / 9.81;
+    float hy = u < hopT ? aT.z * u - 4.905 * u * u : 0.0;
+    dPos = vec3(pL.x + aSl.x * sl, aS.y * 0.5 + hy, pL.z + aSl.y * sl);
+    mat3 spun = diceAxisAngle(axis, aT.w * (tL + (1.0 - exp(-4.0 * u)) / 4.0)) * lie;
+    float w = hopT > 0.0 ? smoothstep(0.0, hopT, u) : 1.0;
+    dRot = mat3(normalize(mix(spun[0], lie[0], w)), normalize(mix(spun[1], lie[1], w)), normalize(mix(spun[2], lie[2], w)));
+  }
+  if (uTime < aT.x) dPos = vec3(0.0, -100.0, 0.0);
+  vK = aSl.z;
+  vec3 objectNormal = dRot * normal;`;
 class DiceView {
   constructor() {
     this.cap = DICE_CAP[clamp(tier, 0, 4)];
     this.n = 0;
-    this.dice = [];       // per die: born, x0, y0, z0, vx, vy, vz, size, thick, axis, spin
-    this.active = [];     // dice still moving
     this.sprays = 0;
     // Thin dice across every dicing ply; the shown ones grow so the pile keeps its area.
     let expected = 0;
     for (const pl of P.plies) if (pl.dicing && pl.dice > 0) expected += (P.W * P.H) / (pl.dice * pl.dice);
     this.keep = expected > this.cap ? this.cap / expected : 1;
     if (!R) return;
-    this.mat = new THREE.MeshStandardMaterial({ color: 0xcfeee4, metalness: 0.1, roughness: 0.08, transparent: true, opacity: 0.75,
-      envMapIntensity: 1.8 });
-    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), this.mat, this.cap);
-    this.mesh.count = 0;
+    const geo = new THREE.InstancedBufferGeometry().copy(new THREE.BoxGeometry(1, 1, 1));
+    geo.instanceCount = 0;
+    const attr = (name, k) => {
+      const a = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * k), k);
+      a.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute(name, a);
+      return a;
+    };
+    this.a = { aT: attr('aT', 4), aP: attr('aP', 3), aV: attr('aV', 3), aS: attr('aS', 3), aR: attr('aR', 4), aSl: attr('aSl', 3) };
+    this.uTime = { value: 0 };
+    const opts = { color: 0xd3ece4, metalness: 0, roughness: 0.08, transparent: true, opacity: 0.85, envMapIntensity: 2.4 };
+    this.mat = tier >= 3 ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: 1, clearcoatRoughness: 0.05, ior: 1.52, specularIntensity: 1 })
+      : new THREE.MeshStandardMaterial(opts);
+    this.mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = this.uTime;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\n' + DICE_VERT_HEAD)
+        .replace('#include <beginnormal_vertex>', DICE_VERT_BODY)
+        .replace('#include <begin_vertex>', 'vec3 transformed = dRot * (position * aS) + dPos;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vK;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= vK;');
+    };
+    this.mesh = new THREE.Mesh(geo, this.mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 2;
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     groupPane.add(this.mesh);
-    this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.sc = new THREE.Vector3();
-    this.axis = new THREE.Vector3();
   }
   // sprays: 11 floats each (see glass_web.cpp).
   add(sp) {
-    const first = this.sprays;
+    const first = this.sprays, start = this.n;
     this.sprays += Math.floor(sp.length / 11);
+    if (!R) return;
+    const A = this.a;
     for (let o = 0; o + 10 < sp.length; o += 11) {
       const id = first + o / 11;
       const want = sp[o + 6] * this.keep;
-      let count = Math.floor(want) + (hash01(id, 1) < want - Math.floor(want) ? 1 : 0);
+      const count = Math.floor(want) + (hash01(id, 1) < want - Math.floor(want) ? 1 : 0);
       if (!count) continue;
       const grow = 1 / Math.sqrt(this.keep), size = sp[o + 7] * grow, thick = sp[o + 8];
+      const [cx, cy, cz] = toThree(sp[o], sp[o + 1], sp[o + 2]);
+      const vx = sp[o + 3], vy = sp[o + 4], vz = -sp[o + 5];
+      const inAir = cy > thick + 0.02;
       const spread = 0.5 * Math.sqrt(sp[o + 6]) * sp[o + 7];
-      const [cx, , cz] = toThree(sp[o], 0, sp[o + 2]);
-      const vh = Math.hypot(sp[o + 3], sp[o + 5]);
-      for (let k = 0; k < count; ++k) {
-        if (this.n >= this.cap) break;
-        const a = 2 * Math.PI * hash01(id, 10 + 7 * k), r = spread * Math.sqrt(hash01(id, 11 + 7 * k));
-        // Outward from where it hit, faster for a harder landing.
-        const burst = (0.25 + 0.9 * hash01(id, 12 + 7 * k)) * (0.4 + 0.25 * Math.abs(sp[o + 4]));
-        const d = { born: sp[o + 9], x0: cx + r * Math.cos(a), z0: cz + r * Math.sin(a), y0: thick,
-          vx: Math.cos(a) * burst + 0.4 * sp[o + 3] * hash01(id, 13 + 7 * k), vz: Math.sin(a) * burst - 0.4 * sp[o + 5] * hash01(id, 13 + 7 * k),
-          vy: 0.3 + 0.9 * hash01(id, 14 + 7 * k) + 0.1 * vh,
-          size: size * (0.75 + 0.5 * hash01(id, 15 + 7 * k)), thick, ax: hash01(id, 16 + 7 * k), spin: 20 + 60 * hash01(id, 17 + 7 * k),
-          slot: this.n++, done: false };
-        this.dice.push(d);
-        this.active.push(d);
+      for (let k = 0; k < count && this.n < this.cap; ++k) {
+        const h = (j) => hash01(id, 10 + 13 * k + j);
+        const i = this.n++;
+        const ang = 2 * Math.PI * h(0), r = spread * Math.sqrt(h(1));
+        let px, py, pz, ux = vx, uy = vy, uz = vz, tL, hop, sx, sz;
+        if (inAir) {
+          // Out of the piece's face (the pane's plane), drifting apart as the mosaic lets go.
+          px = cx + r * Math.cos(ang); py = cy + r * Math.sin(ang); pz = cz + (h(2) - 0.5) * thick;
+          const sep = 0.08 + 0.35 * h(3), a2 = 2 * Math.PI * h(4);
+          ux += sep * Math.cos(a2); uy += sep * Math.sin(a2) * 0.6; uz += (h(5) - 0.5) * 0.5;
+          const y0 = py - thick / 2;
+          tL = (uy + Math.sqrt(Math.max(0, uy * uy + 2 * 9.81 * y0))) / 9.81;
+          const vyL = Math.abs(uy - 9.81 * tL);
+          hop = Math.min(1.0, 0.18 * vyL * (0.4 + 1.2 * h(6)));
+          const burst = (0.1 + 0.45 * h(7)) * (0.3 + 0.1 * vyL), a3 = 2 * Math.PI * h(8);
+          sx = 0.35 * ux + burst * Math.cos(a3); sz = 0.35 * uz + burst * Math.sin(a3);
+        } else {
+          // A piece that reached the floor whole bursts there.
+          px = cx + r * Math.cos(ang); py = thick / 2; pz = cz + r * Math.sin(ang);
+          ux = uy = uz = 0; tL = 0;
+          const vh = Math.hypot(vx, vz);
+          hop = 0.3 + 0.9 * h(6) + 0.1 * vh;
+          const burst = (0.25 + 0.9 * h(7)) * (0.4 + 0.25 * Math.abs(vy));
+          sx = Math.cos(ang) * burst + 0.4 * vx * h(8); sz = Math.sin(ang) * burst + 0.4 * vz * h(8);
+        }
+        A.aT.setXYZW(i, sp[o + 9], tL, hop, 15 + 55 * h(9));
+        A.aP.setXYZ(i, px, py, pz);
+        A.aV.setXYZ(i, ux, uy, uz);
+        A.aS.setXYZ(i, size * (0.75 + 0.5 * h(10)), thick, size * (0.8 + 0.4 * h(11)));
+        A.aR.setXYZW(i, h(12) - 0.5, h(13) - 0.5, h(2) - 0.5 + 1e-3, 2 * Math.PI * h(5));
+        A.aSl.setXYZ(i, sx, sz, 0.8 + 0.35 * h(4));
       }
     }
-    if (R) this.mesh.count = this.n;
-  }
-  update(t) {
-    if (!R || !this.active.length) return;
-    const k = 6;  // 1/s, sliding friction on glass and stone
-    let w = 0;
-    for (const d of this.active) {
-      const tau = Math.max(0, t - d.born);
-      const slide = (1 - Math.exp(-k * tau)) / k;
-      const tHop = 2 * d.vy / 9.81;
-      const y = tau < tHop ? d.thick / 2 + d.vy * tau - 4.905 * tau * tau : d.thick / 2;
-      this.v.set(d.x0 + d.vx * slide, y, d.z0 + d.vz * slide);
-      // Tumbles in the hop, lies flat once it slides.
-      const flat = tau >= tHop;
-      const ang = flat ? 0 : d.spin * tau;
-      this.axis.set(Math.cos(6.283 * d.ax), 0.3, Math.sin(6.283 * d.ax)).normalize();
-      this.q.setFromAxisAngle(this.axis, ang);
-      if (flat) this.q.setFromAxisAngle(this.axis.set(0, 1, 0), 6.283 * d.ax);
-      this.sc.set(d.size, d.thick, d.size * (0.8 + 0.4 * d.ax));
-      this.m.compose(this.v, this.q, this.sc);
-      this.mesh.setMatrixAt(d.slot, this.m);
-      if (tau < 1.2) this.active[w++] = d;
+    if (this.n === start) return;
+    for (const a of Object.values(A)) {
+      a.clearUpdateRanges();
+      a.addUpdateRange(start * a.itemSize, (this.n - start) * a.itemSize);
+      a.needsUpdate = true;
     }
-    this.active.length = w;
-    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.geometry.instanceCount = this.n;
   }
+  update(t) { this.uTime.value = t; }
   dispose() { if (R) { groupPane.remove(this.mesh); this.mesh.geometry.dispose(); this.mat.dispose(); } }
 }
 
