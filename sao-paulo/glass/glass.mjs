@@ -67,10 +67,10 @@ export default async function createGlassModule(wasmBytes) {
     }
     return out;
   };
-  // Dice sprays since `from`: Float32Array of 11 per spray.
+  // Dice sprays since `from`: Float32Array of 15 per spray.
   G.sprays = (from) => {
     const p = ex.gls_sprays(from), n = new Float32Array(memory.buffer, p, 1)[0];
-    return new Float32Array(memory.buffer, p + 4, n * 11);
+    return new Float32Array(memory.buffer, p + 4, n * 15);
   };
   // Crushed discs since `from`: Float32Array of 6 per disc.
   G.crushes = (from) => {
