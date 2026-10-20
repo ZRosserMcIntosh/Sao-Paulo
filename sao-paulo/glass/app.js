@@ -476,14 +476,14 @@ class DiceView {
     this.mesh.renderOrder = 2;
     groupPane.add(this.mesh);
   }
-  // sprays: 11 floats each (see glass_web.cpp).
-  add(sp) {
+  // sprays: 15 floats each (see glass_web.cpp).
+  addSprays(sp) {
     const first = this.sprays, start = this.n;
-    this.sprays += Math.floor(sp.length / 11);
+    this.sprays += Math.floor(sp.length / 15);
     if (!R) return;
     const A = this.a;
-    for (let o = 0; o + 10 < sp.length; o += 11) {
-      const id = first + o / 11;
+    for (let o = 0; o + 14 < sp.length; o += 15) {
+      const id = first + o / 15;
       const want = sp[o + 6] * this.keep;
       const count = Math.floor(want) + (hash01(id, 1) < want - Math.floor(want) ? 1 : 0);
       if (!count) continue;
@@ -533,8 +533,424 @@ class DiceView {
     }
     this.mesh.geometry.instanceCount = this.n;
   }
-  update(t) { this.uTime.value = t; }
+  update(t) { if (this.uTime) this.uTime.value = t; }
   dispose() { if (R) { groupPane.remove(this.mesh); this.mesh.geometry.dispose(); this.mat.dispose(); } }
+}
+
+// ---------- Pieces and their real dice, on the GPU ----------
+// A tempered piece the engine draws is a patch of real dice. Here each piece is
+// cut into them (a seeded Voronoi of real-dice size, extruded to the glass
+// thickness: that is what a tempered die is), so the crazed pane shows the
+// real dicing pattern. When the engine says a piece came apart, its own dice
+// leave from where they sat, with their shapes and orientation, some stuck
+// together in small clumps, and fly, bounce, slide and settle on closed-form
+// paths. Everything moves in the vertex shader: piece poses and dice flights
+// live in two float textures, the geometry never changes after it is built.
+const DPR = 292, PPR = 680;   // dice / pieces per texture row (7 / 3 texels each)
+const CELL_CAP = [2500, 7000, 16000, 28000, 45000];
+const PIECE_HEAD = `
+uniform highp sampler2D uDice;
+uniform highp sampler2D uPose;
+uniform float uTime, uAhead, uW, uLift;
+attribute float aDie;
+varying float vEdge;
+varying float vK;
+mat3 pvAxis(vec3 a, float t) {
+  float c = cos(t), s = sin(t), k = 1.0 - c;
+  return mat3(k * a.x * a.x + c, k * a.x * a.y + s * a.z, k * a.x * a.z - s * a.y,
+              k * a.x * a.y - s * a.z, k * a.y * a.y + c, k * a.y * a.z + s * a.x,
+              k * a.x * a.z + s * a.y, k * a.y * a.z - s * a.x, k * a.z * a.z + c);
+}
+mat3 pvQuat(vec4 q) {
+  float w = q.x, x = q.y, y = q.z, z = q.w;
+  return mat3(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
+              2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x),
+              2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y));
+}`;
+const PIECE_BODY = `
+  int di = int(aDie + 0.5);
+  ivec2 db = ivec2((di % ${DPR}) * 7, di / ${DPR});
+  vec4 d0 = texelFetch(uDice, db, 0);                  // born (-1 attached), landing, hop, tumble rate
+  vec4 d5 = texelFetch(uDice, db + ivec2(5, 0), 0);    // die centre (piece frame), piece
+  vec4 d6 = texelFetch(uDice, db + ivec2(6, 0), 0);    // clump centre (piece frame), half thickness
+  int pi = int(d5.w + 0.5);
+  ivec2 pb = ivec2((pi % ${PPR}) * 3, pi / ${PPR});
+  vec4 p0 = texelFetch(uPose, pb, 0);                  // position, state
+  vec3 wPos; mat3 wRot; vec3 rel;
+  vEdge = 1.0 - abs(normal.z);
+  vK = 0.86 + 0.28 * fract(float(di) * 0.618034);
+  if (d0.x < 0.0 || uTime < d0.x) {
+    // Still part of its piece.
+    vec4 pq = texelFetch(uPose, pb + ivec2(1, 0), 0);
+    vec4 pv = texelFetch(uPose, pb + ivec2(2, 0), 0);
+    float ahead = (p0.w > 1.5 && p0.w < 2.5) ? uAhead : 0.0;
+    wPos = p0.xyz + pv.xyz * ahead + vec3(0.0, -4.905 * ahead * ahead, 0.0);
+    wRot = pvQuat(pq);
+    rel = position;
+    if (p0.w < 0.0 || d0.z < 0.0) wPos = vec3(0.0, -1000.0, 0.0);   // gone, or replaced by its dice
+  } else {
+    vec4 d1 = texelFetch(uDice, db + ivec2(1, 0), 0);  // clump centre at release (pane), resting yaw
+    vec4 d2 = texelFetch(uDice, db + ivec2(2, 0), 0);  // clump velocity, slide x
+    vec4 d3 = texelFetch(uDice, db + ivec2(3, 0), 0);  // tumble axis, slide z
+    vec4 d4 = texelFetch(uDice, db + ivec2(4, 0), 0);  // piece orientation at release
+    float tau = uTime - d0.x, tL = d0.y;
+    mat3 R0 = pvQuat(d4);
+    vec3 axis = normalize(d3.xyz);
+    if (tau < tL) {
+      // The clump in the air: gravity and a tumble about its centre.
+      wPos = d1.xyz + d2.xyz * tau + vec3(0.0, -4.905 * tau * tau, 0.0);
+      wRot = pvAxis(axis, d0.w * tau) * R0;
+      rel = position - d6.xyz;
+    } else {
+      // Each die on the floor: a hop, sliding to rest, settling flat.
+      float u = tau - tL;
+      vec3 cL = d1.xyz + d2.xyz * tL + vec3(0.0, -4.905 * tL * tL, 0.0);
+      vec3 dieL = cL + pvAxis(axis, d0.w * tL) * R0 * (d5.xyz - d6.xyz);
+      float sl = (1.0 - exp(-6.0 * u)) / 6.0;
+      float hopT = 2.0 * d0.z / 9.81;
+      float hy = u < hopT ? d0.z * u - 4.905 * u * u : 0.0;
+      wPos = vec3(dieL.x + d2.w * sl, -uLift + d6.w + hy, dieL.z + d3.w * sl);
+      mat3 spun = pvAxis(axis, d0.w * (tL + (1.0 - exp(-4.0 * u)) / 4.0)) * R0;
+      mat3 lie = pvAxis(vec3(0.0, 1.0, 0.0), d1.w) * mat3(1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0);
+      float w = hopT > 0.0 ? smoothstep(0.0, hopT, u) : 1.0;
+      wRot = mat3(normalize(mix(spun[0], lie[0], w)), normalize(mix(spun[1], lie[1], w)), normalize(mix(spun[2], lie[2], w)));
+      rel = position - d5.xyz;
+    }
+  }
+  vec3 wp = wPos + wRot * rel;          // pane frame
+  vec3 wn = wRot * normal;
+  vec3 objectNormal = vec3(wn.x, wn.y, -wn.z);`;
+function polyArea(pts) {
+  let a = 0;
+  for (let i = 0, n = pts.length; i < n; ++i) { const p = pts[i], q = pts[(i + 1) % n]; a += p[0] * q[1] - q[0] * p[1]; }
+  return a / 2;
+}
+function polyCentroid(pts) {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0, n = pts.length; i < n; ++i) {
+    const p = pts[i], q = pts[(i + 1) % n], c = p[0] * q[1] - q[0] * p[1];
+    a += c; cx += (p[0] + q[0]) * c; cy += (p[1] + q[1]) * c;
+  }
+  if (Math.abs(a) < 1e-14) { let x = 0, y = 0; for (const p of pts) { x += p[0]; y += p[1]; } return [x / pts.length, y / pts.length]; }
+  return [cx / (3 * a), cy / (3 * a)];
+}
+function insidePoly(pts, x, y) {
+  let c = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c;
+  }
+  return c;
+}
+function clipHalf(poly, nx, ny, d) {  // keep nx x + ny y <= d
+  const out = [];
+  for (let i = 0, n = poly.length; i < n; ++i) {
+    const a = poly[i], b = poly[(i + 1) % n];
+    const da = nx * a[0] + ny * a[1] - d, db = nx * b[0] + ny * b[1] - d;
+    if (da <= 0) out.push(a);
+    if ((da <= 0) !== (db <= 0)) { const t = da / (da - db); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+  }
+  return out;
+}
+// Cuts a piece's outline into cells about `size` across: seeds on a jittered
+// hexagonal lattice at a seeded angle, Voronoi cells clipped to the outline.
+function diceCells(outline, size, seed) {
+  const ang = 2 * Math.PI * hash01(seed, 21), ca = Math.cos(ang), sa = Math.sin(ang);
+  const a = size * 1.075, rowH = a * 0.866;
+  let r = 0;
+  for (const p of outline) r = Math.max(r, Math.hypot(p[0], p[1]));
+  const seeds = [];
+  const n = Math.ceil(r / rowH) + 1;
+  for (let j = -n; j <= n; ++j)
+    for (let i = -n; i <= n; ++i) {
+      const k = seeds.length + (j + n) * 997 + i;
+      const u = (i + (j & 1) * 0.5) * a + (hash01(seed, 100 + 7 * k) - 0.5) * 0.6 * a;
+      const v = j * rowH + (hash01(seed, 101 + 7 * k) - 0.5) * 0.6 * a;
+      const x = u * ca - v * sa, y = u * sa + v * ca;
+      if (Math.hypot(x, y) <= r + a && insidePoly(outline, x, y)) seeds.push([x, y]);
+    }
+  if (seeds.length < 2) return [{ cell: outline, nb: [] }];
+  const reach = 3.2 * a, near = 1.6 * a;
+  return seeds.map((sd, i) => {
+    let cell = outline;
+    const nb = [];
+    for (let j = 0; j < seeds.length && cell.length >= 3; ++j) {
+      if (j === i) continue;
+      const t = seeds[j], dx = t[0] - sd[0], dy = t[1] - sd[1], d2 = dx * dx + dy * dy;
+      if (d2 > reach * reach) continue;
+      if (d2 < near * near) nb.push(j);
+      cell = clipHalf(cell, dx, dy, dx * (sd[0] + t[0]) / 2 + dy * (sd[1] + t[1]) / 2);
+    }
+    return { cell, nb };
+  });
+}
+class PieceView {
+  constructor() {
+    this.recs = [];
+    this.queue = [];
+    this.urgent = [];
+    this.pieces = new Map();   // fragment index -> { dice: [first, end], clumps: [[die...]] }
+    this.nDice = 0; this.nVerts = 0; this.nIdx = 0;
+    this.sprays = 0;
+    let expected = 0;
+    for (const pl of P.plies) if (pl.dicing && pl.dice > 0) expected += (P.W * P.H) / (pl.dice * pl.dice);
+    this.cellArea = (pl) => {
+      const keep = expected > 0 ? Math.min(1, CELL_CAP[clamp(tier, 0, 4)] / expected) : 1;
+      return pl.dice * pl.dice / keep;
+    };
+    // CPU mirrors; grown by doubling.
+    this.pos = new Float32Array(3 * 8192); this.nor = new Float32Array(3 * 8192); this.die = new Float32Array(8192);
+    this.idx = new Uint32Array(16384);
+    this.diceTex = this.texture(DPR * 7, 64);
+    this.poseTex = this.texture(PPR * 3, 8);
+    this.geo = new THREE.BufferGeometry();
+    this.attach();
+    this.uniforms = { uDice: { value: this.diceTex }, uPose: { value: this.poseTex }, uTime: { value: 0 }, uAhead: { value: 0 },
+      uW: { value: P.W }, uLift: { value: FLOOR } };
+    const opts = { color: 0xeef8f4, metalness: 0.05, roughness: 0.06, transparent: true, opacity: 0.5, envMapIntensity: 2.0,
+      side: THREE.DoubleSide };
+    this.mat = tier >= 3 ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: 1, clearcoatRoughness: 0.05, ior: 1.52 })
+      : new THREE.MeshStandardMaterial(opts);
+    this.mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, this.uniforms);
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\n' + PIECE_HEAD)
+        .replace('#include <beginnormal_vertex>', PIECE_BODY)
+        .replace('#include <begin_vertex>', 'vec3 transformed = vec3(wp.x - 0.5 * uW, wp.y + uLift, -wp.z);');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vEdge;\nvarying float vK;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= mix(vec3(vK), vec3(0.42, 0.78, 0.6), smoothstep(0.3, 0.9, vEdge));\n  diffuseColor.a *= mix(1.0, 1.35, vEdge);');
+    };
+    this.mesh = new THREE.Mesh(this.geo, this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 2;
+    groupPane.add(this.mesh);
+  }
+  texture(w, h) {
+    const t = new THREE.DataTexture(new Float32Array(w * h * 4), w, h, THREE.RGBAFormat, THREE.FloatType);
+    t.magFilter = t.minFilter = THREE.NearestFilter;
+    t.needsUpdate = true;
+    return t;
+  }
+  grow(tex, rows) {
+    const w = tex.image.width;
+    if (rows <= tex.image.height) return tex;
+    const t = this.texture(w, Math.max(rows, 2 * tex.image.height));
+    t.image.data.set(tex.image.data);
+    tex.dispose();
+    return t;
+  }
+  attach() {
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geo.setAttribute('normal', new THREE.BufferAttribute(this.nor, 3));
+    this.geo.setAttribute('aDie', new THREE.BufferAttribute(this.die, 1));
+    this.geo.setIndex(new THREE.BufferAttribute(this.idx, 1));
+  }
+  // One die (or a whole piece): its outline in the piece frame, extruded +-h.
+  // Triangles wind inward: the pane-to-scene mirror (z -> -z) turns them out.
+  pushPrism(pts, h, dieIndex) {
+    const n = pts.length;
+    const needV = this.nVerts + 6 * n, needI = this.nIdx + 6 * (n - 2) + 6 * n;
+    if (needV > this.die.length || needI > this.idx.length) {
+      const cv = Math.max(2 * this.die.length, needV), ci = Math.max(2 * this.idx.length, needI);
+      const pos = new Float32Array(3 * cv), nor = new Float32Array(3 * cv), die = new Float32Array(cv), idx = new Uint32Array(ci);
+      pos.set(this.pos); nor.set(this.nor); die.set(this.die); idx.set(this.idx);
+      Object.assign(this, { pos, nor, die, idx });
+      this.attach();
+      this.flushV = 0; this.flushI = 0;   // new buffers: upload them whole
+    }
+    let tris = [];
+    let convex = true;
+    for (let i = 0; i < n && convex; ++i) {
+      const a = pts[i], b = pts[(i + 1) % n], c = pts[(i + 2) % n];
+      convex = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) >= -1e-12;
+    }
+    if (convex) for (let i = 1; i + 1 < n; ++i) tris.push([0, i, i + 1]);
+    else try { tris = THREE.ShapeUtils.triangulateShape(pts.map((p) => new THREE.Vector2(p[0], p[1])), []); } catch { tris = []; }
+    const v0 = this.nVerts;
+    const vert = (x, y, z, nx, ny, nz) => {
+      const i = this.nVerts++;
+      this.pos[3 * i] = x; this.pos[3 * i + 1] = y; this.pos[3 * i + 2] = z;
+      this.nor[3 * i] = nx; this.nor[3 * i + 1] = ny; this.nor[3 * i + 2] = nz;
+      this.die[i] = dieIndex;
+      return i;
+    };
+    for (const p of pts) vert(p[0], p[1], -h, 0, 0, -1);
+    for (const p of pts) vert(p[0], p[1], h, 0, 0, 1);
+    const I = (a) => { this.idx[this.nIdx++] = a; };
+    for (const [a, b, c] of tris) { I(v0 + a); I(v0 + b); I(v0 + c); I(v0 + n + a); I(v0 + n + c); I(v0 + n + b); }
+    for (let i = 0; i < n; ++i) {
+      const p = pts[i], q = pts[(i + 1) % n];
+      const ex = q[0] - p[0], ey = q[1] - p[1], l = Math.hypot(ex, ey) || 1, nx = ey / l, ny = -ex / l;
+      const a = vert(p[0], p[1], -h, nx, ny, 0), b = vert(q[0], q[1], -h, nx, ny, 0);
+      const c = vert(q[0], q[1], h, nx, ny, 0), d = vert(p[0], p[1], h, nx, ny, 0);
+      I(a); I(c); I(b); I(a); I(d); I(c);
+    }
+  }
+  dieOffset(di) { return ((di / DPR | 0) * DPR * 7 + (di % DPR) * 7) * 4; }
+  ensureDice(n) {
+    const rows = Math.ceil(n / DPR) + 1;
+    if (rows > this.diceTex.image.height) { this.diceTex = this.grow(this.diceTex, rows); this.uniforms.uDice.value = this.diceTex; }
+  }
+  // New pieces are drawn whole at once; tempered ones are queued to be cut
+  // into their real dice a few at a time (tick), so shattering never stalls a frame.
+  add(shapes) {
+    for (const s of shapes) {
+      const n = s.outline.length / 2;
+      if (n < 3) continue;
+      const pts = [];
+      for (let i = 0; i < n; ++i) pts.push([s.outline[2 * i], s.outline[2 * i + 1]]);
+      if (polyArea(pts) < 0) pts.reverse();
+      const h = s.thickness / 2;
+      const pl = P.plies.find((q) => q.ply === s.ply);
+      const dicing = !!(pl && pl.dicing && !s.chip && pl.dice > 0);
+      const rec = { index: s.index, poly: pts, h, clumps: null, whole: -1, pending: false };
+      this.cut(rec, pts, h, [{ cell: pts, nb: [] }], false);
+      rec.whole = rec.clumps[0][0];
+      if (dicing && Math.abs(polyArea(pts)) > 1.6 * this.cellArea(pl)) { rec.pending = true; rec.size = Math.sqrt(this.cellArea(pl)); this.queue.push(rec); }
+      this.pieces.set(s.index, rec);
+      this.recs.push(rec);
+    }
+    this.flush();
+  }
+  // Cuts queued pieces into dice for up to `ms` milliseconds.
+  tick(ms) {
+    const t0 = performance.now();
+    let any = false;
+    // Pieces already on the move first: they are the next to come apart.
+    while (this.urgent.length && performance.now() - t0 < ms) { const r = this.urgent.pop(); if (r.pending) { this.dice(r); any = true; } }
+    while (this.queue.length && performance.now() - t0 < ms) { const r = this.queue.shift(); if (r.pending) { this.dice(r); any = true; } }
+    if (any) this.flush();
+  }
+  dice(rec) {
+    rec.pending = false;
+    this.cut(rec, rec.poly, rec.h, diceCells(rec.poly, rec.size, rec.index), true);
+    const o = this.dieOffset(rec.whole), D = this.diceTex.image.data;
+    D[o + 2] = -1;   // the whole piece gives way to its dice
+  }
+  // Appends one prism per cell (each its own die), grouped into clumps.
+  cut(rec, pts, h, cells, dicing) {
+    const clumpOf = new Array(cells.length).fill(-1), clumps = [];
+    cells.forEach((c, i) => {
+      if (clumpOf[i] >= 0) return;
+      const u = hash01(rec.index, 300 + i), want = !dicing ? 1 : u < 0.45 ? 1 : u < 0.7 ? 2 : u < 0.85 ? 3 : 4;
+      const g = [i];
+      clumpOf[i] = clumps.length;
+      for (const j of c.nb) if (g.length < want && clumpOf[j] < 0 && cells[j].cell.length >= 3) { clumpOf[j] = clumps.length; g.push(j); }
+      clumps.push(g);
+    });
+    const first = this.nDice;
+    this.ensureDice(first + cells.length);
+    const D = this.diceTex.image.data;
+    const cen = cells.map((c) => (c.cell.length >= 3 ? polyCentroid(c.cell) : [0, 0]));
+    const clumpCen = clumps.map((g) => {
+      let x = 0, y = 0, w = 0;
+      for (const i of g) { const a = Math.abs(polyArea(cells[i].cell)) + 1e-12; x += cen[i][0] * a; y += cen[i][1] * a; w += a; }
+      return [x / w, y / w];
+    });
+    rec.clumps = clumps.map((g) => g.map((i) => first + i));
+    cells.forEach((c, i) => {
+      const di = this.nDice++, o = this.dieOffset(di);
+      D[o] = -1; D[o + 1] = 0; D[o + 2] = 0; D[o + 3] = 0;
+      D[o + 20] = cen[i][0]; D[o + 21] = cen[i][1]; D[o + 22] = 0; D[o + 23] = rec.index;
+      const cc = clumpCen[clumpOf[i]];
+      D[o + 24] = cc[0]; D[o + 25] = cc[1]; D[o + 26] = 0; D[o + 27] = h;
+      if (c.cell.length < 3) return;
+      // A seam between dice, and each die a hair out of line so it catches the light.
+      let rmax = 0;
+      for (const p of c.cell) rmax = Math.max(rmax, Math.hypot(p[0] - cen[i][0], p[1] - cen[i][1]));
+      const k = dicing ? Math.max(0.5, 1 - 0.00028 / Math.max(rmax, 1e-4)) : Math.max(0.6, 1 - 0.0006 / Math.max(rmax, 1e-4));
+      const cell = c.cell.map((p) => [cen[i][0] + (p[0] - cen[i][0]) * k, cen[i][1] + (p[1] - cen[i][1]) * k]);
+      const v0 = this.nVerts;
+      this.pushPrism(cell, h, di);
+      if (dicing) {
+        const tilt = (hash01(di, 3) - 0.5) * 0.05, a = 2 * Math.PI * hash01(di, 4), ax = Math.cos(a) * tilt, ay = Math.sin(a) * tilt;
+        for (let v = v0; v < this.nVerts; ++v) {
+          const x = this.pos[3 * v] - cen[i][0], y = this.pos[3 * v + 1] - cen[i][1], z = this.pos[3 * v + 2];
+          this.pos[3 * v] = x + ay * z + cen[i][0]; this.pos[3 * v + 1] = y - ax * z + cen[i][1]; this.pos[3 * v + 2] = z + ax * y - ay * x;
+          const nx = this.nor[3 * v], ny = this.nor[3 * v + 1], nz = this.nor[3 * v + 2];
+          this.nor[3 * v] = nx + ay * nz; this.nor[3 * v + 1] = ny - ax * nz; this.nor[3 * v + 2] = nz + ax * ny - ay * nx;
+        }
+      }
+    });
+  }
+  // Uploads what was appended since the last flush.
+  flush() {
+    const ga = this.geo.attributes, v0 = this.flushV || 0, i0 = this.flushI || 0;
+    if (this.nVerts > v0) {
+      for (const [a, k] of [[ga.position, 3], [ga.normal, 3], [ga.aDie, 1]]) {
+        a.clearUpdateRanges(); a.addUpdateRange(v0 * k, (this.nVerts - v0) * k); a.needsUpdate = true;
+      }
+      this.geo.index.clearUpdateRanges(); this.geo.index.addUpdateRange(i0, this.nIdx - i0); this.geo.index.needsUpdate = true;
+      this.geo.setDrawRange(0, this.nIdx);
+    }
+    this.flushV = this.nVerts; this.flushI = this.nIdx;
+    this.diceTex.needsUpdate = true;
+  }
+  // poses: 12 floats per fragment record (see glass_web.cpp).
+  update(poses, dtAhead, t) {
+    const n = poses.length / 12;
+    const rows = Math.ceil(n / PPR) + 1;
+    if (rows > this.poseTex.image.height) { this.poseTex = this.grow(this.poseTex, rows); this.uniforms.uPose.value = this.poseTex; }
+    const d = this.poseTex.image.data;
+    for (let i = 0; i < n; ++i) {
+      const o = ((i / PPR | 0) * PPR * 3 + (i % PPR) * 3) * 4, q = i * 12;
+      d[o] = poses[q]; d[o + 1] = poses[q + 1]; d[o + 2] = poses[q + 2]; d[o + 3] = poses[q + 10];
+      d[o + 4] = poses[q + 3]; d[o + 5] = poses[q + 4]; d[o + 6] = poses[q + 5]; d[o + 7] = poses[q + 6];
+      d[o + 8] = poses[q + 7]; d[o + 9] = poses[q + 8]; d[o + 10] = poses[q + 9];
+      if (poses[q + 10] >= 1 && this.queue.length) {
+        const r = this.pieces.get(i);
+        if (r && r.pending && !r.urgent) { r.urgent = true; this.urgent.push(r); }
+      }
+    }
+    this.poseTex.needsUpdate = true;
+    this.uniforms.uAhead.value = dtAhead;
+    this.uniforms.uTime.value = t;
+  }
+  // sprays: 15 floats each (see glass_web.cpp); poses: this frame's poses.
+  addSprays(sp, poses) {
+    this.sprays += Math.floor(sp.length / 15);
+    const g = 9.81, floorY = -FLOOR, tSpray = performance.now();
+    for (let o = 0; o + 14 < sp.length; o += 15) {
+      const D = this.diceTex.image.data;
+      const rec = this.pieces.get(sp[o + 11]);
+      if (!rec) continue;
+      // Not cut yet: cut it now while this frame has time; otherwise it falls whole.
+      if (rec.pending && performance.now() - tSpray < 6) { this.dice(rec); this.flush(); }
+      const f = sp[o + 11] * 12;
+      const qw = poses[f + 3], qx = poses[f + 4], qy = poses[f + 5], qz = poses[f + 6];
+      const born = sp[o + 9], px = sp[o], py = sp[o + 1], pz = sp[o + 2];
+      const vx = sp[o + 3], vy = sp[o + 4], vz = sp[o + 5], wx = sp[o + 12], wy = sp[o + 13], wz = sp[o + 14];
+      for (const clump of rec.clumps) {
+        const d0 = clump[0], o0 = ((d0 / DPR | 0) * DPR * 7 + (d0 % DPR) * 7) * 4;
+        // Where the clump's centre is, and how it moves, as the piece lets go.
+        const [rx, ry, rz] = quatRotate(qw, qx, qy, qz, D[o0 + 24], D[o0 + 25], 0);
+        const cx = px + rx, cy = py + ry, cz = pz + rz;
+        const sep = 0.04 + 0.35 * hash01(d0, 31), a = 2 * Math.PI * hash01(d0, 32);
+        const [sx, sy, sz] = quatRotate(qw, qx, qy, qz, Math.cos(a) * sep, Math.sin(a) * sep, (hash01(d0, 33) - 0.5) * 0.3);
+        const ux = vx + (wy * rz - wz * ry) + sx, uy = vy + (wz * rx - wx * rz) + sy, uz = vz + (wx * ry - wy * rx) + sz;
+        const lift = cy - floorY - rec.h;
+        const tL = lift > 0.004 ? (uy + Math.sqrt(Math.max(0, uy * uy + 2 * g * lift))) / g : 0;
+        const vyL = Math.abs(uy - g * tL);
+        const spin = 8 + 50 * hash01(d0, 34);
+        const ax = hash01(d0, 35) - 0.5, ay = hash01(d0, 36) - 0.5, az = hash01(d0, 37) - 0.5 + 1e-3;
+        for (const di of clump) {
+          const od = ((di / DPR | 0) * DPR * 7 + (di % DPR) * 7) * 4, h = (k) => hash01(di, 40 + k);
+          const burst = (0.04 + 0.35 * h(0)) * (0.3 + 0.12 * vyL), b = 2 * Math.PI * h(1);
+          D[od] = born; D[od + 1] = tL; D[od + 2] = Math.min(0.9, 0.16 * vyL * (0.3 + 1.2 * h(2))); D[od + 3] = spin;
+          D[od + 4] = cx; D[od + 5] = cy; D[od + 6] = cz; D[od + 7] = 2 * Math.PI * h(3);
+          D[od + 8] = ux; D[od + 9] = uy; D[od + 10] = uz; D[od + 11] = 0.3 * ux + burst * Math.cos(b);
+          D[od + 12] = ax; D[od + 13] = ay; D[od + 14] = az; D[od + 15] = 0.3 * uz + burst * Math.sin(b);
+          D[od + 16] = qw; D[od + 17] = qx; D[od + 18] = qy; D[od + 19] = qz;
+        }
+      }
+    }
+    this.diceTex.needsUpdate = true;
+  }
+  dispose() {
+    groupPane.remove(this.mesh);
+    this.geo.dispose(); this.mat.dispose(); this.diceTex.dispose(); this.poseTex.dispose();
+  }
 }
 
 // Crushed glass. Each disc of comminuted glass the engine reports is white and
@@ -704,8 +1120,10 @@ function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false) {
       sc: pl[12 * k + 7], dice: pl[12 * k + 8], drawn: pl[12 * k + 9] });
     P.cracks.push(new CrackView((pl[12 * k] + pl[12 * k + 1]) / 2));
   }
-  P.frags = new FragmentView();
-  P.dice = new DiceView();
+  // WebGL2 draws every piece and its real dice on the GPU; older contexts get
+  // the CPU pieces and box dice.
+  if (R && R.capabilities.isWebGL2) { P.frags = new PieceView(); P.dice = null; }
+  else { P.frags = new FragmentView(); P.dice = new DiceView(); }
   P.crush = new CrushView();
   buildSlab();
   aim = { x: P.W / 2, y: P.H / 2 };
@@ -1573,18 +1991,20 @@ function frame(now) {
   // New pieces, then where every piece is.
   const nFrag = s[4];
   if (nFrag > P.fragShapes) { P.frags.add(G.fragmentShapes(P.fragShapes)); P.fragShapes = nFrag; }
+  if (P.frags.tick) P.frags.tick(tier >= 3 ? 6 : 4);   // cut whole tempered pieces into their dice, a few per frame
   let poses = null;
   if (nFrag > 0) {
     poses = G.fragmentPoses(nFrag).slice();
-    P.frags.update(poses, Math.max(0, tEng - s[23]));  // pieces step every 0.5 ms; extrapolate between
+    P.frags.update(poses, Math.max(0, tEng - s[23]), tEng);  // pieces step every 0.5 ms; extrapolate between
   }
   if (s[26] > P.crush.count) P.crush.add(G.crushes(P.crush.count).slice());
-  if (s[24] > P.dice.sprays) {
-    // The first dice to land: bring the floor into the shot.
-    if (!P.dice.sprays && !pointers.size && !(GT && GT.active)) P.glide = { ty: (FLOOR + P.H) / 2, r: cam.r * 1.2 };
-    P.dice.add(G.sprays(P.dice.sprays).slice());
+  const sprayView = P.dice || P.frags;
+  if (s[24] > sprayView.sprays) {
+    // The first dice to come loose: bring the floor into the shot.
+    if (!sprayView.sprays && !pointers.size && !(GT && GT.active)) P.glide = { ty: (FLOOR + P.H) / 2, r: cam.r * 1.2 };
+    sprayView.addSprays(G.sprays(sprayView.sprays).slice(), poses);
   }
-  P.dice.update(tEng);
+  if (P.dice) P.dice.update(tEng);
   if (P.glide) {
     if (pointers.size) P.glide = null;
     else {
@@ -1649,7 +2069,7 @@ function frame(now) {
 }
 
 // Hook for automated browser tests.
-window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, groupPane };
+window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, groupPane, cam, applyCamera };
 
 // ---------- Boot ----------
 resize();
