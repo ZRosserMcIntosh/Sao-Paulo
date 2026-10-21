@@ -516,22 +516,19 @@ export function createGTScene(ctx) {
     d.innerHTML = '<b style="font-family:var(--display,inherit);letter-spacing:.04em">ARMOURED GT · UNDER FIRE</b>' +
       '<span id="gtStats"></span><span id="gtView"></span>' +
       '<button id="gtCam" title="Driver, outside, gunman (C)">Driver</button>' +
-      '<button id="gtMute" aria-pressed="false">Sound on</button>' +
+      '<button id="gtMute" aria-pressed="false" title="Sound on / off (M)">Muted</button>' +
       '<button id="gtExit" title="Back to the test frame">Leave</button>';
     document.body.appendChild(d);
     d.querySelector('#gtCam').onclick = () => { S.view = (S.view + 1) % 3; frame(); };
-    d.querySelector('#gtMute').onclick = (e) => {
-      if (!S.audio) return;
-      S.audio.muted = !S.audio.muted;
-      e.target.textContent = S.audio.muted ? 'Sound off' : 'Sound on';
-      e.target.setAttribute('aria-pressed', String(S.audio.muted));
-    };
+    // One switch for the whole page: the lab's Sound button.
+    d.querySelector('#gtMute').onclick = () => ctx.toggleSound();
     d.querySelector('#gtExit').onclick = () => ctx.leave();
     // Browsers start sound only after a gesture (the scene may open from a link).
     const unlock = () => { if (S.audio) S.audio.resume(); };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
     S.hud = d;
+    S.syncSound();
     return d;
   }
 
@@ -628,6 +625,13 @@ export function createGTScene(ctx) {
     ctx.layout();
   };
 
+  S.syncSound = () => {
+    if (!S.hud) return;
+    const on = ctx.soundOn(), b = S.hud.querySelector('#gtMute');
+    b.textContent = on ? 'Sound' : 'Muted';
+    b.setAttribute('aria-pressed', String(on));
+  };
+
   S.frameCamera = frame;
   S.nextView = () => { S.view = (S.view + 1) % 3; frame(); };
 
@@ -636,7 +640,7 @@ export function createGTScene(ctx) {
     if (!S.active || !S.schedule) return;
     const fx = S.schedule.fx;
     if (tEng < S.lastT) { S.cursor = 0; S.stats = { fired: 0, glass: 0 }; }
-    const audible = scale >= 0.3 && S.audio;
+    const audible = scale >= 0.3 && S.audio && ctx.soundOn();
     while (S.cursor < fx.length && fx[S.cursor].t <= tEng) {
       const e = fx[S.cursor++];
       if (e.kind === 0) {

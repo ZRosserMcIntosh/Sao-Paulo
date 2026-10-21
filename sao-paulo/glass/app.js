@@ -100,7 +100,8 @@ let GT = null;          // the armoured-car scene (3D only)
 let tierCap = null;     // a scene that must run in real time caps the automatic tier
 // Sound, synthesized from what the engine reports; browsers start it on the first gesture.
 const sound = new GlassAudio();
-sound.enabled = store.get('sound', true);
+// Off until the visitor turns it on (a new key, so an earlier "on" doesn't carry over).
+sound.enabled = store.get('sound:v2', false);
 for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => sound.start(), { capture: true });
 if (R) {
   R.outputColorSpace = THREE.SRGBColorSpace;
@@ -1617,7 +1618,7 @@ function updateField() {
 // ---------- Camera ----------
 const cam = { theta: -0.55, phi: 1.32, r: 2.6, tx: 0, ty: 1.4, tz: 0 };
 if (R) GT = createGTScene({ THREE, scene, groupPane, camera, cam, applyCamera, FLOOR, tier, labObjects, leave: () => leaveScene(true), layout: resize,
-  glassSound: () => sound.live });
+  glassSound: () => sound.live, soundOn: () => sound.enabled, toggleSound: () => $('bSound').click() });
 let camMode = 0;
 function frameCamera(keepAngles = true) {
   if (GT && GT.active) { GT.frameCamera(); return; }
@@ -1906,8 +1907,11 @@ $('bPlay').onclick = () => { playing = !playing; syncPlay(); };
 $('bReplay').onclick = replay;
 $('bAuto').onclick = () => { auto = !auto; store.set('auto', auto); syncAuto(); buildScaleButtons(); };
 $('bReset').onclick = () => { if (GT && GT.active) startScene(); else { newPane(); simClockReset(); } };
-function syncSound() { $('bSound').setAttribute('aria-pressed', String(sound.enabled)); $('bSound').textContent = sound.enabled ? 'Sound' : 'Muted'; }
-$('bSound').onclick = () => { sound.setEnabled(!sound.enabled); store.set('sound', sound.enabled); syncSound(); };
+function syncSound() {
+  $('bSound').setAttribute('aria-pressed', String(sound.enabled)); $('bSound').textContent = sound.enabled ? 'Sound' : 'Muted';
+  if (GT) GT.syncSound();
+}
+$('bSound').onclick = () => { sound.setEnabled(!sound.enabled); store.set('sound:v2', sound.enabled); syncSound(); };
 syncSound();
 $('bCam').onclick = () => { if (GT && GT.active) GT.nextView(); else { camMode = (camMode + 1) % 3; frameCamera(false); } };
 $('bStress').onclick = () => {
