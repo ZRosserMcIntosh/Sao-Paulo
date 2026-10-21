@@ -130,7 +130,8 @@ const dummyMat = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.
 const jointMat = new THREE.MeshStandardMaterial({ color: 0x1d1d22, roughness: 0.6 });
 let liquidMat = new THREE.MeshPhysicalMaterial({ color: 0x5a0410, roughness: 0.06, transmission: 0, clearcoat: 1, clearcoatRoughness: 0.04 });
 let dropMat = liquidMat;
-let stainMat = new THREE.MeshStandardMaterial({ color: 0x300410, roughness: 0.4, transparent: true, opacity: 0.92, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+// Stains are seen from both sides: through a pane of glass from behind, too.
+let stainMat = new THREE.MeshStandardMaterial({ color: 0x300410, roughness: 0.4, transparent: true, opacity: 0.92, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide });
 function liquidMaterials(id) {
   const d = cat.liquids.find((x) => x.id === id) || cat.liquids[0];
   const col = lin(d.color);
@@ -138,7 +139,7 @@ function liquidMaterials(id) {
     transparent: d.opacity < 0.9, opacity: Math.max(0.35, d.opacity), envMapIntensity: 1.3, sheen: 0 });
   dropMat = liquidMat;
   stainMat = new THREE.MeshStandardMaterial({ color: lin(d.stainColor), roughness: 0.45, transparent: true, opacity: 0.9,
-    depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
   return d;
 }
 
@@ -146,7 +147,7 @@ function liquidMaterials(id) {
 const SCENES = [
   { id: 'wine_glass', name: 'Wine glass off the table', sub: 'Knocked off the edge, onto the floor', opts: ['liquid', 'floor', 'knock', 'fill'] },
   { id: 'bottle_drop', name: 'Wine bottle on the floor', sub: 'An open bottle let go from a height', opts: ['liquid', 'floor', 'height', 'tilt', 'fill'] },
-  { id: 'gunshot', name: 'Crash dummy: the shot', sub: 'Click to aim, fire as often as you like', opts: ['projectile', 'target', 'pane', 'glazing', 'gap', 'distance', 'ragdoll', 'floor'], feature: true },
+  { id: 'gunshot', name: 'Crash dummy: the shot', sub: 'Click to aim, fire as often as you like', opts: ['projectile', 'target', 'tness', 'pane', 'glazing', 'gap', 'distance', 'ragdoll', 'floor'], feature: true },
   { id: 'drip', name: 'Drip test', sub: 'Passive drops from seven heights', opts: ['liquid', 'floor', 'height'] },
   { id: 'angles', name: 'Impact-angle card', sub: 'Drops thrown at a wall from 10° to 90°', opts: ['liquid', 'wall'] },
   { id: 'dam_break', name: 'Dam break', sub: 'Martin & Moyce’s water column: the validation case', opts: [] },
@@ -156,7 +157,7 @@ const GLAZING_GROUPS = { architectural: 'Buildings', automotive: 'Cars', securit
 const defaults = {
   wine_glass: { liquid: 'red_wine', floor: 'ceramic_tile', knock: 0.9, fill: 150 },
   bottle_drop: { liquid: 'red_wine', floor: 'ceramic_tile', height: 1.0, tilt: 25, fill: 700 },
-  gunshot: { projectile: 'pistol_9mm_fmj', target: 'chest', pane: 'front', glazing: 'annealed_6', gap: 0.6, distance: 3.0, ragdoll: 'off', floor: 'concrete' },
+  gunshot: { projectile: 'pistol_9mm_fmj', target: 'chest', pane: 'front', glazing: 'annealed_6', gap: 0.6, distance: 3.0, ragdoll: 'off', tness: 3, floor: 'concrete' },
   drip: { liquid: 'stage_blood_green', floor: 'ceramic_tile', height: 2.1 },
   angles: { liquid: 'stage_blood_green', wall: 'painted_drywall' },
   dam_break: {},
@@ -172,11 +173,16 @@ if (store.get('settingsVersion', 1) < 2) {
 let sceneId = store.get('scene', 'wine_glass');
 if (!SCENES.find((s) => s.id === sceneId)) sceneId = 'wine_glass';
 
+const DIRECTOR_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 27 Q32 2 56 27 L56 31 L8 31 Z" fill="#1b1d22"/><circle cx="32" cy="36" r="21" fill="#f0c39b"/><path d="M11 30 Q32 6 53 30 Q46 22 32 22 Q18 22 11 30 Z" fill="#1b1d22"/><rect x="14" y="31" width="16" height="9" rx="4" fill="#111"/><rect x="34" y="31" width="16" height="9" rx="4" fill="#111"/><rect x="29" y="33" width="6" height="2" fill="#111"/><path d="M23 48 Q32 54 41 48" stroke="#7a3b2e" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="47" cy="46" r="3.2" fill="#3fbf4a"/><circle cx="51.5" cy="41" r="1.7" fill="#3fbf4a"/><circle cx="43" cy="52" r="1.3" fill="#3fbf4a"/><circle cx="18" cy="47" r="1.1" fill="#3fbf4a"/></svg>';
 const OPT = {
   liquid: { label: 'Liquid', type: 'select', items: () => cat.liquids.filter((l) => l.id !== 'water' || sceneId !== 'gunshot').map((l) => [l.id, l.name]) },
   floor: { label: 'Floor', type: 'select', items: () => cat.surfaces.filter((s) => ['ceramic_tile', 'oak_floor', 'concrete', 'carpet'].includes(s.id)).map((s) => [s.id, s.name]) },
   wall: { label: 'Wall', type: 'select', items: () => cat.surfaces.filter((s) => ['painted_drywall', 'glass_pane', 'ceramic_tile', 'concrete'].includes(s.id)).map((s) => [s.id, s.name]) },
   projectile: { label: 'Round', type: 'select', items: () => cat.projectiles.map((p) => [p.id, p.pellets > 1 ? `${p.name} · ${p.pellets} × ${(p.mass * 1e3).toFixed(1)} g at ${p.speed.toFixed(0)} m/s` : `${p.name} · ${(p.mass * 1e3).toFixed(1)} g at ${p.speed.toFixed(0)} m/s`]) },
+  // 1: forensic, as measured. Up from there: more spatter in bigger, faster
+  // drops, more bleeding, and hits that knock a ragdoll about.
+  tness: { label: 'tarantinoness', type: 'range', min: 1, max: 5, step: 0.25, head: true,
+    fmt: (v) => (v <= 1 ? 'forensic' : `${v.toFixed(v % 1 ? 2 : 0)}× the spatter`) },
   ragdoll: { label: 'The dummy', type: 'select', items: () => [['off', 'Stays standing (fixed)'], ['on', 'Falls when hit (ragdoll)']] },
   target: { label: 'Aim', type: 'select', items: () => [['chest', 'Chest'], ['abdomen', 'Abdomen'], ['shoulder', 'Shoulder'], ['thigh', 'Thigh']] },
   pane: { label: 'Glass', type: 'select', items: () => [['none', 'No glass'], ['front', 'In front: shot through it, spatter back onto it'], ['behind', 'Behind: it catches the forward spatter'], ['both', 'Both sides (a car: windscreen and rear window)']] },
@@ -234,7 +240,18 @@ function buildOptions() {
       const r = document.createElement('input');
       Object.assign(r, { type: 'range', min: o.min, max, step: o.step, value: cfg[k] });
       r.setAttribute('aria-label', o.label);
-      r.oninput = () => { cfg[k] = +r.value; f.querySelector('b').textContent = o.fmt(cfg[k]); store.set('settings', settings); };
+      let head = null;
+      if (o.head) {
+        // A cartoon director, bigger the more of it you want.
+        head = document.createElement('div');
+        head.className = 'thead';
+        head.innerHTML = DIRECTOR_SVG;
+        f.classList.add('tslider');
+        f.querySelector('span').append(head);
+      }
+      const size = () => { if (head) head.style.width = head.style.height = `${16 + 30 * (cfg[k] - o.min) / (max - o.min)}px`; };
+      size();
+      r.oninput = () => { cfg[k] = +r.value; f.querySelector('b').textContent = o.fmt(cfg[k]); size(); store.set('settings', settings); };
       if (sceneId === 'gunshot') r.onchange = () => go();
       f.appendChild(r);
       box.appendChild(f);
@@ -243,7 +260,7 @@ function buildOptions() {
   const notes = {
     wine_glass: 'A sideways knock at the bowl tips it over the table edge; whether it breaks depends on what it lands on and how.',
     bottle_drop: 'Bottles are heavier and thicker: they break less easily, and when they do there is far more wine.',
-    gunshot: (G ? 'The glass is broken by Glass Dynamics: the round goes on at the speed it says, and the spatter lands on its pieces and falls with them. ' : 'Glass Dynamics did not load: panes use a built-in estimate. ') + 'Click anything in the room to aim, then Fire (F) as often as you like, with any round; Follow (T) rides along with it.',
+    gunshot: 'Nothing fires until you do: click anything in the room to aim and fire there, then Fire (F) as often as you like, with any round; Follow (T) rides along with it. ' + (G ? 'The glass is broken by Glass Dynamics, and the spatter lands on its pieces and falls with them.' : 'Glass Dynamics did not load: panes use a built-in estimate.'),
     drip: 'A 50 µl drop from 0.3 to the height you set: drip stains are round, and grow with the fall.',
     angles: 'Each drop meets the card at a known angle; read it back from the stain with sin(angle) = width ÷ length.',
     dam_break: 'The classic validation of a free-surface solver; its front is checked against Martin & Moyce (1952) in the tests.',
@@ -402,7 +419,7 @@ function placeCapsule(g, a, b) {
   if (e.lengthSq() > 1e-12) g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), e.normalize());
 }
 
-const MAX_STAINS = 24000;
+const MAX_STAINS = 60000;
 const MAX_ROUNDS = 256, TRACERS = 40;  // rounds drawn in flight; the latest rounds' tracers
 // Auto quality per scene: the cost of a step grows with the particles, so a
 // 700 ml bottle gets coarser particles than a 150 ml glass on the same device.
@@ -433,6 +450,10 @@ function go() {
   if (sceneId === 'gunshot') {
     Object.assign(config, { projectile: S.projectile, target: S.target, distance_m: S.distance, pane: S.pane, glazing: S.glazing, ragdoll: S.ragdoll === 'on' });
     if (S.pane !== 'none') config.pane_gap_m = S.gap;
+    // Nothing fires until the player does.
+    config.fire = false;
+    config.spatter_boost = clamp(S.tness, 1, 5);
+    config.knockback = 0.025 * (config.spatter_boost - 1);
     if (S.pane !== 'none' && G) {
       paneGlazing = gcat.glazings.findIndex((g) => g.id === S.glazing);
       if (paneGlazing >= 0) {
@@ -469,7 +490,7 @@ function go() {
   P.drops = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), dropMat, P.maxDrops);
   P.drops.count = 0; P.drops.frustumCulled = false;
   world.add(P.drops);
-  P.stains = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 20), stainMat, MAX_STAINS);
+  P.stains = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 14), stainMat, MAX_STAINS);
   P.stains.count = 0; P.stains.frustumCulled = false;
   world.add(P.stains);
   // Every round in flight (each pellet of a shot load), and their tracers.
@@ -1153,6 +1174,7 @@ function outcome() {
     if (broke) { o = broke.replace(/^Bordeaux wine /, 'The ').replace(/ -> breaks$/, '.') + (pieces ? ` It ${pieces.trim().replace(/^shattered/, 'shattered')}.` : ''); cls = 'bad'; }
     else if (strike) { o = strike.replace(/^Bordeaux wine /, 'The ').replace(/ -> holds$/, ' — and it holds.'); cls = 'ok'; }
   } else if (sceneId === 'gunshot') {
+    if (!L.projectiles().length) { o = 'Ready. Click anything to aim and fire there, or press F.'; cls = ''; }
     const exit = txt.find((t) => t.startsWith('exit wound'));
     const lodged = txt.find((t) => t.includes('lodged'));
     const stopped = txt.find((t) => t.includes('stopped by the pane'));
