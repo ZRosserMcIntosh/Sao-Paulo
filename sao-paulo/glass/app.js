@@ -27,8 +27,10 @@ const CAT_LABEL = { architectural: 'Buildings', automotive: 'Cars', aviation: 'A
 // ---------- Engine ----------
 let G, cat;
 try {
-  G = await createGlassModule();
-  const errs = G.load(await (await fetch('library.json')).text());
+  // The engine and its library must match: revalidate both on every load, so a
+  // browser never pairs a cached engine with a newer library after a deploy.
+  G = await createGlassModule(await (await fetch('glass.wasm', { cache: 'no-cache' })).arrayBuffer());
+  const errs = G.load(await (await fetch('library.json', { cache: 'no-cache' })).text());
   if (errs.length) throw new Error(errs.join('; '));
   cat = G.catalog();
 } catch (e) {
