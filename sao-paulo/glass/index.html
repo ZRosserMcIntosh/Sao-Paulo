@@ -43,6 +43,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .top button,.top select{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .slider .unit{font:inherit;font-size:11px;padding:1px 7px;margin-left:4px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ice);cursor:pointer}
 .top button[aria-pressed="true"]{background:#fff;color:#0a1830}
+.top a.how{font:600 12px var(--body);color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.top a.how:hover{background:rgba(255,255,255,.13)}
 .plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
 .plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
 .plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
@@ -120,6 +122,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   #clock{min-width:96px;font-size:11px}
   #clock small{font-size:9px}
   .top .hide-sm{display:none}
+  .top a.how{padding:5px 7px;font-size:11.5px}
   .top .plate b{font-size:16px}.top .plate span{font-size:8px}
   .top button,.top select{padding:5px 7px;font-size:11.5px}
   #banner{top:64px}
@@ -137,11 +140,12 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span>Glass lab</span></a>
   <div class="row">
     <select id="tier" title="Simulation quality (Auto picks one for this device)" aria-label="Quality"></select>
-    <button id="bSound" aria-pressed="false" title="Sound on / off (M)">Muted</button>
+    <button id="bSound" aria-pressed="true" title="Sound on / off (M)">Sound</button>
     <button id="bStress" aria-pressed="false" title="Stress seen through crossed polarisers (S)">Stress</button>
     <button id="bCam" class="hide-sm" title="Camera: front, three-quarter, side (C)">Camera</button>
     <button id="bReset" title="New pane (R)">New pane</button>
-    <button id="bHelp" title="How it works (H)">?</button>
+    <a class="how" href="how/" title="How every number is calculated: the equations, the data and their sources">How it works</a>
+    <button id="bHelp" title="Help (H)">?</button>
   </div>
 </div>
 
@@ -211,7 +215,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <li>Tap or click the glass to fire the selected object there; <kbd>Space</kbd> fires at the aim point.</li>
       <li>Drag to orbit, scroll or pinch to zoom. <kbd>C</kbd> cycles the camera.</li>
       <li>Playback runs from real time down to <b>1/100,000</b>: one second on screen is ten microseconds of glass. <b>Bullet time</b> slows down by itself as the object arrives and the cracks run, then speeds back up for the falling pieces.</li>
-      <li><b>Sound</b> (<kbd>M</kbd>) starts muted. It is synthesized from what the engine reports: each glass has its own voice (annealed cracks and crashes, tempered bursts into a hiss and rains dice, laminate crunches, armour thumps), and in bullet time everything drops in pitch and stretches out.</li>
+      <li><b>Sound</b> (<kbd>M</kbd>) is synthesized from what the engine reports: each glass has its own voice (annealed cracks and crashes, tempered bursts into a hiss and rains dice, laminate crunches, armour thumps), and in bullet time everything drops in pitch and stretches out.</li>
       <li><kbd>S</kbd> shows the bending stress as a photoelastic fringe pattern, <kbd>R</kbd> fits a new pane, <kbd>Z</kbd> replays the last shot exactly (the fracture is deterministic).</li>
     </ul>
     <h3>What is solved</h3>
@@ -225,8 +229,10 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     </ul>
     <h3>Armoured V8 under fire</h3>
     <p>The first scenario puts you in the driver's seat of the Rosser V8 (the car from the driving sim) with a 32 mm armoured windscreen while five gunmen fire about 190 rounds of 9 mm in ten seconds. The screen is raked about 70 degrees, so the rounds strike it at a glancing angle: they see a much thicker barrier, and some skip off. Every round that reaches the glass is fired into the engine with its real angle and arrival time; the craters, spider webs and the driver's view all come from the physics, and nothing is pre-scripted except where the gunmen aim. <kbd>C</kbd> switches between the driver, the outside and a gunman; Replay shows it again at any speed.</p>
-    <h3>Grenade in the house</h3>
-    <p>A one-room house with three windows of 6 mm fully tempered glass on every wall, each one its own engine pane. A grenade thrown hard breaks the front window for real (a soft throw can bounce off), rattles round the room and goes off two seconds after it left the hand. Its steel fragments reach the windows first, then the blast wave: each window gets the pressure, duration and arrival time its own distance and angle from the charge give (Kinney–Graham fits for the charge's TNT equivalent, the shock's reflection off the glass, and the gas of a closed room venting through its windows). The engine crazes every pane and the gas drives the dice out. <kbd>C</kbd> switches between outside, the thrower, inside and a cutaway; Replay throws the same throw again, New pane a new one.</p>
+    <h3>Grenade in the shop</h3>
+    <p>A glass shop on a street at night (Day / Night switches): a storefront of four floor-to-ceiling panels of 10 mm fully tempered glass, a frameless glass door with a transom over it, and three 6 mm tempered windows on every other wall, each pane its own engine pane. <b>Tap a window</b> (or press Throw) and a crash-test dummy throws a grenade through it: the throw plays in real time and only slows as the grenade reaches the glass, which the engine breaks for real. It rattles round the room and goes off 1.6 s after the throw. Its steel reaches the panes first, then the blast wave: each pane gets the pressure, duration and arrival time its own distance and angle from the charge give, plus the gas of a closed room venting through its windows. The panel at the bottom says what reaches the dummy: the blast (eardrum and lung injury), the steel (against the 79 J incapacitation mark) and the flying glass. <kbd>C</kbd> switches views; Replay throws the same throw again; Share sends a link straight to the scene. Panes far away are drawn with less detail, and panes behind a wall not at all, so it runs lighter.</p>
+    <h3>The full working</h3>
+    <p>Every equation, constant and source is on the <a href="how/" style="color:var(--ice)">How it works</a> page, with calculators for the impact energy and the blast.</p>
     <h3>Runs on anything</h3>
     <p>The <b>Auto</b> quality setting benchmarks this device and picks a tier: fewer plate modes, a coarser crack grid and fewer pieces on a weak chip, the same physics. If the device can't keep up, the clock slows down instead of skipping physics (the bar shows "device-limited"). Without WebGL the lab draws a flat front view.</p>
     <h3>Honest limits</h3>

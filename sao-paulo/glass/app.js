@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import createGlassModule from './glass.mjs';
 import { createGTScene } from './scene_gt.js';
 import { createHouseScene } from './scene_house.js';
+import { paneLoad, fragmentsThrough, mulberry32, createBlastFX } from './blast.js';
 import { GlassAudio, glassProfile } from './glass_audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -102,8 +103,8 @@ let HS = null;          // the grenade-house scene (3D only)
 let tierCap = null;     // a scene that must run in real time caps the automatic tier
 // Sound, synthesized from what the engine reports; browsers start it on the first gesture.
 const sound = new GlassAudio();
-// Off until the visitor turns it on (a new key, so an earlier "on" doesn't carry over).
-sound.enabled = store.get('sound:v2', false);
+// On unless the visitor turned it off (a new key: the sound was reworked).
+sound.enabled = store.get('sound:v3', true);
 for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => sound.start(), { capture: true });
 if (R) {
   R.outputColorSpace = THREE.SRGBColorSpace;
@@ -614,7 +615,7 @@ const CELL_CAP = [2500, 7000, 16000, 28000, 45000];
 const PIECE_HEAD = `
 uniform highp sampler2D uDice;
 uniform highp sampler2D uPose;
-uniform float uTime, uAhead, uW, uLift;
+uniform float uTime, uAhead, uW, uLift, uFloor;
 attribute float aDie;
 varying float vEdge;
 varying float vK;
@@ -674,7 +675,7 @@ const PIECE_BODY = `
       float sl = (1.0 - exp(-6.0 * u)) / 6.0;
       float hopT = 2.0 * d0.z / 9.81;
       float hy = u < hopT ? d0.z * u - 4.905 * u * u : 0.0;
-      wPos = vec3(dieL.x + d2.w * sl, -uLift + d6.w + hy, dieL.z + d3.w * sl);
+      wPos = vec3(dieL.x + d2.w * sl, uFloor + d6.w + hy, dieL.z + d3.w * sl);
       mat3 spun = pvAxis(axis, d0.w * (tL + (1.0 - exp(-4.0 * u)) / 4.0)) * R0;
       mat3 lie = pvAxis(vec3(0.0, 1.0, 0.0), d1.w) * mat3(1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0);
       float w = hopT > 0.0 ? smoothstep(0.0, hopT, u) : 1.0;
@@ -771,7 +772,7 @@ class PieceView {
     this.geo = new THREE.BufferGeometry();
     this.attach();
     this.uniforms = { uDice: { value: this.diceTex }, uPose: { value: this.poseTex }, uTime: { value: 0 }, uAhead: { value: 0 },
-      uW: { value: P.W }, uLift: { value: FLOOR } };
+      uW: { value: P.W }, uLift: { value: FLOOR }, uFloor: { value: P.floor } };
     // Broken glass stays clear: faces about as see-through as the intact pane,
     // the light caught by the cut edges and seams.
     const opts = { color: 0xe4f2ef, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.18, envMapIntensity: 1.8,
@@ -987,7 +988,7 @@ class PieceView {
   // sprays: 15 floats each (see glass_web.cpp); poses: this frame's poses.
   addSprays(sp, poses) {
     this.sprays += Math.floor(sp.length / 15);
-    const g = 9.81, floorY = -FLOOR, tSpray = performance.now();
+    const g = 9.81, floorY = P.floor, tSpray = performance.now();
     for (let o = 0; o + 14 < sp.length; o += 15) {
       const D = this.diceTex.image.data;
       const rec = this.pieces.get(sp[o + 11]);
@@ -1207,13 +1208,14 @@ function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false, opts = {})
   const gi = opts.glazing ?? gIdx;
   const t = opts.tier ?? (tierCap === null ? tier : Math.min(tier, tierCap));
   if (!G.gls_new_pane(gi, t, seed)) throw new Error('could not build the pane');
-  G.gls_set_floor(-FLOOR);
+  const floor = opts.floor ?? -FLOOR;   // pane frame: the ground below the pane's bottom edge
+  G.gls_set_floor(floor);
   const s = G.state();
   const g = cat.glazings[gi];
   P = { W: s[14], H: s[15], T: s[13], nGlass: s[2], seed, cracks: [], frags: null, meshes: [], impMeshes: [], nImp: 0,
     shots: keepShots && P ? P.shots : [], shotDefs: [], pendingShots: [], fragShapes: 0, eventsShown: 0, broke: false, announced: new Set(),
     plies: [], monolithic: g.plies.every((p) => p.kind === 'glass'), simClock: 0, fieldTick: 0, glazing: g,
-    profile: glassProfile(g), heard: [], broken: [], pieceSize: [], prevVy: new Float32Array(0), viewTier: opts.viewTier };
+    profile: glassProfile(g), heard: [], broken: [], pieceSize: [], prevVy: new Float32Array(0), viewTier: opts.viewTier, floor };
   const pl = G.plies(P.nGlass);
   for (let k = 0; k < P.nGlass; ++k) {
     P.plies.push({ z0: pl[12 * k], z1: pl[12 * k + 1], ply: pl[12 * k + 10], dicing: pl[12 * k + 5] > 0, ct: pl[12 * k + 6],
@@ -1453,6 +1455,7 @@ function fire(at = aim, record = true) {
   }
   P.nImp = n;
   P.lastShot = h;
+  if (GRENADES[def.id] && !rigs) armGrenade(h, def.id);
   if (auto) { scaleNow = Math.min(scaleNow, approachScale(def, lead)); }
   playing = true;
   syncPlay();
@@ -1494,7 +1497,82 @@ function buildScaleButtons() {
 function syncAuto() { $('bAuto').setAttribute('aria-pressed', String(auto)); }
 
 // What the bullet-time controller wants now.
+// ---------- The lab's grenades ----------
+// A hand grenade goes off `fuse` s after it leaves the hand, wherever it is
+// then; a 40 mm round the instant it touches. Their steel fragments and their
+// blast wave load the pane (blast.js: free-air TNT, reflected off the glass,
+// arriving at the shock's speed), and the engine breaks the glass. The lab is
+// a big open hall: no room gas.
+const GRENADES = {
+  hand_grenade: { fuse: 1.5, tnt: 0.22, frags: 800, label: 'Hand grenade' },     // ~180 g Composition B
+  grenade_40mm: { impact: true, tnt: 0.04, frags: 300, label: '40 mm grenade' },   // ~32 g Composition B
+};
+function armGrenade(k, id) {
+  const g = GRENADES[id];
+  (P.grenades ||= []).push({ k, id, t: g.impact ? Infinity : G.gls_time() + g.fuse, done: false });
+}
+// Impact fuses: the first moment the round touches the glass.
+function checkImpactFuses() {
+  if (!P.grenades) return;
+  const imps = G.impactors(P.nImp);
+  for (const gr of P.grenades) {
+    if (gr.done || gr.t < Infinity) continue;
+    const o = 20 * gr.k, ph = imps[o + 9];
+    if (ph === PH.CONTACT || ph === PH.BALLISTIC || imps[o + 17] !== 0 || imps[o + 18] !== 0) gr.t = G.gls_time();
+  }
+}
+function grenadeDue() {
+  let t = Infinity;
+  for (const g of P.grenades || []) if (!g.done) t = Math.min(t, g.t);
+  return t;
+}
+function detonateGrenades(tEng) {
+  for (const gr of P.grenades || []) {
+    if (gr.done || tEng < gr.t - 1e-9) continue;
+    gr.done = true;
+    const spec = GRENADES[gr.id], GRENADE_TNT = spec.tnt, GRENADE_FRAGS = spec.frags;
+    const imps = G.impactors(P.nImp), o = 20 * gr.k;
+    const x = imps[o], y = imps[o + 1], z = imps[o + 2];             // pane frame
+    const dx = P.W / 2 - x, dy = P.H / 2 - y, dz = P.T / 2 - z;
+    const far = Math.max(0.15, Math.hypot(dx, dy, dz)), cosI = Math.abs(dz) / far;
+    const front = z < P.T / 2;                                       // in front: pushes toward the back face
+    const L = paneLoad(GRENADE_TNT, far, cosI);
+    G.gls_blast(gr.t + L.arrival, (front ? 1 : -1) * L.peak, L.td, L.decay, 0, 1e-3, 0);
+    // The steel that reaches the glass, each splinter an engine projectile.
+    const rnd = mulberry32((P.seed ^ (gr.k * 7919)) >>> 0), fi = cat.impactors.findIndex((d) => d.id === 'grenade_fragment');
+    const n = fragmentsThrough(rnd, GRENADE_FRAGS, P.W * P.H, cosI, far, 10);
+    for (let i = 0; i < n && fi >= 0; ++i) {
+      const hx = 0.03 + (P.W - 0.06) * rnd(), hy = 0.03 + (P.H - 0.06) * rnd(), hz = front ? 0 : P.T;
+      const d = [hx - x, hy - y, hz - z], dist = Math.hypot(...d);
+      const dp = front ? [d[0] / dist, d[1] / dist, d[2] / dist] : [d[0] / dist, d[1] / dist, -d[2] / dist];
+      if (dp[2] < 0.25) continue;
+      const v = 1400 * (0.9 + 0.2 * rnd()), sh = { t: gr.t + Math.max(0, dist - 0.9) / v, iIdx: fi, x: hx, y: hy, speed: v,
+        yaw: Math.atan2(dp[0], dp[2]) * 180 / Math.PI, pitch: Math.asin(Math.max(-1, Math.min(1, dp[1]))) * 180 / Math.PI, fromBack: !front };
+      const q = P.pendingShots; let j = q.length; while (j > 0 && q[j - 1].t > sh.t) --j; q.splice(j, 0, sh);
+    }
+    if (P.impMeshes[gr.k]) P.impMeshes[gr.k].visible = false;
+    if (R) (P.blastFX ||= []).push(createBlastFX(THREE, groupPane, new THREE.Vector3(x - P.W / 2, y + FLOOR, -z), gr.t,
+      { W: GRENADE_TNT, seed: P.seed + gr.k, scale: 0.8 }));
+    sound.explosion(panAt(x, y));
+    $('rWhat').textContent = `${spec.label} · went off ${(far * 100).toFixed(0)} cm from the glass centre · ${(L.peak / 1000).toFixed(0)} kPa on the glass`;
+  }
+}
+// Bullet time round a grenade: crawl through the shock and the first
+// milliseconds, then ease out as the glass flies.
+function grenadeTarget(tEng) {
+  let s = 1;
+  for (const gr of P.grenades || []) {
+    const a = tEng - gr.t;
+    if (a > -0.004 && a < 0.008) s = Math.min(s, 1 / 600);
+    else if (a >= 0.008 && a < 0.06) s = Math.min(s, 1 / 80);
+    else if (a >= 0.06 && a < 0.6) s = Math.min(s, 1 / 8);
+  }
+  return s;
+}
 function autoTarget(imps, plies) {
+  return Math.min(autoTargetBase(imps, plies), grenadeTarget(G.gls_time()));
+}
+function autoTargetBase(imps, plies) {
   let approach = Infinity, contact = false, membrane = false;
   for (let k = 0; k < P.nImp; ++k) {
     const o = 20 * k, phase = imps[o + 9];
@@ -1667,7 +1745,7 @@ const cam = { theta: -0.55, phi: 1.32, r: 2.6, tx: 0, ty: 1.4, tz: 0 };
 if (R) GT = createGTScene({ THREE, scene, groupPane, camera, cam, applyCamera, FLOOR, tier, labObjects, leave: () => leaveScene(true), layout: resize,
   glassSound: () => sound.live, soundOn: () => sound.enabled, toggleSound: () => $('bSound').click() });
 if (R) HS = createHouseScene({ THREE, scene, camera, cam, applyCamera, FLOOR, tier, labObjects, leave: () => leaveScene(true), layout: resize,
-  G, cat, sound, impactorMesh, soundOn: () => sound.enabled, toggleSound: () => $('bSound').click(),
+  renderer: R, toast, G, cat, sound, impactorMesh, soundOn: () => sound.enabled, toggleSound: () => $('bSound').click(),
   makeRigs, useRig, setClock: (next, target) => { multiNext = next; multiTarget = target; },
   autoTargetOf: (r) => { useRig(r); return autoTarget(G.impactors(P.nImp), G.plies(P.nGlass)); },
   insertShot: (r, sh) => { const q = r.P.pendingShots; let i = q.length; while (i > 0 && q[i - 1].t > sh.t) --i; q.splice(i, 0, sh); } });
@@ -1750,6 +1828,11 @@ surface.addEventListener('pointermove', (e) => {
 });
 function endPointer(e) {
   pointers.delete(e.pointerId);
+  // A tap in the shop picks the pane to throw through.
+  if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && HS && HS.active) {
+    const rect = canvas.getBoundingClientRect();
+    HS.pick(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  }
   if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && P && !rigs) {
     const p = panePointFromEvent(e);
     if (p && p.x > 0.005 && p.y > 0.005 && p.x < P.W - 0.005 && p.y < P.H - 0.005) {
@@ -1912,7 +1995,7 @@ function startHouse() {
   scaleNow = 1;
   playing = true; syncPlay();
   if (window.innerWidth <= 860) showTab('none'); else $('lab').hidden = true;
-  toast('Drag to look around · Camera switches view · Replay throws it again, New pane a new throw', 4500);
+  toast('Tap a window to throw the grenade through it · Drag to look around · Replay throws it again', 5000);
 }
 function leaveScene(rebuild) {
   const sc = activeScene();
@@ -1944,7 +2027,7 @@ function buildPresets() {
   {
     const b = document.createElement('button');
     b.className = 'feature';
-    b.innerHTML = 'Grenade in the house<small>A grenade thrown through a tempered window into a room with three windows on every wall: the blast blows all twelve out</small>';
+    b.innerHTML = 'Grenade in the shop<small>Pick a window of a glass shop at night: a crash dummy throws a grenade through it and the blast blows out the storefront and every window</small>';
     b.onclick = startHouse;
     box.appendChild(b);
   }
@@ -2021,7 +2104,7 @@ function syncSound() {
   if (GT) GT.syncSound();
   if (HS) HS.syncSound();
 }
-$('bSound').onclick = () => { sound.setEnabled(!sound.enabled); store.set('sound:v2', sound.enabled); syncSound(); };
+$('bSound').onclick = () => { sound.setEnabled(!sound.enabled); store.set('sound:v3', sound.enabled); syncSound(); };
 syncSound();
 $('bCam').onclick = () => { if (activeScene()) activeScene().nextView(); else { camMode = (camMode + 1) % 3; frameCamera(false); } };
 $('bStress').onclick = () => {
@@ -2160,6 +2243,7 @@ function frame(now) {
     if (playing) {
       P.simClock = Math.max(P.simClock, G.gls_time()) + dt * scaleNow;
       if (P.pendingShots.length) P.simClock = Math.min(P.simClock, P.pendingShots[0].t);
+      P.simClock = Math.min(P.simClock, grenadeDue());
       // Physics gets a share of the frame: more per frame when frames are slow.
       const steps = advancePane(P.simClock, physicsBudget(dt));
       limited = steps.limited;
@@ -2167,7 +2251,10 @@ function frame(now) {
       s = G.state();
     }
     tEng = G.gls_time();
+    checkImpactFuses();
+    detonateGrenades(tEng);
     poses = paneFrame(dt, s, tEng);
+    for (const fx of P.blastFX || []) fx.update(tEng);
   }
   sound.frame(tEng, playing ? scaleNow : 0.0001, dt);
   if (GT) GT.update(tEng, scaleNow, s);
@@ -2281,8 +2368,8 @@ function paneFrame(dt, s, tEng) {
     sprayView.addSprays(rows, poses);
     // When each spray's dice reach the floor, for the sound of them landing.
     for (let o = 0; o + 14 < rows.length; o += 15) {
-      const lift = Math.max(0, rows[o + 1] + FLOOR), vy = rows[o + 4];
-      sound.dice(rows[o + 9] + (vy + Math.sqrt(vy * vy + 2 * 9.81 * lift)) / 9.81, rows[o + 6], panAt(rows[o], -FLOOR));
+      const lift = Math.max(0, rows[o + 1] - P.floor), vy = rows[o + 4];
+      sound.dice(rows[o + 9] + (vy + Math.sqrt(vy * vy + 2 * 9.81 * lift)) / 9.81, rows[o + 6], panAt(rows[o], P.floor));
     }
   }
   listen(poses, nFrag);
@@ -2357,6 +2444,7 @@ function disposePane(p, group) {
   p.frags.dispose();
   if (p.dice) p.dice.dispose();
   if (p.crush) p.crush.dispose();
+  for (const fx of p.blastFX || []) fx.dispose();
   for (const m of p.meshes) group.remove(m);
   for (const m of p.impMeshes) if (m) group.remove(m);
   groupPane = prev;
@@ -2376,7 +2464,7 @@ function makeRigs(specs) {
     G.gls_select(r.slot);
     groupPane = r.group;
     P = null;
-    newPane(sp.seed, false, { glazing: cat.glazings.findIndex((g) => g.id === sp.glazing), tier: sp.tier, viewTier: sp.viewTier, quiet: true });
+    newPane(sp.seed, false, { glazing: cat.glazings.findIndex((g) => g.id === sp.glazing), tier: sp.tier, viewTier: sp.viewTier, floor: sp.floor, quiet: true });
     for (const m of P.meshes) if (m.userData.lab) m.visible = false;
     Object.assign(r, { P, slab, stressMesh, aimMarker });
     rigs.push(r);
@@ -2418,9 +2506,19 @@ function multiFrame(dt) {
     limited = lim;
     if (lim) multiClock = tMin;
   }
+  // What each pane shows, at the detail its scene gives it from where the
+  // camera is (2 near, 1 small on the screen, 0 out of sight): a small pane
+  // catches up every other frame, one out of sight every eighth and isn't
+  // drawn. The physics is the same for all of them.
   for (const r of rigs) {
+    const d = r.detail ?? 2;
+    r.group.visible = d > 0;
+    r.lag = (r.lag || 0) + dt;
+    r.skipped = (r.skipped || 0) + 1;
+    if (r.skipped < (d >= 2 ? 1 : d === 1 ? 2 : 8)) continue;
     useRig(r);
-    paneFrame(dt, G.state(), G.gls_time());
+    paneFrame(r.lag, G.state(), G.gls_time());
+    r.lag = 0; r.skipped = 0;
   }
   return multiClock;
 }
@@ -2457,7 +2555,7 @@ function listen(poses, nFrag) {
   for (let i = 0; i < nFrag; ++i) {
     const q = i * 12, st = poses[q + 10], vy = poses[q + 8], before = P.prevVy[i];
     P.prevVy[i] = st === 2 || st === 3 ? vy : 0;
-    if (landed >= 8 || before > -0.8 || vy < 0.4 * before || poses[q + 1] > -FLOOR + 0.3) continue;
+    if (landed >= 8 || before > -0.8 || vy < 0.4 * before || poses[q + 1] > P.floor + 0.3) continue;
     const size = P.pieceSize[i] || 0.01;
     sound.landing(size, -before, P.profile, panAt(poses[q], poses[q + 1] + FLOOR));
     ++landed;
