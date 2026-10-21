@@ -1,7 +1,8 @@
-// Armoured GT under fire: a scripted scene for the glass lab.
+// Armoured car under fire: a scripted scene for the glass lab.
 //
-// A 1960s grand tourer with armoured glazing sits in a limestone piazza while
-// gunmen empty submachine guns into it. The windscreen is the engine's pane,
+// The Rosser V8 (the driving sim's model) with an armoured windscreen sits in
+// a limestone piazza while gunmen empty submachine guns into it; a procedural
+// 1960s grand tourer stands in if the model can't load. The windscreen is the engine's pane,
 // mounted raked in the car; every round that reaches it is fired into the
 // engine with its real obliquity, at the engine time it arrives, so the white
 // craters, the spider webs and the driver's view all come from the physics.
@@ -10,9 +11,21 @@
 // The barrage is deterministic from the pane's seed: Replay shows it again
 // exactly, at any speed.
 
-const RAKE = 50 * Math.PI / 180;      // windscreen rake from vertical
-const COWL = [0, 0.96, 0.46];         // world point of the windscreen's bottom edge (front face)
-const EYE = [-0.34, 1.1, -0.48];      // driver's eye (right-hand drive)
+// The cars, in the scene's frame (+Z forward, +X the car's left).
+// rake: windscreen from vertical; cowl: the pane's front face, bottom centre;
+// eye: the driver's.
+const V8 = {
+  model: true, name: 'ROSSER V8', glazing: 'armoured_windscreen_v8',
+  // The flat that best fits the model's screen (edges within about 6 cm).
+  rake: 69.5 * Math.PI / 180, cowl: [0, 0.807, 0.988], eye: [0.36, 1.0, -0.3],   // left-hand drive
+  outside: [[2.9, 1.45, 4.6], [0, 0.85, 0.2]],
+};
+const CLASSIC = {
+  model: false, name: 'ARMOURED GT', glazing: 'armoured_windscreen',
+  rake: 50 * Math.PI / 180, cowl: [0, 0.96, 0.46], eye: [-0.34, 1.1, -0.48],      // right-hand drive
+  outside: [[2.6, 1.5, 3.9], [0, 0.95, 0.1]],
+};
+let CAR = CLASSIC, RAKE = CAR.rake, COWL = CAR.cowl, EYE = CAR.eye;
 const MUZZLE_V = 400;                 // m/s (smg_9mm)
 const GUNMEN = [[-6.5, 12.5], [-2.0, 16.0], [2.5, 11.5], [7.0, 14.0], [10.5, 7.5]];
 const DURATION = 9.5;                 // s of shooting
@@ -364,6 +377,133 @@ export function createGTScene(ctx) {
     return car;
   }
 
+  // The Rosser V8: the driving sim's model, loaded once.
+  async function loadV8() {
+    const [{ GLTFLoader }, { MeshoptDecoder }] = await Promise.all([
+      import('../driving/vendor/loaders/GLTFLoader.js'), import('../driving/vendor/libs/meshopt_decoder.module.js')]);
+    const url = '../driving/models/' + (ctx.tier <= 1 ? 'car_mobile.glb' : 'car.glb');
+    return new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(url);
+  }
+
+  function buildV8(M, P) {
+    const car = new THREE.Group(), inner = S.gltf.scene;
+    inner.rotation.y = -Math.PI / 2;   // the model faces +X
+    car.add(inner);
+    car.updateMatrixWorld(true);
+    // Paint as in the driving sim (metallic blue under a clearcoat); the scanned
+    // body's trim dark satin; no transmission (an extra render pass), and its
+    // glass simply see-through.
+    const hi = ctx.tier >= 2;
+    const blue = { color: 0x0b2c7a, metalness: 0.7, roughness: 0.38, envMapIntensity: 1.25 };
+    const paint = hi ? new THREE.MeshPhysicalMaterial({ ...blue, clearcoat: 1, clearcoatRoughness: 0.03 }) : new THREE.MeshStandardMaterial(blue);
+    const fix = (m) => {
+      if (!m) return m;
+      if (/^(StellaPaint|BodyPaintPatch)$/.test(m.name)) return paint;
+      if (/^(tripo_material|CarPaintClean)/.test(m.name)) {
+        m.metalness = 0; m.roughness = 0.75; m.envMapIntensity = 0.45;
+        if ('clearcoat' in m) m.clearcoat = 0;
+      }
+      if (m.transmission > 0) {
+        m.transmission = 0;
+        if (/glass/i.test(m.name)) { m.transparent = true; m.opacity = 0.35; m.depthWrite = false; }
+      }
+      return m;
+    };
+    inner.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material = Array.isArray(o.material) ? o.material.map(fix) : fix(o.material);
+      o.castShadow = o.receiveShadow = ctx.tier >= 3;
+    });
+    car.add(cutScreen(inner, P.W, P.H));
+    const shadowTex = canvasTex(THREE, 128, 128, (c, w) => {
+      const g = c.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+      g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(0.6, 'rgba(0,0,0,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      c.fillStyle = g; c.fillRect(0, 0, w, w);
+    });
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 5.0), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
+    shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.004;
+    car.add(shadow);
+    return car;
+  }
+
+  // The model's own windscreen is part of its scanned body shell, opaque from
+  // inside. Cut it out where the pane goes and close the gap between the flat
+  // pane and the curved body with a black bonded surround, as armoured glass
+  // is fitted. Works in the pane's frame: u across, v up the screen, w out.
+  function cutScreen(root, W, H) {
+    const C = new THREE.Vector3(...COWL), X = new THREE.Vector3(1, 0, 0);
+    const V = new THREE.Vector3(0, Math.cos(RAKE), -Math.sin(RAKE)), N = new THREE.Vector3(0, Math.sin(RAKE), Math.cos(RAKE));
+    const PAD = 0.08, G = 0.04;                       // margin round the pane, grid cell (m)
+    const nu = Math.ceil((W + 2 * PAD) / G), nv = Math.ceil((H + 2 * PAD) / G);
+    const top = new Float32Array(nu * nv).fill(-Infinity);   // the outermost body surface per cell
+    const cell = (u, v) => {
+      const i = Math.floor((u + W / 2 + PAD) / G), j = Math.floor((v + PAD) / G);
+      return i >= 0 && j >= 0 && i < nu && j < nv ? j * nu + i : -1;
+    };
+    // The body shell: meshes as long as the car.
+    const body = [];
+    root.traverse((o) => {
+      if (!o.isMesh || !o.geometry.index) return;
+      const b = new THREE.Box3().setFromObject(o);
+      if (b.max.z - b.min.z > 3.2) body.push(o);
+    });
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), d = new THREE.Vector3();
+    const tris = body.map((o) => {
+      const g = o.geometry, p = g.attributes.position, idx = g.index, n = idx.count / 3;
+      const uvw = new Float32Array(n * 3);
+      for (let t = 0; t < n; ++t) {
+        a.fromBufferAttribute(p, idx.getX(3 * t)); b.fromBufferAttribute(p, idx.getX(3 * t + 1)); c.fromBufferAttribute(p, idx.getX(3 * t + 2));
+        d.copy(a).add(b).add(c).multiplyScalar(1 / 3).applyMatrix4(o.matrixWorld).sub(C);
+        const u = d.dot(X), v = d.dot(V), w = d.dot(N);
+        uvw[3 * t] = u; uvw[3 * t + 1] = v; uvw[3 * t + 2] = w;
+        if (Math.abs(w) < 0.2) { const k = cell(u, v); if (k >= 0 && w > top[k]) top[k] = w; }
+      }
+      return uvw;
+    });
+    // Cut the screen's skins (outer and inner, about a centimetre apart), not
+    // the dash below them.
+    body.forEach((o, bi) => {
+      const g = o.geometry, idx = g.index, uvw = tris[bi], keep = [];
+      for (let t = 0; t < idx.count / 3; ++t) {
+        const u = uvw[3 * t], v = uvw[3 * t + 1], w = uvw[3 * t + 2];
+        const inside = Math.abs(u) <= W / 2 && v >= 0 && v <= H && Math.abs(w) < 0.2;
+        if (inside && (w >= top[cell(u, v)] - 0.035 || w > -0.05)) continue;
+        keep.push(idx.getX(3 * t), idx.getX(3 * t + 1), idx.getX(3 * t + 2));
+      }
+      g.setIndex(keep);
+    });
+    // The surround: a band over the pane's edge (the frit), then down or up to
+    // the body just outside it.
+    const pos = [], ix = [];
+    const at = (u, v, w) => { const q = C.clone().addScaledVector(X, u).addScaledVector(V, v).addScaledVector(N, w); pos.push(q.x, q.y, q.z); };
+    const bodyW = (u, v) => { const k = cell(u, v); return k >= 0 && top[k] > -0.2 ? top[k] : 0; };
+    const edge = (n, f) => {               // f(s) -> [u, v, du, dv]: point on the edge, outward direction
+      const base = pos.length / 3;
+      for (let i = 0; i <= n; ++i) {
+        const [u, v, du, dv] = f(i / n);
+        at(u - 0.025 * du, v - 0.025 * dv, 0.002);
+        at(u + 0.004 * du, v + 0.004 * dv, 0.002);
+        const uo = u + 0.045 * du, vo = v + 0.045 * dv;
+        at(uo, vo, bodyW(uo, vo) + 0.004);
+      }
+      for (let i = 0; i < n; ++i) for (let r = 0; r < 2; ++r) {
+        const q = base + 3 * i + r;
+        ix.push(q, q + 3, q + 1, q + 1, q + 3, q + 4);
+      }
+    };
+    edge(24, (s) => [-W / 2 + W * s, 0, 0, -1]);
+    edge(24, (s) => [-W / 2 + W * s, H, 0, 1]);
+    edge(20, (s) => [-W / 2, H * s, -1, 0]);
+    edge(20, (s) => [W / 2, H * s, 1, 0]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(ix);
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x0a0a0b, roughness: 0.35, metalness: 0.1, side: THREE.DoubleSide }));
+    m.castShadow = m.receiveShadow = ctx.tier >= 3;
+    return m;
+  }
+
   function buildPiazza(M) {
     const g = new THREE.Group();
     const paving = canvasTex(THREE, 256, 256, (c, w) => {
@@ -513,7 +653,7 @@ export function createGTScene(ctx) {
     d.setAttribute('role', 'status');
     d.style.cssText = 'position:fixed;left:50%;top:62px;transform:translateX(-50%);z-index:3;display:flex;gap:10px;align-items:center;' +
       'flex-wrap:wrap;justify-content:center;padding:7px 10px;max-width:calc(100% - 24px);font-size:13px';
-    d.innerHTML = '<b style="font-family:var(--display,inherit);letter-spacing:.04em">ARMOURED GT · UNDER FIRE</b>' +
+    d.innerHTML = `<b style="font-family:var(--display,inherit);letter-spacing:.04em">${CAR.name} · UNDER FIRE</b>` +
       '<span id="gtStats"></span><span id="gtView"></span>' +
       '<button id="gtCam" title="Driver, outside, gunman (C)">Driver</button>' +
       '<button id="gtMute" aria-pressed="false" title="Sound on / off (M)">Muted</button>' +
@@ -524,7 +664,7 @@ export function createGTScene(ctx) {
     d.querySelector('#gtMute').onclick = () => ctx.toggleSound();
     d.querySelector('#gtExit').onclick = () => ctx.leave();
     // Browsers start sound only after a gesture (the scene may open from a link).
-    const unlock = () => { if (S.audio) S.audio.resume(); };
+    const unlock = () => { if (S.audio) S.audio.resume(); if (S.active) engine(ctx.soundOn()); };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
     S.hud = d;
@@ -547,12 +687,22 @@ export function createGTScene(ctx) {
     camera.fov = Math.min(95, Math.max(S.view === 0 ? 50 : 42, across(S.view === 0 ? 52 : 46)));
     camera.updateProjectionMatrix();
     if (S.view === 0) set(EYE, [EYE[0], EYE[1] - 0.006, EYE[2] + 0.25]);
-    else if (S.view === 1) set([2.6, 1.5, 3.9], [0, 0.95, 0.1]);
+    else if (S.view === 1) set(...CAR.outside);
     else {
       const g = GUNMEN[1];
       set([g[0] + 0.7, 1.75, g[1] + 1.8], [0, 1.0, 0.2]);
     }
   }
+
+  // Before the first entry: load the Rosser V8 (or fall back to the tourer).
+  // Returns the glazing the car's windscreen needs.
+  S.prepare = async () => {
+    if (!S.world && !S.gltf) {
+      try { S.gltf = await loadV8(); CAR = V8; } catch (e) { console.warn('Rosser V8 unavailable, using the tourer', e); CAR = CLASSIC; }
+      ({ rake: RAKE, cowl: COWL, eye: EYE } = CAR);
+    }
+    return CAR.glazing;
+  };
 
   S.enter = (P, seed, impactorIndex) => {
     S.active = true;
@@ -564,7 +714,7 @@ export function createGTScene(ctx) {
     groupPane.updateMatrixWorld(true);
     if (!S.world) {
       S.world = new THREE.Group();
-      S.world.add(buildCar(M));
+      S.world.add(CAR.model ? buildV8(M, P) : buildCar(M));
       S.world.add(buildPiazza(M));
       S.sun = new THREE.DirectionalLight(0xfff0d8, 3.2);
       S.sun.position.set(-18, 26, 12);
@@ -592,6 +742,7 @@ export function createGTScene(ctx) {
     if (!S.audio) S.audio = new SceneAudio();
     S.audio.resume();
     S.view = 0;
+    S.syncSound();
     ctx.layout();
     frame();
   };
@@ -601,7 +752,7 @@ export function createGTScene(ctx) {
     if (!S.active) return;
     for (const m of P.meshes) if (m.userData.lab) m.visible = false;
     for (const o of S.paneParts) groupPane.remove(o);
-    S.paneParts = buildPaneParts(S.M, P);
+    S.paneParts = CAR.model ? [] : buildPaneParts(S.M, P);
     S.schedule = buildSchedule(P, seed, impactorIndex);
     S.lastT = -1;
     S.cursor = 0;
@@ -622,10 +773,34 @@ export function createGTScene(ctx) {
     camera.far = S.saved.far; camera.near = S.saved.near; camera.fov = S.saved.fov; camera.updateProjectionMatrix();
     for (const o of ctx.labObjects) o.visible = true;
     if (S.hud) S.hud.style.display = 'none';
+    engine(false);
     ctx.layout();
   };
 
+  // Left-right from where the camera is looking.
+  const _pv = new THREE.Vector3();
+  function panOf(p) {
+    _pv.copy(p).applyMatrix4(camera.matrixWorldInverse);
+    return Math.max(-1, Math.min(1, _pv.x / Math.max(1, Math.hypot(_pv.x, _pv.z)) * 1.4));
+  }
+
+  // The V8 idling through it all: the driving sim's engine synthesizer.
+  async function engine(on) {
+    if (!CAR.model) return;
+    if (on && !S.engine) {
+      try {
+        const { CarAudio } = await import('../driving/audio/audio.js');
+        if (!S.engine) { S.engine = new CarAudio(); S.engine.setVolume(0.3); }
+      } catch (e) { console.warn('engine sound unavailable', e); return; }
+    }
+    if (!S.engine) return;
+    on = on && S.active && ctx.soundOn();
+    if (on) { try { await S.engine.start(); } catch { return; } }
+    S.engine.setEnabled(on);
+  }
+
   S.syncSound = () => {
+    engine(ctx.soundOn());
     if (!S.hud) return;
     const on = ctx.soundOn(), b = S.hud.querySelector('#gtMute');
     b.textContent = on ? 'Sound' : 'Muted';
@@ -649,7 +824,7 @@ export function createGTScene(ctx) {
         g.until = e.t + 0.03;
         g.flash.material.rotation = Math.random() * Math.PI;
         g.flash.scale.setScalar(0.3 + 0.25 * Math.random());
-        if (audible && tEng - e.t < 0.1) S.audio.gunshot(e.dist, Math.max(-1, Math.min(1, (g.muzzle.x - EYE[0]) / 10)));
+        if (audible && tEng - e.t < 0.1) S.audio.gunshot(e.dist, panOf(g.muzzle));
       } else if (e.kind === 1) {
         S.stats.glass++;
         if (audible && tEng - e.t < 0.1 && !(ctx.glassSound && ctx.glassSound())) S.audio.glass();
@@ -658,10 +833,15 @@ export function createGTScene(ctx) {
         sp.s.position.copy(e.pos);
         sp.until = e.t + 0.04;
         sp.s.material.rotation = Math.random() * Math.PI;
-        if (audible && tEng - e.t < 0.1) S.audio.spark(Math.max(-1, Math.min(1, e.pos.x)));
+        if (audible && tEng - e.t < 0.1) S.audio.spark(panOf(e.pos));
       }
     }
     S.lastT = tEng;
+    // Bullet time slows the engine too.
+    if (S.engine && S.engine.ready && S.engine.enabled) {
+      const slow = Math.min(1, Math.max(0.25, Math.pow(scale, 0.2)));
+      S.engine.update({ dt: 1 / 60, rpm: 900 * (0.3 + 0.7 * slow), load: 0.04, limiter: 9500, gear: 0, speed: 0, tyre: {}, interior: S.view === 0 });
+    }
     // A flash stays up at least a couple of frames whatever the speed.
     const hold = Math.max(0.03, 0.035 * scale);
     for (const g of S.gunmen) g.flash.visible = tEng >= g.until - 0.03 && tEng < g.until - 0.03 + hold;
