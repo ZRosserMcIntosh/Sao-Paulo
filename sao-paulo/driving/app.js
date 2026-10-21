@@ -10,6 +10,7 @@ import { CarAudio } from './audio/audio.js';
 import { VOICES } from './audio/engines.js';
 import { loadCity, streetNamer } from './city.js';
 import { BikeView } from './bike.js';
+import { Destruction } from './destruction.js';
 import { CrashDummies } from './dummies.js';
 import { Garage } from './garage.js';
 
@@ -339,6 +340,91 @@ if (WORLD === 'track') {
   ring({ x: CRASH.px, y: CRASH.y + 16 }, 1.2, yellowPaint, 0.08);
 }
 
+// Smash lane: three breakable walls (glass storefront, hollow blocks, bricks) across three run-up
+// lanes north of the crash lane. The walls are drawn from the physics' own segment list; when the
+// physics breaks a section, its mesh is hidden and destruction.js makes the pieces.
+const SMASH = { y: [0, 1, 2].map((k) => M._ord_smash_lane_y(k)), x: CRASH.bx };
+const walls = {};  // physics segment index -> { def, mesh }
+let wallsBuilt = false;
+const destruction = new Destruction(THREE, scene);
+function masonryTexture(kind) {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = kind === 'brick' ? '#b9b2a6' : '#a7a7a3'; g.fillRect(0, 0, 512, 256);  // mortar
+  const bw = kind === 'brick' ? 128 : 256, bh = kind === 'brick' ? 42.7 : 128, gap = kind === 'brick' ? 6 : 8;
+  for (let r = 0; r * bh < 256; ++r) {
+    const off = r % 2 ? bw / 2 : 0;
+    for (let x = -bw; x < 512 + bw; x += bw) {
+      const t = Math.random();
+      g.fillStyle = kind === 'brick' ? `rgb(${150 + 55 * t | 0},${62 + 28 * t | 0},${48 + 16 * t | 0})` : `rgb(${125 + 25 * t | 0},${125 + 25 * t | 0},${120 + 25 * t | 0})`;
+      g.fillRect(x + off + gap / 2, r * bh + gap / 2, bw - gap, bh - gap);
+      if (kind !== 'brick') { g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(x + off + 18, r * bh + 14, bw / 2 - 30, bh - 28); g.fillRect(x + off + bw / 2 + 12, r * bh + 14, bw / 2 - 30, bh - 28); }
+    }
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+function buildWalls() {
+  if (wallsBuilt || WORLD !== 'track') return;
+  wallsBuilt = true;
+  const n = M._ord_obstacle_count(), o = new Float64Array(M.HEAPF64.buffer, M._ord_obstacles(), 8 * n);
+  const frameMat = new THREE.MeshStandardMaterial({ color: '#2a2d31', roughness: 0.6, metalness: 0.4 });
+  const paneMat = new THREE.MeshPhysicalMaterial({ color: '#cfe6f7', roughness: 0.05, metalness: 0.05, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
+  const mats = { 2: new THREE.MeshStandardMaterial({ map: masonryTexture('block'), roughness: 0.95 }), 3: new THREE.MeshStandardMaterial({ map: masonryTexture('brick'), roughness: 0.9 }) };
+  const glassSpan = [];
+  for (let i = 0; i < n; ++i) {
+    const [ax, ay, bx, by, z0, z1, material] = o.subarray(8 * i, 8 * i + 8);
+    if (material < 1) continue;
+    const L = Math.hypot(bx - ax, by - ay), H = z1 - z0, yaw = Math.atan2(by - ay, bx - ax);
+    const group = new THREE.Group();
+    group.position.copy(v3((ax + bx) / 2, (ay + by) / 2, z0 + H / 2)); group.rotation.y = yaw;
+    if (material === 1) {
+      group.add(new THREE.Mesh(new THREE.BoxGeometry(L - 0.08, H - 0.08, 0.02), paneMat));
+      for (const [y, h] of [[H / 2, 0.08], [-H / 2, 0.08]]) { const bar = new THREE.Mesh(new THREE.BoxGeometry(L, h, 0.1), frameMat); bar.position.y = y; bar.castShadow = true; group.add(bar); }
+      for (const x of [-L / 2, L / 2]) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.08, H, 0.1), frameMat); m.position.x = x; m.castShadow = true; group.add(m); }
+      glassSpan.push({ ax, ay, bx, by, z1 });
+    } else {
+      const mat = mats[material].clone(); mat.map = mats[material].map.clone(); mat.map.needsUpdate = true;
+      mat.map.repeat.set(L / (material === 3 ? 0.9 : 0.8), H / (material === 3 ? 0.3 : 0.4));
+      const m = new THREE.Mesh(new THREE.BoxGeometry(L, H, material === 3 ? 0.215 : 0.19), mat);
+      m.castShadow = m.receiveShadow = true; group.add(m);
+    }
+    TRACK.add(group);
+    walls[i] = { def: { ax, ay, bx, by, z0, z1, material }, mesh: group };
+  }
+  if (glassSpan.length) {  // the shop's fascia over its panes
+    const ys = glassSpan.flatMap((g) => [g.ay, g.by]), y0 = Math.min(...ys), y1 = Math.max(...ys), z = glassSpan[0].z1;
+    const fascia = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, y1 - y0 + 0.6), new THREE.MeshStandardMaterial({ color: '#1d57c2', roughness: 0.7 }));
+    fascia.position.copy(v3(glassSpan[0].ax + 0.1, (y0 + y1) / 2, z + 0.3)); fascia.castShadow = true; TRACK.add(fascia);
+    for (const side of [y0 - 0.15, y1 + 0.15]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, z + 0.6, 0.2), frameMat); post.position.copy(v3(glassSpan[0].ax, side, (z + 0.6) / 2)); TRACK.add(post); }
+  }
+}
+let lastBreak = null;
+function onWallBreak(e) {
+  const w = walls[e[0]];
+  if (!w) return;
+  w.mesh.visible = false;
+  const qw = S(3), qx = S(4), qy = S(5), qz = S(6);
+  const yaw = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz));
+  const vel = [S(7) * Math.cos(yaw) - S(8) * Math.sin(yaw), S(7) * Math.sin(yaw) + S(8) * Math.cos(yaw)];
+  const name = destruction.breakSection(w.def, { px: e[2], py: e[3], nx: e[4], ny: e[5], speed: e[6], kept: e[7], vel });
+  lastBreak = { name, t: performance.now() };
+  try { if (w.def.material === 1) audio.shatter(Math.min(1, e[6] / 12)); else audio.rubble(Math.min(1, e[6] / 15)); } catch { /* audio not ready */ }
+}
+function resetWalls() {
+  M._ord_reset_obstacles();
+  destruction.reset();
+  for (const w of Object.values(walls)) w.mesh.visible = true;
+  lastBreak = null;
+}
+if (WORLD === 'track') {
+  for (let k = 0; k < 3; ++k) {
+    const y = SMASH.y[k];
+    stripe(-380, y - 4, SMASH.x + 20, y - 4, 0.15); stripe(-380, y + 4, SMASH.x + 20, y + 4, 0.15);
+    for (let x = -380; x < SMASH.x - 8; x += 12) stripe(x, y, x + 6, y, 0.12, yellowPaint);
+  }
+}
+
 // Rollover area (ord_web.cpp): a 25 cm trip kerb to slide sideways into, and a one-sided ramp that
 // lifts the left wheels 0.9 m and drops them (a corkscrew). Heights sampled from the physics.
 const ROLL = { kerbY: M._ord_roll_kerb_y(), rampY: M._ord_roll_ramp_lane_y(), kx0: -420, kx1: -300, rx0: -265, rx1: -255 };
@@ -420,6 +506,9 @@ document.fonts?.ready.then(() => {
   sign('CRASH TEST', -446, CRASH.y + 7, 'rigid barrier ahead · pole on the left');
   sign('TRIP KERB', ROLL.kx0 - 6, ROLL.kerbY + 9, 'slide sideways into the 25 cm kerb');
   sign('CORKSCREW', -446, ROLL.rampY - 3.5, 'one-sided ramp · keep left wheels on it');
+  sign('STOREFRONT', -376, SMASH.y[0] + 5, '10 mm glass · breaks at a walk');
+  sign('BLOCK WALL', -376, SMASH.y[1] + 5, 'hollow blocks · breaks past ~20 km/h');
+  sign('BRICK WALL', -376, SMASH.y[2] + 5, 'double brick · breaks past ~45 km/h');
   for (let x = 100; x <= 1000; x += 100) sign(`${x} m`, x, 9);
   for (let x = 1500; x < STRAIGHT_END - 1000; x += 500) sign(`${(x / 1000).toFixed(1)} km`, x, 9);
   for (const d of [1000, 600, 400, 300, 200, 100]) sign(`${d}`, STRAIGHT_END - d, 9, 'brake · end of straight');
@@ -723,6 +812,9 @@ const ZONES = CITY_ZONES || [
   { name: 'Pole test (side)', x: M._ord_crash_pole_x() - 120, y: M._ord_crash_lane_y() + 16, yaw: 0 },
   { name: 'Rollover: corkscrew ramp', x: -440, y: M._ord_roll_ramp_lane_y(), yaw: 0 },
   { name: 'Rollover: trip kerb', x: -440, y: M._ord_roll_kerb_y() + 9, yaw: 0 },
+  { name: 'Smash: glass storefront', x: M._ord_crash_barrier_x() - 110, y: M._ord_smash_lane_y(0), yaw: 0 },
+  { name: 'Smash: block wall', x: M._ord_crash_barrier_x() - 160, y: M._ord_smash_lane_y(1), yaw: 0 },
+  { name: 'Smash: brick wall', x: M._ord_crash_barrier_x() - 220, y: M._ord_smash_lane_y(2), yaw: 0 },
 ];
 let bikeView = null, crashT = 0;
 function createBike(z, speed = 0) {
@@ -754,6 +846,7 @@ function createCar() {
   applyAids();
   if (!M._ord_create(engineCar(settings.car), ZONES[0].x, ZONES[0].y, ZONES[0].yaw)) { toast('Vehicle definition rejected by the physics core'); return; }
   garage.afterCreate();
+  buildWalls();
   // Settle on the brakes so the rest pose is the loaded suspension.
   for (let i = 0; i < 90; ++i) { M._ord_set_input(0, 0, 1, 0, 0, 0); M._ord_advance(1 / 60); }
   restWheelZ = [0, 1, 2, 3].map((w) => W(w, 2));
@@ -775,7 +868,7 @@ function resetCar() {
     const qw = S(3), qx = S(4), qy = S(5), qz = S(6);
     const fx = 1 - 2 * (qy * qy + qz * qz), fy = 2 * (qx * qy + qw * qz);
     M._ord_reset(S(0), S(1), Math.atan2(fy, fx));
-    resetSkidTrail?.(); tipped.t = 0; tipped.hinted = false;
+    resetSkidTrail?.(); resetWalls(); tipped.t = 0; tipped.hinted = false;
     return;
   }
   placeAt(ZONES[0]);
@@ -784,6 +877,7 @@ const tipped = { t: 0, hinted: false, contacts: 0 };
 function placeAt(z) {
   if (isBike()) createBike(z); else M._ord_reset(z.x, z.y, z.yaw);
   resetSkidTrail?.();
+  resetWalls();
   for (const c of cones) { c.hit = false; c.mesh.position.copy(c.home); c.mesh.rotation.set(0, 0, 0); c.vel.set(0, 0, 0); }
   resetTimers();
   camInit = true;
@@ -1161,7 +1255,7 @@ function updateCrash(now) {
     } else {
       const p = occState(1).slice(7, 23);
       crashSeen[1] = occState(1)[6];
-      html = `<h3>Crash · ${ZONE_NAMES[r[1]] || 'impact'}</h3><small>speed change (delta-V)</small> <b>${(r[2] * 3.6).toFixed(0)} km/h</b> · <small>car pulse peak</small> ${r[3].toFixed(0)} g` +
+      html = `<h3>Crash · ${ZONE_NAMES[r[1]] || 'impact'}${lastBreak && performance.now() - lastBreak.t < 10000 ? ' · ' + lastBreak.name : ''}</h3><small>speed change (delta-V)</small> <b>${(r[2] * 3.6).toFixed(0)} km/h</b> · <small>car pulse peak</small> ${r[3].toFixed(0)} g` +
         seatHtml('Driver', r) + seatHtml('Passenger', p) +
         `<div class="seat"><small>delta-V fatality statistic (Joksch 1993): ${(100 * r[14]).toFixed(r[14] < 0.1 ? 1 : 0)}%. ${settings.belted ? 'Belted' : 'Unbelted'}, airbags ${settings.airbags ? 'on' : 'off'}.</small></div>`;
     }
@@ -1598,6 +1692,7 @@ function updateSmoke(dt, worldVel) {
 // ---------- Sound ----------
 const audio = new CarAudio();
 window.__spwAudio = audio; // for debugging in the console
+window.__spwDebris = () => ({ glass: destruction.glass.pieces.filter(Boolean).length, rubble: destruction.rubble.pieces.filter(Boolean).length, hidden: Object.values(walls).filter((w) => !w.mesh.visible).length });
 window.__spwState = () => ({ pos: [S(0), S(1), S(2)], v: S(7), rpm: S(14), gear: S(15), thr: S(17), tcs: S(18), contact: [0, 1, 2, 3].map((w) => W(w, 11)), impact: S(31), upright: S(36), body: S(37) });
 window.__spwPlace = (x, y = 0, yaw = 0) => placeAt({ x, y, yaw });
 window.__spwBike = () => ({ t: B(2), frames: window.__frames, kind: B(0), fallen: B(1), v: B(3), lean: B(4), steer: B(5), pitch: B(6), target: B(7), torque: B(8), yaw: B(22), pos: [B(23), B(24), B(25)], grip: [B(16), B(17)] });
@@ -1714,6 +1809,11 @@ function frame(now) {
   M._ord_advance(dt);
   const hit = S(31);
   if (hit > 1.2) { lastImpact = hit; try { audio.impact(Math.min(1, hit / 12)); } catch { /* audio not ready */ } }
+  {
+    const nb = M._ord_break_events();
+    if (nb) { const buf = new Float64Array(M.HEAPF64.buffer, M._ord_break_buffer(), 8 * nb); for (let k = 0; k < nb; ++k) onWallBreak(Array.from(buf.subarray(8 * k, 8 * k + 8))); }
+    destruction.update(dt);
+  }
   if (S(23)) { toast('The simulation faulted (non-finite state). Resetting.'); placeAt(ZONES[0]); }
   // the body landing on the ground (rollover): a thump as hull points first touch
   if (tipped.contacts === 0 && S(37) > 0 && S(38) > 15000) { try { audio.impact(Math.min(1, S(38) / 120000)); } catch { /* audio not ready */ } }
