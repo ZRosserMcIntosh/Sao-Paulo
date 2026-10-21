@@ -1944,12 +1944,15 @@ const PRESETS = [
   ['.44 Magnum vs Level 3', 'ul752_l3', 'magnum_44', 430, 'Glass-clad polycarbonate catches it'],
   ['Rifle vs Level 3', 'ul752_l3', 'rifle_762', 850, 'A handgun rating does not stop 7.62 mm'],
   ['Rifle vs Level 8', 'ul752_l8', 'rifle_762', 850, 'Rifle-rated: stopped deep in the layup'],
+  ['.50 BMG vs Level 8', 'ul752_l8', 'bmg_50', 900, 'A heavy machine-gun round has five times a rifle\'s energy: straight through'],
+  ['.50 BMG vs Level 10', 'ul752_l10', 'bmg_50', 900, 'Nearly 4 in of glass-clad polycarbonate stops it'],
   ['BB gun vs plate glass', 'annealed_6', 'bb', 120, 'Hertzian cone: the classic conical hole'],
   ['Buckshot through a window', 'annealed_6', 'buckshot_00', 395, 'A 12-gauge 00 buck shell from 7 m: nine pellets, one after another'],
   ['Buckshot vs car door glass', 'car_side_tempered', 'buckshot_00', 395, 'Nine pellets into tempered side glass'],
   ['Brick vs tempered', 'tempered_6', 'brick', 10, 'Tempered glass is four to five times stronger'],
   ['Cannonball through a shop window', 'annealed_6', 'cannonball_9lb', 440, 'A Revolutionary War 9-pounder: 4 kg of iron at 1,450 ft/s'],
   ['Cannonball vs tempered', 'tempered_6', 'cannonball_9lb', 440, 'The same round shot into fully tempered glass'],
+  ['Cannonball vs bulletproof glass', 'ul752_l3', 'cannonball_9lb', 440, 'The polycarbonate wraps round the ball and the whole window goes with it'],
 ];
 // ---------- The armoured car ----------
 let sceneLoading = false;
@@ -2384,9 +2387,10 @@ function paneFrame(dt, s, tEng) {
       if (Math.abs(P.glide.ty - cam.ty) < 1e-3) P.glide = null;
     }
   }
-  // The intact sheet goes once a monolithic pane is in pieces.
+  // The intact sheet goes once a monolithic pane is in pieces, or a laminate
+  // has been pulled out of its frame whole.
   if (slab) {
-    const gone = P.monolithic && pl[4] > 0;
+    const gone = (P.monolithic && pl[4] > 0) || s[28] > 0;
     slab.visible = !gone;
     if (P.edges) P.edges.visible = !gone;
     if (stressMesh) stressMesh.visible = stressOn && !gone;
