@@ -1,8 +1,8 @@
 // Glass sound: synthesized in the browser (no recordings) and driven by what
 // the fracture engine reports: impacts, cracks as they run, a pane crazing,
 // shards and dice landing. Each kind of glass has its own voice: annealed
-// rings bright and long, tempered bursts into a fizz and rains dice,
-// laminates crunch dully, armour thumps. In bullet time everything drops in
+// cracks and crashes, tempered bursts into a hiss and rains dice, laminates
+// crunch dully, armour thumps. In bullet time everything drops in
 // pitch and stretches, the room grows, a drone comes in, and time audibly
 // winds down and back up. Cinematic rather than measured.
 
@@ -47,51 +47,88 @@ function bandpass(d, sr, f0, q) {
   }
   return d;
 }
-// A struck glass plate: inharmonic plate modes, each decaying on its own.
-function plateTone(sr, r, f0, ring, partials = 6) {
-  const ratios = [1, 2.32, 4.25, 6.63, 9.38, 13.1, 17.2];
-  const dur = 0.05 + 1.6 * ring;
+// Real breaking glass is mostly noise, not tone: a crack is a broadband click,
+// a break is thousands of tiny fractures in a fraction of a second, and a
+// shard's modes sit high and die in milliseconds. Long, clean tones are what
+// make synthesized glass sound like wind chimes, so nothing here rings for
+// more than a few tens of milliseconds except the struck pane's knock.
+
+// A damped mode added in place: frequency f, decay tau (s), amplitude a.
+function mode(d, sr, i0, f, tau, a, ph) {
+  const n = Math.min(d.length - i0, Math.ceil(6 * tau * sr)), w = TAU * f / sr, k = Math.exp(-1 / (tau * sr));
+  let e = a;
+  for (let i = 0; i < n; ++i, e *= k) d[i0 + i] += e * Math.sin(w * i + ph);
+}
+// A burst of white noise shaped by a half-sine: the contact force of a hit.
+function click(d, sr, r, i0, ms, a) {
+  const n = Math.max(2, Math.floor(sr * ms / 1000));
+  for (let i = 0; i < n && i0 + i < d.length; ++i) d[i0 + i] += a * (r() * 2 - 1) * Math.sin(Math.PI * i / n);
+}
+// A shard meeting the floor (size 0 a chip, 1 a hand-sized piece): a hard
+// click, a cluster of high inharmonic modes dying in milliseconds, and a
+// bounce or two.
+function shardSound(sr, r, size) {
+  const d = new Float32Array(Math.ceil((0.06 + 0.22 * size) * sr));
+  const fLo = 2600 - 1900 * size, fHi = 13000 - 6000 * size;
+  let t0 = 0, amp = 1;
+  const hits = 1 + Math.floor(r() * (size > 0.5 ? 2 : 3));
+  for (let h = 0; h < hits; ++h) {
+    const i0 = Math.floor(t0 * sr);
+    if (i0 >= d.length) break;
+    click(d, sr, r, i0, 0.25 + 0.6 * r(), 1.2 * amp);
+    const nm = 9 + Math.floor(6 * r());
+    for (let k = 0; k < nm; ++k) {
+      const f = fLo * Math.pow(fHi / fLo, r());
+      const tau = (0.003 + 0.018 * size) * (0.5 + r()) * Math.sqrt(3000 / f);
+      mode(d, sr, i0, f, tau, amp * (0.25 + r()) / Math.sqrt(nm), TAU * r());
+    }
+    t0 += 0.006 + 0.03 * r() * (1 - 0.5 * size);
+    amp *= 0.3 + 0.3 * r();
+  }
+  return normalize(onePoleHP(d, sr, 500), 0.8);
+}
+// A cloud of micro-fractures: the sound of glass actually breaking. dur and
+// decay in s, n grains between lo and hi Hz; body adds the pane's own knock.
+function breakSound(sr, r, { dur = 0.7, n = 2500, lo = 1500, hi = 12000, rise = 0.004, decay = 0.15, body = 0, crack = 1 }) {
   const d = new Float32Array(Math.ceil(dur * sr));
-  for (let k = 0; k < partials; ++k) {
-    const f = f0 * ratios[k] * (1 + 0.03 * (r() - 0.5));
-    if (f > sr * 0.45) break;
-    const tau = ring * (0.35 + 0.4 * r()) / (1 + 0.45 * k), a = (0.6 + 0.4 * r()) / (1 + 0.5 * k), ph = TAU * r();
-    for (let i = 0; i < d.length; ++i) { const t = i / sr; d[i] += a * Math.exp(-t / tau) * Math.sin(TAU * f * t + ph); }
-  }
-  for (let i = 0; i < Math.min(d.length, sr * 0.002); ++i) d[i] += (r() * 2 - 1) * (1 - i / (sr * 0.002)) * 0.8;
-  return normalize(d);
-}
-function snapSound(sr, r) {
-  const d = new Float32Array(Math.ceil(0.06 * sr)), f = 4500 + 3500 * r();
-  for (let i = 0; i < d.length; ++i) { const t = i / sr; d[i] = (r() * 2 - 1) * Math.exp(-t / 0.004) + 0.5 * Math.exp(-t / 0.02) * Math.sin(TAU * f * t); }
-  return normalize(onePoleHP(d, sr, 1200));
-}
-function grainSound(sr, r) {
-  const d = new Float32Array(Math.ceil(0.035 * sr)), f = 3500 + 7000 * r();
-  for (let i = 0; i < d.length; ++i) { const t = i / sr; d[i] = Math.exp(-t / (0.004 + 0.008 * r() * 0)) * Math.sin(TAU * f * t) + (i < sr * 0.0006 ? (r() * 2 - 1) : 0); }
-  return normalize(d, 0.7);
-}
-// The dicing front crossing a tempered pane: thousands of tiny fractures in a
-// few hundred microseconds, then the dice settling against each other.
-function fizzSound(sr, r) {
-  const dur = 0.9, d = new Float32Array(Math.ceil(dur * sr));
-  for (let k = 0; k < 4000; ++k) {
-    const t0 = -Math.log(1 - r() * 0.999) * 0.11, i0 = Math.floor(t0 * sr);
+  click(d, sr, r, 0, 1.2, 1.6 * crack);               // the first crack
+  for (let k = 0; k < n; ++k) {
+    const t = rise * r() - Math.log(1 - r() * 0.999) * decay;
+    const i0 = Math.floor(t * sr);
     if (i0 >= d.length) continue;
-    const f = 3000 + 9000 * r(), a = Math.exp(-t0 / 0.25) * (0.3 + r()), len = Math.floor(sr * (0.002 + 0.006 * r()));
-    for (let i = 0; i < len && i0 + i < d.length; ++i) d[i0 + i] += a * Math.exp(-i / (len * 0.3)) * Math.sin(TAU * f * i / sr);
+    const a = Math.exp(-t / (1.6 * decay)) * (0.15 + r()) * (r() < 0.04 ? 2.5 : 1);
+    const f = lo * Math.pow(hi / lo, r());
+    if (r() < 0.55) click(d, sr, r, i0, 0.08 + 0.5 * r(), a);
+    else mode(d, sr, i0, f, 0.0008 + 0.004 * r() * Math.sqrt(3000 / f), 0.8 * a, TAU * r());
   }
-  return normalize(onePoleHP(d, sr, 900));
+  if (body > 0) {
+    const f0 = 140 + 160 * r();
+    for (const [m, g] of [[1, 1], [1.7, 0.6], [2.6, 0.4], [3.9, 0.25]]) mode(d, sr, 0, f0 * m * (1 + 0.04 * (r() - 0.5)), 0.05 / (1 + 0.5 * m), body * g, TAU * r());
+  }
+  return normalize(onePoleHP(d, sr, 250));
 }
-function crunchSound(sr, r) {
-  const d = new Float32Array(Math.ceil(0.32 * sr));
-  let g = 0;
-  for (let i = 0; i < d.length; ++i) {
-    if (r() < 0.004) g = 0.3 + r();
-    g *= 0.996;
-    d[i] = (r() * 2 - 1) * g * Math.exp(-i / sr / 0.1);
-  }
-  return normalize(bandpass(d, sr, 1400 + 600 * r(), 0.8));
+// A pane struck but not broken: a short, woody-glassy knock, framed and damped.
+function knockSound(sr, r, f0) {
+  const d = new Float32Array(Math.ceil(0.3 * sr));
+  click(d, sr, r, 0, 0.6, 0.9);
+  const ratios = [1, 1.59, 2.14, 2.65, 3.6, 4.4, 5.8];
+  ratios.forEach((m, k) => mode(d, sr, 0, f0 * m * (1 + 0.05 * (r() - 0.5)), (0.07 * (0.7 + 0.6 * r())) / (1 + 0.45 * k), (0.6 + 0.4 * r()) / (1 + 0.4 * k), TAU * r()));
+  return normalize(onePoleHP(d, sr, 90));
+}
+// A crack running: a sharp tick with a hiss of bright noise behind it.
+function snapSound(sr, r) {
+  const d = new Float32Array(Math.ceil(0.04 * sr));
+  click(d, sr, r, 0, 0.2 + 0.3 * r(), 1.4);
+  for (let i = 0; i < d.length; ++i) d[i] += (r() * 2 - 1) * 0.35 * Math.exp(-i / sr / (0.003 + 0.004 * r()));
+  for (let k = 0; k < 4; ++k) mode(d, sr, 0, 5000 + 7000 * r(), 0.0015 + 0.002 * r(), 0.3, TAU * r());
+  return normalize(onePoleHP(d, sr, 1500));
+}
+// One fracture in a dicing front, or one die landing: a tiny bright click.
+function grainSound(sr, r) {
+  const d = new Float32Array(Math.ceil(0.012 * sr));
+  click(d, sr, r, 0, 0.1 + 0.3 * r(), 1);
+  mode(d, sr, 0, 4000 + 8000 * r(), 0.0008 + 0.0015 * r(), 0.6, TAU * r());
+  return normalize(onePoleHP(d, sr, 2000), 0.7);
 }
 function thudSound(sr, r, f0 = 80) {
   const d = new Float32Array(Math.ceil(0.5 * sr));
@@ -180,13 +217,19 @@ export class GlassAudio {
     const c = this.ctx, sr = c.sampleRate, r = rng(2024);
     const buf = (d) => { const b = c.createBuffer(1, d.length, sr); b.getChannelData(0).set(d); return b; };
     this.bank = {
-      tink: Array.from({ length: 10 }, () => buf(plateTone(sr, r, 1700 + 2200 * r(), 0.28 + 0.35 * r()))),
-      clink: Array.from({ length: 8 }, () => buf(plateTone(sr, r, 700 + 1400 * r(), 0.35 + 0.4 * r(), 5))),
-      bell: Array.from({ length: 4 }, () => buf(plateTone(sr, r, 260 + 220 * r(), 1.1, 7))),
+      knock: Array.from({ length: 6 }, () => buf(knockSound(sr, r, 170 + 260 * r()))),
+      chip: Array.from({ length: 14 }, () => buf(shardSound(sr, r, 0.3 * r()))),
+      shard: Array.from({ length: 8 }, () => buf(shardSound(sr, r, 0.45 + 0.55 * r()))),
+      // Annealed glass breaking: a crack, a burst of fractures, the pane's knock.
+      crash: Array.from({ length: 4 }, () => buf(breakSound(sr, r, { dur: 0.8, n: 2600, decay: 0.13, body: 0.5 }))),
+      // A big piece breaking again on the floor: shorter, brighter.
+      smash: Array.from({ length: 5 }, () => buf(breakSound(sr, r, { dur: 0.4, n: 900, lo: 2200, hi: 13000, decay: 0.06, crack: 0.7 }))),
       snap: Array.from({ length: 8 }, () => buf(snapSound(sr, r))),
       grain: Array.from({ length: 16 }, () => buf(grainSound(sr, r))),
-      fizz: Array.from({ length: 3 }, () => buf(fizzSound(sr, r))),
-      crunch: Array.from({ length: 5 }, () => buf(crunchSound(sr, r))),
+      // Tempered glass bursting: denser and finer, a hiss of fractures.
+      fizz: Array.from({ length: 3 }, () => buf(breakSound(sr, r, { dur: 0.9, n: 9000, lo: 2500, hi: 14000, rise: 0.01, decay: 0.09, body: 0.15 }))),
+      // Laminate: the glass breaks but the interlayer holds it; dull, like crushed ice.
+      crunch: Array.from({ length: 5 }, () => buf(onePoleLP(breakSound(sr, r, { dur: 0.35, n: 1400, lo: 700, hi: 5000, decay: 0.05, crack: 0.6 }), sr, 3500))),
       thud: [buf(thudSound(sr, r, 70)), buf(thudSound(sr, r, 95)), buf(thudSound(sr, r, 130))],
       boom: [buf(boomSound(sr, r))],
       nwave: [buf(nWaveSound(sr, r))],
@@ -202,7 +245,7 @@ export class GlassAudio {
     this.tone = c.createBiquadFilter(); this.tone.type = 'lowpass'; this.tone.frequency.value = 18000;
     this.dry = c.createGain();
     this.hall = c.createConvolver(); this.hall.buffer = hallImpulse(c, 3.2);
-    this.wet = c.createGain(); this.wet.gain.value = 0.22;
+    this.wet = c.createGain(); this.wet.gain.value = 0.12;
     this.dry.connect(this.tone);
     this.wet.connect(this.hall).connect(this.tone);
     // Last, a soft clip: sharp transients (a bullet's crack) can outrun the limiter.
@@ -226,7 +269,7 @@ export class GlassAudio {
   }
   // One sound: a buffer at a playback rate (pitch and length move together),
   // panned, into the dry bus and the hall.
-  play(kind, { gain = 1, rate = 1, pan = 0, delay = 0, send = 0.3, lowpass = 0, important = false } = {}) {
+  play(kind, { gain = 1, rate = 1, pan = 0, delay = 0, send = 0.15, lowpass = 0, important = false } = {}) {
     if (!this.live) return;
     if (this.voices > 90 && !important) return;
     const c = this.ctx, list = this.bank[kind];
@@ -266,7 +309,7 @@ export class GlassAudio {
   // Every frame: the playback speed, slow-motion transitions, dice due to land.
   frame(tEng, scale, dtReal) {
     this.frameDt = clamp(dtReal, 1 / 240, 0.1);
-    this.crackBudget = 8;   // crack snaps per frame, all plies together
+    this.crackBudget = 6;   // crack snaps per frame, all plies together
     if (!this.live) { this.pending.length = 0; return; }
     const prev = this.scale;
     this.scale = scale;
@@ -275,7 +318,7 @@ export class GlassAudio {
     this.slow += (target - this.slow) * Math.min(1, dtReal * 4);
     const c = this.ctx, now = c.currentTime;
     this.tone.frequency.setTargetAtTime(19000 * Math.pow(this.slow, 1.3) + 500, now, 0.1);
-    this.wet.gain.setTargetAtTime(0.22 + 0.5 * (1 - this.slow), now, 0.2);
+    this.wet.gain.setTargetAtTime(0.12 + 0.45 * (1 - this.slow), now, 0.2);
     this.bed.gain.setTargetAtTime(scale < 0.08 ? 0.07 * clamp(1 - scale / 0.08, 0, 1) + 0.03 : 0, now, 0.4);
     // Time winding down, and back up.
     if (prev > 0.15 && scale < 0.04 && now - this.lastWarp > 1.2) {
@@ -294,7 +337,7 @@ export class GlassAudio {
       if (n > 0) {
         const pan = panSum / n, grains = Math.min(28, Math.ceil(2 * Math.sqrt(n)));
         for (let i = 0; i < grains; ++i)
-          this.play('grain', { gain: 0.25 + 0.3 * Math.random(), rate: 0.7 + 0.7 * Math.random(), pan: pan + 0.4 * (Math.random() - 0.5), delay: Math.random() * this.frameDt, send: 0.15 });
+          this.play(i % 3 ? 'grain' : 'chip', { gain: 0.2 + 0.3 * Math.random(), rate: 0.8 + 0.6 * Math.random(), pan: pan + 0.4 * (Math.random() - 0.5), delay: Math.random() * this.frameDt, send: 0.1 });
         if (n > 20) this.rush({ gain: Math.min(0.22, 0.03 * Math.log(n)), from: 5000, to: 2500, dur: 0.35, pan });
       }
     }
@@ -313,7 +356,7 @@ export class GlassAudio {
         if (this.slow < 0.7) this.play('boom', { gain: 0.5 * loud, pan, send: 0.5 });
       } else {
         this.play('snap', { gain: loud, rate: profile.bright, pan, delay: 0.003, important: true });
-        this.play(profile.damp ? 'crunch' : 'tink', { gain: 0.6 * loud, rate: profile.bright, pan, delay: 0.004, lowpass: profile.damp ? 3000 : 0 });
+        this.play(profile.damp ? 'crunch' : 'knock', { gain: (profile.damp ? 0.6 : 0.45) * loud, rate: profile.damp ? profile.bright : 1, pan, delay: 0.004 });
       }
       return;
     }
@@ -321,9 +364,8 @@ export class GlassAudio {
     const thud = def.mass > 2 ? 0 : def.mass > 0.2 ? 1 : 2;
     this.play('thud', { gain: (def.kind === 'soft' ? 1 : 0.7) * loud, pan, important: true, rate: def.id === 'hail_50' ? 1.6 : 1 });
     if (def.kind === 'soft') { this.play('crunch', { gain: 0.25 * loud, rate: 0.5, pan, lowpass: 900 }); return; }
-    this.play(profile.damp || profile.heavy ? 'thud' : 'tink', {
-      gain: 0.5 * loud, pan, rate: profile.bright * (thud === 2 ? 1.2 : 1), lowpass: profile.damp ? 2500 : 0, delay: 0.002 });
-    if (!profile.damp && !profile.heavy && energy > 30) this.play('bell', { gain: 0.25 * loud, pan, rate: profile.bright, send: 0.5 });
+    this.play(profile.damp || profile.heavy ? 'thud' : 'knock', {
+      gain: 0.6 * loud, pan, rate: thud === 2 ? 1.25 : 1, lowpass: profile.damp ? 2500 : 0, delay: 0.002 });
   }
   ricochet(pan) { this.play('whine', { gain: 0.5, pan, important: true, send: 0.4 }); }
 
@@ -342,10 +384,8 @@ export class GlassAudio {
     const snaps = Math.min(this.crackBudget, radial ? Math.ceil(1.5 * Math.log2(1 + radial)) : 0);
     this.crackBudget -= snaps;
     for (let i = 0; i < snaps; ++i)
-      this.play('snap', { gain: profile.damp ? 0.25 : 0.45, rate: profile.bright * (0.8 + 0.5 * Math.random()), pan: pan + 0.3 * (Math.random() - 0.5),
+      this.play('snap', { gain: profile.damp ? 0.22 : 0.38, rate: profile.bright * (0.8 + 0.5 * Math.random()), pan: pan + 0.3 * (Math.random() - 0.5),
         delay: Math.random() * dt, lowpass: profile.damp ? 2600 : 0 });
-    if (radial && !profile.damp && Math.random() < 0.5)
-      this.play('tink', { gain: 0.3, rate: profile.bright * (0.8 + 0.6 * Math.random()), pan, delay: Math.random() * dt });
     // Rings round the impact: lower, groaning cracks.
     const rings = Math.min(5, ring);
     for (let i = 0; i < rings; ++i)
@@ -365,20 +405,23 @@ export class GlassAudio {
       this.play('fizz', { gain: 1, pan, important: true, send: 0.4 });
       this.play('snap', { gain: 0.9, rate: 0.7, pan, important: true });
       this.play('boom', { gain: this.slow < 0.8 ? 0.7 : 0.35, rate: 1.2, pan, important: true, send: 0.5 });
+    } else if (profile.damp && !profile.heavy) {
+      this.play('crunch', { gain: 0.8, rate: profile.bright, pan, important: true });
     } else if (!profile.damp) {
-      this.play('snap', { gain: 0.9, rate: 0.8 * profile.bright, pan, important: true });
-      this.play('bell', { gain: 0.45, rate: profile.bright, pan, send: 0.5 });
+      this.play('crash', { gain: 1, rate: profile.bright, pan, important: true });
+      this.play('knock', { gain: 0.35, rate: 0.8, pan });
       if (this.slow < 0.8) this.play('boom', { gain: 0.4, rate: 1.4, pan, send: 0.6 });
     }
   }
   // A piece of glass lands; size in metres, speed in m/s.
   landing(size, speed, profile, pan) {
     if (!this.live) return;
-    // Chips a few millimetres across only tinkle.
+    // Chips only tick; big pieces clack, and a big annealed piece landing
+    // hard breaks again.
     const g = clamp(0.15 + 0.15 * Math.log2(1 + speed) + 2 * size, 0.1, 0.9) * clamp(size / 0.012, 0.25, 1);
-    const rate = clamp(0.06 / Math.max(size, 0.01), 0.45, 2.2) * profile.bright;
-    this.play(size > 0.12 ? 'bell' : 'clink', { gain: g, rate, pan, send: 0.35 });
-    if (size > 0.08) this.play('snap', { gain: 0.6 * g, rate: 0.7, pan, delay: 0.005 });
+    const rate = clamp(0.05 / Math.max(size, 0.01), 0.7, 1.8) * profile.bright;
+    this.play(size > 0.06 ? 'shard' : 'chip', { gain: g, rate, pan, send: 0.12 });
+    if (size > 0.08 && speed > 2 && !profile.damp) this.play('smash', { gain: 0.8 * g, rate: profile.bright, pan, delay: 0.002 });
   }
   // Dice a spray will land around engine time t.
   dice(t, count, pan) { if (this.live) this.pending.push([t, count, pan]); }
