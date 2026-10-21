@@ -2666,15 +2666,19 @@ function stackHandOff() {
       if (Pk.handed.has(m) || imps[o + 9] !== PH.FLIGHT) continue;
       const z = imps[o + 2], vz = imps[o + 5];
       if (vz > 0 ? z < Pk.T + 0.003 : z > -0.003) continue;   // not through or off this pane yet
-      out.push({ m, x: imps[o], y: imps[o + 1], z, vx: imps[o + 3], vy: imps[o + 4], vz, di: Pk.shotDefs[m] ?? iIdx,
-        mass: Pk.shotMass?.[m] || 0, radius: Pk.shotRadius?.[m] || 0 });
+      const it = { m, x: imps[o], y: imps[o + 1], z, vx: imps[o + 3], vy: imps[o + 4], vz, di: Pk.shotDefs[m] ?? iIdx,
+        mass: Pk.shotMass?.[m] || 0, radius: Pk.shotRadius?.[m] || 0 };
+      // Wrapped in the laminate it ripped out: the next pane is hit by the whole bundle.
+      const sheet = G.gls_carried_sheet(m);
+      if (sheet >= 0) Object.assign(it, { sheet, mass: G.gls_sheet_mass(sheet), radius: 1.6 * imps[o + 13] });
+      out.push(it);
     }
     const nf = G.state()[4];
     if (nf && shardIdx >= 0) {
       const poses = G.fragmentPoses(nf), tPly = Pk.T / Math.max(1, Pk.nGlass);
       for (let i = 0; i < nf; ++i) {
         const q = 12 * i;
-        if (poses[q + 10] !== 2 || Pk.thrown.has(i)) continue;
+        if (poses[q + 10] !== 2 || Pk.thrown.has(i) || G.gls_fragment_sheet(i) >= 0) continue;  // bonded glass goes as its sheet
         const vx = poses[q + 7], vy = poses[q + 8], vz = poses[q + 9];
         if (vx * vx + vy * vy + vz * vz < 4) continue;
         const rr = Math.max(0.002, Pk.pieceSize[i] || 0.01);
@@ -2705,6 +2709,8 @@ function stackHandOff() {
       useRig(r);
       if (it.frag !== undefined) G.gls_drop_fragment(it.frag);
       else if (Pk.impMeshes[it.m]) Pk.impMeshes[it.m].visible = false;
+      if (it.sheet !== undefined)
+        for (let i = 0, nf = G.state()[4]; i < nf; ++i) if (G.gls_fragment_sheet(i) === it.sheet) G.gls_drop_fragment(i);
     }
   }
   useRig(rigs[0]);
