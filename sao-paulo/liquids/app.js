@@ -199,10 +199,11 @@ const OPT = {
   floor: { label: 'Floor', type: 'select', items: () => cat.surfaces.filter((s) => ['ceramic_tile', 'oak_floor', 'concrete', 'carpet'].includes(s.id)).map((s) => [s.id, s.name]) },
   wall: { label: 'Wall', type: 'select', items: () => cat.surfaces.filter((s) => ['painted_drywall', 'glass_pane', 'ceramic_tile', 'concrete'].includes(s.id)).map((s) => [s.id, s.name]) },
   projectile: { label: 'Round', type: 'select', items: () => cat.projectiles.map((p) => [p.id, p.pellets > 1 ? `${p.name} · ${p.pellets} × ${(p.mass * 1e3).toFixed(1)} g at ${p.speed.toFixed(0)} m/s` : `${p.name} · ${(p.mass * 1e3).toFixed(1)} g at ${p.speed.toFixed(0)} m/s`]) },
-  // 1: forensic, as measured. Up from there: more spatter in bigger, faster
-  // drops, more bleeding, and hits that knock a ragdoll about.
-  tness: { label: 'tarantinoness', type: 'range', min: 1, max: 5, step: 0.25, head: true,
-    fmt: (v) => (v <= 1 ? 'forensic' : `${v.toFixed(v % 1 ? 2 : 0)}× the spatter`) },
+  // 1: realistic, as measured. Up from there: more spatter in bigger, faster
+  // drops, more bleeding, and hits that knock a ragdoll about; above 5 the
+  // wounds spurt like cut arteries; 11 is Kill Bill.
+  tness: { label: 'tarantinoness', type: 'range', min: 1, max: 11, step: 0.5, head: true,
+    fmt: (v) => (v <= 1 ? '1 · realistic' : v >= 11 ? '11 · Kill Bill' : `${v % 1 ? v.toFixed(1) : v} · ${v}× the spatter${v > 5 ? ', spurting' : ''}`) },
   ragdoll: { label: 'The dummy', type: 'select', items: () => [['off', 'Stays standing (fixed)'], ['on', 'Falls when hit (ragdoll)']] },
   target: { label: 'Aim', type: 'select', items: () => [['chest', 'Chest'], ['abdomen', 'Abdomen'], ['shoulder', 'Shoulder'], ['thigh', 'Thigh']] },
   pane: { label: 'Glass', type: 'select', items: () => [['none', 'No glass'], ['front', 'In front: shot through it, spatter back onto it'], ['behind', 'Behind: it catches the forward spatter'], ['both', 'Both sides (a car: windscreen and rear window)']] },
@@ -269,7 +270,7 @@ function buildOptions() {
         f.classList.add('tslider');
         f.querySelector('span').append(head);
       }
-      const size = () => { if (head) head.style.width = head.style.height = `${16 + 30 * (cfg[k] - o.min) / (max - o.min)}px`; };
+      const size = () => { if (head) head.style.width = head.style.height = `${16 + 40 * (cfg[k] - o.min) / (max - o.min)}px`; };
       size();
       r.oninput = () => { cfg[k] = +r.value; f.querySelector('b').textContent = o.fmt(cfg[k]); size(); store.set('settings', settings); };
       if (sceneId === 'gunshot') r.onchange = () => go();
@@ -472,8 +473,8 @@ function go() {
     if (S.pane !== 'none') config.pane_gap_m = S.gap;
     // Nothing fires until the player does.
     config.fire = false;
-    config.spatter_boost = clamp(S.tness, 1, 5);
-    config.knockback = 0.025 * (config.spatter_boost - 1);
+    config.spatter_boost = clamp(S.tness, 1, 11);
+    config.knockback = Math.min(0.25, 0.025 * (config.spatter_boost - 1));
     if (S.pane !== 'none' && G) {
       paneGlazing = gcat.glazings.findIndex((g) => g.id === S.glazing);
       if (paneGlazing >= 0) {
