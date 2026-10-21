@@ -1204,12 +1204,15 @@ function fringe(order) {
 const FRINGE_MPA = 20;  // stress per fringe order in the view
 
 // opts: glazing (index, else the picked one), tier, quiet (a scene's window:
-// no aim marker, readouts or camera move).
+// no aim marker, readouts or camera move), width and height (m: the glazing
+// cut to another size).
 function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false, opts = {}) {
   disposePane(P, groupPane);
   const gi = opts.glazing ?? gIdx;
   const t = opts.tier ?? (tierCap === null ? tier : Math.min(tier, tierCap));
-  if (!G.gls_new_pane(gi, t, seed)) throw new Error('could not build the pane');
+  const sized = opts.width > 0 && opts.height > 0;
+  if (!(sized ? G.gls_new_pane_sized(gi, t, seed, opts.width, opts.height) : G.gls_new_pane(gi, t, seed)))
+    throw new Error('could not build the pane');
   const floor = opts.floor ?? -FLOOR;   // pane frame: the ground below the pane's bottom edge
   G.gls_set_floor(floor);
   const s = G.state();
@@ -2470,7 +2473,8 @@ function makeRigs(specs) {
     G.gls_select(r.slot);
     groupPane = r.group;
     P = null;
-    newPane(sp.seed, false, { glazing: cat.glazings.findIndex((g) => g.id === sp.glazing), tier: sp.tier, viewTier: sp.viewTier, floor: sp.floor, quiet: true });
+    newPane(sp.seed, false, { glazing: cat.glazings.findIndex((g) => g.id === sp.glazing), tier: sp.tier, viewTier: sp.viewTier, floor: sp.floor,
+      width: sp.w, height: sp.h, quiet: true });
     for (const m of P.meshes) if (m.userData.lab) m.visible = false;
     Object.assign(r, { P, slab, stressMesh, aimMarker });
     rigs.push(r);
