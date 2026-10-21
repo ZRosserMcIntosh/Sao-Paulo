@@ -24,16 +24,30 @@ const ROOM_H = 2.8;               // m
 const SILL = 0.9;                 // m, side and back windows
 // Walls by outward normal; the front (+z) is the storefront, facing the street.
 const WALLS = [[0, 0, 1], [1, 0, 0], [0, 0, -1], [-1, 0, 0]];
-// Every pane: wall, centre along it (m), glazing, height of its bottom edge.
+// Every pane: wall, centre along it (m), which of the shop's glass it takes,
+// its size (m) and the height of its bottom edge.
 const PANES = [
-  { wall: 0, u: -2.35, glazing: 'storefront_tempered_10', bottom: 0.1 },
-  { wall: 0, u: -1.15, glazing: 'storefront_tempered_10', bottom: 0.1 },
-  { wall: 0, u: 0, glazing: 'glass_door_10', bottom: 0.03, door: true },
-  { wall: 0, u: 0, glazing: 'transom_tempered_6', bottom: 2.2 },
-  { wall: 0, u: 1.15, glazing: 'storefront_tempered_10', bottom: 0.1 },
-  { wall: 0, u: 2.35, glazing: 'storefront_tempered_10', bottom: 0.1 },
+  { wall: 0, u: -2.35, role: 'front', w: 1.1, h: 2.55, bottom: 0.1 },
+  { wall: 0, u: -1.15, role: 'front', w: 1.1, h: 2.55, bottom: 0.1 },
+  { wall: 0, u: 0, role: 'door', w: 0.95, h: 2.1, bottom: 0.03, door: true },
+  { wall: 0, u: 0, role: 'transom', w: 0.95, h: 0.45, bottom: 2.2 },
+  { wall: 0, u: 1.15, role: 'front', w: 1.1, h: 2.55, bottom: 0.1 },
+  { wall: 0, u: 2.35, role: 'front', w: 1.1, h: 2.55, bottom: 0.1 },
 ];
-for (const wall of [1, 2, 3]) for (const u of [-1.8, 0, 1.8]) PANES.push({ wall, u, glazing: 'tempered_6', bottom: SILL });
+for (const wall of [1, 2, 3]) for (const u of [-1.8, 0, 1.8]) PANES.push({ wall, u, role: 'window', w: 0.9, h: 1.2, bottom: SILL });
+const DOOR = PANES.findIndex((p) => p.door);
+// What the shop can be glazed with, by role, each glazing cut to the opening.
+// Where the front would stop a thrown grenade (it bounces off, or the
+// interlayer catches it) the door is propped open to throw through.
+const GLASS = {
+  tempered: { label: 'Tempered', front: 'storefront_tempered_10', door: 'glass_door_10', transom: 'transom_tempered_6', window: 'tempered_6' },
+  annealed: { label: 'Annealed', front: 'annealed_10', door: 'annealed_10', transom: 'annealed_6', window: 'annealed_6' },
+  laminated: { label: 'Laminated', front: 'laminated_10_76', door: 'laminated_10_76', transom: 'laminated_6_38', window: 'laminated_6_38', doorOpen: true },
+  hurricane: { label: 'Hurricane', front: 'hurricane', door: 'hurricane', transom: 'hurricane', window: 'hurricane', doorOpen: true },
+  armoured: { label: 'Bullet-resistant', front: 'ul752_l3', door: 'ul752_l3', transom: 'ul752_l3', window: 'ul752_l3', doorOpen: true, heavy: true },
+};
+const DOOR_SWING = 1.75;          // rad the propped door stands open
+const DOOR_SPEED = 12;            // m/s, a lob through the open door
 const DEFAULT_TARGET = 4;         // right of the door
 const STAND_OFF = 5.4;            // m from the wall the dummy throws from
 const WINDUP = 0.35;              // s from the tap to the grenade leaving the hand
@@ -52,11 +66,16 @@ export function createHouseScene(ctx) {
   const S = {
     active: false, world: null, roof: null, hud: null, saved: null, view: 0, seed: 1, night: true,
     rigs: [], grenade: null, det: null, effects: null, stats: null, dummy: null, hurt: null, target: DEFAULT_TARGET, plan: null,
+    glass: 'tempered',
   };
   const gIdx = cat.impactors.findIndex((d) => d.id === 'hand_grenade');
   const fIdx = cat.impactors.findIndex((d) => d.id === 'grenade_fragment');
-  const dims = (id) => { const g = cat.glazings.find((x) => x.id === id); return { w: g.width, h: g.height }; };
-  for (const p of PANES) Object.assign(p, dims(p.glazing));
+  const kind = () => GLASS[S.glass];
+  const doorOpen = () => !!kind().doorOpen;
+  // All glass: in pieces it falls out of the frame and the room vents through it.
+  const solid = (id) => cat.glazings.find((g) => g.id === id).plies.every((p) => p.kind === 'glass');
+  // Fully tempered: breaks into dice (sprays), not shards.
+  const diced = (id) => cat.glazings.find((g) => g.id === id).plies.some((p) => p.treatment === 'fully tempered');
 
   function canvasTex(w, h, draw, repeat) {
     const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -72,16 +91,29 @@ export function createHouseScene(ctx) {
   }
   // A pane's group: its -Z (the engine's back face) points out of the shop, so
   // a blast inside pushes the glass out; its bottom edge at the pane's height.
-  function paneGroup(p) {
+  // `open`: swung out about its hinge (the edge at local -x), propped open.
+  function paneGroup(p, open = false) {
     const { N, T } = wallFrame(WALLS[p.wall]);
     const g = new THREE.Group();
     const c = N.clone().multiplyScalar(ROOM + WALL_T / 2).addScaledVector(T, p.u);
     g.position.set(c.x, p.bottom - FLOOR, c.z);
     g.rotation.y = Math.atan2(-N.x, -N.z);
+    if (open) {
+      const hinge = new THREE.Vector3(-p.w / 2, 0, 0).applyQuaternion(g.quaternion).add(g.position);
+      for (const a of [DOOR_SWING, -DOOR_SWING]) {
+        const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), a).multiply(g.quaternion);
+        const pos = new THREE.Vector3(p.w / 2, 0, 0).applyQuaternion(q).add(hinge);
+        if (pos.clone().sub(g.position).dot(N) > 0) { g.quaternion.copy(q); g.position.copy(pos); break; }
+      }
+    }
     g.updateMatrixWorld(true);
     return g;
   }
   const paneCentre = (r) => r.group.localToWorld(new THREE.Vector3(0, FLOOR + r.spec.h / 2, 0));
+  // What a throw at pane i aims at: the pane, or the doorway of the propped door.
+  let doorway = null;
+  const aimGroup = (i) => (i === DOOR && doorOpen() ? (doorway ||= paneGroup(PANES[DOOR])) : S.rigs[i].group);
+  const aimCentre = (i) => aimGroup(i).localToWorld(new THREE.Vector3(0, FLOOR + PANES[i].h / 2, 0));
 
   // ---------- The shop and the street ----------
   const M = {};
@@ -147,6 +179,7 @@ export function createHouseScene(ctx) {
     const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0xc9ccd0, metalness: 1, roughness: 0.2 }));
     handle.position.set(door.u - door.w / 2 + 0.12, 1.05, ROOM + WALL_T + 0.05);
     world.add(handle);
+    S.handle = handle;
     // Roof, a lit sign over the storefront.
     const roof = new THREE.Group();
     const slab = new THREE.Mesh(new THREE.BoxGeometry(2 * (ROOM + WALL_T) + 0.5, 0.22, 2 * (ROOM + WALL_T) + 0.5), M.roof);
@@ -333,19 +366,29 @@ export function createHouseScene(ctx) {
     return S.dummy.root.localToWorld(new THREE.Vector3(-0.24, 1.47 - 0.62 * Math.cos(a), -0.62 * Math.sin(a)));
   };
   // The throw: a ballistic arc from the hand onto the pane's outer face.
-  function planThrow(rig, tThrow) {
-    const hitLocal = new THREE.Vector3(0.06 * (S.rnd() - 0.5), FLOOR + Math.min(1.25 - rig.spec.bottom, rig.spec.h * 0.55) + 0.1 * (S.rnd() - 0.5), -rig.P.T - 0.032);
-    hitLocal.y = Math.min(Math.max(hitLocal.y, FLOOR + 0.12), FLOOR + rig.spec.h - 0.12);
-    const target = rig.group.localToWorld(hitLocal.clone());
+  // Through the propped door: a lob that lands about a metre inside.
+  function planThrow(i, tThrow) {
+    const open = i === DOOR && doorOpen();
+    let target, hitPane = null;
+    if (open) {
+      target = aimGroup(i).localToWorld(new THREE.Vector3(0.1 * (S.rnd() - 0.5), FLOOR + 1.0, 0.8));
+    } else {
+      const rig = S.rigs[i];
+      const hitLocal = new THREE.Vector3(0.06 * (S.rnd() - 0.5), FLOOR + Math.min(1.25 - rig.spec.bottom, rig.spec.h * 0.55) + 0.1 * (S.rnd() - 0.5), -rig.P.T - 0.032);
+      hitLocal.y = Math.min(Math.max(hitLocal.y, FLOOR + 0.12), FLOOR + rig.spec.h - 0.12);
+      target = rig.group.localToWorld(hitLocal.clone());
+      hitPane = { x: hitLocal.x + rig.spec.w / 2, y: hitLocal.y - FLOOR };
+    }
+    const speed = open ? DOOR_SPEED : HIT_SPEED;
     S.dummy.shoulder.rotation.x = ARM_RELEASE;
     const hand = handPos(), g = new THREE.Vector3(0, -9.81, 0);
     let T = 0.25, v0, v1;
-    for (let i = 0; i < 30; ++i) {
+    for (let k = 0; k < 30; ++k) {
       v0 = target.clone().sub(hand).divideScalar(T).addScaledVector(g, -0.5 * T);
       v1 = v0.clone().addScaledVector(g, T);
-      T *= Math.pow(v1.length() / HIT_SPEED, 0.7);
+      T *= Math.pow(v1.length() / speed, 0.7);
     }
-    return { p0: hand, v0, v1, T, tThrow, tHit: tThrow + T, hitPane: { x: hitLocal.x + rig.spec.w / 2, y: hitLocal.y - FLOOR } };
+    return { p0: hand, v0, v1, T, tThrow, tHit: tThrow + T, hitPane, open, target };
   }
   function stepGrenade(gr, dt) {
     const r = 0.032;
@@ -369,19 +412,25 @@ export function createHouseScene(ctx) {
   // ---------- The detonation ----------
   function detonate(c, t) {
     const Wt = CHARGE_TNT, inside = Math.abs(c.x) < ROOM && Math.abs(c.z) < ROOM;
-    const V = (2 * ROOM) ** 2 * ROOM_H, vent = PANES.reduce((a, p) => a + p.w * p.h, 0);
+    // The room vents through what falls out of its frame (all-glass panes) and the propped door.
+    const V = (2 * ROOM) ** 2 * ROOM_H;
+    const vent = Math.max(0.05, PANES.reduce((a, p, i) => a + ((i === DOOR && doorOpen()) || solid(kind()[p.role]) ? p.w * p.h : 0), 0));
     const gas = inside ? gasPressure(Wt, V) : 0, gasTau = V / (vent * 150);
     const rnd = mulberry32(S.seed ^ 0xb1a57);
     let peakMax = 0, frags = 0;
     S.effects = createBlastFX(THREE, S.world, c, t, { W: Wt, seed: S.seed, fragSpeed: FRAG_SPEED, room: { lo: [-ROOM, 0, -ROOM], hi: [ROOM, ROOM_H, ROOM] } });
     S.rigs.forEach((r) => {
-      const { w, h } = r.spec, { N } = wallFrame(WALLS[r.spec.wall]);
+      const { w, h } = r.spec, N = new THREE.Vector3(0, 0, -1).applyQuaternion(r.group.quaternion);  // out of its outer face
       const centre = paneCentre(r), d = centre.clone().sub(c), R = Math.max(0.3, d.length());
-      const facing = d.clone().normalize().dot(N), sign = inside ? 1 : -1, cosI = Math.abs(facing);
+      const facing = d.clone().normalize().dot(N), cosI = Math.abs(facing);
+      // From inside, each pane is pushed away from the charge (the propped door
+      // stands outside, side-on); from outside, every pane is pushed in.
+      const sign = inside && facing > 0 ? 1 : -1;
       const L = paneLoad(Wt, R, cosI);
       if (!inside && facing > 0) L.peak *= 0.25;      // behind the shop: diffracted round it
+      const g = inside && !(r.spec.door && doorOpen()) ? gas : 0;   // the room's gas only on its own walls
       ctx.useRig(r);
-      G.gls_blast(t + L.arrival, sign * L.peak, L.td, L.decay, sign * gas, 2e-3, gasTau);
+      G.gls_blast(t + L.arrival, sign * L.peak, L.td, L.decay, g, 2e-3, gasTau);
       r.blast = { t: t + L.arrival, peak: L.peak };
       peakMax = Math.max(peakMax, L.peak);
       S.effects.addJet(centre, N, t + L.arrival);
@@ -421,16 +470,34 @@ export function createHouseScene(ctx) {
   function planInjuries(c, t, inside, rnd) {
     const chest = S.dummy.root.localToWorld(new THREE.Vector3(0, 1.3, 0));
     const R = chest.distanceTo(c), Z = R / Math.cbrt(CHARGE_TNT);
-    const p = sideOn(Z) * (inside ? 0.6 : 1), td = positivePhase(Z, CHARGE_TNT);
+    // Inside, the shop's walls stand between: most of a glass front is gone by
+    // the time the shock gets there, but glass that holds leaves only the door.
+    const p = sideOn(Z) * (inside ? (doorOpen() ? 0.35 : 0.6) : 1), td = positivePhase(Z, CHARGE_TNT);
     const ear = phi(-12.6 + 1.524 * Math.log(p) - 5);
     const tShock = t + R / (343 * Math.sqrt(1 + 6 * p / (7 * 101325)));
     const steel = [];
-    const n = fragmentsThrough(rnd, FRAGMENTS, 0.55, 1, R, 8);
+    const n = shielded(c, chest) ? 0 : fragmentsThrough(rnd, FRAGMENTS, 0.55, 1, R, 8);
     for (let k = 0; k < n; ++k) {
       const v = FRAG_SPEED * (0.85 + 0.3 * rnd()) * Math.exp(-R / FRAG_DECAY);
       steel.push({ t: t + R / v, v, E: 0.5 * FRAG_MASS * v * v, y: 0.15 + 1.65 * rnd(), side: (rnd() - 0.5) * 1.6, shown: false });
     }
-    S.hurt = { R, p, td, ear, lungs: p > 70e3, tShock, steel, glass: 0, glassMax: 0, read: new Map(), pending: [] };
+    S.hurt = { R, p, td, ear, lungs: p > 70e3, tShock, steel, glass: 0, glassMax: 0, read: new Map(), pending: [],
+      shards: 0, shardMax: 0, seen: new Map(), shardTick: 0 };
+  }
+  // Whether walls, or glass that holds (laminates), stand between from and to:
+  // steel goes through all-glass panes (they shatter) and the open door.
+  function shielded(from, to) {
+    const mid = ROOM + WALL_T / 2, x = new THREE.Vector3();
+    for (let wi = 0; wi < 4; ++wi) {
+      const { N, T } = wallFrame(WALLS[wi]), a = from.dot(N) - mid, b = to.dot(N) - mid;
+      if ((a > 0) === (b > 0)) continue;
+      x.copy(from).lerp(to, a / (a - b));
+      const u = x.dot(T), y = x.y;
+      if (y < 0 || y > ROOM_H || Math.abs(u) > ROOM + WALL_T) continue;
+      const i = PANES.findIndex((p) => p.wall === wi && Math.abs(u - p.u) < p.w / 2 && y > p.bottom && y < p.bottom + p.h);
+      if (i < 0 || !((i === DOOR && doorOpen()) || solid(kind()[PANES[i].role]))) return true;
+    }
+    return false;
   }
   function phi(x) {
     const a = Math.abs(x) / Math.SQRT2, t = 1 / (1 + 0.3275911 * a);
@@ -438,11 +505,50 @@ export function createHouseScene(ctx) {
     return 0.5 * (1 + Math.sign(x) * e);
   }
   const _p = new THREE.Vector3(), _v = new THREE.Vector3();
-  function glassAtDummy(tEng) {
-    const H = S.hurt, base = S.dummy.root.position, wall = PANES[S.target].wall;
+  // Flies a piece from p at v (world) and returns the time it crosses the
+  // dummy, or -1.
+  function crossesDummy(p, v) {
+    const base = S.dummy.root.position;
+    for (let s = 0.005; s < 1.5; s += 0.005) {
+      const x = p.x + v.x * s, y = p.y + v.y * s - 4.905 * s * s, z = p.z + v.z * s;
+      if (y < 0) return -1;
+      if (Math.hypot(x - base.x, z - base.z) < 0.28 && y < 1.85) return s;
+    }
+    return -1;
+  }
+  function markLater(t, s) {
+    const at = _p.clone().addScaledVector(_v, s), y = at.y - 4.905 * s * s;
+    const local = S.dummy.root.worldToLocal(at.setY(y));
+    S.hurt.pending.push({ t: t + s, y, side: Math.atan2(local.x, local.z) });
+  }
+  function glassAtDummy(tEng, dt) {
+    const H = S.hurt, wall = PANES[S.target].wall;
+    // Shards of annealed (and heat-strengthened) glass fly as whole pieces:
+    // each new loose one on the dummy's side is flown to see whether it hits.
+    const shardsDue = (H.shardTick += dt) > 0.05;
+    if (shardsDue) H.shardTick = 0;
     for (const r of S.rigs) {
       if (r.spec.wall !== wall) continue;
       ctx.useRig(r);
+      const nf = shardsDue && !diced(r.spec.glazing) ? G.state()[4] : 0;
+      if (nf) {
+        const poses = G.fragmentPoses(nf), seen = H.seen.get(r) || new Set();
+        H.seen.set(r, seen);
+        for (let i = 0; i < nf; ++i) {
+          const q = 12 * i;
+          if (poses[q + 10] !== 2 || seen.has(i)) continue;
+          const vx = poses[q + 7], vy = poses[q + 8], vz = poses[q + 9];
+          if (vx * vx + vy * vy + vz * vz < 9) continue;
+          seen.add(i);
+          _p.set(poses[q] - r.spec.w / 2, poses[q + 1] + FLOOR, -poses[q + 2]); r.group.localToWorld(_p);
+          _v.set(vx, vy, -vz).applyQuaternion(r.group.quaternion);
+          const s = crossesDummy(_p, _v);
+          if (s < 0) continue;
+          ++H.shards;
+          H.shardMax = Math.max(H.shardMax, Math.hypot(_v.x, _v.y - 9.81 * s, _v.z));
+          markLater(tEng, s);
+        }
+      }
       const n = G.state()[24], from = H.read.get(r) || 0;
       if (n <= from) continue;
       const rows = G.sprays(from).slice();
@@ -450,17 +556,11 @@ export function createHouseScene(ctx) {
       for (let o = 0; o + 14 < rows.length; o += 15) {
         _p.set(rows[o] - r.spec.w / 2, rows[o + 1] + FLOOR, -rows[o + 2]); r.group.localToWorld(_p);
         _v.set(rows[o + 3], rows[o + 4], -rows[o + 5]).applyQuaternion(r.group.quaternion);
-        for (let s = 0.005; s < 1.5; s += 0.005) {
-          const x = _p.x + _v.x * s, y = _p.y + _v.y * s - 4.905 * s * s, z = _p.z + _v.z * s;
-          if (y < 0) break;
-          if (Math.hypot(x - base.x, z - base.z) < 0.28 && y < 1.85) {
-            const dice = Math.max(1, Math.round(rows[o + 6] * 0.35)), sp = Math.hypot(_v.x, _v.y - 9.81 * s, _v.z);
-            H.glass += dice; H.glassMax = Math.max(H.glassMax, sp);
-            const local = S.dummy.root.worldToLocal(new THREE.Vector3(x, y, z));
-            H.pending.push({ t: rows[o + 9] + s, y, side: Math.atan2(local.x, local.z) });
-            break;
-          }
-        }
+        const s = crossesDummy(_p, _v);
+        if (s < 0) continue;
+        H.glass += Math.max(1, Math.round(rows[o + 6] * 0.35));
+        H.glassMax = Math.max(H.glassMax, Math.hypot(_v.x, _v.y - 9.81 * s, _v.z));
+        markLater(rows[o + 9], s);
       }
     }
     H.pending = H.pending.filter((h) => { if (h.t > tEng) return true; markHit(h.y, h.side, false); return false; });
@@ -472,8 +572,11 @@ export function createHouseScene(ctx) {
     const lines = [];
     lines.push(shock ? `Blast: ${(H.p / 1000).toFixed(H.p < 1e4 ? 1 : 0)} kPa (${(H.p / 6894.76).toFixed(1)} psi) for ${(H.td * 1000).toFixed(1)} ms · eardrum rupture ${(100 * H.ear).toFixed(H.ear < 0.1 ? 1 : 0)} % · lungs ${H.lungs ? 'injured (over ~70 kPa)' : 'below the injury threshold'}` : 'Blast: on its way');
     lines.push(hits.length ? `Steel: ${hits.length} fragment${hits.length > 1 ? 's' : ''}, up to ${Math.max(...hits.map((s) => s.v)).toFixed(0)} m/s and ${Math.max(...hits.map((s) => s.E)).toFixed(0)} J (${hits.filter((s) => s.E > 79).length} over the 79 J incapacitation mark)` : H.steel.length && hits.length < H.steel.length ? 'Steel: on its way' : 'Steel: none hit it');
-    lines.push(H.glass ? `Glass: about ${H.glass} tempered dice, up to ${H.glassMax.toFixed(0)} m/s (blunt cubes: bruises and shallow cuts)` : 'Glass: none has reached it');
-    const sev = (hits.some((s) => s.E > 79) || (shock && H.lungs)) ? 3 : (hits.length || (shock && H.ear > 0.2)) ? 2 : (H.glass || (shock && H.ear > 0.01)) ? 1 : 0;
+    const glass = [];
+    if (H.glass) glass.push(`about ${H.glass} tempered dice, up to ${H.glassMax.toFixed(0)} m/s (blunt cubes: bruises and shallow cuts)`);
+    if (H.shards) glass.push(`${H.shards} shard${H.shards > 1 ? 's' : ''} of annealed glass, up to ${H.shardMax.toFixed(0)} m/s (sharp blades: deep cuts)`);
+    lines.push(glass.length ? 'Glass: ' + glass.join('; ') : 'Glass: none has reached it');
+    const sev = (hits.some((s) => s.E > 79) || (shock && H.lungs)) ? 3 : (hits.length || H.shards || (shock && H.ear > 0.2)) ? 2 : (H.glass || (shock && H.ear > 0.01)) ? 1 : 0;
     S.dummy.band.material.color.set(['#2fbf71', '#f0c419', '#ff8a2a', '#e5383b'][sev]);
     return lines;
   }
@@ -487,6 +590,7 @@ export function createHouseScene(ctx) {
     if (!S.plan) return 1;
     if (!S.det) {
       if (S.tDet - t < 0.004) return 1 / 300;
+      if (S.plan.open) return 1;   // nothing to break on the way in
       const toGlass = S.plan.tHit - t;
       if (toGlass > 0.03) return 1;
       if (t < S.plan.tHit + 0.03) return Math.max(1 / 40, ctx.autoTargetOf(S.rigs[S.target]));
@@ -505,26 +609,26 @@ export function createHouseScene(ctx) {
   function paneUnder(ndcX, ndcY) {
     ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
     let best = -1, bestD = Infinity;
-    S.rigs.forEach((r, i) => {
-      const inv = new THREE.Matrix4().copy(r.group.matrixWorld).invert();
+    PANES.forEach((p, i) => {
+      if (!S.rigs[i]) return;
+      const inv = new THREE.Matrix4().copy(aimGroup(i).matrixWorld).invert();
       const o = ray.ray.origin.clone().applyMatrix4(inv), d = ray.ray.direction.clone().transformDirection(inv);
       if (Math.abs(d.z) < 1e-6) return;
       const k = -o.z / d.z;
       if (k <= 0 || k >= bestD) return;
       const x = o.x + d.x * k, y = o.y + d.y * k - FLOOR;
-      if (Math.abs(x) <= r.spec.w / 2 && y >= 0 && y <= r.spec.h) { best = i; bestD = k; }
+      if (Math.abs(x) <= p.w / 2 && y >= 0 && y <= p.h) { best = i; bestD = k; }
     });
     return best;
   }
   function showPick() {
-    const r = S.rigs[S.target];
+    const i = S.target, p = PANES[i];
     S.pickRing.visible = !S.plan;
-    if (!r) return;
-    const c = paneCentre(r);
+    if (!S.rigs[i]) return;
     // A gold frame just outside the wall, round the opening.
-    S.pickRing.position.copy(c).addScaledVector(wallFrame(WALLS[r.spec.wall]).N, WALL_T / 2 + 0.03);
-    S.pickRing.rotation.set(0, r.group.rotation.y, 0);
-    const { w, h } = r.spec, b = 0.035, [top, bot, left, right] = S.pickRing.children;
+    S.pickRing.position.copy(aimCentre(i)).addScaledVector(wallFrame(WALLS[p.wall]).N, WALL_T / 2 + 0.03);
+    S.pickRing.quaternion.copy(aimGroup(i).quaternion);
+    const { w, h } = p, b = 0.035, [top, bot, left, right] = S.pickRing.children;
     top.scale.set(w + 2 * b, b, 1); top.position.set(0, (h + b) / 2, 0);
     bot.scale.set(w + 2 * b, b, 1); bot.position.set(0, -(h + b) / 2, 0);
     left.scale.set(b, h, 1); left.position.set(-(w + b) / 2, 0, 0);
@@ -544,13 +648,17 @@ export function createHouseScene(ctx) {
     placeDummy(PANES[i]);
     showPick();
     const t0 = S.lastT + WINDUP;
-    S.plan = planThrow(S.rigs[i], t0);
+    S.plan = planThrow(i, t0);
     S.tDet = t0 + FUSE;
+    S.pickRing.visible = false;
     const r = S.rigs[i], v1 = S.plan.v1;
-    const dl = v1.clone().normalize().applyQuaternion(new THREE.Quaternion().copy(r.group.quaternion).invert());
-    const speed = v1.length(), lead = Math.min(0.9, Math.max(0.25, 0.25 + 0.0015 * speed));
-    ctx.insertShot(r, { t: S.plan.tHit - lead / speed, iIdx: gIdx, x: S.plan.hitPane.x, y: S.plan.hitPane.y, speed,
-      yaw: Math.atan2(dl.x, dl.z) * 180 / Math.PI, pitch: Math.asin(Math.max(-1, Math.min(1, dl.y))) * 180 / Math.PI, fromBack: true });
+    if (!S.plan.open) {
+      // The engine takes the grenade over just before it reaches the glass.
+      const dl = v1.clone().normalize().applyQuaternion(new THREE.Quaternion().copy(r.group.quaternion).invert());
+      const speed = v1.length(), lead = Math.min(0.9, Math.max(0.25, 0.25 + 0.0015 * speed));
+      ctx.insertShot(r, { t: S.plan.tHit - lead / speed, iIdx: gIdx, x: S.plan.hitPane.x, y: S.plan.hitPane.y, speed,
+        yaw: Math.atan2(dl.x, dl.z) * 180 / Math.PI, pitch: Math.asin(Math.max(-1, Math.min(1, dl.y))) * 180 / Math.PI, fromBack: true });
+    }
     S.grenade = { pos: handPos(), vel: new THREE.Vector3(), mode: 'hand', spin: 0, k: -1, rig: r };
     S.grenadeMesh.visible = true;
     S.hud.querySelector('#hsThrow').disabled = true;
@@ -621,6 +729,8 @@ export function createHouseScene(ctx) {
     d.innerHTML = '<b style="font-family:var(--display,inherit);letter-spacing:.04em">GRENADE IN THE SHOP</b>' +
       '<span id="hsStats"></span>' +
       '<button id="hsThrow" style="background:#ffd36b;color:#1a1300;border-color:#ffd36b">Throw</button>' +
+      '<select id="hsGlass" title="What the shop is glazed with" aria-label="Glass">' +
+      Object.entries(GLASS).map(([id, g]) => `<option value="${id}">${g.label}</option>`).join('') + '</select>' +
       '<button id="hsCam" title="Street, the dummy, inside, low, cutaway (C)">Street</button>' +
       '<button id="hsNight" title="Night or day">Night</button>' +
       '<button id="hsShare" title="Share a link straight to this scene">Share</button>' +
@@ -636,8 +746,15 @@ export function createHouseScene(ctx) {
     d.querySelector('#hsCam').onclick = () => S.nextView();
     d.querySelector('#hsNight').onclick = () => { S.night = !S.night; applyLight(); };
     d.querySelector('#hsExit').onclick = () => ctx.leave();
+    d.querySelector('#hsGlass').onchange = (e) => {
+      S.glass = e.target.value;
+      S.target = doorOpen() ? DOOR : DEFAULT_TARGET;
+      if (doorOpen()) ctx.toast?.(`${kind().label} glass would stop a thrown grenade: the door is propped open to throw through`, 4500);
+      begin((Math.random() * 1e9) >>> 0);
+      frame();
+    };
     d.querySelector('#hsShare').onclick = async () => {
-      const url = new URL('grenade/', document.baseURI).href;
+      const url = new URL('grenade/' + (S.glass === 'tempered' ? '' : '?glass=' + S.glass), document.baseURI).href;
       try {
         if (navigator.share) await navigator.share({ title: 'Grenade in the shop · São Paulo World', url });
         else { await navigator.clipboard.writeText(url); ctx.toast?.('Link copied: ' + url); }
@@ -682,11 +799,14 @@ export function createHouseScene(ctx) {
     S.dummy.marks.clear();
     S.dummy.band.material.color.set('#2fbf71');
     S.dummy.shoulder.rotation.x = ARM_READY;
+    const k = kind(), top = k.heavy ? 1 : 2;   // laminates of many plies cost more per pane
     const specs = PANES.map((p, i) => {
-      const group = paneGroup(p);
+      const group = paneGroup(p, i === DOOR && doorOpen());
       S.world.add(group);
-      return { ...p, seed: (seed + 7919 * i) >>> 0, group, floor: -p.bottom, tier: p.wall === 0 ? Math.min(ctx.tier, 2) : Math.min(ctx.tier, 1), viewTier: Math.min(ctx.tier, 1) };
+      return { ...p, glazing: k[p.role], seed: (seed + 7919 * i) >>> 0, group, floor: -p.bottom,
+        tier: Math.max(0, Math.min(ctx.tier, p.wall === 0 ? top : top - 1)), viewTier: Math.min(ctx.tier, 1) };
     });
+    S.handle.visible = !doorOpen();
     S.rigs = ctx.makeRigs(specs);
     S.plan = null; S.det = null; S.hurt = null; S.tDet = Infinity; S.lastT = 0;
     S.stats = { peak: 0, fragments: 0, gas: 0 };
@@ -715,7 +835,10 @@ export function createHouseScene(ctx) {
     S.hud.style.display = 'flex';
     applyLight();
     S.view = 0;
-    S.target = DEFAULT_TARGET;
+    const asked = new URLSearchParams(location.search).get('glass');
+    if (asked && GLASS[asked]) S.glass = asked;
+    S.hud.querySelector('#hsGlass').value = S.glass;
+    S.target = doorOpen() ? DOOR : DEFAULT_TARGET;
     begin((Math.random() * 1e9) >>> 0);
     ctx.layout();
     frame();
@@ -761,7 +884,12 @@ export function createHouseScene(ctx) {
           const t = tEng - T0;
           gr.pos.copy(S.plan.p0).addScaledVector(S.plan.v0, t).add(new THREE.Vector3(0, -4.905 * t * t, 0));
           S.dummy.shoulder.rotation.x = Math.min(ARM_FOLLOW, ARM_RELEASE + 8 * t);
-          if (gr.k >= 0 && tEng >= S.plan.tHit - 0.02) gr.mode = 'engine';
+          if (S.plan.open && tEng >= S.plan.tHit) {
+            // In through the door: on its own from here.
+            gr.mode = 'free';
+            gr.pos.copy(S.plan.target);
+            gr.vel.copy(S.plan.v1);
+          } else if (gr.k >= 0 && tEng >= S.plan.tHit - 0.02) gr.mode = 'engine';
         }
       }
       if (gr.mode === 'engine') {
@@ -783,7 +911,7 @@ export function createHouseScene(ctx) {
       S.grenadeMesh.rotation.set(gr.spin, 0, gr.spin * 0.3);
     }
     if (S.effects) S.effects.update(tEng);
-    if (S.hurt) glassAtDummy(tEng);
+    if (S.hurt) glassAtDummy(tEng, dt);
     if ((S.lodTick = (S.lodTick || 0) + dt) > 0.15) { S.lodTick = 0; updateDetail(); }
     if (S.hud && (S.uiTick = (S.uiTick || 0) + dt) > 0.12) {
       S.uiTick = 0;
