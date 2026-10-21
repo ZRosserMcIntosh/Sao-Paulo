@@ -146,22 +146,29 @@ function liquidMaterials(id) {
 const SCENES = [
   { id: 'wine_glass', name: 'Wine glass off the table', sub: 'Knocked off the edge, onto the floor', opts: ['liquid', 'floor', 'knock', 'fill'] },
   { id: 'bottle_drop', name: 'Wine bottle on the floor', sub: 'An open bottle let go from a height', opts: ['liquid', 'floor', 'height', 'tilt', 'fill'] },
-  { id: 'gunshot', name: 'Crash dummy: the shot', sub: 'Click to aim, fire as often as you like', opts: ['projectile', 'target', 'pane', 'glazing', 'distance', 'ragdoll', 'floor'], feature: true },
+  { id: 'gunshot', name: 'Crash dummy: the shot', sub: 'Click to aim, fire as often as you like', opts: ['projectile', 'target', 'pane', 'glazing', 'gap', 'distance', 'ragdoll', 'floor'], feature: true },
   { id: 'drip', name: 'Drip test', sub: 'Passive drops from seven heights', opts: ['liquid', 'floor', 'height'] },
   { id: 'angles', name: 'Impact-angle card', sub: 'Drops thrown at a wall from 10° to 90°', opts: ['liquid', 'wall'] },
   { id: 'dam_break', name: 'Dam break', sub: 'Martin & Moyce’s water column: the validation case', opts: [] },
 ];
-const GLAZINGS = ['annealed_6', 'tempered_6', 'laminated_6_38', 'storefront_tempered_10', 'windscreen', 'car_side_tempered', 'ul752_l1', 'ul752_l3'];
+// Every glazing of the Glass lab, in its groups.
+const GLAZING_GROUPS = { architectural: 'Buildings', automotive: 'Cars', security: 'Bullet-resistant', aviation: 'Aircraft' };
 const defaults = {
   wine_glass: { liquid: 'red_wine', floor: 'ceramic_tile', knock: 0.9, fill: 150 },
   bottle_drop: { liquid: 'red_wine', floor: 'ceramic_tile', height: 1.0, tilt: 25, fill: 700 },
-  gunshot: { projectile: 'pistol_9mm_fmj', target: 'chest', pane: 'behind', glazing: 'annealed_6', distance: 3.0, ragdoll: 'on', floor: 'concrete' },
+  gunshot: { projectile: 'pistol_9mm_fmj', target: 'chest', pane: 'front', glazing: 'annealed_6', gap: 0.6, distance: 3.0, ragdoll: 'off', floor: 'concrete' },
   drip: { liquid: 'stage_blood_green', floor: 'ceramic_tile', height: 2.1 },
   angles: { liquid: 'stage_blood_green', wall: 'painted_drywall' },
   dam_break: {},
 };
 const settings = store.get('settings', {});
 for (const k of Object.keys(defaults)) settings[k] = { ...defaults[k], ...(settings[k] || {}) };
+// The ragdoll used to be on by default: start everyone from the new default once.
+if (store.get('settingsVersion', 1) < 2) {
+  settings.gunshot.ragdoll = 'off';
+  store.set('settingsVersion', 2);
+  store.set('settings', settings);
+}
 let sceneId = store.get('scene', 'wine_glass');
 if (!SCENES.find((s) => s.id === sceneId)) sceneId = 'wine_glass';
 
@@ -170,11 +177,12 @@ const OPT = {
   floor: { label: 'Floor', type: 'select', items: () => cat.surfaces.filter((s) => ['ceramic_tile', 'oak_floor', 'concrete', 'carpet'].includes(s.id)).map((s) => [s.id, s.name]) },
   wall: { label: 'Wall', type: 'select', items: () => cat.surfaces.filter((s) => ['painted_drywall', 'glass_pane', 'ceramic_tile', 'concrete'].includes(s.id)).map((s) => [s.id, s.name]) },
   projectile: { label: 'Round', type: 'select', items: () => cat.projectiles.map((p) => [p.id, p.pellets > 1 ? `${p.name} · ${p.pellets} × ${(p.mass * 1e3).toFixed(1)} g at ${p.speed.toFixed(0)} m/s` : `${p.name} · ${(p.mass * 1e3).toFixed(1)} g at ${p.speed.toFixed(0)} m/s`]) },
-  ragdoll: { label: 'The dummy', type: 'select', items: () => [['on', 'Falls when hit (ragdoll)'], ['off', 'Stays standing (fixed)']] },
+  ragdoll: { label: 'The dummy', type: 'select', items: () => [['off', 'Stays standing (fixed)'], ['on', 'Falls when hit (ragdoll)']] },
   target: { label: 'Aim', type: 'select', items: () => [['chest', 'Chest'], ['abdomen', 'Abdomen'], ['shoulder', 'Shoulder'], ['thigh', 'Thigh']] },
-  pane: { label: 'Glass pane', type: 'select', items: () => [['none', 'No glass'], ['front', 'In front of the dummy (shot through it)'], ['behind', 'Behind the dummy (catches the spatter)']] },
-  glazing: { label: 'Glazing', type: 'select', items: () => (gcat ? GLAZINGS.map((id) => gcat.glazings.find((g) => g.id === id)).filter(Boolean).map((g) => [g.id, g.name]) : [['annealed_6', '6 mm annealed (estimate)']]),
+  pane: { label: 'Glass', type: 'select', items: () => [['none', 'No glass'], ['front', 'In front: shot through it, spatter back onto it'], ['behind', 'Behind: it catches the forward spatter'], ['both', 'Both sides (a car: windscreen and rear window)']] },
+  glazing: { label: 'Glazing', type: 'select', items: () => (gcat ? gcat.glazings.map((g) => [g.id, `${g.name} · ${(g.width * 100).toFixed(0)} × ${(g.height * 100).toFixed(0)} cm`, GLAZING_GROUPS[g.category] || g.category]) : [['annealed_6', '6 mm annealed (estimate)']]),
     show: () => settings.gunshot.pane !== 'none' },
+  gap: { label: 'Glass to dummy', type: 'range', min: 0.3, max: 1.5, step: 0.05, fmt: (v) => `${v.toFixed(2)} m`, show: () => settings.gunshot.pane !== 'none' },
   knock: { label: 'Knock', type: 'range', min: 0.5, max: 2.0, step: 0.05, fmt: (v) => `${v.toFixed(2)} m/s` },
   fill: { label: 'Fill', type: 'range', min: 30, max: () => (sceneId === 'bottle_drop' ? 750 : 450), step: 10, fmt: (v) => `${v.toFixed(0)} ml` },
   height: { label: 'Height', type: 'range', min: 0.3, max: 2.5, step: 0.05, fmt: (v) => `${v.toFixed(2)} m` },
@@ -206,10 +214,15 @@ function buildOptions() {
       f.className = 'field';
       f.textContent = o.label;
       const sel = document.createElement('select');
-      for (const [v, t] of o.items()) { const op = document.createElement('option'); op.value = v; op.textContent = t; sel.appendChild(op); }
+      let group = null;
+      for (const [v, t, g] of o.items()) {
+        const op = document.createElement('option'); op.value = v; op.textContent = t;
+        if (g && (!group || group.label !== g)) { group = document.createElement('optgroup'); group.label = g; sel.appendChild(group); }
+        (g ? group : sel).appendChild(op);
+      }
       if (![...sel.options].some((op) => op.value === cfg[k])) cfg[k] = sel.options[0]?.value;
       sel.value = cfg[k];
-      sel.onchange = () => { cfg[k] = sel.value; store.set('settings', settings); if (k === 'pane') buildOptions(); };
+      sel.onchange = () => { cfg[k] = sel.value; store.set('settings', settings); if (k === 'pane') buildOptions(); if (sceneId === 'gunshot' && k !== 'projectile') go(); };
       f.appendChild(sel);
       box.appendChild(f);
     } else {
@@ -222,6 +235,7 @@ function buildOptions() {
       Object.assign(r, { type: 'range', min: o.min, max, step: o.step, value: cfg[k] });
       r.setAttribute('aria-label', o.label);
       r.oninput = () => { cfg[k] = +r.value; f.querySelector('b').textContent = o.fmt(cfg[k]); store.set('settings', settings); };
+      if (sceneId === 'gunshot') r.onchange = () => go();
       f.appendChild(r);
       box.appendChild(f);
     }
@@ -229,7 +243,7 @@ function buildOptions() {
   const notes = {
     wine_glass: 'A sideways knock at the bowl tips it over the table edge; whether it breaks depends on what it lands on and how.',
     bottle_drop: 'Bottles are heavier and thicker: they break less easily, and when they do there is far more wine.',
-    gunshot: (G ? 'The pane is broken by Glass Dynamics, which tells the round how fast it carries on. ' : 'Glass Dynamics did not load: panes use a built-in estimate. ') + 'Click anything in the room to aim, then Fire (F) as many times as you like; Follow (T) rides along with the round.',
+    gunshot: (G ? 'The glass is broken by Glass Dynamics: the round goes on at the speed it says, and the spatter lands on its pieces and falls with them. ' : 'Glass Dynamics did not load: panes use a built-in estimate. ') + 'Click anything in the room to aim, then Fire (F) as often as you like, with any round; Follow (T) rides along with it.',
     drip: 'A 50 µl drop from 0.3 to the height you set: drip stains are round, and grow with the fall.',
     angles: 'Each drop meets the card at a known angle; read it back from the stain with sin(angle) = width ÷ length.',
     dam_break: 'The classic validation of a free-surface solver; its front is checked against Martin & Moyce (1952) in the tests.',
@@ -254,8 +268,9 @@ let info = null, liquid = null;
 let P = null;  // the current run's visuals and state
 
 function clearWorld() {
-  world.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  world.traverse((o) => { if (o.geometry && o !== diceMesh) o.geometry.dispose(); });
   world.clear();
+  if (diceMesh) diceMesh.count = 0;
 }
 
 function surfaceMaterial(c) {
@@ -388,6 +403,7 @@ function placeCapsule(g, a, b) {
 }
 
 const MAX_STAINS = 24000;
+const MAX_ROUNDS = 256, TRACERS = 40;  // rounds drawn in flight; the latest rounds' tracers
 // Auto quality per scene: the cost of a step grows with the particles, so a
 // 700 ml bottle gets coarser particles than a 150 ml glass on the same device.
 function sceneTier() {
@@ -415,7 +431,8 @@ function go() {
   if (S.tilt !== undefined) config.tilt_deg = S.tilt;
   let paneGlazing = -1;
   if (sceneId === 'gunshot') {
-    Object.assign(config, { projectile: S.projectile, target: S.target, distance_m: S.distance, pane: S.pane, glazing: S.glazing, ragdoll: S.ragdoll !== 'off' });
+    Object.assign(config, { projectile: S.projectile, target: S.target, distance_m: S.distance, pane: S.pane, glazing: S.glazing, ragdoll: S.ragdoll === 'on' });
+    if (S.pane !== 'none') config.pane_gap_m = S.gap;
     if (S.pane !== 'none' && G) {
       paneGlazing = gcat.glazings.findIndex((g) => g.id === S.glazing);
       if (paneGlazing >= 0) {
@@ -435,28 +452,14 @@ function go() {
     lastBreak: -1, lastSource: -1, bpaAt: -1, bpaStains: -1, recordFps: sceneId === 'gunshot' ? 240 : 60,
   };
   P.capsules = [];
+  P.panes = [];
   for (const c of info.colliders) {
     const m = addCollider(c);
     if (c.role === 'dummy') P.capsules.push(m);
-    if (c.role === 'pane') P.pane = { collider: c, mesh: m, cracks: null, cracksFrom: [], offset: null, collapsed: false, nGlass: 0, shots: 0 };
+    if (c.role === 'pane') P.panes.push({ collider: c, mesh: m, slot: P.panes.length, offset: null, shots: 0 });
   }
-  // Glass Dynamics pane for the strike.
-  if (P.pane && G && paneGlazing >= 0) {
-    G.gls_select(0);
-    G.gls_new_pane(paneGlazing, Math.min(tier, 3), seed);
-    const gs = G.state();
-    P.pane.nGlass = gs[2];
-    P.pane.cracksFrom = new Array(P.pane.nGlass).fill(0);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 60000), 3));
-    geo.setDrawRange(0, 0);
-    P.pane.cracks = new THREE.LineSegments(geo, crackMat);
-    P.pane.cracks.position.copy(P.pane.mesh.position);
-    P.pane.cracks.quaternion.copy(P.pane.mesh.quaternion);
-    P.pane.cracks.frustumCulled = false;
-    P.pane.crackCount = 0;
-    world.add(P.pane.cracks);
-  }
+  // A Glass Dynamics pane for each, in its own slot.
+  if (G && paneGlazing >= 0) for (const p of P.panes) newGlassPane(p, paneGlazing, seed);
   // The liquid.
   P.surface = new THREE.Mesh(new THREE.BufferGeometry(), liquidMat);
   P.surface.castShadow = tier >= 2; P.surface.receiveShadow = true; P.surface.frustumCulled = false;
@@ -469,10 +472,10 @@ function go() {
   P.stains = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 20), stainMat, MAX_STAINS);
   P.stains.count = 0; P.stains.frustumCulled = false;
   world.add(P.stains);
-  // The round and its tracer.
-  P.bullet = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.0045, 0.016, 12), new THREE.MeshStandardMaterial({ color: 0xc89a4a, metalness: 0.9, roughness: 0.25, emissive: 0x6a4a10 }));
-  P.bullet.visible = false; world.add(P.bullet);
-  P.tracer = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0.55 }));
+  // Every round in flight (each pellet of a shot load), and their tracers.
+  P.bullets = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.0045, 0.0045, 0.016, 12), new THREE.MeshStandardMaterial({ color: 0xc89a4a, metalness: 0.9, roughness: 0.25, emissive: 0x6a4a10 }), MAX_ROUNDS);
+  P.bullets.count = 0; P.bullets.frustumCulled = false; world.add(P.bullets);
+  P.tracer = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0.5 }));
   P.tracer.frustumCulled = false; world.add(P.tracer);
   P.woundGroup = new THREE.Group(); world.add(P.woundGroup); P.wounds = 0;
   P.strings = new THREE.LineSegments(new THREE.BufferGeometry(), stringMat);
@@ -591,40 +594,51 @@ function drawLiquid(t) {
 
 function drawRounds(t) {
   const pr = L.projectiles(), n = pr.length / 10;
-  P.bullet.visible = false;
-  for (let k = 0; k < n; ++k) {
+  let live = 0;
+  const seg = [];
+  for (let k = Math.max(0, n - TRACERS); k < n; ++k) {
     const o = 10 * k, state = pr[o + 7];
-    const path = L.path(k), pts = [];
-    for (let i = 0; i < path.length; i += 3) pts.push(new THREE.Vector3(path[i], path[i + 1], path[i + 2]));
-    if (state === STATE.FLYING || state === STATE.AT_PANE) {
-      pts.push(new THREE.Vector3(pr[o], pr[o + 1], pr[o + 2]));
-      P.bullet.visible = true;
-      P.bullet.position.set(pr[o], pr[o + 1], pr[o + 2]);
-      P.bullet.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), V.set(pr[o + 3], pr[o + 4], pr[o + 5]));
-    }
-    if (pts.length >= 2 && t > pr[o + 8]) P.tracer.geometry.setFromPoints(pts);
+    if (t <= pr[o + 8]) continue;  // not fired yet
+    const path = L.path(k);
+    const flying = state === STATE.FLYING || state === STATE.AT_PANE;
+    const m = path.length / 3;
+    for (let i = 0; i + 1 < m; ++i) seg.push(path[3 * i], path[3 * i + 1], path[3 * i + 2], path[3 * i + 3], path[3 * i + 4], path[3 * i + 5]);
+    if (flying && m > 0) seg.push(path[3 * m - 3], path[3 * m - 2], path[3 * m - 1], pr[o], pr[o + 1], pr[o + 2]);
   }
+  for (let k = 0; k < n && live < MAX_ROUNDS; ++k) {
+    const o = 10 * k, state = pr[o + 7];
+    if (state !== STATE.FLYING && state !== STATE.AT_PANE) continue;
+    V.set(pr[o], pr[o + 1], pr[o + 2]);
+    Q.setFromUnitVectors(Y.set(0, 1, 0), X.set(pr[o + 3], pr[o + 4], pr[o + 5]));
+    M4.compose(V, Q, S3.set(1, 1, 1));
+    P.bullets.setMatrixAt(live++, M4);
+  }
+  P.bullets.count = live;
+  P.bullets.instanceMatrix.needsUpdate = true;
+  P.tracer.geometry.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+  P.flying = live;
   // The ragdoll.
   const rd = L.dummy();
   if (rd.length && P.capsules) {
     for (let k = 0; k < rd.length / 7 && k < P.capsules.length; ++k)
       placeCapsule(P.capsules[k], V.set(rd[7 * k], rd[7 * k + 1], rd[7 * k + 2]), X.set(rd[7 * k + 3], rd[7 * k + 4], rd[7 * k + 5]));
-    // Stains on it ride along.
-    const ds = L.dummyStains();
-    for (let i = 0; i < ds.length / 10; ++i) {
-      const o = 10 * i, k = ds[o];
-      const st = P.stainList[k];
-      if (!st || k >= MAX_STAINS) continue;
-      Z.set(ds[o + 4], ds[o + 5], ds[o + 6]).normalize();
-      X.set(ds[o + 7], ds[o + 8], ds[o + 9]); X.addScaledVector(Z, -X.dot(Z));
-      if (X.lengthSq() < 1e-10) X.set(1, 0, 0).addScaledVector(Z, -Z.x);
-      X.normalize(); Y.crossVectors(Z, X); B.makeBasis(X, Y, Z); Q.setFromRotationMatrix(B);
-      V.set(ds[o + 1], ds[o + 2], ds[o + 3]).addScaledVector(Z, 0.0006);
-      M4.compose(V, Q, S3.set(0.5 * st[10], 0.5 * st[9], 1));
-      P.stains.setMatrixAt(k, M4);
-    }
-    if (ds.length) P.stains.instanceMatrix.needsUpdate = true;
   }
+  // Stains riding on something that moved: the dummy, pieces of glass.
+  const ms = L.movedStains();
+  for (let i = 0; i < ms.length / 11; ++i) {
+    const o = 11 * i, k = ms[o];
+    const st = P.stainList[k];
+    if (!st || k >= MAX_STAINS) continue;
+    if (ms[o + 10]) { M4.makeScale(0, 0, 0); P.stains.setMatrixAt(k, M4); continue; }  // gone with the glass
+    Z.set(ms[o + 4], ms[o + 5], ms[o + 6]).normalize();
+    X.set(ms[o + 7], ms[o + 8], ms[o + 9]); X.addScaledVector(Z, -X.dot(Z));
+    if (X.lengthSq() < 1e-10) X.set(1, 0, 0).addScaledVector(Z, -Z.x);
+    X.normalize(); Y.crossVectors(Z, X); B.makeBasis(X, Y, Z); Q.setFromRotationMatrix(B);
+    V.set(ms[o + 1], ms[o + 2], ms[o + 3]).addScaledVector(Z, 0.0006);
+    M4.compose(V, Q, S3.set(0.5 * st[10], 0.5 * st[9], 1));
+    P.stains.setMatrixAt(k, M4);
+  }
+  if (ms.length) P.stains.instanceMatrix.needsUpdate = true;
   // Wound marks (they move with the dummy).
   const w = L.wounds(), nw = w.length / 8;
   for (let k = 0; k < Math.min(P.wounds, nw); ++k) {
@@ -647,17 +661,168 @@ function drawRounds(t) {
 
 // ---------- Panes: the Glass Dynamics hand-off ----------
 const PH_DONE = 4;
+// The pieces of a broken pane, drawn as one mesh: each piece's outline extruded
+// to its thickness, moved on the CPU to where Glass Dynamics says it is.
+const pieceMat = new THREE.MeshPhysicalMaterial({ color: 0xd6ebff, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.32,
+  side: THREE.DoubleSide, envMapIntensity: 1.5, clearcoat: 1, depthWrite: false, vertexColors: true });
+class PieceView {
+  constructor(pane) {
+    this.pane = pane;
+    this.recs = [];
+    this.nVerts = 0;
+    this.cap = 0;
+    this.geo = new THREE.BufferGeometry();
+    this.mesh = new THREE.Mesh(this.geo, pieceMat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 3;
+    pane.group.add(this.mesh);
+  }
+  add(shapes) {
+    for (const sh of shapes) {
+      const n = sh.outline.length / 2;
+      if (n < 3) continue;
+      // A hair smaller about the centroid, so the cracks between pieces show.
+      let rmax = 0;
+      for (let i = 0; i < n; ++i) rmax = Math.max(rmax, Math.hypot(sh.outline[2 * i], sh.outline[2 * i + 1]));
+      const k = rmax > 0 ? Math.max(0.6, 1 - 0.0005 / rmax) : 1;
+      const pts = [];
+      for (let i = 0; i < n; ++i) pts.push(new THREE.Vector2(sh.outline[2 * i] * k, sh.outline[2 * i + 1] * k));
+      const holes = (sh.holes || []).map((h) => { const l = []; for (let i = 0; i + 1 < h.length; i += 2) l.push(new THREE.Vector2(h[i], h[i + 1])); return l; }).filter((l) => l.length >= 3);
+      let tris = [];
+      try { tris = THREE.ShapeUtils.triangulateShape(pts, holes); } catch { tris = []; }
+      const all = pts.concat(...holes), h = sh.thickness / 2;
+      const v = [], nr = [], col = [];
+      const face = sh.chip ? [0.9, 0.95, 0.95] : [0.92, 0.97, 1.0], edge = [0.45, 0.78, 0.66];
+      const push = (x, y, z, nx, ny, nz, c) => { v.push(x, y, z); nr.push(nx, ny, nz); col.push(c[0], c[1], c[2]); };
+      for (const [a, b, c] of tris) {
+        const A = all[a], Bv = all[b], C = all[c];
+        push(A.x, A.y, -h, 0, 0, -1, face); push(C.x, C.y, -h, 0, 0, -1, face); push(Bv.x, Bv.y, -h, 0, 0, -1, face);
+        push(A.x, A.y, h, 0, 0, 1, face); push(Bv.x, Bv.y, h, 0, 0, 1, face); push(C.x, C.y, h, 0, 0, 1, face);
+      }
+      for (const loop of [pts, ...holes]) for (let i = 0; i < loop.length; ++i) {
+        const a = loop[i], b = loop[(i + 1) % loop.length];
+        const ex = b.x - a.x, ey = b.y - a.y, l = Math.hypot(ex, ey) || 1, nx = ey / l, ny = -ex / l;
+        push(a.x, a.y, -h, nx, ny, 0, edge); push(b.x, b.y, -h, nx, ny, 0, edge); push(b.x, b.y, h, nx, ny, 0, edge);
+        push(a.x, a.y, -h, nx, ny, 0, edge); push(b.x, b.y, h, nx, ny, 0, edge); push(a.x, a.y, h, nx, ny, 0, edge);
+      }
+      this.recs[sh.index] = { start: this.nVerts, count: v.length / 3, local: new Float32Array(v), localN: new Float32Array(nr), col: new Float32Array(col), key: '' };
+      this.nVerts += v.length / 3;
+    }
+    if (this.nVerts > this.cap) {
+      const cap = Math.max(4096, 1 << Math.ceil(Math.log2(this.nVerts)));
+      const grow = (name) => {
+        const a = new Float32Array(cap * 3);
+        if (this.cap) a.set(this.geo.attributes[name].array.subarray(0, this.cap * 3));
+        this.geo.setAttribute(name, new THREE.BufferAttribute(a, 3));
+      };
+      grow('position'); grow('normal'); grow('color');
+      this.cap = cap;
+    }
+    const col = this.geo.attributes.color.array;
+    for (const r of this.recs) if (r && !r.colored) { col.set(r.col, r.start * 3); r.colored = true; }
+    this.geo.attributes.color.needsUpdate = true;
+    this.geo.setDrawRange(0, this.nVerts);
+  }
+  // poses: 12 floats per piece in Glass Dynamics' pane frame (pos, quat wxyz, vel, state, born).
+  update(poses, n, laminate) {
+    const p = this.pane, pos = this.geo.attributes.position.array, nor = this.geo.attributes.normal.array;
+    const q = new THREE.Quaternion(), t = new THREE.Vector3(), a = new THREE.Vector3();
+    let dirty = false;
+    for (let i = 0; i < n; ++i) {
+      const r = this.recs[i];
+      if (!r) continue;
+      const o = 12 * i, state = poses[o + 10];
+      // A laminate's cracked glass stays on its interlayer: only loose pieces are drawn on their own.
+      const shown = state !== -1 && !(laminate && state < 2);
+      const key = shown ? `${poses[o]},${poses[o + 1]},${poses[o + 2]},${poses[o + 3]},${poses[o + 4]},${poses[o + 5]},${poses[o + 6]}` : 'hidden';
+      if (key === r.key) continue;
+      r.key = key;
+      dirty = true;
+      if (!shown) { pos.fill(0, r.start * 3, (r.start + r.count) * 3); continue; }
+      // Glass Dynamics' frame to the pane's: z is reflected.
+      t.set(poses[o] - p.W / 2, poses[o + 1] - p.H / 2, p.T / 2 - poses[o + 2]);
+      q.set(-poses[o + 4], -poses[o + 5], poses[o + 6], poses[o + 3]).normalize();
+      for (let k = 0; k < r.count; ++k) {
+        const j = (r.start + k) * 3;
+        a.set(r.local[3 * k], r.local[3 * k + 1], r.local[3 * k + 2]).applyQuaternion(q).add(t);
+        pos[j] = a.x; pos[j + 1] = a.y; pos[j + 2] = a.z;
+        a.set(r.localN[3 * k], r.localN[3 * k + 1], r.localN[3 * k + 2]).applyQuaternion(q);
+        nor[j] = a.x; nor[j + 1] = a.y; nor[j + 2] = a.z;
+      }
+    }
+    if (dirty) { this.geo.attributes.position.needsUpdate = true; this.geo.attributes.normal.needsUpdate = true; }
+  }
+}
+function newGlassPane(p, glazing, seed) {
+  G.gls_select(p.slot);
+  G.gls_new_pane(glazing, Math.min(tier, 3), seed + 7919 * p.slot);
+  // Its pieces fall to the floor below the pane.
+  G.gls_set_floor(-(p.collider.pos[1] - p.collider.half[1]));
+  const gs = G.state();
+  Object.assign(p, { nGlass: gs[2], W: gs[14], H: gs[15], T: gs[13], cracksFrom: new Array(gs[2]).fill(0), crackCount: 0,
+    fragShapes: 0, revision: -1, loose: 0, pieces: 0 });
+  const pl = G.plies(p.nGlass);
+  p.plies = [];
+  for (let k = 0; k < p.nGlass; ++k) p.plies.push({ z0: pl[12 * k], ply: pl[12 * k + 10] });
+  p.plies.sort((a, b) => a.z0 - b.z0);
+  const g = gcat.glazings[glazing];
+  p.laminate = !(g.plies.length === 1);
+  p.group = new THREE.Group();
+  p.group.position.copy(p.mesh.position);
+  p.group.quaternion.copy(p.mesh.quaternion);
+  world.add(p.group);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 60000), 3));
+  geo.setDrawRange(0, 0);
+  p.cracks = new THREE.LineSegments(geo, crackMat);
+  p.cracks.frustumCulled = false;
+  p.group.add(p.cracks);
+  p.view = new PieceView(p);
+  p.sprays = 0;
+}
+// Tempered pieces crumble into dice where they land: a handful of real-size
+// dice round each spray Glass Dynamics reports, on the floor.
+const MAX_DICE = 12000;
+let diceMesh = null;
+function addDice(p) {
+  const s = G.state();
+  if (s[24] <= p.sprays) return;
+  if (!diceMesh) {
+    diceMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshPhysicalMaterial({ color: 0xcfe6e0, roughness: 0.15, transparent: true, opacity: 0.6, clearcoat: 1, envMapIntensity: 1.3 }), MAX_DICE);
+    diceMesh.count = 0; diceMesh.frustumCulled = false; diceMesh.receiveShadow = true;
+  }
+  if (diceMesh.parent !== world) world.add(diceMesh);
+  const rows = G.sprays(p.sprays);
+  for (let o = 0; o + 14 < rows.length; o += 15) {
+    const n = Math.min(rows[o + 6], 24), size = Math.max(rows[o + 7], 0.004), th = rows[o + 8];
+    // Where it comes to rest: thrown on along the floor a little way.
+    V.set(rows[o] - p.W / 2 + rows[o + 3] * 0.04, 0, p.T / 2 - rows[o + 2] - rows[o + 5] * 0.04);
+    p.group.localToWorld(V);
+    for (let k = 0; k < n && diceMesh.count < MAX_DICE; ++k) {
+      const r = 0.04 * Math.sqrt(Math.random()), a = 2 * Math.PI * Math.random();
+      X.set(V.x + r * Math.cos(a), th / 2 + 0.0005, V.z + r * Math.sin(a));
+      Q.setFromAxisAngle(Y.set(0, 1, 0), 2 * Math.PI * Math.random());
+      M4.compose(X, Q, S3.set(size * (0.7 + 0.6 * Math.random()), th, size * (0.7 + 0.6 * Math.random())));
+      diceMesh.setMatrixAt(diceMesh.count++, M4);
+    }
+  }
+  diceMesh.instanceMatrix.needsUpdate = true;
+  p.sprays = s[24];
+}
+function paneOf(collider) { return P.panes.find((p) => p.collider.id === collider); }
 function resolvePanes() {
   let strikes = L.strikes();
   let guard = 0;
-  while (strikes.length && guard++ < 8) {
+  while (strikes.length && guard++ < 16) {
     const s = strikes[0];
-    if (G && P.pane && P.paneGlazing >= 0) {
+    const pane = paneOf(s.collider);
+    if (G && pane && pane.view && P.paneGlazing >= 0) {
       let imp = gcat.impactors.findIndex((x) => x.id === s.impactor);
       if (imp < 0) imp = gcat.impactors.findIndex((x) => x.id === 'pistol_9mm');
+      G.gls_select(pane.slot);
       // One pane for every strike: bring its clock to the strike's moment first.
-      if (P.pane.offset === null) P.pane.offset = s.time - G.gls_time();
-      else G.gls_advance(Math.max(G.gls_time(), s.time - P.pane.offset), 200000);
+      if (pane.offset === null) pane.offset = s.time - G.gls_time();
+      else G.gls_advance(Math.max(G.gls_time(), s.time - pane.offset), 200000);
       const k = G.state()[3], openBefore = G.state()[9];
       const h = G.gls_fire(imp, s.x, s.y, s.speed, s.yaw, s.pitch, s.fromBack ? 1 : 0, 0.01);
       const which = h >= 0 ? h : k;
@@ -671,21 +836,57 @@ function resolvePanes() {
       const rep = G.report(which);
       const gs = G.state();
       const pen = rep.v[11] > 0, out = pen ? rep.v[1] : 0;
-      const W = P.pane.collider.half[0] * 2, H = P.pane.collider.half[1] * 2;
+      const W = pane.collider.half[0] * 2, H = pane.collider.half[1] * 2;
       const open = gs[9] - openBefore;  // what this strike opened
+      // A monolithic pane's hole is the pieces that left it; a laminate's is the tear in its interlayer.
       const hole = clamp(Math.sqrt(Math.max(open, 0) / Math.PI), 0.004, 0.5 * Math.min(W, H));
-      L.lqd_resolve_strike(0, pen ? 1 : 0, out, pen ? hole : 0, 0);
-      P.pane.shots++;
-      P.log.push({ time: s.time, text: `Glass Dynamics: ${rep.outcome}` });
+      L.lqd_resolve_strike(0, pen ? 1 : 0, out, pen ? (pane.laminate ? hole : Math.min(hole, 0.6 * gcat.impactors[imp].radius * 2 + 0.004)) : 0, 0);
+      pane.shots++;
+      feedPieces(pane);
+      P.log.push({ time: s.time, text: `Glass Dynamics${P.panes.length > 1 ? ` (${pane.collider.name})` : ''}: ${rep.outcome}` });
     } else {
       L.lqd_estimate_strike(0);
     }
     strikes = L.strikes();
   }
 }
+// Hands a pane's pieces to the liquid core: new pieces, the map of which piece
+// each cell holds (when the pieces change), and where every piece is now.
+function feedPieces(p) {
+  const s = G.state(), nFrag = s[4];
+  if (nFrag > p.fragShapes) {
+    const shapes = G.fragmentShapes(p.fragShapes);
+    for (const sh of shapes) L.panePiece(p.collider.id, sh);
+    p.view.add(shapes);
+    p.fragShapes = nFrag;
+  }
+  if (nFrag > 0 && s[5] !== p.revision) {
+    p.revision = s[5];
+    const pl = G.plies(p.nGlass);
+    const front = G.fragmentMap(p.plies[0].ply), back = p.plies.length > 1 ? G.fragmentMap(p.plies[p.plies.length - 1].ply) : null;
+    const k = Math.max(0, [...Array(p.nGlass).keys()].find((i) => pl[12 * i + 10] === p.plies[0].ply) ?? 0);
+    if (front.nx > 0) L.paneMap(p.collider.id, pl[12 * k + 3], front, back && back.nx === front.nx && back.ny === front.ny ? back : null, p.laminate);
+  }
+  if (nFrag > 0) {
+    const poses = G.fragmentPoses(nFrag);
+    L.panePoses(p.collider.id, poses, nFrag);
+    p.view.update(poses, nFrag, p.laminate);
+    let loose = 0;
+    for (let i = 0; i < nFrag; ++i) if (poses[12 * i + 10] >= 2) ++loose;
+    p.loose = loose; p.pieces = nFrag;
+  }
+  // A monolithic pane in pieces is drawn as its pieces; its cracks stay drawn
+  // while most of it is still in the frame.
+  const pl = G.plies(p.nGlass);
+  if (!p.laminate && pl[4] > 0 && p.mesh.visible) p.mesh.visible = false;
+  if (p.cracks.visible && s[9] > 0.3 * p.W * p.H) p.cracks.visible = false;
+}
 function stepPane(t) {
-  const p = P.pane;
-  if (!p || !G || p.offset === null) return;
+  if (!G || !P.panes) return;
+  for (const p of P.panes) if (p.view && p.offset !== null) stepOnePane(p, t);
+}
+function stepOnePane(p, t) {
+  G.gls_select(p.slot);
   G.gls_advance(t - p.offset, 3000);
   // New crack segments of every glass ply, in the pane's frame.
   const W = p.collider.half[0] * 2, H = p.collider.half[1] * 2, T = p.collider.half[2];
@@ -702,13 +903,12 @@ function stepPane(t) {
   }
   p.cracks.geometry.setDrawRange(0, 2 * p.crackCount);
   pos.needsUpdate = true;
-  // A crazed tempered pane comes down: the liquid flies through what's left.
+  feedPieces(p);
+  addDice(p);
   const gs = G.state();
-  if (!p.collapsed && gs[8] < 0.5 && gs[9] > 0.3 * W * H) {
-    p.collapsed = true;
-    L.lqd_collider_enable(p.collider.id, 0);
-    p.mesh.material.opacity = 0.05;
-    P.log.push({ time: t, text: 'the pane has fallen out of its frame' });
+  if (!p.fellOut && gs[8] < 0.5 && gs[9] > 0.3 * W * H) {
+    p.fellOut = true;
+    P.log.push({ time: t, text: `the ${p.collider.name} has fallen out of its frame` });
   }
 }
 
@@ -722,7 +922,8 @@ function buildBpaSurfaces() {
     op.value = c.id; op.textContent = c.name[0].toUpperCase() + c.name.slice(1);
     sel.appendChild(op);
   }
-  const pref = sceneId === 'gunshot' ? (info.colliders.find((c) => c.role === 'pane' && settings.gunshot.pane === 'behind') || info.colliders.find((c) => c.name === 'back wall'))
+  const pane = settings.gunshot.pane;
+  const pref = sceneId === 'gunshot' ? (info.colliders.find((c) => c.role === 'pane' && (pane === 'behind' || pane === 'front' || c.name === 'back pane')) || info.colliders.find((c) => c.name === 'back wall'))
     : sceneId === 'angles' ? info.colliders.find((c) => c.name === 'card') : info.colliders.find((c) => c.role === 'floor');
   if (pref) sel.value = pref.id;
   sel.onchange = () => { P.bpaStains = -1; updateBpa(true); };
@@ -803,7 +1004,7 @@ function aimAt(clientX, clientY) {
   const ray = new THREE.Raycaster();
   ray.setFromCamera(ndc, camera);
   const targets = [];
-  world.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && o !== P.surface && o !== P.aimMark && o !== P.muzzleMesh && o !== P.bullet && o.visible) targets.push(o); });
+  world.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && o !== P.surface && o !== P.aimMark && o !== P.muzzleMesh && o.visible) targets.push(o); });
   const hit = ray.intersectObjects(targets, false)[0];
   if (!hit) return false;
   P.aim.copy(hit.point);
@@ -909,6 +1110,15 @@ function updateReadouts() {
     kv.push([n > 1 ? `Rounds (${n})` : 'Round', live < 0 ? 'all stopped' : `${pr[live + 6].toFixed(0)} m/s in flight`]);
   }
   if (s[23] > 0) kv.push(['Wounds', `${s[23]} · dripping ${ml(s[27])}`]);
+  if (P.panes && P.panes.some((p) => p.view)) {
+    const panes = new Set(P.panes.map((p) => p.collider.id)), nStatic = info.colliders.length;
+    let onGlass = 0, falling = 0;
+    for (const st of P.stainList) {
+      if (st[13] >= nStatic) { ++onGlass; ++falling; } else if (panes.has(st[13])) ++onGlass;
+    }
+    kv.push(['Glass', P.panes.filter((p) => p.view).map((p) => (p.pieces ? `${p.pieces.toLocaleString('en')} pieces, ${p.loose.toLocaleString('en')} loose` : p.shots ? 'cracked' : 'intact')).join(' · ')]);
+    if (onGlass) kv.push(['On the glass', `${onGlass.toLocaleString('en')} stains${falling ? ` · ${falling.toLocaleString('en')} landed on falling pieces` : ''}`]);
+  }
   kv.push(['Steps', `${s[7].toLocaleString('en')} · next ${(s[22] * 1e6).toFixed(0)} µs`]);
   $('kv').innerHTML = kv.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
   // Where the liquid is.
@@ -968,7 +1178,14 @@ const VIEWS = {
   dam_break: [[0.3, 0.12, 0.02, 0.0, 1.45, 0.85], [0.3, 0.1, 0.02, 0.6, 1.1, 0.9]],
 };
 function frameCamera(keepAngles = true) {
-  const v = VIEWS[sceneId] || VIEWS.wine_glass;
+  let v = VIEWS[sceneId] || VIEWS.wine_glass;
+  if (sceneId === 'gunshot' && info) {
+    // The glass seen from the dummy's side: where the spatter lands on it.
+    const extra = [];
+    for (const c of info.colliders.filter((k) => k.role === 'pane'))
+      extra.push(c.pos[2] > 0 ? [c.pos[0], c.pos[1] - 0.1, c.pos[2], 2.3, 1.2, 0.85] : [c.pos[0], c.pos[1] - 0.1, c.pos[2], 0.85, 1.2, 0.85]);
+    v = [v[0], ...extra, ...v.slice(1)];
+  }
   if (!keepAngles) camMode = 0;
   const [tx, ty, tz, th, ph, r] = v[camMode % v.length];
   Object.assign(cam, { tx, ty, tz, theta: th, phi: ph, r: r * Math.max(1, 1.1 / Math.max(camera.aspect, 0.5)) });
