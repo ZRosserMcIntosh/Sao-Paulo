@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<base href="/sao-paulo/liquids/">
+<title>Liquids Lab</title>
+<meta name="description" content="Spill, splash and spatter in your browser: a wine glass knocked off a table, a bottle bursting on the floor, a crash dummy shot through a pane of glass, solved by the Liquid Dynamics C++ core compiled to WebAssembly, with bloodstain pattern analysis and glTF export for Unreal and Unity.">
+<meta property="og:title" content="São Paulo World · Liquids Lab">
+<meta property="og:description" content="Fluid dynamics for wine, water and (green) stage blood, in slow motion.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"../driving/vendor/three.module.min.js"}}</script>
+<style>
+:root{
+  --bg:#0b111b; --panel:rgba(10,17,28,.86); --panel-solid:#0f1826; --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --plate-ink:#fff; --masp:#ec4a3c; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b; --ice:#9fd6ff;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#view,#view2d{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#view2d{display:none}
+button{font:600 12px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer;white-space:nowrap}
+button:hover{background:rgba(255,255,255,.13)}
+button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+select{font:600 12px var(--body);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:6px 8px;max-width:100%}
+input[type=range]{width:100%;accent-color:var(--hot)}
+kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:rgba(255,255,255,.05)}
+.eyebrow{font:600 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.panel{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:12px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.note{color:var(--mute);font-size:12px;margin:6px 0 0}
+.mono{font-family:var(--mono)}
+/* top bar */
+.top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
+.top>*{pointer-events:auto}
+.top button,.top select{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.slider .unit{font:inherit;font-size:11px;padding:1px 7px;margin-left:4px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ice);cursor:pointer}
+.top button[aria-pressed="true"]{background:#fff;color:#0a1830}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+/* left: the lab bench */
+#lab{position:fixed;left:12px;top:66px;width:318px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#lab h2,#res h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#lab h2:first-child,#res h2:first-child{margin-top:0}
+#lab h2 small,#res h2 small{font:500 10.5px var(--mono);color:var(--mute);text-transform:none;letter-spacing:0}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chips button{font-weight:600;padding:5px 8px}
+.chips .cat{width:100%;font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin:6px 0 1px}
+.desc{font-size:12.5px;color:#cfd8e3;margin:7px 0 0}
+.std{font:500 11px var(--mono);color:var(--mute);margin-top:4px}
+.slider{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-top:8px;font-size:12px;color:var(--mute)}
+.slider b{font:600 12px var(--mono);color:var(--ink);text-align:right}
+.slider input{grid-column:1/-1}
+#fire{width:100%;margin-top:10px;padding:10px;font:800 16px var(--display);letter-spacing:.06em;text-transform:uppercase;background:var(--masp);border-color:var(--masp);color:#fff}
+#fire:hover{filter:brightness(1.1)}
+.presets{display:grid;grid-template-columns:1fr;gap:5px}
+.presets button{text-align:left;white-space:normal;line-height:1.3}
+.presets button small{display:block;color:var(--mute);font-weight:500}
+.presets button.feature{border-color:rgba(255,211,107,.55);background:linear-gradient(180deg,rgba(255,211,107,.16),rgba(255,211,107,.05))}
+/* right: results */
+#res{position:fixed;right:12px;top:66px;width:300px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#outcome{font:700 14px/1.35 var(--body);margin:0}
+#outcome.ok{color:var(--good)}#outcome.bad{color:var(--bad)}#outcome.warn{color:var(--warn)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;margin-top:8px}
+.kv span{color:var(--mute)}.kv b{font:600 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+#log{font:500 10.5px/1.45 var(--mono);color:#b9c4d3;max-height:170px;overflow:auto;white-space:pre-wrap;margin-top:6px;user-select:text;-webkit-user-select:text}
+/* bottom: time */
+#time{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:3;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100% - 24px)}
+#clock{font:600 13px var(--mono);min-width:150px;text-align:center;font-variant-numeric:tabular-nums}
+#clock small{display:block;font:500 10px var(--mono);color:var(--mute);letter-spacing:.06em}
+#scale button{min-width:46px}
+#limit{font:600 10.5px var(--mono);color:var(--warn)}
+/* banner + overlays */
+#banner{position:fixed;left:50%;top:70px;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:2;opacity:0;transition:opacity .35s;text-shadow:0 2px 10px rgba(0,0,0,.9)}
+#banner.on{opacity:1}
+#banner b{display:block;font:900 italic clamp(26px,4vw,44px)/1 var(--display);text-transform:uppercase}
+#banner small{display:block;font:600 12px var(--mono);color:#dfe6ef;margin-top:5px;letter-spacing:.06em}
+#toast{position:fixed;left:50%;top:120px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
+#toast.on{opacity:1}
+#loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg)}
+#loading .panel{max-width:440px;text-align:center}
+#loading h1{font:900 34px/1 var(--display);text-transform:uppercase;margin:0 0 8px}
+#help{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
+#help.on{display:grid}
+#help .panel{max-width:min(720px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:18px 20px}
+#help h2{font:900 26px/1 var(--display);text-transform:uppercase;margin:0 0 10px}
+#help h3{font:800 16px/1 var(--display);text-transform:uppercase;margin:16px 0 6px}
+#help p,#help li{font-size:13.5px;color:#d3dbe6}
+#help ul{padding-left:18px;margin:6px 0}
+.tabs{display:none}
+/* phones and narrow windows: the bench becomes a bottom sheet */
+@media (max-width:860px){
+  #lab,#res{left:8px;right:8px;width:auto;top:auto;bottom:calc(58px + env(safe-area-inset-bottom));max-height:38vh;border-radius:12px;padding:10px}
+  #lab[hidden],#res[hidden]{display:none}
+  .tabs{display:flex;position:fixed;left:8px;right:8px;bottom:calc(58px + 38vh + 6px + env(safe-area-inset-bottom));gap:5px;z-index:3;justify-content:center}
+  .tabs.closed{bottom:calc(58px + env(safe-area-inset-bottom))}
+  #time{left:8px;right:8px;bottom:calc(6px + env(safe-area-inset-bottom));transform:none;width:auto;gap:5px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;padding:6px 8px!important;scrollbar-width:none}
+  #time::-webkit-scrollbar{display:none}
+  #time button{padding:6px 7px;font-size:11.5px}
+  #scale{flex-wrap:nowrap}
+  #clock{min-width:96px;font-size:11px}
+  #clock small{font-size:9px}
+  .top .hide-sm{display:none}
+  .top .plate b{font-size:16px}.top .plate span{font-size:8px}
+  .top button,.top select{padding:5px 7px;font-size:11.5px}
+  #banner{top:64px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* liquids additions */
+.field{display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;font-size:12px;color:var(--mute)}
+.field select{width:100%}
+.opts{margin-top:4px}
+.chipline{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.chipline button{padding:5px 8px}
+
+.presets button.feature[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+.presets button[aria-pressed="true"] small{color:#46536a}
+#go{width:100%;margin-top:12px;padding:10px;font:800 16px var(--display);letter-spacing:.06em;text-transform:uppercase;background:var(--masp);border-color:var(--masp);color:#fff}
+#go:hover{filter:brightness(1.1)}
+.bar{height:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:6px;display:flex}
+.bar i{display:block;height:100%}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.bpa{font-size:12px;color:#cfd8e3;margin:6px 0 0}
+.bpa b{color:var(--ink)}
+.exports{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-top:6px}
+.exports button{white-space:normal;line-height:1.2}
+.exports small{display:block;color:var(--mute);font-weight:500;font-size:10px}
+#res .warnline{color:var(--warn);font-size:12px;margin-top:6px}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="3D view of the liquids lab. Drag to orbit, scroll or pinch to zoom."></canvas>
+<canvas id="view2d" aria-hidden="true"></canvas>
+
+<div class="top">
+  <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span>Liquids lab</span></a>
+  <div class="row">
+    <select id="tier" title="Simulation quality (Auto picks one for this device)" aria-label="Quality"></select>
+    <button id="bStrings" aria-pressed="false" title="Bloodstain pattern analysis: strings from the stains back to the origin (S)">Strings</button>
+    <button id="bCam" class="hide-sm" title="Camera views (C)">Camera</button>
+    <button id="bReset" title="Run the scene again (R)">Again</button>
+    <button id="bHelp" title="How it works (H)">?</button>
+  </div>
+</div>
+
+<div class="tabs" id="tabs" role="tablist">
+  <button id="tLab" role="tab" aria-pressed="true">Scene</button>
+  <button id="tRes" role="tab" aria-pressed="false">Results</button>
+  <button id="tHide" role="tab" aria-pressed="false">Hide</button>
+</div>
+
+<aside id="lab" class="panel" aria-label="Scene">
+  <h2>Scene <small id="sTier"></small></h2>
+  <div class="presets" id="scenes"></div>
+  <div id="opts" class="opts"></div>
+  <button id="go" title="Run (Space)">Go</button>
+  <p class="note" id="goNote"></p>
+</aside>
+
+<aside id="res" class="panel" aria-label="Results">
+  <h2>Result <small id="rWhat"></small></h2>
+  <p id="outcome">Pick a scene and press Go.</p>
+  <div class="kv" id="kv"></div>
+  <div class="bar" id="vbar" title="Where the liquid is: puddle, in the air, stains, absorbed"></div>
+  <div class="note" id="vlegend"></div>
+  <h2>Stain analysis <small>bloodstain patterns</small></h2>
+  <div class="field"><select id="bpaSurf" aria-label="Surface to analyse"></select></div>
+  <p class="bpa" id="bpaText">The stains appear here once something has landed.</p>
+  <h2>Export <small>Unreal · Unity · Blender</small></h2>
+  <div class="exports">
+    <button id="xGlb" title="Binary glTF: the liquid as a flipbook, the glass and shards animated, the stains as decals">glTF<small>.glb animated</small></button>
+    <button id="xStains" title="Every stain: centre, normal, tail, size, impact angle, time">Stains<small>.json decals</small></button>
+    <button id="xPly" title="This moment's particles and drops as a point cloud">Points<small>.ply cache</small></button>
+  </div>
+  <h2>Events <small>engine log</small></h2>
+  <div id="log"></div>
+</aside>
+
+<div id="time" class="panel" style="padding:8px 10px">
+  <button id="bPlay" title="Pause / play (P)" aria-pressed="false">Pause</button>
+  <div class="row" id="scale" role="group" aria-label="Playback speed"></div>
+  <button id="bAuto" aria-pressed="true" title="Slow down automatically for the fast moments (A)">Bullet time</button>
+  <div id="clock">0.000 s<small>1× · real time</small></div>
+  <span id="limit"></span>
+</div>
+
+<div id="banner"><b id="bTitle"></b><small id="bSub"></small></div>
+<div id="toast" role="status"></div>
+
+<div id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><h2 id="helpTitle">Liquids Lab</h2><button id="bHelpClose">Close</button></div>
+    <p>Every splash, drop and stain here is computed, not animated. The page runs <b>Liquid Dynamics</b>, a C++ fluid engine compiled to WebAssembly, and only draws what it returns. Panes of glass are broken by <b>Glass Dynamics</b>, the engine behind the <a href="../glass/" style="color:var(--ice)">Glass lab</a>, running alongside it.</p>
+    <h3>Controls</h3>
+    <ul>
+      <li>Pick a scene, set it up, press <b>Go</b> (<kbd>Space</kbd>). <kbd>R</kbd> runs it again with the same seed: the result is deterministic.</li>
+      <li>In the shot scene, <b>click anything in the room to aim and fire</b> there; <kbd>F</kbd> or <b>Fire</b> shoots again at the same spot, as often as you like. Each pane takes every hit. <b>Follow the round</b> (<kbd>T</kbd>) rides beside the round in bullet time.</li>
+      <li>Drag to orbit, scroll or pinch to zoom, <kbd>C</kbd> cycles the camera. <b>Bullet time</b> slows the clock down by itself for the fast moments (a round crosses the room in 8 ms) and back up for the drops.</li>
+      <li><b>Strings</b> (<kbd>S</kbd>) does what a bloodstain analyst does with string at a scene: a line back from every measurable stain to where they converge, and up to the height the stain shapes give. The true origin, which the simulation knows, is drawn beside it.</li>
+      <li><b>Export</b> writes a binary glTF (.glb) that Unreal (Interchange) and Unity (glTFast) import: the liquid surface as a flipbook of meshes, the drops, the glass and every shard with its motion, and the stains as decals. The stains also come as JSON for placing decals yourself, and the particles as a PLY point cache for Houdini or Blender.</li>
+    </ul>
+    <h3>What is solved</h3>
+    <ul>
+      <li><b>The liquid:</b> smoothed-particle hydrodynamics held incompressible by position-based density constraints, with the liquid's own viscosity (shear-thinning for blood: the Cho &amp; Kensey fit), surface tension as a continuum force with its real value, contact-angle hysteresis that stops a spill spreading, and walls handled analytically. Glass and liquid push each other both ways.</li>
+      <li><b>Drops:</b> anything too small for the particles flies as a sphere in air (the standard drag curve; terminal speeds match Gunn &amp; Kinzer's raindrops), breaks up above a Weber number of 12 after the Pilch &amp; Erdman time, and leaves a stain where it lands and stays there: width from Laan et al.'s spreading law (fitted on blood), length from the impact angle, a tail the way it was going, and spines and satellite drops above Mundo's splash threshold.</li>
+      <li><b>Splashes:</b> liquid thrown off faster than 2 m/s relative to the rest tears into drops of a few millimetres, as splash sheets and ligaments do; slower liquid leaves as a blob that rejoins the bulk. A surface keeps a thin film where drops land; what lands beyond it pools back into liquid, so a spill makes a puddle and a spray stays as spatter. Flying drops are drawn along their motion over a frame, as a camera would see them.</li>
+      <li><b>Glassware:</b> the wine glass and the bottle are revolved profiles with their real masses and capacities. When they strike something, the peak force comes from Hertz contact and the wall's own shell flexibility (or the carpet's pile), the wall's bending stress from that force, and a Weibull probability decides whether it breaks. Broken glass becomes Voronoi shards, crowded round the strike, that fly as rigid bodies while the wine escapes between them.</li>
+      <li><b>The dummy</b> is a 78 kg ragdoll (the Hybrid III's mass): its capsules are point masses held at their lengths, joined at the shoulders, hips, knees and elbows, with a rigid trunk. It stands on a release stand until it is hit, then falls under gravity with the momentum the rounds left in it; its wounds, the drips from them and the stains on it go down with it.</li>
+      <li><b>Buckshot:</b> a 12-gauge 00 buck shell is nine 3.5 g pellets in a cylinder-bore pattern, strung out along the path; each is its own round through the glass and the dummy.</li>
+      <li><b>The shot:</b> the round crosses the crash dummy's capsules with Poncelet's resistance (fitted so a 9 mm round penetrates 65 cm of gelatin), throws back spatter from the entry wound and forward spatter from the exit, and the wounds drip afterwards. A pane in front of the dummy or behind it is broken by Glass Dynamics, which hands back the round's remaining speed and the hole.</li>
+    </ul>
+    <h3>Stain analysis</h3>
+    <p>For each elongated stain the impact angle is read from its shape, sin(angle) = width / length, and its tail gives the direction. The lines through the stains converge on the <b>area of convergence</b>; each stain's distance to it times the tangent of its angle gives a height, the <b>area of origin</b>. Drops fly in arcs, not straight lines, so on a floor the straight strings put the origin too high; the panel shows by how much against the truth the simulation knows.</p>
+    <h3>Honest limits</h3>
+    <p>Below the particle size (3 to 8 mm depending on the quality setting) the liquid is drops, not a resolved surface, so a thin film or a fine splash is coarser than life. Glass pieces only a few particles heavy feel the liquid one way. The spatter volumes, drop sizes and speeds from wounds are orders of magnitude from published high-speed films, not fits, and the dummy is a target, not an injury model. The glass strength is calibrated to everyday experience (a knock never breaks a glass, a fall onto tile does), not to a test standard. It's green so it stays G-rated.</p>
+  </div>
+</div>
+
+<div id="loading"><div class="panel"><h1>Liquids Lab</h1><p id="loadMsg">Loading the fluid engine…</p></div></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

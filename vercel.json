@@ -40,6 +40,11 @@
       "source": "/sao-paulo/vehicle-dynamics",
       "destination": "/sao-paulo/vehicle-dynamics/",
       "permanent": true
+    },
+    {
+      "source": "/sao-paulo/liquids",
+      "destination": "/sao-paulo/liquids/",
+      "permanent": true
     }
   ],
   "headers": [
@@ -85,6 +90,15 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/liquids/(.*\\.wasm)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
         }
       ]
     }
