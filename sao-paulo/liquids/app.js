@@ -31,7 +31,16 @@ try {
 try {
   const { default: createGlassModule } = await import('../glass/glass.mjs');
   G = await createGlassModule();
-  const errs = G.load(await (await fetch('../glass/library.json')).text());
+  // The liquid core fires a shot load pellet by pellet: give Glass Dynamics one pellet of it.
+  const glib = await (await fetch('../glass/library.json')).json();
+  const buck = (glib.impactors || []).find((i) => i.id === 'buckshot_00');
+  if (buck) {
+    const one = { ...buck, id: 'buckshot_00_pellet', name: '00 buck pellet', pellets: 1 };
+    for (const k of ['spread_mrad', 'range_m', 'shot_string_m']) delete one[k];
+    if (one.provenance) { one.provenance = { ...one.provenance }; for (const k of ['spread_mrad', 'shot_string_m']) delete one.provenance[k]; }
+    glib.impactors.push(one);
+  }
+  const errs = G.load(JSON.stringify(glib));
   if (errs.length) throw new Error(errs.join('; '));
   gcat = G.catalog();
 } catch (e) {
@@ -137,7 +146,7 @@ function liquidMaterials(id) {
 const SCENES = [
   { id: 'wine_glass', name: 'Wine glass off the table', sub: 'Knocked off the edge, onto the floor', opts: ['liquid', 'floor', 'knock', 'fill'] },
   { id: 'bottle_drop', name: 'Wine bottle on the floor', sub: 'An open bottle let go from a height', opts: ['liquid', 'floor', 'height', 'tilt', 'fill'] },
-  { id: 'gunshot', name: 'Crash dummy: the shot', sub: 'Spatter on the wall, the floor and the glass', opts: ['projectile', 'target', 'pane', 'glazing', 'distance', 'floor'], feature: true },
+  { id: 'gunshot', name: 'Crash dummy: the shot', sub: 'Click to aim, fire as often as you like', opts: ['projectile', 'target', 'pane', 'glazing', 'distance', 'ragdoll', 'floor'], feature: true },
   { id: 'drip', name: 'Drip test', sub: 'Passive drops from seven heights', opts: ['liquid', 'floor', 'height'] },
   { id: 'angles', name: 'Impact-angle card', sub: 'Drops thrown at a wall from 10° to 90°', opts: ['liquid', 'wall'] },
   { id: 'dam_break', name: 'Dam break', sub: 'Martin & Moyce’s water column: the validation case', opts: [] },
@@ -146,7 +155,7 @@ const GLAZINGS = ['annealed_6', 'tempered_6', 'laminated_6_38', 'storefront_temp
 const defaults = {
   wine_glass: { liquid: 'red_wine', floor: 'ceramic_tile', knock: 0.9, fill: 150 },
   bottle_drop: { liquid: 'red_wine', floor: 'ceramic_tile', height: 1.0, tilt: 25, fill: 700 },
-  gunshot: { projectile: 'pistol_9mm_fmj', target: 'chest', pane: 'behind', glazing: 'annealed_6', distance: 3.0, floor: 'concrete' },
+  gunshot: { projectile: 'pistol_9mm_fmj', target: 'chest', pane: 'behind', glazing: 'annealed_6', distance: 3.0, ragdoll: 'on', floor: 'concrete' },
   drip: { liquid: 'stage_blood_green', floor: 'ceramic_tile', height: 2.1 },
   angles: { liquid: 'stage_blood_green', wall: 'painted_drywall' },
   dam_break: {},
@@ -160,7 +169,8 @@ const OPT = {
   liquid: { label: 'Liquid', type: 'select', items: () => cat.liquids.filter((l) => l.id !== 'water' || sceneId !== 'gunshot').map((l) => [l.id, l.name]) },
   floor: { label: 'Floor', type: 'select', items: () => cat.surfaces.filter((s) => ['ceramic_tile', 'oak_floor', 'concrete', 'carpet'].includes(s.id)).map((s) => [s.id, s.name]) },
   wall: { label: 'Wall', type: 'select', items: () => cat.surfaces.filter((s) => ['painted_drywall', 'glass_pane', 'ceramic_tile', 'concrete'].includes(s.id)).map((s) => [s.id, s.name]) },
-  projectile: { label: 'Round', type: 'select', items: () => cat.projectiles.map((p) => [p.id, `${p.name} · ${(p.mass * 1e3).toFixed(1)} g at ${p.speed.toFixed(0)} m/s`]) },
+  projectile: { label: 'Round', type: 'select', items: () => cat.projectiles.map((p) => [p.id, p.pellets > 1 ? `${p.name} · ${p.pellets} × ${(p.mass * 1e3).toFixed(1)} g at ${p.speed.toFixed(0)} m/s` : `${p.name} · ${(p.mass * 1e3).toFixed(1)} g at ${p.speed.toFixed(0)} m/s`]) },
+  ragdoll: { label: 'The dummy', type: 'select', items: () => [['on', 'Falls when hit (ragdoll)'], ['off', 'Stays standing (fixed)']] },
   target: { label: 'Aim', type: 'select', items: () => [['chest', 'Chest'], ['abdomen', 'Abdomen'], ['shoulder', 'Shoulder'], ['thigh', 'Thigh']] },
   pane: { label: 'Glass pane', type: 'select', items: () => [['none', 'No glass'], ['front', 'In front of the dummy (shot through it)'], ['behind', 'Behind the dummy (catches the spatter)']] },
   glazing: { label: 'Glazing', type: 'select', items: () => (gcat ? GLAZINGS.map((id) => gcat.glazings.find((g) => g.id === id)).filter(Boolean).map((g) => [g.id, g.name]) : [['annealed_6', '6 mm annealed (estimate)']]),
@@ -219,12 +229,22 @@ function buildOptions() {
   const notes = {
     wine_glass: 'A sideways knock at the bowl tips it over the table edge; whether it breaks depends on what it lands on and how.',
     bottle_drop: 'Bottles are heavier and thicker: they break less easily, and when they do there is far more wine.',
-    gunshot: G ? 'The pane is broken by Glass Dynamics, which tells the round how fast it carries on.' : 'Glass Dynamics did not load: panes use a built-in estimate.',
+    gunshot: (G ? 'The pane is broken by Glass Dynamics, which tells the round how fast it carries on. ' : 'Glass Dynamics did not load: panes use a built-in estimate. ') + 'Click anything in the room to aim, then Fire (F) as many times as you like; Follow (T) rides along with the round.',
     drip: 'A 50 µl drop from 0.3 to the height you set: drip stains are round, and grow with the fall.',
     angles: 'Each drop meets the card at a known angle; read it back from the stain with sin(angle) = width ÷ length.',
     dam_break: 'The classic validation of a free-surface solver; its front is checked against Martin & Moyce (1952) in the tests.',
   };
   $('goNote').textContent = notes[sceneId] || '';
+  if (sceneId === 'gunshot') {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.style.marginTop = '10px';
+    row.innerHTML = '<button id="bFire" title="Fire at the aim point (F)" style="flex:1;font-weight:800">Fire</button><button id="bFollow" aria-pressed="false" title="Ride along with the round (T)">Follow the round</button>';
+    box.appendChild(row);
+    row.querySelector('#bFire').onclick = () => fireShot();
+    row.querySelector('#bFollow').onclick = () => setFollow(!follow);
+    row.querySelector('#bFollow').setAttribute('aria-pressed', String(follow));
+  }
 }
 
 // ---------- World and its visuals ----------
@@ -332,35 +352,59 @@ function addCollider(c) {
     return m;
   }
   if (c.kind === 'capsule') {
+    // A group along its own +y about the capsule's centre, so the ragdoll can move it.
     const a = new THREE.Vector3(...c.a), b = new THREE.Vector3(...c.b);
     const len = a.distanceTo(b);
+    const g = new THREE.Group();
     const m = new THREE.Mesh(new THREE.CapsuleGeometry(c.radius, Math.max(len, 1e-4), 6, 16), dummyMat);
-    m.position.copy(a).add(b).multiplyScalar(0.5);
-    if (len > 1e-6) m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
     m.castShadow = m.receiveShadow = true;
-    world.add(m);
+    g.add(m);
     // Black joint rings, crash-test style.
     if (/upper arm|thigh|forearm|shin/.test(c.name)) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(c.radius * 1.01, c.radius * 0.18, 8, 20), jointMat);
-      ring.position.copy(a); ring.quaternion.copy(m.quaternion).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)));
-      world.add(ring);
+      ring.position.set(0, -len / 2, 0); ring.rotation.x = Math.PI / 2;
+      g.add(ring);
     }
     if (c.name === 'head') {
       // The calibration target on the side of the head.
       const disc = new THREE.Mesh(new THREE.CircleGeometry(c.radius * 0.45, 24), new THREE.MeshBasicMaterial({ color: 0x111111 }));
-      disc.position.set(c.pos[0] + c.radius * 1.01, c.pos[1], c.pos[2]); disc.rotation.y = Math.PI / 2; world.add(disc);
+      disc.position.set(c.radius * 1.01, 0, 0); disc.rotation.y = Math.PI / 2; g.add(disc);
       const half = new THREE.Mesh(new THREE.CircleGeometry(c.radius * 0.45, 24, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xf2b711 }));
-      half.position.copy(disc.position).x += 0.0005; half.rotation.y = Math.PI / 2; world.add(half);
-      const half2 = half.clone(); half2.rotation.z = Math.PI; world.add(half2);
+      half.position.set(c.radius * 1.015, 0, 0); half.rotation.y = Math.PI / 2; g.add(half);
+      const half2 = half.clone(); half2.rotation.z = Math.PI; g.add(half2);
     }
-    return m;
+    placeCapsule(g, a, b);
+    g.userData.collider = c.id;
+    world.add(g);
+    return g;
   }
   return null;
 }
 
+function placeCapsule(g, a, b) {
+  g.position.copy(a).add(b).multiplyScalar(0.5);
+  const e = b.clone().sub(a);
+  if (e.lengthSq() > 1e-12) g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), e.normalize());
+}
+
 const MAX_STAINS = 24000;
+// Auto quality per scene: the cost of a step grows with the particles, so a
+// 700 ml bottle gets coarser particles than a 150 ml glass on the same device.
+function sceneTier() {
+  if (tierChoice !== 'auto') return +tierChoice;
+  const S = settings[sceneId];
+  const litres = sceneId === 'wine_glass' || sceneId === 'bottle_drop' ? (S.fill || 150) * 1e-6
+    : sceneId === 'dam_break' ? 0.146 * 0.292 * 0.02 : 0;
+  if (!litres) return bench.tier;
+  for (let t = bench.tier; t > 0; --t) {
+    const h = cat.tiers[t].spacing, n = 1.05 * litres / (h * h * h);
+    if (bench.ms * n / 2000 <= 4) return t;
+  }
+  return 0;
+}
 function go() {
   const S = settings[sceneId];
+  if (tierChoice === 'auto') { const t = sceneTier(); if (t !== tier) { tier = t; resize(); } }
   const config = { scenario: sceneId, tier, seed: P && P.again ? P.seed : (P ? P.seed + 1 : 1) };
   if (S.liquid) config.liquid = S.liquid;
   if (S.floor) config.floor = S.floor;
@@ -371,7 +415,7 @@ function go() {
   if (S.tilt !== undefined) config.tilt_deg = S.tilt;
   let paneGlazing = -1;
   if (sceneId === 'gunshot') {
-    Object.assign(config, { projectile: S.projectile, target: S.target, distance_m: S.distance, pane: S.pane, glazing: S.glazing });
+    Object.assign(config, { projectile: S.projectile, target: S.target, distance_m: S.distance, pane: S.pane, glazing: S.glazing, ragdoll: S.ragdoll !== 'off' });
     if (S.pane !== 'none' && G) {
       paneGlazing = gcat.glazings.findIndex((g) => g.id === S.glazing);
       if (paneGlazing >= 0) {
@@ -390,8 +434,10 @@ function go() {
     colliders: info.colliders, bodies: [], meshesDirty: true, paneGlazing, pane: null, log: [], outcome: '',
     lastBreak: -1, lastSource: -1, bpaAt: -1, bpaStains: -1, recordFps: sceneId === 'gunshot' ? 240 : 60,
   };
+  P.capsules = [];
   for (const c of info.colliders) {
     const m = addCollider(c);
+    if (c.role === 'dummy') P.capsules.push(m);
     if (c.role === 'pane') P.pane = { collider: c, mesh: m, cracks: null, cracksFrom: [], offset: null, collapsed: false, nGlass: 0, shots: 0 };
   }
   // Glass Dynamics pane for the strike.
@@ -424,7 +470,7 @@ function go() {
   P.stains.count = 0; P.stains.frustumCulled = false;
   world.add(P.stains);
   // The round and its tracer.
-  P.bullet = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.0045, 0.016, 12), new THREE.MeshStandardMaterial({ color: 0xc89a4a, metalness: 0.9, roughness: 0.25 }));
+  P.bullet = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.0045, 0.016, 12), new THREE.MeshStandardMaterial({ color: 0xc89a4a, metalness: 0.9, roughness: 0.25, emissive: 0x6a4a10 }));
   P.bullet.visible = false; world.add(P.bullet);
   P.tracer = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0.55 }));
   P.tracer.frustumCulled = false; world.add(P.tracer);
@@ -440,12 +486,17 @@ function go() {
     const a = new THREE.Vector3(...info.muzzle), b = new THREE.Vector3(...info.aim);
     mz.position.copy(a).addScaledVector(b.clone().sub(a).normalize(), -0.09);
     mz.lookAt(b); world.add(mz);
+    P.muzzle = a; P.muzzleMesh = mz; P.aim = b.clone();
+    P.aimMark = new THREE.Mesh(new THREE.RingGeometry(0.012, 0.018, 24), new THREE.MeshBasicMaterial({ color: 0xff4b3e, depthTest: false, transparent: true }));
+    P.aimMark.renderOrder = 10; P.aimMark.position.copy(b); P.aimMark.lookAt(a); world.add(P.aimMark);
+    P.shots = 1;
   }
   L.lqd_record(P.recordFps, 900);
   L.lqd_capture();
   syncBodies();
   $('log').textContent = '';
   $('rWhat').textContent = SCENES.find((s) => s.id === sceneId).name;
+  $('sTier').textContent = `${TIER_NAMES[tier]} · ${bench.ms.toFixed(1)} ms/step`;
   buildBpaSurfaces();
   frameCamera(false);
   const s = L.state();
@@ -496,13 +547,21 @@ function drawLiquid(t) {
     P.surface.geometry.dispose();
     P.surface.geometry = new THREE.BufferGeometry();
   }
-  const d = L.drops(), n = Math.min(d.length / 4, P.maxDrops);
-  // Drawn no smaller than about a pixel and a half, so fine mist stays visible.
+  const d = L.drops(), n = Math.min(d.length / 8, P.maxDrops);
+  // Drawn no smaller than about a pixel and a half, so fine mist stays visible,
+  // and drawn along their motion over the frame (what a camera's shutter sees),
+  // so a flying drop reads as liquid, not a bead.
   const px = 1.5 * 2 * Math.tan(camera.fov * Math.PI / 360) / Math.max(window.innerHeight, 1);
+  const shutter = 0.5 * (1 / 60) * scaleNow;
   for (let i = 0; i < n; ++i) {
-    V.set(d[4 * i], d[4 * i + 1], d[4 * i + 2]);
-    const r = Math.max(0.5 * d[4 * i + 3], px * camera.position.distanceTo(V) * 0.5);
-    M4.compose(V, Q.identity(), S3.set(r, r, r));
+    const o = 8 * i;
+    V.set(d[o], d[o + 1], d[o + 2]);
+    const r = Math.max(0.5 * d[o + 3], px * camera.position.distanceTo(V) * 0.5);
+    X.set(d[o + 4], d[o + 5], d[o + 6]);
+    const sp = X.length();
+    const stretch = clamp(1 + sp * shutter / r, 1, 14);
+    if (sp > 1e-6) Q.setFromUnitVectors(Y.set(0, 1, 0), X.multiplyScalar(1 / sp)); else Q.identity();
+    M4.compose(V, Q, S3.set(r / Math.sqrt(stretch * 0.8 + 0.2), r * stretch, r / Math.sqrt(stretch * 0.8 + 0.2)));
     P.drops.setMatrixAt(i, M4);
   }
   P.drops.count = n;
@@ -545,8 +604,36 @@ function drawRounds(t) {
     }
     if (pts.length >= 2 && t > pr[o + 8]) P.tracer.geometry.setFromPoints(pts);
   }
-  // Wound marks.
+  // The ragdoll.
+  const rd = L.dummy();
+  if (rd.length && P.capsules) {
+    for (let k = 0; k < rd.length / 7 && k < P.capsules.length; ++k)
+      placeCapsule(P.capsules[k], V.set(rd[7 * k], rd[7 * k + 1], rd[7 * k + 2]), X.set(rd[7 * k + 3], rd[7 * k + 4], rd[7 * k + 5]));
+    // Stains on it ride along.
+    const ds = L.dummyStains();
+    for (let i = 0; i < ds.length / 10; ++i) {
+      const o = 10 * i, k = ds[o];
+      const st = P.stainList[k];
+      if (!st || k >= MAX_STAINS) continue;
+      Z.set(ds[o + 4], ds[o + 5], ds[o + 6]).normalize();
+      X.set(ds[o + 7], ds[o + 8], ds[o + 9]); X.addScaledVector(Z, -X.dot(Z));
+      if (X.lengthSq() < 1e-10) X.set(1, 0, 0).addScaledVector(Z, -Z.x);
+      X.normalize(); Y.crossVectors(Z, X); B.makeBasis(X, Y, Z); Q.setFromRotationMatrix(B);
+      V.set(ds[o + 1], ds[o + 2], ds[o + 3]).addScaledVector(Z, 0.0006);
+      M4.compose(V, Q, S3.set(0.5 * st[10], 0.5 * st[9], 1));
+      P.stains.setMatrixAt(k, M4);
+    }
+    if (ds.length) P.stains.instanceMatrix.needsUpdate = true;
+  }
+  // Wound marks (they move with the dummy).
   const w = L.wounds(), nw = w.length / 8;
+  for (let k = 0; k < Math.min(P.wounds, nw); ++k) {
+    const o = 8 * k, disc = P.woundGroup.children[k];
+    if (!disc) continue;
+    Z.set(w[o + 3], w[o + 4], w[o + 5]);
+    disc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), Z);
+    disc.position.set(w[o], w[o + 1], w[o + 2]).addScaledVector(Z, 0.001);
+  }
   for (let k = P.wounds; k < nw; ++k) {
     const o = 8 * k;
     const disc = new THREE.Mesh(new THREE.CircleGeometry(w[o + 6] ? 0.012 : 0.006, 16), new THREE.MeshBasicMaterial({ color: lin(liquid.stainColor) }));
@@ -568,7 +655,10 @@ function resolvePanes() {
     if (G && P.pane && P.paneGlazing >= 0) {
       let imp = gcat.impactors.findIndex((x) => x.id === s.impactor);
       if (imp < 0) imp = gcat.impactors.findIndex((x) => x.id === 'pistol_9mm');
-      const k = G.state()[3];
+      // One pane for every strike: bring its clock to the strike's moment first.
+      if (P.pane.offset === null) P.pane.offset = s.time - G.gls_time();
+      else G.gls_advance(Math.max(G.gls_time(), s.time - P.pane.offset), 200000);
+      const k = G.state()[3], openBefore = G.state()[9];
       const h = G.gls_fire(imp, s.x, s.y, s.speed, s.yaw, s.pitch, s.fromBack ? 1 : 0, 0.01);
       const which = h >= 0 ? h : k;
       // The strike itself is over within a few hundred microseconds.
@@ -582,10 +672,9 @@ function resolvePanes() {
       const gs = G.state();
       const pen = rep.v[11] > 0, out = pen ? rep.v[1] : 0;
       const W = P.pane.collider.half[0] * 2, H = P.pane.collider.half[1] * 2;
-      const open = gs[9];
+      const open = gs[9] - openBefore;  // what this strike opened
       const hole = clamp(Math.sqrt(Math.max(open, 0) / Math.PI), 0.004, 0.5 * Math.min(W, H));
       L.lqd_resolve_strike(0, pen ? 1 : 0, out, pen ? hole : 0, 0);
-      P.pane.offset = s.time - G.gls_time();
       P.pane.shots++;
       P.log.push({ time: s.time, text: `Glass Dynamics: ${rep.outcome}` });
     } else {
@@ -690,6 +779,57 @@ function drawStrings() {
   if (r.truth) P.truth.position.set(...r.trueOrigin);
 }
 
+// ---------- Aim, fire, follow ----------
+let follow = store.get('follow', false), followCam = null;
+function setFollow(on) {
+  follow = on; store.set('follow', on);
+  const b = $('bFollow'); if (b) b.setAttribute('aria-pressed', String(on));
+  if (!on && followCam) { Object.assign(cam, followCam); followCam = null; applyCamera(); }
+}
+function fireShot() {
+  if (!P || sceneId !== 'gunshot' || !P.muzzle) return;
+  const k = cat.projectiles.findIndex((p) => p.id === settings.gunshot.projectile);
+  const d = P.aim.clone().sub(P.muzzle);
+  L.lqd_shoot(Math.max(0, k), P.muzzle.x, P.muzzle.y, P.muzzle.z, d.x, d.y, d.z, 0, 0.002);
+  P.shots++;
+  P.lastShot = L.lqd_time();
+  if (auto) scaleNow = Math.min(scaleNow, 0.01);
+  toast(`Shot ${P.shots}`);
+}
+function aimAt(clientX, clientY) {
+  if (!P || sceneId !== 'gunshot' || !P.muzzle) return false;
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(ndc, camera);
+  const targets = [];
+  world.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && o !== P.surface && o !== P.aimMark && o !== P.muzzleMesh && o !== P.bullet && o.visible) targets.push(o); });
+  const hit = ray.intersectObjects(targets, false)[0];
+  if (!hit) return false;
+  P.aim.copy(hit.point);
+  P.aimMark.position.copy(hit.point);
+  P.aimMark.lookAt(P.muzzle);
+  P.muzzleMesh.lookAt(hit.point);
+  return true;
+}
+function followRound() {
+  if (!follow || !P) return;
+  const pr = L.projectiles();
+  let best = -1;
+  for (let k = 0; k < pr.length; k += 10) if (pr[k + 7] === STATE.FLYING || pr[k + 7] === STATE.AT_PANE) { best = k; break; }
+  if (best < 0) {
+    if (followCam && L.lqd_time() - (P.lastShot ?? 0) > 0.05) { Object.assign(cam, followCam); followCam = null; applyCamera(); }
+    return;
+  }
+  if (!followCam) followCam = { ...cam };
+  const pos = new THREE.Vector3(pr[best], pr[best + 1], pr[best + 2]), dir = new THREE.Vector3(pr[best + 3], pr[best + 4], pr[best + 5]);
+  const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+  // Beside and a little behind the round, looking along its path: the round,
+  // and what it is about to hit, both in view.
+  camera.position.copy(pos).addScaledVector(dir, -0.45).addScaledVector(side, 0.55).add(new THREE.Vector3(0, 0.12, 0));
+  camera.lookAt(pos.clone().addScaledVector(dir, 0.12));
+}
+
 // ---------- Clock ----------
 let playing = true, auto = store.get('auto', true), scaleManual = store.get('scale', 1), scaleNow = 1;
 let msPerStep = 2, limited = false, stringsOn = store.get('strings', false);
@@ -716,17 +856,25 @@ function autoTarget() {
   }
   let newest = -1;
   for (const e of P.log) newest = Math.max(newest, e.time);
-  const sinceShot = pr.length ? t - pr[8] : 1e9;
+  let lastLaunch = -1;
+  for (let k = 0; k < pr.length; k += 10) lastLaunch = Math.max(lastLaunch, pr[k + 8]);
+  const sinceShot = lastLaunch >= 0 ? t - lastLaunch : 1e9;
   if (sinceShot < 0.03) return 0.01;
   if (sinceShot < 0.4) return 0.1;
   // Glassware about to land, or just broken.
-  if (P.lastBreak >= 0 && t - P.lastBreak < 0.12) return 0.05;
+  if (P.lastBreak >= 0 && t - P.lastBreak < 0.08) return 0.1;
+  if (P.lastBreak >= 0 && t - P.lastBreak < 0.3) return 0.35;
+  // Glassware about to land: slow only for the last few hundredths of a second.
   const b = L.bodies();
-  for (let i = 0; i < b.length; i += 12) {
-    if (b[i + 7] > 0 && b[i + 8] < 0 && b[i + 1] < 0.32 && t > 0.15 && !(P.lastBreak >= 0)) {
-      return 0.1;
+  if (P.lastBreak < 0 && P.prevBodies) {
+    for (let i = 0; i < b.length; i += 12) {
+      if (b[i + 7] <= 0 || b[i + 8] >= 0) continue;
+      const vy = (b[i + 1] - P.prevBodies[i + 1]) / Math.max(t - P.prevBodiesT, 1e-6);
+      const h = b[i + 1] - 0.12;
+      if (vy < -0.5 && h / -vy < 0.04) { P.prevBodies = b.slice(); P.prevBodiesT = t; return 0.1; }
     }
   }
+  if (!P.prevBodies || t - P.prevBodiesT > 0.01) { P.prevBodies = b.slice(); P.prevBodiesT = t; }
   if (sceneId === 'drip' || sceneId === 'angles') return st[4] < 1 ? 0.25 : 1;
   if (sceneId === 'dam_break') return 0.25;
   return 1;
@@ -754,7 +902,12 @@ function updateReadouts() {
   const nb = s[5];
   if (nb > 0) kv.push(['Glass', s[17] > 0 ? `broken · ${nb - 1} pieces` : 'intact']);
   const pr = L.projectiles();
-  if (pr.length) kv.push(['Round', pr[7] === STATE.STOPPED ? 'stopped' : `${pr[6].toFixed(0)} m/s`]);
+  if (pr.length) {
+    let live = -1;
+    for (let k = 0; k < pr.length; k += 10) if (pr[k + 7] === STATE.FLYING || pr[k + 7] === STATE.AT_PANE) live = k;
+    const n = pr.length / 10;
+    kv.push([n > 1 ? `Rounds (${n})` : 'Round', live < 0 ? 'all stopped' : `${pr[live + 6].toFixed(0)} m/s in flight`]);
+  }
   if (s[23] > 0) kv.push(['Wounds', `${s[23]} · dripping ${ml(s[27])}`]);
   kv.push(['Steps', `${s[7].toLocaleString('en')} · next ${(s[22] * 1e6).toFixed(0)} µs`]);
   $('kv').innerHTML = kv.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
@@ -831,7 +984,13 @@ function applyCamera() {
 {
   const ptrs = new Map();
   let pinch = 0;
-  canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); });
+  let down = null;
+  canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  canvas.addEventListener('click', (e) => {
+    // A click (not a drag) in the shot scene aims there and fires.
+    if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6 || performance.now() - down.t > 400) return;
+    if (aimAt(e.clientX, e.clientY)) fireShot();
+  });
   canvas.addEventListener('pointermove', (e) => {
     const p = ptrs.get(e.pointerId);
     if (!p) return;
@@ -921,6 +1080,8 @@ function setupUi() {
     else if (k === 'a') $('bAuto').click();
     else if (k === 's') $('bStrings').click();
     else if (k === 'c') $('bCam').click();
+    else if (k === 'f') fireShot();
+    else if (k === 't') setFollow(!follow);
     else if (k === 'h' || k === '?') $('help').classList.toggle('on');
     else if (k === 'escape') $('help').classList.remove('on');
     else if (k >= '1' && k <= '5') { auto = false; scaleManual = SCALES[+k - 1][0]; buildScaleButtons(); syncAuto(); }
@@ -959,6 +1120,7 @@ function frame(now) {
   drawLiquid(t);
   drawRounds(t);
   stepPane(t);
+  followRound();
   if ((uiTick += dt) > 0.15) {
     uiTick = 0;
     updateReadouts();
@@ -979,3 +1141,5 @@ resize();
 go();
 $('loading').remove();
 requestAnimationFrame(frame);
+// For the browser console: the engines and the current run.
+window.liquidsLab = { L, G, get run() { return P; }, get msPerStep() { return msPerStep; } };
