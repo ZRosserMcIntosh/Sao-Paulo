@@ -8,7 +8,14 @@
 <meta name="description" content="Break glass in your browser: annealed, tempered, laminated, bullet-resistant and aircraft glazing hit by balls, hail, birds, tools and bullets, solved by the Glass Dynamics C++ fracture core compiled to WebAssembly, down to 1/100,000 speed.">
 <meta property="og:title" content="São Paulo World · Glass Lab">
 <meta property="og:description" content="Real fracture physics for every kind of glass, in ultra slow motion.">
-<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/glass/og.jpg?v=1">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A 9 lb cannonball bursting a 10 mm annealed glass plate into flying shards">
+<meta property="og:type" content="website">
+<meta name="twitter:image" content="https://zrossermcintosh.com/sao-paulo/glass/og.jpg?v=1">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/glass/">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -58,6 +65,13 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .chips .cat{width:100%;font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin:6px 0 1px}
 .stack{display:flex;height:22px;border-radius:4px;overflow:hidden;border:1px solid var(--line);margin-top:8px}
 .stack i{display:block;height:100%;min-width:2px}
+.layers{display:grid;gap:6px;margin-top:8px}.layers:empty{display:none}
+.layer{display:grid;grid-template-columns:auto 1fr auto;gap:4px 6px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px}
+.layer b{font:600 11px var(--mono);color:var(--mute)}
+.layer select{min-width:0}
+.layer .gap{grid-column:1/-1;display:flex;gap:8px;align-items:center;color:var(--mute)}
+.layer .gap input{flex:1}
+.addlayer{margin-top:8px;width:100%;background:transparent;border-style:dashed;color:var(--ice)}
 .stack .glass{background:linear-gradient(180deg,#bfe3ff,#7cbfe8)}.stack .glass.tempered{background:repeating-linear-gradient(90deg,#9fd0f5 0 3px,#cbe9ff 3px 6px)}
 .stack .glass.chem{background:linear-gradient(90deg,#3d8fd1,#bfe3ff 18%,#bfe3ff 82%,#3d8fd1)}
 .stack .interlayer{background:#f1c96a}.stack .polymer{background:#d9dde3}
@@ -144,6 +158,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <button id="bStress" aria-pressed="false" title="Stress seen through crossed polarisers (S)">Stress</button>
     <button id="bCam" class="hide-sm" title="Camera: front, three-quarter, side (C)">Camera</button>
     <button id="bReset" title="New pane (R)">New pane</button>
+    <button id="bShare" title="Copy a link to exactly this setup and shot">Share</button>
     <a class="how" href="how/" title="How every number is calculated: the equations, the data and their sources">How it works</a>
     <button id="bHelp" title="Help (H)">?</button>
   </div>
@@ -161,6 +176,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <div class="stack" id="stack" title="Layup, front (struck) face on the left"></div>
   <p class="desc" id="gDesc"></p>
   <div class="std" id="gStd"></div>
+  <div class="layers" id="layers"></div>
+  <button id="bAddLayer" class="addlayer" title="Put another pane behind this one, with a gap between: what comes through, and every flying piece of glass, hits it">+ Add a pane behind</button>
 
   <h2>Object <small id="iMass"></small></h2>
   <div class="chips" id="impactors"></div>
@@ -184,6 +201,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 <aside id="res" class="panel" aria-label="Results">
   <h2>Result <small id="rWhat"></small></h2>
   <p id="outcome">Pick a glass and an object, then fire.</p>
+  <div class="kv" id="stackRes" hidden></div>
   <div class="kv" id="kv"></div>
   <h2>Plies</h2>
   <div class="plies" id="plies"></div>
@@ -216,6 +234,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <li>Drag to orbit, scroll or pinch to zoom. <kbd>C</kbd> cycles the camera.</li>
       <li>Playback runs from real time down to <b>1/100,000</b>: one second on screen is ten microseconds of glass. <b>Bullet time</b> slows down by itself as the object arrives and the cracks run, then speeds back up for the falling pieces.</li>
       <li><b>Sound</b> (<kbd>M</kbd>) is synthesized from what the engine reports: each glass has its own voice (annealed cracks and crashes, tempered bursts into a hiss and rains dice, laminate crunches, armour thumps), and in bullet time everything drops in pitch and stretches out.</li>
+      <li><b>+ Add a pane behind</b> (under the glass list) stacks up to four panes of any glass with the gap you choose; the object and the flying shards of each pane hit the next one for real.</li>
+      <li><b>Share</b> copies a link to exactly this setup and shot: whoever opens it sees the same glass, the same shot and the same cracks.</li>
       <li><kbd>S</kbd> shows the bending stress as a photoelastic fringe pattern, <kbd>R</kbd> fits a new pane, <kbd>Z</kbd> replays the last shot exactly (the fracture is deterministic).</li>
     </ul>
     <h3>What is solved</h3>

@@ -22,7 +22,7 @@ const TIER_NAMES = ['Potato', 'Low', 'Medium', 'High', 'Ultra'];
 const PH = { FLIGHT: 0, CONTACT: 1, BALLISTIC: 2, MEMBRANE: 3, DONE: 4 };
 const KIND = { SPHERE: 0, SHARP: 1, FLAT: 2, PROJECTILE: 3, SOFT: 4 };
 const CAT_LABEL = { architectural: 'Buildings', automotive: 'Cars', aviation: 'Aircraft', security: 'Bullet-resistant',
-  test: 'Test standards', everyday: 'Everyday', tool: 'Tools', weather: 'Weather', ballistic: 'Firearms', explosive: 'Explosives', artillery: 'Artillery' };
+  test: 'Test standards', everyday: 'Everyday', tool: 'Tools', weather: 'Weather', ballistic: 'Firearms', explosive: 'Explosives', artillery: 'Artillery', debris: 'Debris' };
 
 // ---------- Engine ----------
 let G, cat;
@@ -1374,6 +1374,7 @@ function impactorMesh(def) {
       break;
     }
     case 'cannonball_9lb': body = new THREE.Mesh(new THREE.SphereGeometry(r, 36, 20), std(0x2b2a29, { metalness: 0.55, roughness: 0.62 })); break;
+    case 'glass_shard': body = new THREE.Mesh(new THREE.TetrahedronGeometry(r), std(0xcfe8ef, { transparent: true, opacity: 0.6, roughness: 0.05, metalness: 0.1, flatShading: true })); break;
     case 'grenade_fragment': body = new THREE.Mesh(new THREE.TetrahedronGeometry(r * 1.3), std(0x3c3a38, { metalness: 0.7, roughness: 0.5, flatShading: true })); break;
     case 'buckshot_00': body = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10), std(0x8e9196, { metalness: 0.6, roughness: 0.45 })); break;
     case 'golf_ball': body = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 3), std(0xffffff, { roughness: 0.35, flatShading: true })); break;
@@ -1476,6 +1477,15 @@ function approachScale(def, lead) {
 
 function replay() {
   if (HS && HS.active) { HS.restart(true); return; }
+  if (stackOn) {
+    const shots = rigs[0].P.shots.slice();
+    if (!shots.length) { toast('Nothing to replay yet'); return; }
+    buildStack(rigs.map((r) => r.P.seed));
+    P.shots = shots;
+    P.pendingShots = shots.slice();
+    simClockReset();
+    return;
+  }
   if (!P || !P.shots.length) { toast('Nothing to replay yet'); return; }
   const shots = P.shots.slice();
   newPane(P.seed, true);
@@ -1760,8 +1770,9 @@ if (R) HS = createHouseScene({ THREE, scene, camera, cam, applyCamera, FLOOR, ti
 let camMode = 0;
 function frameCamera(keepAngles = true) {
   if (activeScene()) { activeScene().frameCamera(); return; }
-  const m = Math.max(P.W, P.H);
-  cam.tx = 0; cam.ty = FLOOR + P.H / 2; cam.tz = -P.T / 2;
+  const depth = stackDepthTotal();
+  const m = Math.max(P.W, P.H, 0.8 * depth);
+  cam.tx = 0; cam.ty = FLOOR + P.H / 2; cam.tz = -depth / 2;
   if (!keepAngles) {
     const presets = [[-0.55, 1.32, 2.2], [0, Math.PI / 2 - 0.02, 1.9], [-1.25, 1.42, 2.0]];
     const [t, p, r] = presets[camMode];
@@ -1841,7 +1852,8 @@ function endPointer(e) {
     const rect = canvas.getBoundingClientRect();
     HS.pick(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
   }
-  if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && P && !rigs) {
+  if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && P && (!rigs || stackOn)) {
+    if (stackOn) useRig(rigs[0]);
     const p = panePointFromEvent(e);
     if (p && p.x > 0.005 && p.y > 0.005 && p.x < P.W - 0.005 && p.y < P.H - 0.005) {
       aim = p;
@@ -1859,7 +1871,7 @@ surface.addEventListener('wheel', (e) => { e.preventDefault(); cam.r *= Math.exp
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   const k = e.key.toLowerCase();
-  if (k === ' ') { e.preventDefault(); if (!rigs) fire(); }
+  if (k === ' ') { e.preventDefault(); if (stackOn) useRig(rigs[0]); if (!rigs || stackOn) fire(); }
   else if (k === 'p') { playing = !playing; syncPlay(); }
   else if (k === 'z') replay();
   else if (k === 'r') $('bReset').click();
@@ -1923,9 +1935,7 @@ function pickGlazing(i) {
   if (activeScene()) leaveScene(false);
   gIdx = i;
   chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
-  newPane();
-  simClockReset();
-  updatePaneInfo();
+  rebuildLab();
 }
 function pickImpactor(i, keepSpeed = false) {
   iIdx = i;
@@ -1965,6 +1975,7 @@ const PRESETS = [
 // ---------- The armoured car ----------
 let sceneLoading = false;
 async function startScene() {
+  leaveStack(true);
   if (!GT) { toast('The armoured-car scene needs WebGL; this device is drawing in 2D'); return; }
   if (sceneLoading) return;
   if (HS && HS.active) leaveScene(false);
@@ -1998,6 +2009,7 @@ async function startScene() {
 }
 // ---------- The grenade house ----------
 function startHouse() {
+  leaveStack(true);
   if (!HS) { toast('The house scene needs WebGL; this device is drawing in 2D'); return; }
   if (activeScene()) leaveScene(false);
   HS.enter();
@@ -2022,7 +2034,7 @@ function leaveScene(rebuild) {
   tierCap = null;
   if (window.innerWidth > 860) $('lab').hidden = false;
   auto = store.get('auto', true); syncAuto(); buildScaleButtons();
-  if (rebuild) { newPane(); simClockReset(); updatePaneInfo(); }
+  if (rebuild) rebuildLab();
   frameCamera(false);
 }
 
@@ -2049,6 +2061,7 @@ function buildPresets() {
     b.innerHTML = `${name}<small>${sub}</small>`;
     b.onclick = () => {
       if (activeScene()) leaveScene(false);
+      if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
       gIdx = gi;
       chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
       pickImpactor(ii);
@@ -2101,14 +2114,14 @@ $('speed').oninput = () => { speed = sliderToSpeed(+$('speed').value, cat.impact
 for (const id of ['yaw', 'pitch']) $(id).oninput = () => { yaw = +$('yaw').value; pitch = +$('pitch').value; $('vAngle').textContent = `${yaw}° / ${pitch}°`; };
 $('bSide').onclick = () => { fromBack = !fromBack; $('bSide').setAttribute('aria-pressed', String(fromBack)); placeAimMarker(); };
 $('bCentre').onclick = () => { aim = { x: P.W / 2, y: P.H / 2 }; placeAimMarker(); };
-$('fire').onclick = () => { if (!rigs) fire(); };
+$('fire').onclick = () => { if (stackOn) useRig(rigs[0]); if (!rigs || stackOn) fire(); };
 $('bPlay').onclick = () => { playing = !playing; syncPlay(); };
 $('bReplay').onclick = replay;
 $('bAuto').onclick = () => { auto = !auto; store.set('auto', auto); syncAuto(); buildScaleButtons(); };
 $('bReset').onclick = () => {
   if (GT && GT.active) startScene();
   else if (HS && HS.active) HS.restart(false);
-  else { newPane(); simClockReset(); }
+  else rebuildLab();
 };
 function syncSound() {
   $('bSound').setAttribute('aria-pressed', String(sound.enabled)); $('bSound').textContent = sound.enabled ? 'Sound' : 'Muted';
@@ -2244,6 +2257,7 @@ function frame(now) {
   let tEng, s, poses = null;
   if (rigs) {
     tEng = multiFrame(dt);
+    if (stackOn) stackHandOff();
     s = G.state();
   } else {
     s = G.state();
@@ -2274,6 +2288,7 @@ function frame(now) {
   if ((uiTick += dt) > 0.12) {
     uiTick = 0;
     if (!rigs) { updateReadouts(); announce(); }
+    else if (stackOn) { useRig(rigs[0]); updateReadouts(); announce(); stackReadout(); }
     $('clock').innerHTML = `${fmtTime(tEng)}<small>${fmtScale(scaleNow)}${auto ? ' · auto' : ''}</small>`;
     $('limit').textContent = limited ? 'device-limited' : '';
   }
@@ -2478,7 +2493,7 @@ function makeRigs(specs) {
     P = null;
     newPane(sp.seed, false, { glazing: cat.glazings.findIndex((g) => g.id === sp.glazing), tier: sp.tier, viewTier: sp.viewTier, floor: sp.floor,
       width: sp.w, height: sp.h, quiet: true });
-    for (const m of P.meshes) if (m.userData.lab) m.visible = false;
+    if (!sp.frame) for (const m of P.meshes) if (m.userData.lab) m.visible = false;
     Object.assign(r, { P, slab, stressMesh, aimMarker });
     rigs.push(r);
   });
@@ -2537,6 +2552,209 @@ function multiFrame(dt) {
 }
 function activeScene() { return GT && GT.active ? GT : HS && HS.active ? HS : null; }
 
+// ---------- Glass stacks ----------
+// Panes one behind another along the shot, each its own glazing cut to the
+// first pane's size, `gap` metres apart. Each is its own engine pane on the
+// rigs' shared clock. What leaves one pane toward another is fired into it:
+// the projectile with the speed and direction it left at, and every flying
+// piece of glass as a glass shard of its own mass and size, which then leaves
+// the pane it came from.
+const MAX_LAYERS = 4;
+let stack = [];        // the panes behind the first: { gid, gap (m) }
+let stackOn = false;   // the rigs are a stack (not a scene's windows)
+let stackDepth = [];   // m from the first pane's front face to each pane's front face
+let stackGroups = [];
+let stackLastT = 0;
+const shardIdx = cat.impactors.findIndex((d) => d.id === 'glass_shard');
+const SHARDS_PER_PANE = 30;   // pieces fired into one pane at most (each is an impactor to solve)
+const SHARD_MIN_ENERGY = 0.05; // J: a piece with less cannot mark glass, and is left to fly
+
+function stackDepthTotal() {
+  return stackOn ? stackDepth[stackDepth.length - 1] + rigs[rigs.length - 1].P.T : P ? P.T : 0;
+}
+// (Re)builds the stack; seeds: one per pane to rebuild the same panes.
+function buildStack(seeds) {
+  if (activeScene()) leaveScene(false);
+  for (const g of stackGroups) scene.remove(g);
+  stackGroups = [];
+  const g0 = cat.glazings[gIdx];
+  const ids = [gIdx, ...stack.map((l) => l.gid)];
+  stackDepth = [];
+  let z = 0;
+  const specs = ids.map((gi, k) => {
+    if (k > 0) z += stack[k - 1].gap;
+    stackDepth.push(z);
+    const group = new THREE.Group();
+    group.position.z = -z;
+    scene.add(group);
+    stackGroups.push(group);
+    z += cat.glazings[gi].thickness;
+    // The panes behind share the work: a tier lower than the first.
+    const t = tierCap === null ? tier : Math.min(tier, tierCap);
+    return { glazing: cat.glazings[gi].id, seed: seeds?.[k] ?? ((Math.random() * 1e9) | 0), group, w: g0.width, h: g0.height,
+      tier: k ? Math.max(0, t - 1) : t, viewTier: t, frame: true };
+  });
+  makeRigs(specs);
+  stackOn = true;
+  stackLastT = 0;
+  multiNext = () => Infinity;
+  multiTarget = stackTarget;
+  for (const r of rigs) Object.assign(r, { hits: [], shards: 0, shardMax: 0 });
+  useRig(rigs[0]);
+  aim = { x: P.W / 2, y: P.H / 2 };
+  placeAimMarker();
+  $('log').textContent = '';
+  updatePaneInfo();
+  frameCamera(false);
+}
+function leaveStack(rebuild = true) {
+  if (!stackOn) return;
+  stackOn = false;
+  dropRigs();
+  for (const g of stackGroups) scene.remove(g);
+  stackGroups = [];
+  multiNext = () => Infinity; multiTarget = null;
+  if (rebuild) { newPane(); simClockReset(); updatePaneInfo(); frameCamera(false); }
+}
+// The lab's pane as it now stands: one pane, or a stack.
+function rebuildLab(seeds) {
+  if (stack.length) buildStack(seeds);
+  else { leaveStack(false); newPane(seeds?.[0]); simClockReset(); updatePaneInfo(); }
+  renderLayers();
+}
+// Bullet time follows whichever pane has most going on.
+function stackTarget() {
+  let t = 1;
+  for (const r of rigs) { useRig(r); t = Math.min(t, autoTarget(G.impactors(P.nImp), G.plies(P.nGlass))); }
+  return t;
+}
+// Fires impactor `di` into rig r without touching the lab's own selection.
+function fireInto(r, di, x, y, sp, yawD, pitchD, back, lead, mass = 0, radius = 0) {
+  useRig(r);
+  const def = cat.impactors[di];
+  const h = G.gls_fire_as(di, x, y, sp, yawD * Math.PI / 180, pitchD * Math.PI / 180, back ? 1 : 0, lead, mass, radius);
+  if (h < 0) return -1;
+  const n = Math.max(h + 1, G.state()[3]);
+  P.shotMass ||= []; P.shotRadius ||= [];
+  for (let k = h; k < n; ++k) {
+    P.shotDefs[k] = di;
+    P.shotMass[k] = mass; P.shotRadius[k] = radius;
+    if (R) {
+      const m = impactorMesh(def);
+      if (radius > 0) m.scale.setScalar(radius / def.radius);
+      groupPane.add(m);
+      P.impMeshes[k] = m;
+    }
+  }
+  P.nImp = n;
+  return h;
+}
+// Everything flying off a pane toward another, about to reach it, goes into it.
+function stackHandOff() {
+  const n = rigs.length, t = multiClock;
+  const ahead = Math.max(2e-3, 3 * Math.max(1e-6, t - stackLastT));  // engine s we look ahead
+  stackLastT = t;
+  for (let k = 0; k < n; ++k) {
+    const r = rigs[k];
+    useRig(r);
+    const Pk = r.P;
+    Pk.handed ||= new Set(); Pk.thrown ||= new Set();
+    const out = [];
+    const imps = G.impactors(Pk.nImp);
+    for (let m = 0; m < Pk.nImp; ++m) {
+      const o = 20 * m;
+      if (Pk.handed.has(m) || imps[o + 9] !== PH.FLIGHT) continue;
+      const z = imps[o + 2], vz = imps[o + 5];
+      if (vz > 0 ? z < Pk.T + 0.003 : z > -0.003) continue;   // not through or off this pane yet
+      out.push({ m, x: imps[o], y: imps[o + 1], z, vx: imps[o + 3], vy: imps[o + 4], vz, di: Pk.shotDefs[m] ?? iIdx,
+        mass: Pk.shotMass?.[m] || 0, radius: Pk.shotRadius?.[m] || 0 });
+    }
+    const nf = G.state()[4];
+    if (nf && shardIdx >= 0) {
+      const poses = G.fragmentPoses(nf), tPly = Pk.T / Math.max(1, Pk.nGlass);
+      for (let i = 0; i < nf; ++i) {
+        const q = 12 * i;
+        if (poses[q + 10] !== 2 || Pk.thrown.has(i)) continue;
+        const vx = poses[q + 7], vy = poses[q + 8], vz = poses[q + 9];
+        if (vx * vx + vy * vy + vz * vz < 4) continue;
+        const rr = Math.max(0.002, Pk.pieceSize[i] || 0.01);
+        const mass = 2500 * tPly * 0.5 * Math.PI * rr * rr;
+        if (0.5 * mass * (vx * vx + vy * vy + vz * vz) < SHARD_MIN_ENERGY) continue;
+        out.push({ frag: i, x: poses[q], y: poses[q + 1], z: poses[q + 2], vx, vy, vz, di: shardIdx, mass, radius: rr });
+      }
+    }
+    for (const it of out) {
+      const j = it.vz > 0 ? k + 1 : k - 1;
+      const done = () => (it.frag === undefined ? Pk.handed.add(it.m) : Pk.thrown.add(it.frag));
+      if (j < 0 || j >= n) { done(); continue; }
+      const rj = rigs[j];
+      const zt = it.vz > 0 ? stackDepth[j] - stackDepth[k] : stackDepth[j] + rj.P.T - stackDepth[k];
+      const ttc = (zt - it.z) / it.vz;
+      if (ttc > ahead) continue;   // still on its way
+      done();
+      const tc = Math.max(0, ttc);
+      const x = it.x + it.vx * tc, y = it.y + it.vy * tc - 4.905 * tc * tc;
+      if (ttc < -0.05 || x <= 0.003 || y <= 0.003 || x >= rj.P.W - 0.003 || y >= rj.P.H - 0.003) continue;  // past it, or misses
+      const shard = it.di === shardIdx;
+      if (shard && (rj.shards >= SHARDS_PER_PANE || 0.5 * (it.mass || cat.impactors[it.di].mass) * (it.vx ** 2 + it.vy ** 2 + it.vz ** 2) < SHARD_MIN_ENERGY)) continue;
+      const vy = it.vy - 9.81 * tc, sp = Math.hypot(it.vx, vy, it.vz);
+      const yawD = Math.atan2(it.vx, Math.abs(it.vz)) * 180 / Math.PI, pitchD = Math.asin(clamp(vy / sp, -1, 1)) * 180 / Math.PI;
+      if (fireInto(rj, it.di, x, y, sp, yawD, pitchD, it.vz < 0, Math.max(0.004, sp * tc), it.mass, it.radius) < 0) continue;
+      if (shard) { ++rj.shards; rj.shardMax = Math.max(rj.shardMax, sp); }
+      else rj.hits.push({ name: cat.impactors[it.di].name, speed: sp });
+      useRig(r);
+      if (it.frag !== undefined) G.gls_drop_fragment(it.frag);
+      else if (Pk.impMeshes[it.m]) Pk.impMeshes[it.m].visible = false;
+    }
+  }
+  useRig(rigs[0]);
+}
+// What happened to each pane of the stack.
+function stackReadout() {
+  const el = $('stackRes');
+  if (!stackOn) { el.hidden = true; return; }
+  const rows = rigs.map((r, k) => {
+    useRig(r);
+    const s = G.state(), g = r.P.glazing;
+    const what = [];
+    for (const h of r.hits) what.push(`${h.name} at ${fmtSpeed(h.speed)}`);
+    if (r.shards) what.push(`${r.shards} shard${r.shards > 1 ? 's' : ''} (up to ${fmtSpeed(r.shardMax)})`);
+    const state = s[7] ? 'went through' : s[9] > 0.5 * r.P.W * r.P.H ? 'gone' : s[6] ? (s[12] ? `broken, ${s[12]} pieces loose` : 'cracked') : 'intact';
+    return [`${k + 1}. ${g.name.replace(/,.*$/, '')}`, `${state}${what.length ? ' · hit by ' + what.join(', ') : ''}`];
+  });
+  useRig(rigs[0]);
+  el.hidden = false;
+  el.innerHTML = rows.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
+}
+// The layer list under the glass chips.
+function renderLayers() {
+  const box = $('layers');
+  box.textContent = '';
+  const opts = (sel) => cat.glazings.map((g, i) => `<option value="${i}"${i === sel ? ' selected' : ''}>${g.name}</option>`).join('');
+  stack.forEach((l, k) => {
+    const d = document.createElement('div');
+    d.className = 'layer';
+    d.innerHTML = `<b>${k + 2}</b><select aria-label="Pane ${k + 2} glass">${opts(l.gid)}</select><button title="Take this pane out">✕</button>` +
+      `<label class="gap">Gap <input type="range" min="0" max="100" step="1" value="${Math.round(Math.sqrt(l.gap / 1.5) * 100)}" aria-label="Gap in front of pane ${k + 2}"><span></span></label>`;
+    const [sel, del] = [d.querySelector('select'), d.querySelector('button')];
+    const range = d.querySelector('input'), lab = d.querySelector('.gap span');
+    // 0..1.5 m, finer near the glass.
+    const show = () => { lab.textContent = l.gap < 0.1 ? `${(l.gap * 100).toFixed(1)} cm` : `${(l.gap * 100).toFixed(0)} cm`; };
+    show();
+    sel.onchange = () => { l.gid = +sel.value; rebuildLab(); };
+    del.onclick = () => { stack.splice(k, 1); rebuildLab(); };
+    range.oninput = () => { l.gap = Math.max(0.002, 1.5 * (range.value / 100) ** 2); show(); };
+    range.onchange = () => rebuildLab();
+    box.appendChild(d);
+  });
+  $('bAddLayer').hidden = stack.length >= MAX_LAYERS - 1;
+}
+$('bAddLayer').onclick = () => {
+  if (stack.length >= MAX_LAYERS - 1) return;
+  stack.push({ gid: gIdx, gap: 0.1 });
+  rebuildLab();
+};
+
 // Stereo position of a pane point: where it sits across the screen.
 const panV = R ? new THREE.Vector3() : null;
 function panAt(x, y) {
@@ -2579,6 +2797,79 @@ function listen(poses, nFrag) {
 window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, get HS() { return HS; }, get rigs() { return rigs; },
   get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound };
 
+// ---------- Share links ----------
+// The lab's whole setup in the address: the glass and any panes behind it,
+// every shot fired (object, speed, angles, side, aim point, time) and the
+// panes' seeds, so whoever opens it sees the same break.
+function shareURL() {
+  if (HS && HS.active) return new URL('grenade/' + (HS.glass && HS.glass !== 'tempered' ? '?glass=' + HS.glass : ''), document.baseURI).href;
+  const u = new URL('./', document.baseURI);
+  if (GT && GT.active) { u.searchParams.set('scene', 'gt'); return u.href; }
+  const pane = stackOn ? rigs[0].P : P, q = u.searchParams;
+  q.set('g', cat.glazings[gIdx].id);
+  for (const l of stack) q.append('L', `${cat.glazings[l.gid].id}:${+(l.gap * 100).toFixed(1)}`);
+  q.set('seed', (stackOn ? rigs.map((r) => r.P.seed) : [pane.seed]).join('.'));
+  const at = aim || { x: pane.W / 2, y: pane.H / 2 };
+  const shots = pane.shots.length ? pane.shots : [{ t: 0, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack }];
+  const t0 = shots[0].t;
+  for (const sh of shots)
+    q.append('shot', [cat.impactors[sh.iIdx].id, +sh.speed.toFixed(2), +sh.x.toFixed(4), +sh.y.toFixed(4), +sh.yaw.toFixed(1),
+      +sh.pitch.toFixed(1), sh.fromBack ? 1 : 0, +(sh.t - t0).toFixed(5)].join(','));
+  return u.href;
+}
+function shareText() {
+  if (HS && HS.active) return 'Grenade in the shop';
+  if (GT && GT.active) return 'Rosser V8 under fire';
+  const pane = stackOn ? rigs[0].P : P;
+  const sh = pane.shots[pane.shots.length - 1] || { iIdx, speed };
+  const glass = [cat.glazings[gIdx], ...stack.map((l) => cat.glazings[l.gid])].map((g) => g.name).join(' + ');
+  return `${cat.impactors[sh.iIdx].name} at ${fmtSpeed(sh.speed)} into ${glass}`;
+}
+$('bShare').onclick = async () => {
+  const url = shareURL(), text = shareText();
+  try {
+    if (navigator.share && matchMedia('(pointer: coarse)').matches) await navigator.share({ title: 'Glass Lab · ' + text, text, url });
+    else { await navigator.clipboard.writeText(url); toast('Link copied: ' + text, 3500); }
+  } catch { /* cancelled */ }
+};
+// Opens a shared setup: builds it and fires its shots as they were fired.
+function applyShareLink() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has('g') && !q.has('shot')) return false;
+  const gi = cat.glazings.findIndex((g) => g.id === q.get('g'));
+  if (gi >= 0) gIdx = gi;
+  stack = q.getAll('L').map((v) => {
+    const [id, cm] = v.split(':');
+    return { gid: cat.glazings.findIndex((g) => g.id === id), gap: clamp((Number(cm) || 10) / 100, 0.002, 1.5) };
+  }).filter((l) => l.gid >= 0).slice(0, MAX_LAYERS - 1);
+  const seeds = (q.get('seed') || '').split('.').map(Number).filter((v) => Number.isFinite(v) && v >= 0);
+  const shots = q.getAll('shot').map((v) => {
+    const a = v.split(','), ii = cat.impactors.findIndex((d) => d.id === a[0]);
+    if (ii < 0 || !(Number(a[1]) > 0)) return null;
+    return { iIdx: ii, speed: +a[1], x: +a[2] || 0, y: +a[3] || 0, yaw: clamp(+a[4] || 0, -60, 60), pitch: clamp(+a[5] || 0, -60, 60),
+      fromBack: a[6] === '1', t: Math.max(0, +a[7] || 0) };
+  }).filter(Boolean).slice(0, 200);
+  chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+  const last = shots[shots.length - 1];
+  if (last) {
+    pickImpactor(last.iIdx, true);
+    speed = last.speed; yaw = last.yaw; pitch = last.pitch; fromBack = last.fromBack;
+    $('yaw').value = String(yaw); $('pitch').value = String(pitch); $('vAngle').textContent = `${yaw}° / ${pitch}°`;
+    $('bSide').setAttribute('aria-pressed', String(fromBack));
+    syncSpeed();
+  }
+  rebuildLab(seeds.length ? seeds : undefined);
+  if (stackOn) useRig(rigs[0]);
+  const t = G.gls_time() + 0.3;
+  P.shots = shots.map((sh) => ({ ...sh, x: clamp(sh.x, 0.005, P.W - 0.005), y: clamp(sh.y, 0.005, P.H - 0.005), t: t + sh.t }));
+  P.pendingShots = P.shots.slice();
+  if (last) { aim = { x: P.shots[P.shots.length - 1].x, y: P.shots[P.shots.length - 1].y }; placeAimMarker(); }
+  auto = true; syncAuto(); buildScaleButtons();
+  simClockReset();
+  if (window.innerWidth <= 860) showTab('res');
+  return true;
+}
+
 // ---------- Boot ----------
 resize();
 window.addEventListener('resize', resize);
@@ -2591,7 +2882,9 @@ syncAuto();
 syncPlay();
 newPane();
 simClockReset();
-if (window.innerWidth <= 860) showTab('lab');
+renderLayers();
+const shared = applyShareLink();
+if (window.innerWidth <= 860 && !shared) showTab('lab');
 $('loading').remove();
 if (!store.get('seenHelp', false)) { toast('Tap the glass to fire · drag to orbit · ? for how it works', 4500); store.set('seenHelp', true); }
 if (flat) toast('No WebGL here: drawing the front view in 2D. The physics is the same.', 4000);
