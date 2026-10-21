@@ -1799,9 +1799,16 @@ const PRESETS = [
   ['Brick vs tempered', 'tempered_6', 'brick', 10, 'Tempered glass is four to five times stronger'],
 ];
 // ---------- The armoured car ----------
-function startScene() {
+let sceneLoading = false;
+async function startScene() {
   if (!GT) { toast('The armoured-car scene needs WebGL; this device is drawing in 2D'); return; }
-  const gi = cat.glazings.findIndex((g) => g.id === 'armoured_windscreen'), ii = cat.impactors.findIndex((g) => g.id === 'smg_9mm');
+  if (sceneLoading) return;
+  // The car (the Rosser V8) loads once; its windscreen sets the glazing.
+  sceneLoading = true;
+  const slow = setTimeout(() => toast('Bringing out the Rosser V8…', 6000), 400);
+  let gid;
+  try { gid = await GT.prepare(); } finally { clearTimeout(slow); sceneLoading = false; }
+  const gi = cat.glazings.findIndex((g) => g.id === gid), ii = cat.impactors.findIndex((g) => g.id === 'smg_9mm');
   if (gi < 0 || ii < 0) return;
   gIdx = gi;
   chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
@@ -1839,7 +1846,7 @@ function buildPresets() {
   {
     const b = document.createElement('button');
     b.className = 'feature';
-    b.innerHTML = 'Armoured GT under fire<small>Sit in a 1960s grand tourer with armoured glass while five gunmen empty submachine guns into it</small>';
+    b.innerHTML = 'Armoured V8 under fire<small>Sit in the Rosser V8 behind an armoured windscreen while five gunmen empty submachine guns into it</small>';
     b.onclick = startScene;
     box.appendChild(b);
   }
