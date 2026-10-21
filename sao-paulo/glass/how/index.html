@@ -7,7 +7,14 @@
 <meta name="description" content="How the Glass Lab calculates everything it shows: the plate, contact, flaws and strength, running cracks, tempered dicing, falling pieces, bullets, blast waves, the scenes, time and sound — with the equations, the constants and what is estimated.">
 <meta property="og:title" content="São Paulo World · How the Glass Lab works">
 <meta property="og:description" content="Every equation behind the cracks, the dice and the blast waves.">
-<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/glass/og.jpg?v=1">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A 9 lb cannonball bursting a 10 mm annealed glass plate into flying shards">
+<meta property="og:type" content="website">
+<meta name="twitter:image" content="https://zrossermcintosh.com/sao-paulo/glass/og.jpg?v=1">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/glass/how/">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -380,6 +387,16 @@ Lungs are flagged above about 70 kPa for a millisecond-long pulse, the threshold
 </ul>
 <p>The band round its chest turns from green to yellow (tempered dice, or a small chance of eardrum damage), orange (a fragment, an annealed shard, or a likely ruptured eardrum) or red (a fragment over 79 J, or lung injury). Red marks show where steel struck it, blue where glass did.</p>
 
+<h3 id="stacks">Panes behind panes</h3>
+<p>In the lab, <b>+ Add a pane behind</b> puts up to three more panes behind the first, each its own glass at its own gap (2 mm to 1.5 m). Every pane is its own engine pane, solved at the same time on one clock. The engine knows nothing of the others; the page carries things across the gaps:</p>
+<ul>
+<li><b>The object.</b> When it leaves the back of a pane still flying, it is fired into the next pane at the speed, angle and point where its straight path meets that pane's face, at the moment it gets there. One that bounces back is fired into the pane in front from behind.</li>
+<li><b>The glass.</b> Every free piece moving faster than 2 m/s that carries at least 0.05 J is fired into the pane its path meets, as a sharp glass impactor (a 55° tip, the glass's own stiffness and hardness) with the piece's mass, 2500 kg/m³ × thickness × ½ π r² for its size r. It hits with a cone indentation like any sharp tip, so a fast shard chips, stars or breaks the next pane, and a slow one only taps it. The piece is then taken out of the first pane: what happens next is the second pane's. The first 30 pieces to arrive at a pane are fired into it, to keep the solve light; later ones pass on. <span class="tag est">estimated</span>: the half-disc mass and the sharp-tip contact of a tumbling shard.</li>
+</ul>
+<p>The result panel lists each pane: whether it held, cracked or went through, and what hit it. Shards a pane throws back can hit the one in front.</p>
+<h3 id="share">Share links</h3>
+<p><b>Share</b> copies a link that rebuilds exactly what is on screen: the glass, every pane behind it and its gap, the random seeds of each pane's flaws, and every shot (object, speed, point, angle, side and time). The fracture is deterministic, so whoever opens it sees the same cracks and the same pieces.</p>
+
 <h2 id="time"><span class="n">12</span>Time and slow motion</h2>
 <p>The engine has its own clock. Each frame the page asks it to advance by the real time that passed times the playback speed — 1/10 to 1/100,000 — and the engine takes whatever steps the physics needs to get there (50 ns inside a bullet strike, microseconds while cracks run, milliseconds while pieces fly). Slow motion is not interpolation: at 1/100,000 the engine is simply asked for 0.17 µs of physics per frame.</p>
 <p><b>Bullet time</b> (the Auto button) slows down by itself as something approaches the glass, holds near 1/5,000 while it is in contact and cracks are running, and eases back up as the pieces fall. It eases down fast and up gently, in powers of ten.</p>
@@ -443,7 +460,7 @@ Lungs are flagged above about 70 kPa for a millisecond-long pulse, the threshold
 <li>panes are flat and simply supported: curved glass is flattened, clamped or bonded edges are not modelled;</li>
 <li>the plate does not soften as it cracks (except under the impactor), so a heavily cracked laminate is too stiff;</li>
 <li>polycarbonate and acrylic plies do not crack or craze; thermal stress (sunlit panes, heated windshields) is not modelled;</li>
-<li>falling pieces do not collide with each other, and walls do not stop them;</li>
+<li>falling pieces do not collide with each other (only with the next pane of a stack), and walls do not stop them;</li>
 <li>a blast is a pressure history given to the pane; the air itself (reflections round a room, the jet through each window) is not simulated.</li>
 </ul>
 </div>
