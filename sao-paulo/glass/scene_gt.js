@@ -648,7 +648,7 @@ export function createGTScene(ctx) {
         if (audible && tEng - e.t < 0.1) S.audio.gunshot(e.dist, Math.max(-1, Math.min(1, (g.muzzle.x - EYE[0]) / 10)));
       } else if (e.kind === 1) {
         S.stats.glass++;
-        if (audible && tEng - e.t < 0.1) S.audio.glass();
+        if (audible && tEng - e.t < 0.1 && !(ctx.glassSound && ctx.glassSound())) S.audio.glass();
       } else {
         const sp = S.sparkPool.find((p) => p.until < tEng) || S.sparkPool[0];
         sp.s.position.copy(e.pos);

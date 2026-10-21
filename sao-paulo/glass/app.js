@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import createGlassModule from './glass.mjs';
 import { createGTScene } from './scene_gt.js';
+import { GlassAudio, glassProfile } from './glass_audio.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -97,6 +98,10 @@ let glassMat, fragMat, frameMat;
 const labObjects = [];  // the test hall: hidden when a scene takes over
 let GT = null;          // the armoured-car scene (3D only)
 let tierCap = null;     // a scene that must run in real time caps the automatic tier
+// Sound, synthesized from what the engine reports; browsers start it on the first gesture.
+const sound = new GlassAudio();
+sound.enabled = store.get('sound', true);
+for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => sound.start(), { capture: true });
 if (R) {
   R.outputColorSpace = THREE.SRGBColorSpace;
   R.toneMapping = THREE.ACESFilmicToneMapping;
@@ -150,7 +155,7 @@ if (R) {
       transparent: true, envMapIntensity: 1.3, side: THREE.DoubleSide, specularIntensity: 1, depthWrite: false })
     : new THREE.MeshStandardMaterial({ color: 0xd4ecef, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.2,
       envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false });
-  fragMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.5,
+  fragMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.25,
     envMapIntensity: 1.7, side: THREE.DoubleSide, depthWrite: false });
   frameMat = new THREE.MeshStandardMaterial({ color: 0x8b939e, metalness: 0.85, roughness: 0.35 });
 }
@@ -511,7 +516,7 @@ class DiceView {
     };
     this.a = { aT: attr('aT', 4), aP: attr('aP', 3), aV: attr('aV', 3), aS: attr('aS', 3), aR: attr('aR', 4), aSl: attr('aSl', 3) };
     this.uTime = { value: 0 };
-    const opts = { color: 0xd3ece4, metalness: 0, roughness: 0.08, transparent: true, opacity: 0.85, envMapIntensity: 2.4 };
+    const opts = { color: 0xd3ece4, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.45, envMapIntensity: 2.4 };
     this.mat = tier >= 3 ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: 1, clearcoatRoughness: 0.05, ior: 1.52, specularIntensity: 1 })
       : new THREE.MeshStandardMaterial(opts);
     this.mat.onBeforeCompile = (sh) => {
@@ -608,6 +613,7 @@ uniform float uTime, uAhead, uW, uLift;
 attribute float aDie;
 varying float vEdge;
 varying float vK;
+varying float vDice;
 mat3 pvAxis(vec3 a, float t) {
   float c = cos(t), s = sin(t), k = 1.0 - c;
   return mat3(k * a.x * a.x + c, k * a.x * a.y + s * a.z, k * a.x * a.z - s * a.y,
@@ -632,6 +638,7 @@ const PIECE_BODY = `
   vec3 wPos; mat3 wRot; vec3 rel;
   vEdge = 1.0 - abs(normal.z);
   vK = 0.86 + 0.28 * fract(float(di) * 0.618034);
+  vDice = d6.z;
   if (d0.x < 0.0 || uTime < d0.x) {
     // Still part of its piece.
     vec4 pq = texelFetch(uPose, pb + ivec2(1, 0), 0);
@@ -760,7 +767,9 @@ class PieceView {
     this.attach();
     this.uniforms = { uDice: { value: this.diceTex }, uPose: { value: this.poseTex }, uTime: { value: 0 }, uAhead: { value: 0 },
       uW: { value: P.W }, uLift: { value: FLOOR } };
-    const opts = { color: 0xeef8f4, metalness: 0.05, roughness: 0.06, transparent: true, opacity: 0.5, envMapIntensity: 2.0,
+    // Broken glass stays clear: faces about as see-through as the intact pane,
+    // the light caught by the cut edges and seams.
+    const opts = { color: 0xe4f2ef, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.18, envMapIntensity: 1.8,
       side: THREE.DoubleSide };
     this.mat = tier >= 3 ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: 1, clearcoatRoughness: 0.05, ior: 1.52 })
       : new THREE.MeshStandardMaterial(opts);
@@ -771,8 +780,8 @@ class PieceView {
         .replace('#include <beginnormal_vertex>', PIECE_BODY)
         .replace('#include <begin_vertex>', 'vec3 transformed = vec3(wp.x - 0.5 * uW, wp.y + uLift, -wp.z);');
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vEdge;\nvarying float vK;')
-        .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= mix(vec3(vK), vec3(0.42, 0.78, 0.6), smoothstep(0.3, 0.9, vEdge));\n  diffuseColor.a *= mix(1.0, 1.35, vEdge);');
+        .replace('#include <common>', '#include <common>\nvarying float vEdge;\nvarying float vK;\nvarying float vDice;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\n  float edge = smoothstep(0.3, 0.9, vEdge);\n  diffuseColor.rgb *= mix(vec3(vK), mix(vec3(0.5, 0.86, 0.7), vec3(0.36, 0.62, 0.52), vDice), edge);\n  diffuseColor.a *= mix(1.0, mix(3.6, 1.7, vDice), edge);');
     };
     this.mesh = new THREE.Mesh(this.geo, this.mat);
     this.mesh.frustumCulled = false;
@@ -916,7 +925,7 @@ class PieceView {
       D[o] = -1; D[o + 1] = 0; D[o + 2] = 0; D[o + 3] = 0;
       D[o + 20] = cen[i][0]; D[o + 21] = cen[i][1]; D[o + 22] = 0; D[o + 23] = rec.index;
       const cc = clumpCen[clumpOf[i]];
-      D[o + 24] = cc[0]; D[o + 25] = cc[1]; D[o + 26] = 0; D[o + 27] = h;
+      D[o + 24] = cc[0]; D[o + 25] = cc[1]; D[o + 26] = dicing ? 1 : 0; D[o + 27] = h;
       if (c.cell.length < 3) return;
       // A seam between dice, and each die a hair out of line so it catches the light.
       let rmax = 0;
@@ -1176,7 +1185,8 @@ function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false) {
   const g = cat.glazings[gIdx];
   P = { W: s[14], H: s[15], T: s[13], nGlass: s[2], seed, cracks: [], frags: null, meshes: [], impMeshes: [], nImp: 0,
     shots: keepShots && P ? P.shots : [], shotDefs: [], pendingShots: [], fragShapes: 0, eventsShown: 0, broke: false, announced: new Set(),
-    plies: [], monolithic: g.plies.every((p) => p.kind === 'glass'), simClock: 0, fieldTick: 0, glazing: g };
+    plies: [], monolithic: g.plies.every((p) => p.kind === 'glass'), simClock: 0, fieldTick: 0, glazing: g,
+    profile: glassProfile(g), heard: [], broken: [], pieceSize: [], prevVy: new Float32Array(0) };
   const pl = G.plies(P.nGlass);
   for (let k = 0; k < P.nGlass; ++k) {
     P.plies.push({ z0: pl[12 * k], z1: pl[12 * k + 1], ply: pl[12 * k + 10], dicing: pl[12 * k + 5] > 0, ct: pl[12 * k + 6],
@@ -1606,7 +1616,8 @@ function updateField() {
 
 // ---------- Camera ----------
 const cam = { theta: -0.55, phi: 1.32, r: 2.6, tx: 0, ty: 1.4, tz: 0 };
-if (R) GT = createGTScene({ THREE, scene, groupPane, camera, cam, applyCamera, FLOOR, tier, labObjects, leave: () => leaveScene(true), layout: resize });
+if (R) GT = createGTScene({ THREE, scene, groupPane, camera, cam, applyCamera, FLOOR, tier, labObjects, leave: () => leaveScene(true), layout: resize,
+  glassSound: () => sound.live });
 let camMode = 0;
 function frameCamera(keepAngles = true) {
   if (GT && GT.active) { GT.frameCamera(); return; }
@@ -1710,6 +1721,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'r') $('bReset').click();
   else if (k === 'c') { if (GT && GT.active) GT.nextView(); else { camMode = (camMode + 1) % 3; frameCamera(false); } }
   else if (k === 's') $('bStress').click();
+  else if (k === 'm') $('bSound').click();
   else if (k === 'a') $('bAuto').click();
   else if (k === 'h' || k === '?') $('help').classList.toggle('on');
   else if (k === 'escape') $('help').classList.remove('on');
@@ -1894,6 +1906,9 @@ $('bPlay').onclick = () => { playing = !playing; syncPlay(); };
 $('bReplay').onclick = replay;
 $('bAuto').onclick = () => { auto = !auto; store.set('auto', auto); syncAuto(); buildScaleButtons(); };
 $('bReset').onclick = () => { if (GT && GT.active) startScene(); else { newPane(); simClockReset(); } };
+function syncSound() { $('bSound').setAttribute('aria-pressed', String(sound.enabled)); $('bSound').textContent = sound.enabled ? 'Sound' : 'Muted'; }
+$('bSound').onclick = () => { sound.setEnabled(!sound.enabled); store.set('sound', sound.enabled); syncSound(); };
+syncSound();
 $('bCam').onclick = () => { if (GT && GT.active) GT.nextView(); else { camMode = (camMode + 1) % 3; frameCamera(false); } };
 $('bStress').onclick = () => {
   stressOn = !stressOn;
@@ -2051,7 +2066,12 @@ function frame(now) {
   const pl = G.plies(P.nGlass);
   for (let k = 0; k < P.nGlass; ++k) {
     const n = pl[12 * k + 2], cv = P.cracks[k];
-    if (n > cv.count) cv.add(G.cracks(k, cv.count).slice());
+    if (n > cv.count) {
+      const segs = G.cracks(k, cv.count).slice();
+      cv.add(segs);
+      sound.cracks(segs, P.profile, panAt);
+    }
+    if (pl[12 * k + 4] > 0 && !P.broken[k]) { P.broken[k] = true; sound.shatter(P.profile, P.plies[k].dicing, panAt(P.W / 2, P.H / 2)); }
     if (R) {
       cv.mat.uniforms.uTime.value = tEng;
       cv.mat.uniforms.uGlow.value = 1 / Math.max(1e-7, 0.25 * scaleNow);
@@ -2066,7 +2086,13 @@ function frame(now) {
   // New pieces, then where every piece is.
   const nFrag = s[4];
   if (nFrag > P.fragShapes) {
-    P.frags.add(G.fragmentShapes(P.fragShapes)); P.fragShapes = nFrag;
+    const shapes = G.fragmentShapes(P.fragShapes);
+    for (const sh of shapes) {
+      let r = 0;
+      for (let i = 0; i + 1 < sh.outline.length; i += 2) r = Math.max(r, Math.hypot(sh.outline[i], sh.outline[i + 1]));
+      P.pieceSize[sh.index] = r;
+    }
+    P.frags.add(shapes); P.fragShapes = nFrag;
     // Monolithic plies in pieces: tell their crack lines which pieces they lie on.
     if (CRACK_PIECES && P.frags.uniforms) {
       const plk = G.plies(P.nGlass);
@@ -2089,8 +2115,16 @@ function frame(now) {
   if (s[24] > sprayView.sprays) {
     // The first dice to come loose: bring the floor into the shot.
     if (!sprayView.sprays && !pointers.size && !(GT && GT.active)) P.glide = { ty: (FLOOR + P.H) / 2, r: cam.r * 1.2 };
-    sprayView.addSprays(G.sprays(sprayView.sprays).slice(), poses);
+    const rows = G.sprays(sprayView.sprays).slice();
+    sprayView.addSprays(rows, poses);
+    // When each spray's dice reach the floor, for the sound of them landing.
+    for (let o = 0; o + 14 < rows.length; o += 15) {
+      const lift = Math.max(0, rows[o + 1] + FLOOR), vy = rows[o + 4];
+      sound.dice(rows[o + 9] + (vy + Math.sqrt(vy * vy + 2 * 9.81 * lift)) / 9.81, rows[o + 6], panAt(rows[o], -FLOOR));
+    }
   }
+  listen(poses, nFrag);
+  sound.frame(tEng, playing ? scaleNow : 0.0001, dt);
   if (P.dice) P.dice.update(tEng);
   if (P.glide) {
     if (pointers.size) P.glide = null;
@@ -2155,8 +2189,46 @@ function frame(now) {
   }
 }
 
+// Stereo position of a pane point: where it sits across the screen.
+const panV = R ? new THREE.Vector3() : null;
+function panAt(x, y) {
+  if (!R) return clamp(2 * x / P.W - 1, -1, 1) * 0.7;
+  const [a, b, c] = toThree(x, y, 0);
+  panV.set(a, b, c);
+  groupPane.localToWorld(panV);
+  panV.project(camera);
+  return clamp(panV.x, -1, 1) * 0.85;
+}
+// Sound from this frame's engine news: strikes, pieces landing.
+function listen(poses, nFrag) {
+  if (!sound.live) return;
+  const imps = G.impactors(P.nImp);
+  for (let k = 0; k < P.nImp; ++k) {
+    if (P.heard[k]) continue;
+    const o = 20 * k, phase = imps[o + 9], hx = imps[o + 17], hy = imps[o + 18];
+    const touched = phase === PH.CONTACT || phase === PH.BALLISTIC || phase === PH.MEMBRANE || ((phase === PH.FLIGHT || phase === PH.DONE) && (hx !== 0 || hy !== 0));
+    if (!touched) continue;
+    P.heard[k] = true;
+    const def = cat.impactors[P.shotDefs[k] ?? iIdx], v = G.report(k).v, pan = panAt(hx, hy);
+    sound.impact(def, v[0], v[2], P.profile, pan);
+    if (def.kind === 'projectile' && v[12] && !v[11] && !v[13]) sound.ricochet(pan);
+  }
+  // Pieces that have just hit the floor: falling fast last frame, not now.
+  if (!poses) return;
+  if (P.prevVy.length < nFrag) { const a = new Float32Array(Math.max(nFrag, 2 * P.prevVy.length)); a.set(P.prevVy); P.prevVy = a; }
+  let landed = 0;
+  for (let i = 0; i < nFrag; ++i) {
+    const q = i * 12, st = poses[q + 10], vy = poses[q + 8], before = P.prevVy[i];
+    P.prevVy[i] = st === 2 || st === 3 ? vy : 0;
+    if (landed >= 8 || before > -0.8 || vy < 0.4 * before || poses[q + 1] > -FLOOR + 0.3) continue;
+    const size = P.pieceSize[i] || 0.01;
+    sound.landing(size, -before, P.profile, panAt(poses[q], poses[q + 1] + FLOOR));
+    ++landed;
+  }
+}
+
 // Hook for automated browser tests.
-window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, groupPane, cam, applyCamera };
+window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, groupPane, cam, applyCamera, sound };
 
 // ---------- Boot ----------
 resize();
