@@ -17,7 +17,7 @@
 const V8 = {
   model: true, name: 'ROSSER V8', glazing: 'armoured_windscreen_v8',
   // The flat that best fits the model's screen (edges within about 6 cm).
-  rake: 69.5 * Math.PI / 180, cowl: [0, 0.807, 0.988], eye: [0.36, 1.0, -0.3],   // left-hand drive
+  rake: 69.5 * Math.PI / 180, cowl: [0, 0.807, 0.988], eye: [0.36, 0.99, -0.42],  // left-hand drive
   outside: [[2.9, 1.45, 4.6], [0, 0.85, 0.2]],
 };
 const CLASSIC = {
