@@ -583,7 +583,7 @@ class DiceView {
           const burst = (0.25 + 0.9 * h(7)) * (0.4 + 0.25 * Math.abs(vy));
           sx = Math.cos(ang) * burst + 0.4 * vx * h(8); sz = Math.sin(ang) * burst + 0.4 * vz * h(8);
         }
-        A.aT.setXYZW(i, sp[o + 9], tL, hop, 15 + 55 * h(9));
+        A.aT.setXYZW(i, sp[o + 9], tL, hop, 2 + 12 * h(9) * h(9));
         A.aP.setXYZ(i, px, py, pz);
         A.aV.setXYZ(i, ux, uy, uz);
         A.aS.setXYZ(i, size * (0.75 + 0.5 * h(10)), thick, size * (0.8 + 0.4 * h(11)));
@@ -1012,10 +1012,13 @@ class PieceView {
         const lift = cy - floorY - rec.h;
         const tL = lift > 0.004 ? (uy + Math.sqrt(Math.max(0, uy * uy + 2 * g * lift))) / g : 0;
         const vyL = Math.abs(uy - g * tL);
-        const spin = 8 + 50 * hash01(d0, 34);
-        const ax = hash01(d0, 35) - 0.5, ay = hash01(d0, 36) - 0.5, az = hash01(d0, 37) - 0.5 + 1e-3;
         for (const di of clump) {
           const od = ((di / DPR | 0) * DPR * 7 + (di % DPR) * 7) * 4, h = (k) => hash01(di, 40 + k);
+          // Each die keeps the piece's spin and gets a tumble of its own as it
+          // lets go: every one turning its own way, most of them slowly.
+          const kick = 2 + 12 * h(4) * h(4), t1 = 2 * Math.PI * h(5), t2 = Math.acos(2 * h(6) - 1);
+          const ox = wx + kick * Math.sin(t2) * Math.cos(t1), oy = wy + kick * Math.sin(t2) * Math.sin(t1), oz = wz + kick * Math.cos(t2);
+          const spin = Math.min(40, Math.hypot(ox, oy, oz)), ax = ox, ay = oy, az = oz + 1e-6;
           const burst = (0.04 + 0.35 * h(0)) * (0.3 + 0.12 * vyL), b = 2 * Math.PI * h(1);
           D[od] = born; D[od + 1] = tL; D[od + 2] = Math.min(0.9, 0.16 * vyL * (0.3 + 1.2 * h(2))); D[od + 3] = spin;
           D[od + 4] = cx; D[od + 5] = cy; D[od + 6] = cz; D[od + 7] = 2 * Math.PI * h(3);
