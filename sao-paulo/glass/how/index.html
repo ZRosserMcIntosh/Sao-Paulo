@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>How the Glass Lab works</title>
+<meta name="description" content="How the Glass Lab calculates everything it shows: the plate, contact, flaws and strength, running cracks, tempered dicing, falling pieces, bullets, blast waves, the scenes, time and sound — with the equations, the constants and what is estimated.">
+<meta property="og:title" content="São Paulo World · How the Glass Lab works">
+<meta property="og:description" content="Every equation behind the cracks, the dice and the blast waves.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b111b; --panel:#0f1826; --panel2:#121d2e; --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --hot:#ffd36b; --ice:#9fd6ff; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:16px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 var(--body)}
+a{color:var(--ice)}
+a:hover{color:#fff}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:40px}
+header.top{max-width:1180px;margin:0 auto;padding:16px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:#fff;border:2px solid #fff;outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+.btn{display:inline-block;font:600 13px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:7px 12px;text-decoration:none}
+.btn:hover{background:rgba(255,255,255,.13);color:#fff}
+.btn.primary{background:#fff;color:#0a1830;border-color:#fff}
+nav.toc{position:sticky;top:16px;align-self:start;max-height:calc(100vh - 32px);overflow:auto;padding:14px 0;font-size:14px;scrollbar-width:thin}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc li{margin:0}
+nav.toc a{display:block;padding:4px 10px;border-left:2px solid transparent;color:var(--mute);text-decoration:none}
+nav.toc a:hover{color:var(--ink)}
+nav.toc a.on{color:#fff;border-left-color:var(--hot)}
+.eyebrow{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+main{min-width:0;padding-bottom:80px}
+h1{font:900 clamp(40px,7vw,72px)/.92 var(--display);text-transform:uppercase;margin:18px 0 14px;letter-spacing:.01em}
+.lede{font-size:19px;color:#cfd8e3;max-width:760px}
+h2{font:800 34px/1 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:64px 0 10px;padding-top:8px;border-top:1px solid var(--line)}
+h2 .n{color:var(--hot);margin-right:10px}
+h3{font:700 18px/1.3 var(--body);margin:28px 0 6px}
+p{margin:10px 0;max-width:780px}
+ul,ol{max-width:780px;padding-left:22px}
+li{margin:4px 0}
+.eq{font:15px/1.6 var(--mono);background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--ice);border-radius:8px;padding:12px 16px;margin:14px 0;overflow-x:auto;white-space:nowrap;max-width:780px}
+.eq .c{color:var(--mute);font-family:var(--body);font-size:13px;white-space:normal;display:block;margin-top:4px}
+.v{font-style:italic;font-family:Georgia,"Times New Roman",serif;font-size:1.05em}
+code{font:14px var(--mono);background:rgba(255,255,255,.06);border-radius:4px;padding:1px 5px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:16px 0;max-width:780px}
+.card.est{border-left:3px solid var(--warn)}
+.card.src{border-left:3px solid var(--good)}
+.tag{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:4px 7px;border-radius:999px;border:1px solid var(--line);margin-right:6px;vertical-align:2px}
+.tag.pub{color:var(--good);border-color:rgba(54,196,131,.4)}
+.tag.est{color:var(--warn);border-color:rgba(240,180,58,.4)}
+.tag.fit{color:var(--ice);border-color:rgba(159,214,255,.4)}
+table{border-collapse:collapse;width:100%;max-width:780px;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 11px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+td.num{font-family:var(--mono);white-space:nowrap}
+figure{margin:18px 0;max-width:780px}
+figure svg{width:100%;height:auto;display:block;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+figcaption{color:var(--mute);font-size:13.5px;margin-top:8px}
+.calc{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:18px 0;max-width:780px}
+.calc h4{font:800 18px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:0 0 12px}
+.calc .inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.calc label{display:block;font-size:13px;color:var(--mute)}
+.calc label b{color:var(--ink);font-family:var(--mono);font-weight:600}
+.calc input[type=range]{width:100%;accent-color:var(--hot)}
+.calc select{font:600 13px var(--body);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+.out{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.out div{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.out span{display:block;font-size:12px;color:var(--mute)}
+.out b{font:600 17px var(--mono)}
+.verdict{margin-top:12px;font-size:14px;color:#cfd8e3}
+.pipeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;max-width:780px;margin:18px 0;counter-reset:p}
+.pipeline div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13.5px;position:relative}
+.pipeline div::before{counter-increment:p;content:counter(p);font:800 22px/1 var(--display);color:var(--hot);display:block;margin-bottom:4px}
+.pipeline b{display:block;font-size:14px}
+footer{color:var(--mute);font-size:13px;border-top:1px solid var(--line);margin-top:60px;padding-top:16px}
+@media (max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{position:static;max-height:none;border:1px solid var(--line);border-radius:10px;background:var(--panel);margin-top:8px}
+  nav.toc ol{columns:2;column-gap:10px}
+  h2{font-size:28px;margin-top:48px}
+  .lede{font-size:17px}
+}
+@media (max-width:520px){ nav.toc ol{columns:1} }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="plate" href="/sao-paulo/"><b>São Paulo World</b><span>Glass Lab</span></a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn primary" href="../">Open the lab</a>
+    <a class="btn" href="../grenade/">Grenade in the shop</a>
+    <a class="btn" href="../?scene=gt">Armoured V8</a>
+  </div>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#glass">The glass itself</a></li>
+    <li><a href="#plate">The pane as a plate</a></li>
+    <li><a href="#contact">Contact</a></li>
+    <li><a href="#strength">When glass breaks</a></li>
+    <li><a href="#cracks">Running cracks</a></li>
+    <li><a href="#tempered">Tempered glass</a></li>
+    <li><a href="#pieces">Pieces and dice</a></li>
+    <li><a href="#bullets">Bullets</a></li>
+    <li><a href="#blast">Blast waves</a></li>
+    <li><a href="#scenes">The scenes</a></li>
+    <li><a href="#time">Time and slow motion</a></li>
+    <li><a href="#tiers">Runs on anything</a></li>
+    <li><a href="#sound">Sound</a></li>
+    <li><a href="#validation">Validation</a></li>
+    <li><a href="#limits">What is estimated</a></li>
+    <li><a href="#refs">References</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="eyebrow" style="margin-top:22px">Glass Dynamics · the physics</div>
+<h1>How the Glass Lab works</h1>
+<p class="lede">Nothing in the lab is animated by hand. Every crack, every falling piece and every cloud of tempered dice comes out of <b>Glass Dynamics</b>, a C++ fracture engine compiled to WebAssembly and running in your browser. This page walks through what it calculates, in the order it calculates it, with the equations and the numbers it uses — and says plainly which numbers are measured, which are fitted to test standards, and which are estimated.</p>
+
+<div class="card src" style="font-size:14.5px">
+  <span class="tag pub">published</span> a value from a standard, a handbook or a paper &nbsp;
+  <span class="tag fit">fitted</span> a constant tuned so the model passes or fails the tests that real glass does &nbsp;
+  <span class="tag est">estimated</span> a reasoned value without a direct measurement
+</div>
+
+<h2 id="overview"><span class="n">01</span>Overview</h2>
+<p>A strike is followed through the same steps every time, in time steps from 50 nanoseconds (inside a bullet strike) to milliseconds (while a pane rings down or pieces fall):</p>
+<div class="pipeline">
+  <div><b>Contact</b>the object presses on the glass with a force from contact mechanics</div>
+  <div><b>Bending</b>the pane bends and vibrates as a plate under that force</div>
+  <div><b>Stress</b>bending and residual stress at every face of every glass ply</div>
+  <div><b>Flaws</b>each patch of glass has its own strength; the first to be beaten breaks</div>
+  <div><b>Cracks</b>crack tips run, turn, fork and stop, tip by tip</div>
+  <div><b>Pieces</b>closed-off regions become pieces with mass, spin and a shape</div>
+  <div><b>Fall</b>pieces fly, land, break again; tempered dice rain</div>
+</div>
+<p>The page only draws what the engine returns and adds sound. The same engine couples to the São Paulo World driving and flight simulators for windscreens, side glass and aircraft windshields.</p>
+
+<h2 id="glass"><span class="n">02</span>The glass itself</h2>
+<p>Ordinary window glass is soda-lime-silica float glass. The engine uses these properties for it:</p>
+<table>
+<tr><th>Property</th><th>Value</th><th>Source</th></tr>
+<tr><td>Density</td><td class="num">2,500 kg/m³</td><td><span class="tag pub">published</span></td></tr>
+<tr><td>Young's modulus <span class="v">E</span></td><td class="num">72 GPa</td><td><span class="tag pub">published</span></td></tr>
+<tr><td>Poisson's ratio <span class="v">ν</span></td><td class="num">0.22</td><td><span class="tag pub">published</span></td></tr>
+<tr><td>Fracture toughness <span class="v">K</span><sub>Ic</sub></td><td class="num">0.75 MPa√m</td><td><span class="tag pub">published</span></td></tr>
+<tr><td>Hardness</td><td class="num">5.5 GPa</td><td><span class="tag pub">published</span></td></tr>
+<tr><td>Terminal crack speed</td><td class="num">1,520 m/s</td><td><span class="tag pub">published</span> (high-speed photography)</td></tr>
+<tr><td>Branching constant <span class="v">A</span><sub>b</sub></td><td class="num">2.1 MPa√m</td><td><span class="tag pub">published</span> (fracture-mirror relation)</td></tr>
+<tr><td>Weibull modulus <span class="v">m</span>, scale σ<sub>θ</sub></td><td class="num">7, 70 MPa (1 m², 60 s)</td><td><span class="tag pub">published</span> (EN 16612 range)</td></tr>
+<tr><td>Edge strength</td><td class="num">0.8 × surface</td><td><span class="tag pub">published</span> (EN 16612)</td></tr>
+<tr><td>Stress-corrosion exponent <span class="v">n</span></td><td class="num">16</td><td><span class="tag pub">published</span></td></tr>
+<tr><td>Comminution energy</td><td class="num">40 MJ/m³</td><td><span class="tag fit">fitted</span> (UL 752)</td></tr>
+</table>
+<h3>Annealed, heat-strengthened, fully tempered</h3>
+<p>The same glass is made stronger by locking stress into it. Thermal tempering cools the surfaces first: they end up squeezed in compression and the core held in tension. Across the thickness <span class="v">t</span> the profile is a parabola,</p>
+<div class="eq">σ(ζ) = CT · (1 − 3ζ²),&nbsp;&nbsp; ζ = 2z/t − 1
+<span class="c">the surface carries a compression of 2·CT, the stress crosses zero at 21 % of the thickness from each face, and the core carries the tension CT.</span></div>
+<figure>
+<svg viewBox="0 0 780 250" role="img" aria-label="Residual stress through the thickness of tempered glass">
+  <g font-family="JetBrains Mono, monospace" font-size="12" fill="#93a0b2">
+    <line x1="390" y1="20" x2="390" y2="225" stroke="rgba(255,255,255,.25)"/>
+    <line x1="80" y1="122" x2="700" y2="122" stroke="rgba(255,255,255,.12)"/>
+    <text x="396" y="34">0</text>
+    <text x="80" y="242">front face</text><text x="640" y="242">back face</text>
+    <text x="250" y="18">← compression</text><text x="430" y="18">tension →</text>
+    <path id="prof" fill="none" stroke="#9fd6ff" stroke-width="3"/>
+    <rect x="80" y="30" width="620" height="185" fill="none" stroke="rgba(255,255,255,.08)"/>
+    <text x="96" y="70" fill="#ffd36b">surface −2·CT</text>
+    <text x="520" y="70" fill="#ffd36b">core +CT</text>
+  </g>
+</svg>
+<figcaption>Residual stress through a tempered pane (horizontal: stress; vertical: depth, drawn left to right here as front face to back face). A crack must first get through the compressed skin; once it reaches the core, the stored tension drives it on by itself — which is why tempered glass bursts all at once.</figcaption>
+</figure>
+<p>Fully tempered glass has a surface compression of about 100 MPa or more, heat-strengthened about 24–52 MPa, annealed none. Chemically strengthened glass (an aircraft windshield) gets a thin, very hard ion-exchanged skin instead: a linear layer over its depth, balanced by a small uniform core tension. When the engine checks whether a flaw breaks, it subtracts the surface compression from the bending tension; when a crack is already running through the core, the core tension pushes it.</p>
+<h3>Laminates and bullet-resistant glass</h3>
+<p>Laminated glass bonds glass plies with polymer interlayers: PVB in a car windscreen (shear modulus about 20 MPa at impact rates), ionoplast in hurricane glass (about 120 MPa), polyurethane (TPU) in armour, with a polycarbonate liner at the back of bullet-resistant panels to catch the spall.</p>
+
+<h2 id="plate"><span class="n">03</span>The pane as a plate</h2>
+<p>Whatever the layup, the pane is reduced to one thin (Kirchhoff) plate with a mass per area ρ<span class="v">h</span> and a bending stiffness <span class="v">D</span>. For a laminate the stiffness sits between the plies sliding freely and the plies fully bonded, by how much shear the interlayer passes on (the Bennison–Wölfel coefficient Γ used by ASTM E1300):</p>
+<div class="eq">D = D<sub>layered</sub> + Γ (D<sub>mono</sub> − D<sub>layered</sub>)
+<span class="c">Γ is evaluated with each interlayer's stiffness at impact rates, so a laminate hit hard behaves almost like one thick pane, and the ply farthest from the impact carries the most tension.</span></div>
+<p>The bending stress at depth <span class="v">z</span> in glass ply <span class="v">i</span>, for curvature κ:</p>
+<div class="eq">σ = E/(1−ν²) · κ · [ (z − z<sub>i</sub>) + Γ (z<sub>i</sub> − z<sub>NA</sub>) ]</div>
+<h3>Modes, stepped exactly</h3>
+<p>The pane is simply supported at its edges. Its deflection is a sum of standing waves (Navier modes),</p>
+<div class="eq">w(x, y, t) = Σ<sub>m,n</sub> q<sub>mn</sub>(t) · sin(mπx/a) · sin(nπy/b)</div>
+<p>and each mode is a damped oscillator advanced with its exact solution for a force held over the step. That is why the engine can take a 50-nanosecond step during a bullet strike and a 2-millisecond step while the pane rings, without ever going unstable. Up to 44 × 44 modes are used (fewer on slower devices); the fundamental of a 1.2 × 1.0 m pane of 6 mm glass comes out at about 25 Hz.</p>
+<h3>The near field</h3>
+<p>A finite set of modes cannot hold the sharp stress peak right under a small load. Within the series' resolution radius <span class="v">r</span><sub>m</sub> the engine adds the missing curvature analytically:</p>
+<div class="eq">Δκ = F / (4π D) · ln( r<sub>reach</sub> / max(r, r<sub>e</sub>) ),&nbsp;&nbsp; r<sub>reach</sub> = min( r<sub>m</sub>, √(t · √(D/ρh)) )
+<span class="c">r<sub>e</sub> is Westergaard's equivalent radius for thick-plate contact. The second limit is how far a bending wave has travelled since the load began: a 10-microsecond stone strike cannot bend the plate out to r<sub>m</sub>. Checked against a 600 × 600-mode reference to 4 %.</span></div>
+<p>Under a point load an infinite plate also behaves like a dashpot, <span class="v">v</span> = <span class="v">F</span> / (8√(<span class="v">D</span>ρ<span class="v">h</span>)) (Zener); the contact sees that local impedance first, relaxing into the modes. Without it a steel ball on glass would reach about twice the real force.</p>
+
+<h2 id="contact"><span class="n">04</span>Contact: how hard the object pushes</h2>
+<table>
+<tr><th>Object</th><th>Force model</th></tr>
+<tr><td>Balls, hail, bags, headforms</td><td><b>Hertz</b>: <span class="v">F</span> = 4/3 <span class="v">E</span>* √<span class="v">R</span> δ<sup>1.5</sup>; past the object's own yield pressure it flattens (Thornton); energy loss by Flores et al. so it rebounds with the right restitution</td></tr>
+<tr><td>Sharp tips (window punch, stone corners)</td><td>Cone indentation <span class="v">F</span> = π tan²ψ · <span class="v">H</span> · δ² at the glass hardness</td></tr>
+<tr><td>Flat ends (2×4, brick)</td><td>Boussinesq punch 2<span class="v">E</span>*<span class="v">a</span>δ, capped at the crushing load of the object</td></tr>
+<tr><td>Birds</td><td><b>Wilbeck</b>: the shock pressure ρ<span class="v">v</span>(c₀ + <span class="v">kv</span>), then the steady flow ρ<span class="v">v</span>²<span class="v">A</span> as the bird spreads like a fluid</td></tr>
+<tr><td>Bullets, fragments, cannonballs</td><td>A penetration model ply by ply — see <a href="#bullets">Bullets</a></td></tr>
+</table>
+<p>The object and the plate are stepped together at a tenth of the contact time, so a 40-microsecond ball strike gets hundreds of steps.</p>
+<div class="calc" id="energyCalc">
+  <h4>Impact energy calculator</h4>
+  <div class="inputs">
+    <label>Object <select id="ecObj">
+      <option value="0.35,120">Steel BB (0.35 g, 120 m/s)</option>
+      <option value="145,40">Baseball (145 g, 40 m/s)</option>
+      <option value="2260,8.86">Steel ball 2.26 kg, 4 m drop</option>
+      <option value="1800,128.6">Bird 1.8 kg at 250 kt</option>
+      <option value="8,380">9 mm bullet (8 g, 380 m/s)</option>
+      <option value="400,25">Thrown grenade (400 g, 25 m/s)</option>
+      <option value="230,76">40 mm grenade round (230 g, 76 m/s)</option>
+      <option value="4080,440" selected>9-pounder cannonball (4.08 kg, 440 m/s)</option>
+    </select></label>
+    <label>Mass <b id="ecMv"></b><input id="ecM" type="range" min="-4" max="4.7" step="0.01"></label>
+    <label>Speed <b id="ecVv"></b><input id="ecV" type="range" min="0" max="3.2" step="0.005"></label>
+  </div>
+  <div class="out">
+    <div><span>Kinetic energy</span><b id="ecE"></b></div>
+    <div><span>Momentum</span><b id="ecP"></b></div>
+    <div><span>Same as dropping it from</span><b id="ecH"></b></div>
+    <div><span>Speed</span><b id="ecS"></b></div>
+  </div>
+</div>
+
+<h2 id="strength"><span class="n">05</span>When glass breaks</h2>
+<p>Glass is almost never as strong as its chemistry: it breaks at microscopic surface flaws, and how bad the worst flaw is depends on luck and on how much glass is stressed. The engine covers each face of each glass ply with a lattice of flaw probes, and gives each its own strength drawn from a Weibull distribution for its area:</p>
+<div class="eq">P(fail) = 1 − exp( −A/A₀ · (σ/σ<sub>θ</sub>)<sup>m</sup> ),&nbsp;&nbsp; σ<sub>θ</sub> = 70 MPa at A₀ = 1 m², m = 7
+<span class="c">a small patch is stronger than a big one (the size effect); edges get 0.8 × the strength (EN 16612). The draws come from the seed, so the same shot breaks the same way and another seed differently.</span></div>
+<p>Glass is also stronger the faster it is loaded, because water at the crack tip needs time to weaken it (stress corrosion):</p>
+<div class="eq">σ<sub>strength</sub>(t) = σ<sub>60 s</sub> · (60 s / t)<sup>1/(n+1)</sup>,&nbsp;&nbsp; n = 16, at most × 3</div>
+<p>Then, every few microseconds while something is happening, every probe compares the largest principal tension at its face (bending, minus any surface compression) with its strength. Three special cases sit under the load itself:</p>
+<ul>
+<li><b>Bending under the load</b> — the commonest break: a star of radial cracks from the impact point.</li>
+<li><b>Hertzian cone</b> — a small hard ball cracks a cone into the glass once the load passes Auerbach's law, <span class="v">F</span><sub>c</sub> ≈ 5×10⁴ N/m × <span class="v">R</span>. A BB through plate glass punches out exactly this cone.</li>
+<li><b>Sharp contact</b> — a point drives a median crack of depth <span class="v">c</span> = (0.016 √(<span class="v">E/H</span>) · <span class="v">F</span> / <span class="v">K</span><sub>Ic</sub>)<sup>2/3</sup> (Lawn–Evans–Marshall). In tempered glass, once it reaches the compressed skin's depth the core is exposed and the whole pane goes — the principle behind a window-punch tool.</li>
+</ul>
+<h3>How many radial cracks</h3>
+<p>A load that only just breaks the pane leaves a handful of radial cracks; a much harder blow leaves a sunburst. The engine sends out</p>
+<div class="eq">n = 4 + 4 ln(σ/σ<sub>strength</sub>) + 1.5 ln(1 + E/100 J) + U(0, 3),&nbsp;&nbsp; 4 ≤ n ≤ 18
+<span class="c">at uneven angles. The crushed zone at the load point is never a clean circle: its edge carries five random harmonics, about 14 % of its radius. <span class="tag est">estimated</span> from photographs of broken panes.</span></div>
+
+<h2 id="cracks"><span class="n">06</span>Running cracks</h2>
+<p>Each crack is a polyline grown tip by tip across a fine grid (2–6 mm cells depending on the device), with the time each point was reached, so slow motion shows the crack front racing out. For each tip, every step:</p>
+<ul>
+<li><b>Is it driven?</b> The stress intensity over the plate's depth, <span class="v">K</span> = σ √(π · 0.6<span class="v">h</span>). Below <span class="v">K</span><sub>Ic</sub> the tip stops (and is checked again while the plate moves).</li>
+<li><b>How fast?</b> Freund's form for a dynamic crack: <span class="v">v</span> = <span class="v">v</span><sub>t</sub> (1 − (<span class="v">K</span><sub>Ic</sub>/<span class="v">K</span>)²), up to the terminal speed of 1,520 m/s — a 1-metre pane is crossed in under a millisecond.</li>
+<li><b>Which way?</b> The maximum hoop-stress criterion (Erdogan &amp; Sih): the tip turns toward the direction that opens it most, from the ratio of shear to opening stress at its tip, over about one plate thickness of growth.</li>
+<li><b>Fork?</b> When σ√(distance since the last fork) passes three times the branching constant — the fracture-mirror relation that sets how violent a break looks. Forks open at ±17° (±28° in tempered glass).</li>
+<li><b>Shielded or stopped?</b> A crack running alongside another within 1.5 plate thicknesses is unloaded by it and stops; a tip that reaches another crack ends there, as real cracks do.</li>
+</ul>
+<h3>Why cracks are not ruler-straight</h3>
+<p>Real glass is not perfectly uniform, so real cracks meander. Each tip carries a slowly wandering offset from its stress-preferred direction (an Ornstein–Uhlenbeck process):</p>
+<div class="eq">dθ<sub>w</sub> = −θ<sub>w</sub> ds / L + σ<sub>w</sub> √(2 ds / L) · N(0,1),&nbsp;&nbsp; σ<sub>w</sub> = 0.12 rad, L = 4 cm
+<span class="c">The turn the stress asks for is also scaled by how directional the stress is, dev / (dev + residual): the locked-in tension of heat-strengthened glass pulls equally every way and should not steer the crack. A running crack bends no tighter than a 10 cm radius; sharp changes of direction come only as forks. <span class="tag est">estimated</span></span></div>
+<h3>Wedges and rings</h3>
+<p>Radial cracks leave wedges of glass loaded at their tips by the object. As cantilevers, their roots carry <span class="v">σ</span> = 3<span class="v">F</span> / (π<span class="v">h</span>²) on the face toward the impact; when that beats the strength there, a concentric ring opens — the classic spider web. In a laminate the interlayer holds the wedges, so only 15 % of that reaches their roots, which is why windscreens show many rings and plate glass few.</p>
+
+<h2 id="tempered"><span class="n">07</span>Tempered glass</h2>
+<p>When the core tension is high enough, every running crack forks again and again: the pane "dices". The size of the dice comes from an energy balance — the strain energy stored by tempering pays for the new crack surfaces:</p>
+<div class="eq">U = t (1−ν) CT² / (5E)&nbsp;&nbsp;→&nbsp;&nbsp; a = 10 K<sub>Ic</sub>² / ((1−ν) · η · CT²),&nbsp;&nbsp; η = 0.5
+<span class="c">η is the share of the stored energy that goes into new surface, <span class="tag fit">fitted</span> so 4–6 mm fully tempered glass gives the 40–400 pieces per 50 × 50 mm square that UN ECE R43 requires. Slower devices draw coarser dice; the results panel always reports the real size.</span></div>
+<h3>How a crazed pane comes down</h3>
+<p>A diced pane has no strength left, but it rarely falls at once: the dice wedge against each other and the frame. The engine models every contact between two dice as friction with its own grip (drawn from the seed), and asks for each die whether its neighbours can still carry its weight:</p>
+<div class="eq">capacity = Σ grip × (1.0 below · 0.12 beside · 0.05 above) × (neighbours left / neighbours it had)² + frame grip
+<span class="c">A die falls when its capacity drops below its weight. Each fall rechecks its neighbours after the time it takes to slide clear (0.2–1.5 mm under gravity), so the pane unzips from the hole upward at the speed gravity allows, slabs of dice that grip each other fall together and burst on the floor, and a fringe stays in the frame. <span class="tag fit">fitted</span> to footage of panes emptying in 0.3–1 s.</span></div>
+
+<h2 id="pieces"><span class="n">08</span>Pieces and dice</h2>
+<p>When a pane's cracks have been quiet for 150 µs, its crack grid is flood-filled into regions; each region is traced into a polygon (holes included) and becomes a rigid piece with its area, mass, centre and moments of inertia. If there are more regions than the device's piece budget, the smallest merge into a neighbour, so the pieces always cover the whole pane — coarser, never missing.</p>
+<p>Each piece starts with the plate's local velocity and spin, or the object's velocity if it lies in its path. A piece stays if it sits on the bottom edge, is wedged across two edges, or the frame's grip on its edge holds its weight. Free pieces fly on a fixed 0.5 ms step:</p>
+<div class="eq">m dv/dt = m g − ½ ρ<sub>air</sub> C<sub>d</sub> A |v| v,&nbsp;&nbsp; floor: restitution 0.25, friction 0.45
+<span class="c">A landing breaks a piece again along a random line when its energy beats 40 × the energy of the new crack surface. A tempered piece drawn coarser than its real dice comes apart into them 40–160 ms after it leaves the frame, or when it lands, and the page scatters the real dice from there.</span></div>
+
+<h2 id="bullets"><span class="n">09</span>Bullets</h2>
+<p>A projectile is followed ply by ply. Each glass ply crushes a cone (68° half-angle) ahead of it; the energy it absorbs is the comminution energy (40 MJ/m³) times the cone's volume, the plug ahead takes its share of the momentum, and a lead nose flattens as it goes (a hard core does not). Interlayers tear, a polycarbonate backing bulges and absorbs, and the momentum lost each step bends the plate — so the spider web and its rings come from the same crack model as everything else.</p>
+<div class="eq">line-of-sight thickness = t / cos θ,&nbsp;&nbsp; ricochet beyond θ = 72°
+<span class="c">A round that arrives at an angle meets every layer at its slant thickness; past 72° from square it glances off. A round landing in an earlier crater pays only 15 % of the comminution energy for glass already crushed there, so armour hit repeatedly in one place does give way. <span class="tag fit">fitted</span> so representative UL 752 builds stop their rated rounds.</span></div>
+<p>A shotgun shell fires each pellet as its own projectile, spread by the pattern (00 buckshot: nine 3.5 g pellets, 6.5 mrad rms) and strung out along the shot string. A 9-pounder cannonball is handled the same way — just 4 kg of iron at 440 m/s, which carries the whole pane away.</p>
+
+<h2 id="blast"><span class="n">10</span>Blast waves</h2>
+<p>A blast loads the whole pane at once. The engine takes the pressure history as two parts: the shock, reflected off the glass, as a Friedlander pulse; and, for a charge inside a closed room, the slower pressure of its hot gas as the room vents.</p>
+<div class="eq">p(τ) = p<sub>r</sub> (1 − τ/t<sub>d</sub>) e<sup>−bτ/t<sub>d</sub></sup> + p<sub>g</sub> (1 − e<sup>−τ/t<sub>r</sub></sup>) e<sup>−τ/τ<sub>v</sub></sup>
+<span class="c">τ is the time since the shock arrived; p<sub>r</sub> the reflected peak, t<sub>d</sub> the positive phase, b the decay, p<sub>g</sub> the gas pressure rising over t<sub>r</sub> and venting with time constant τ<sub>v</sub>. The Friedlander part dips below zero after t<sub>d</sub> — the suction behind every shock.</span></div>
+<p>The numbers come from the charge and the geometry. For a TNT-equivalent charge of <span class="v">W</span> kg at distance <span class="v">R</span>, everything scales with <span class="v">Z</span> = <span class="v">R</span> / <span class="v">W</span><sup>1/3</sup> (Hopkinson–Cranz), and the Kinney–Graham fits give, in free air:</p>
+<div class="eq">p<sub>s</sub>/P₀ = 808 [1 + (Z/4.5)²] / √( [1 + (Z/0.048)²] [1 + (Z/0.32)²] [1 + (Z/1.35)²] )<br>
+t<sub>d</sub>/W<sup>1/3</sup> = 980 [1 + (Z/0.54)<sup>10</sup>] / ( [1 + (Z/0.02)³] [1 + (Z/0.74)<sup>6</sup>] √(1 + (Z/6.9)²) ) ms<br>
+i/W<sup>1/3</sup> = 0.067 √(1 + (Z/0.23)<sup>4</sup>) / ( Z² ∛(1 + (Z/1.55)³) ) bar·ms</div>
+<p>Glass facing the blast sees the shock reflected, which more than doubles it (Rankine–Hugoniot for air, γ = 1.4), less at a glancing angle α:</p>
+<div class="eq">p<sub>r</sub> = 2 p<sub>s</sub> (7P₀ + 4p<sub>s</sub>) / (7P₀ + p<sub>s</sub>),&nbsp;&nbsp; p = p<sub>s</sub> + (p<sub>r</sub> − p<sub>s</sub>) cos²α</div>
+<p>The decay <span class="v">b</span> is solved so the pulse carries the right impulse; the shock's arrival is integrated outward at its own speed, <span class="v">U</span> = <span class="v">c</span>₀ √(1 + 6<span class="v">p</span><sub>s</sub>/7<span class="v">P</span>₀), faster than sound close in. In a closed room the gas adds a quasi-static pressure (the UFC 3-340-02 fit) that vents through the openings:</p>
+<div class="eq">p<sub>g</sub> = 2,410 kPa · (W/V)<sup>0.72</sup>,&nbsp;&nbsp; τ<sub>v</sub> ≈ V / (A<sub>vent</sub> · 150 m/s)</div>
+<h3>What the glass does</h3>
+<p>The pane bends under the pressure like under any load, and its flaw probes break it — about 5 ms after the shock reaches a 6 mm tempered window in the shop scene: glass has inertia, and bending takes time. Then, while the pressure is above 1 kPa, every loose piece whose pressure force beats its frame grip is torn out (a crazed tempered sheet does not hold at all: its friction is a few times a die's weight). Pieces still in the opening are driven out by the venting gas:</p>
+<div class="eq">dv/dt = p(t) · A / m · (1 − d/0.6 m)&nbsp;&nbsp; for pieces within 0.6 m of the pane
+<span class="c">That launches the dice at 15–40 m/s, and windows leave as whole sheets of dice that spread into clouds — as in footage of blast-tested glazing. <span class="tag est">estimated</span>: the 1 kPa hold and the 0.6 m reach of the gas jet.</span></div>
+<h3>Grenades in the lab</h3>
+<p>Two of the lab's objects explode. The <b>hand grenade</b> is lobbed at the pane at 7 m/s and goes off 1.5 s after the throw, wherever it has come to rest (often at the foot of the pane, where the shock meets the glass at a glancing angle: a 6 mm tempered pane can survive that, which is what the formulas say). The <b>40 mm grenade</b> is a 230 g round fired at 76 m/s with an impact fuse: it bursts on the glass, 0.04 kg TNT equivalent and about 300 fragments. Both use the same blast, fragment and gas formulas as the shop, with the pane loaded from the side the charge is on.</p>
+<div class="calc" id="blastCalc">
+  <h4>Blast calculator</h4>
+  <div class="inputs">
+    <label>Charge (kg of TNT) <b id="bcWv"></b><input id="bcW" type="range" min="-2" max="3" step="0.01" value="-0.66"></label>
+    <label>Distance <b id="bcRv"></b><input id="bcR" type="range" min="-0.7" max="2.3" step="0.005" value="0.4"></label>
+    <label>Angle from face-on <b id="bcAv"></b><input id="bcA" type="range" min="0" max="89" step="1" value="0"></label>
+  </div>
+  <div class="out">
+    <div><span>Scaled distance Z</span><b id="bcZ"></b></div>
+    <div><span>Side-on overpressure</span><b id="bcPs"></b></div>
+    <div><span>On the glass (reflected)</span><b id="bcPr"></b></div>
+    <div><span>Positive phase</span><b id="bcTd"></b></div>
+    <div><span>Impulse on the glass</span><b id="bcI"></b></div>
+    <div><span>Arrives after</span><b id="bcTa"></b></div>
+  </div>
+  <figure style="margin:14px 0 0">
+    <svg id="bcPlot" viewBox="0 0 740 220" role="img" aria-label="Pressure on the glass against time"></svg>
+    <figcaption>Pressure on the glass against time after the shock arrives (the Friedlander pulse the engine is given). 0.22 kg is the TNT equivalent of a hand grenade's filling.</figcaption>
+  </figure>
+  <p class="verdict" id="bcVerdict"></p>
+</div>
+
+<h2 id="scenes"><span class="n">11</span>The scenes</h2>
+<h3>Armoured V8 under fire</h3>
+<p>The Rosser V8 from the driving simulator sits in a piazza with a 32 mm armoured windscreen: four 6 mm glass plies on polyurethane with a polycarbonate liner. The windscreen is the flat that best fits the car's curved screen, raked 69.5° from vertical. Five gunmen fire bursts at the driver, each round aimed with scatter and muzzle climb; the page works out where each round meets the windscreen's plane and fires it into the engine at the exact engine time it arrives, with its real angle. At that rake the rounds strike at a glancing angle, see a far thicker barrier (<span class="v">t</span>/cos θ) and sometimes skip off. Rounds that miss strike sparks off the body. The barrage is generated from the pane's seed, so Replay shows it again exactly.</p>
+<h3>Grenade in the shop</h3>
+<p>A one-room glass shop on a street at night. Its front is a storefront: four floor-to-ceiling panels of 10 mm fully tempered glass (1.1 × 2.55 m), a frameless 10 mm glass door and a 6 mm transom over it; each other wall has three 6 mm tempered windows. That is fifteen panes, every one its own engine pane, stepped on one shared clock.</p>
+<ul>
+<li><b>The throw.</b> Tap any pane and a crash-test dummy walks to 5.4 m outside that wall and throws at it. The arc from its hand is solved so the grenade (a 400 g steel ball, 64 mm across) reaches the glass at 25 m/s, a hard overarm throw; the engine then decides for real whether it breaks the pane (at 25 m/s 10 mm tempered broke in 6 of 6 tests; at 20 m/s in 4 of 6, and a soft throw bounces off). The flight plays in real time; bullet time only starts in the last 30 ms, the final 75 cm before the glass. Inside, it rattles round the room with gravity, restitution and rolling friction until the fuse runs out, 1.6 s after the throw.</li>
+<li><b>The steel.</b> When it goes off, about 800 fragments are spread evenly in every direction at 1.2–1.6 km/s (the Gurney velocity of a thin steel case on Composition B). The number reaching each pane is drawn from a Poisson distribution with the pane's solid angle as its mean, <span class="v">N</span>·<span class="v">A</span> cos α / (4π<span class="v">R</span>²), and each one is fired into that pane as a 0.2 g projectile. They arrive first.</li>
+<li><b>The blast.</b> Each pane gets its own load from its distance and angle to the charge (0.22 kg TNT equivalent): reflected peak, positive phase, decay, arrival time (from the <a href="#blast">blast section</a>), plus the room's gas pressure (about 29 kPa for 101 m³) venting through the openings with τ<sub>v</sub> = <span class="v">V</span> / (<span class="v">A</span><sub>vent</sub> · 150 m/s). A charge outside the shop loads the panes on its side from the outside, and those behind the shop with a quarter of the pressure (diffraction round the building). <span class="tag est">estimated</span></li>
+<li><b>The pacing.</b> Real time while the grenade flies and the fuse burns; 1/300 in the last 4 ms before the burst; 1/600 for the first 6 ms after it while the shock crosses the room and the panes craze; 1/100 to 30 ms while the dice leave their frames; 1/12 to 0.4 s and 1/3 to 1.4 s while the clouds fly out; then real time.</li>
+<li><b>Night.</b> The street is lit by four sodium-coloured lamps and the shop's own lights, and the glass reflects a night sky with the lamps in it (a small environment map rendered once). Every die that turns toward a lamp glints against the dark, which shows the clouds far better than daylight. The Day button switches back.</li>
+</ul>
+<h3 id="dummy">What happens to the dummy</h3>
+<p>The dummy is a 1.85 m Hybrid-style crash dummy standing where it threw from. Three things can reach it, each worked out from the same blast and fragments that hit the glass:</p>
+<ul>
+<li><b>The blast.</b> The side-on overpressure <span class="v">p</span> at its distance (Kinney–Graham, above), cut to 60 % when the charge is inside the shop: the shop's front is mostly glass, which is gone by the time the shock passes. <span class="tag est">estimated</span> The chance of a ruptured eardrum is the Eisenberg probit,
+<div class="eq">Y = −12.6 + 1.524 ln <span class="v">p</span> (Pa),&nbsp;&nbsp; P(rupture) = Φ(Y − 5)
+<span class="c">Φ is the standard normal distribution. 50 % rupture at about 105 kPa; 1 % at about 22 kPa. <span class="tag pub">published</span></span></div>
+Lungs are flagged above about 70 kPa for a millisecond-long pulse, the threshold of lung damage on the Bowen curves. <span class="tag pub">published</span></li>
+<li><b>The steel.</b> The number of fragments it catches is a Poisson draw for its frontal area, about 0.55 m², with the same solid-angle mean as for the panes. Each one slows by air drag on the way, <span class="v">v</span> = <span class="v">v</span>₀ e<sup>−<span class="v">R</span>/55 m</sup> for a 0.2 g splinter, and its energy is compared with the 79 J (58 ft·lbf) criterion long used for an incapacitating fragment. <span class="tag pub">published</span> criterion, <span class="tag est">estimated</span> drag length.</li>
+<li><b>The glass.</b> Every spray of tempered dice that the engine launches from the panes on the dummy's side is flown ballistically (gravity only) to see whether it crosses a 0.28 m-radius cylinder round the dummy; about a third of a spray's dice are counted as hitting it, with the spray's speed. Tempered dice are blunt cubes: at the 15–40 m/s the blast gives them they bruise and cut shallowly, unlike the long blades of annealed glass. <span class="tag est">estimated</span></li>
+</ul>
+<p>The band round its chest turns from green to yellow (glass, or a small chance of eardrum damage), orange (a fragment, or a likely ruptured eardrum) or red (a fragment over 79 J, or lung injury). Red marks show where steel struck it, blue where glass did.</p>
+
+<h2 id="time"><span class="n">12</span>Time and slow motion</h2>
+<p>The engine has its own clock. Each frame the page asks it to advance by the real time that passed times the playback speed — 1/10 to 1/100,000 — and the engine takes whatever steps the physics needs to get there (50 ns inside a bullet strike, microseconds while cracks run, milliseconds while pieces fly). Slow motion is not interpolation: at 1/100,000 the engine is simply asked for 0.17 µs of physics per frame.</p>
+<p><b>Bullet time</b> (the Auto button) slows down by itself as something approaches the glass, holds near 1/5,000 while it is in contact and cracks are running, and eases back up as the pieces fall. It eases down fast and up gently, in powers of ten.</p>
+<p><b>Replay</b> rebuilds the same pane from the same seed and refires the same shots at the same engine times. The engine is deterministic: the same shot gives the same cracks whatever the device's frame rate (checked at 60 and 997 frames per second).</p>
+
+<h2 id="tiers"><span class="n">13</span>Runs on anything</h2>
+<p>The page times a fixed piece of work when it loads and picks a tier. A tier changes the resolution, never the physics:</p>
+<table>
+<tr><th>Tier</th><th>Plate modes</th><th>Crack grid</th><th>Cells per ply</th><th>Pieces</th></tr>
+<tr><td>Potato</td><td class="num">10</td><td class="num">6 mm</td><td class="num">40,000</td><td class="num">600</td></tr>
+<tr><td>Low</td><td class="num">16</td><td class="num">4 mm</td><td class="num">100,000</td><td class="num">1,500</td></tr>
+<tr><td>Medium</td><td class="num">24</td><td class="num">3 mm</td><td class="num">250,000</td><td class="num">3,000</td></tr>
+<tr><td>High</td><td class="num">32</td><td class="num">2 mm</td><td class="num">500,000</td><td class="num">6,000</td></tr>
+<tr><td>Ultra</td><td class="num">44</td><td class="num">1.5 mm</td><td class="num">1,000,000</td><td class="num">12,000</td></tr>
+</table>
+<p>In a scene with many panes the page also gives each pane a level of detail from the camera, a few times a second: a pane small on the screen updates its pieces every other frame, and a pane out of the picture or hidden behind a wall or the roof (tested along five lines of sight to its centre and corners) is not drawn and catches up every eighth frame. The physics of every pane is the same whatever its detail, so what you see when you turn to look is exactly what happened.</p>
+<p>The same shot gives the same outcome (through, held, stopped) on every tier — tested. If a device cannot keep up, the clock slows down rather than skipping physics, and the bar says "device-limited". Without WebGL the lab draws a flat front view.</p>
+
+<h2 id="sound"><span class="n">14</span>Sound</h2>
+<p>There are no recordings: every sound is synthesized in the browser from what the engine reports. Breaking glass is mostly noise, not tone, so the voices are built from sharp contact clicks and high, inharmonic resonances that die in milliseconds:</p>
+<ul>
+<li>a running crack: a broadband tick; the crash of annealed glass: a crack, then thousands of micro-fractures over a fraction of a second, over the pane's own short knock;</li>
+<li>tempered glass bursting: the same, denser and finer; laminate: duller, like crushed ice; armour: a thump;</li>
+<li>a shard landing: a hard click and a cluster of modes, with a bounce or two; a big annealed piece landing hard breaks again;</li>
+<li>a supersonic bullet: its N-wave crack; a ricochet: its whine; a blast: the shock's crack, a long boom, a roar of air.</li>
+</ul>
+<p>In slow motion everything drops in pitch and stretches by the same factor, (playback speed)<sup>0.2</sup>, so time audibly winds down. Sound starts muted; press Sound or <b>M</b>.</p>
+
+<h2 id="validation"><span class="n">15</span>Validation</h2>
+<p>Each scenario is run against the test standard it follows. The panes are flat, representative builds, so a pass means the model behaves the way glazing built to that standard does — not a certification.</p>
+<table>
+<tr><th>Scenario</th><th>Standard and criterion</th><th>The engine</th></tr>
+<tr><td>227 g steel ball from 2 m on 4 mm tempered side glass</td><td>UN ECE R43: must not break</td><td>Holds</td></tr>
+<tr><td>Window punch on 4 mm tempered side glass</td><td>ECE R43: 40–400 pieces per 50 × 50 mm</td><td>About 156 per square</td></tr>
+<tr><td>2.26 kg ball from 4 m on a laminated windscreen</td><td>ECE R43 / ANSI Z26.1: must not pass</td><td>Both plies break, the PVB holds (62 mm bulge)</td></tr>
+<tr><td>45 kg bag from 48 in on 6 mm annealed / tempered</td><td>ANSI Z97.1 / 16 CFR 1201</td><td>Annealed: large shards; tempered: holds or dices safely</td></tr>
+<tr><td>2×4 at 15.2 m/s on hurricane laminate</td><td>ASTM E1996 missile D: no penetration</td><td>Glass cracks, interlayer holds</td></tr>
+<tr><td>9 mm on a 30 mm laminate</td><td>UL 752 Level 1</td><td>Stopped 13 mm in</td></tr>
+<tr><td>.44 Magnum on 32 mm glass-clad polycarbonate</td><td>UL 752 Level 3</td><td>Stopped 19 mm in</td></tr>
+<tr><td>7.62 × 51 on the same panel</td><td>Not rated: should go through</td><td>Through at 561 m/s</td></tr>
+<tr><td>7.62 × 51 on 52 mm rifle-rated panel</td><td>UL 752 Level 8</td><td>Stopped 35 mm in</td></tr>
+<tr><td>4 lb bird at 250 kt on the airliner windshield</td><td>14 CFR 25.775: no penetration</td><td>Holds, cabin intact</td></tr>
+<tr><td>9 mm on the 32 mm armoured windscreen</td><td>EN 1063 BR4 / VPAM 4 class</td><td>Stopped 12 mm in; ricochets past 72°</td></tr>
+<tr><td>A room blast on 6 mm tempered</td><td>Blast-tested tempered glazing fails and is thrown clear</td><td>Fails ~5 ms after the shock, out at 15–40 m/s as dice</td></tr>
+</table>
+<p>The plate itself is checked against closed forms: the fundamental frequency exactly, the centre deflection under a point load (0.0116 <span class="v">F a</span>²/<span class="v">D</span>) and under pressure (0.00406 <span class="v">p a</span>⁴/<span class="v">D</span>) within 1 %, and the exact stepping conserves energy to one part in a billion.</p>
+
+<h2 id="limits"><span class="n">16</span>What is estimated, and what is missing</h2>
+<div class="card est">
+<p style="margin-top:0">Being honest about a model is part of it. These are reasoned values, not measurements:</p>
+<ul>
+<li>the wander of running cracks (0.12 rad over 4 cm), the tightest bend (10 cm), the ragged edge of crushed zones;</li>
+<li>the crazed sheet's friction (fitted to footage, not measured), and how long its edges keep crumbling;</li>
+<li>the blast's 1 kPa hold and the gas jet's 0.6 m reach; the grenade's 800 effective fragments and its 0.22 kg TNT equivalent; the shop's venting speed; the share of the blast that gets past the storefront to the dummy, the fragments' 55 m drag length and the share of a spray of dice that hits it;</li>
+<li>the 15 % cost of re-crushing rubble in an old crater, and the 72° ricochet angle;</li>
+<li>the windscreens and armoured layups are representative builds, not certified products.</li>
+</ul>
+<p>And what the engine does not do yet:</p>
+<ul style="margin-bottom:0">
+<li>panes are flat and simply supported: curved glass is flattened, clamped or bonded edges are not modelled;</li>
+<li>the plate does not soften as it cracks (except under the impactor), so a heavily cracked laminate is too stiff;</li>
+<li>polycarbonate and acrylic plies do not crack or craze; thermal stress (sunlit panes, heated windshields) is not modelled;</li>
+<li>falling pieces do not collide with each other, and walls do not stop them;</li>
+<li>a blast is a pressure history given to the pane; the air itself (reflections round a room, the jet through each window) is not simulated.</li>
+</ul>
+</div>
+
+<h2 id="refs"><span class="n">17</span>References</h2>
+<ul style="font-size:14.5px">
+<li>Timoshenko &amp; Woinowsky-Krieger, <i>Theory of Plates and Shells</i> (Navier solution, Westergaard radius).</li>
+<li>ASTM E1300; Bennison &amp; Wölfel, effective thickness of laminated glass.</li>
+<li>Hertz (1882); Thornton (1997) elastic-plastic contact; Flores et al. (2011) dissipative contact.</li>
+<li>Wilbeck (1978), <i>Impact behavior of low strength projectiles</i> (bird strike).</li>
+<li>Auerbach's law; Lawn, Evans &amp; Marshall (1980), median cracks under sharp contact.</li>
+<li>Freund, <i>Dynamic Fracture Mechanics</i> (crack speed); Erdogan &amp; Sih (1963), maximum hoop-stress criterion.</li>
+<li>EN 16612 (glass strength, edge factor); Weibull statistics of glass strength.</li>
+<li>Kinney &amp; Graham (1985), <i>Explosive Shocks in Air</i>; UFC 3-340-02, <i>Structures to Resist the Effects of Accidental Explosions</i>.</li>
+<li>Eisenberg, Lynch &amp; Breeding (1975), <i>Vulnerability model</i> (eardrum probit); Bowen, Fletcher &amp; Richmond (1968), lung injury tolerance to blast.</li>
+<li>Gurney (1943), fragment velocities; the 58 ft·lbf (79 J) fragment incapacitation criterion.</li>
+<li>UN ECE Regulation 43; ANSI Z26.1; ANSI Z97.1 / 16 CFR 1201; ASTM E1996; UL 752; EN 1063; 14 CFR 25.775.</li>
+</ul>
+<footer>Glass Dynamics is an engine-independent C++20 core (MIT). Every number above lives in its source next to where it is used, with its provenance in the glazing and impactor data. <a href="../">Back to the lab</a> · <a href="/sao-paulo/">São Paulo World</a></footer>
+</main>
+</div>
+
+<script>
+// ---------- The tempered profile ----------
+(() => {
+  const p = document.getElementById('prof'), pts = [];
+  for (let i = 0; i <= 100; ++i) {
+    const z = i / 100, zeta = 2 * z - 1, s = 1 - 3 * zeta * zeta;   // in units of CT: +1 core .. -2 surface
+    pts.push(`${(80 + 620 * z).toFixed(1)},${(122 - 46 * s).toFixed(1)}`);
+  }
+  // drawn as a curve over depth: x = depth, y = stress (up = tension)
+  p.setAttribute('d', 'M' + pts.join(' L'));
+})();
+
+// ---------- Impact energy ----------
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const fmtE = (j) => j >= 1e6 ? (j / 1e6).toFixed(2) + ' MJ' : j >= 1e3 ? (j / 1e3).toFixed(1) + ' kJ' : j >= 10 ? j.toFixed(0) + ' J' : j.toFixed(2) + ' J';
+  const fmtM = (g) => g >= 1000 ? (g / 1000).toFixed(2) + ' kg' : g >= 10 ? g.toFixed(0) + ' g' : g.toFixed(2) + ' g';
+  const fmtH = (h) => h >= 1000 ? (h / 1000).toFixed(1) + ' km' : h >= 10 ? h.toFixed(0) + ' m' : h.toFixed(2) + ' m';
+  function set(g, v) { $('ecM').value = Math.log10(g); $('ecV').value = Math.log10(v); upd(); }
+  function upd() {
+    const g = 10 ** +$('ecM').value, v = 10 ** +$('ecV').value, m = g / 1000;
+    $('ecMv').textContent = fmtM(g);
+    $('ecVv').textContent = v.toFixed(v < 10 ? 2 : 0) + ' m/s';
+    const E = 0.5 * m * v * v;
+    $('ecE').textContent = fmtE(E);
+    $('ecP').textContent = (m * v).toFixed(m * v < 10 ? 2 : 0) + ' N·s';
+    $('ecH').textContent = fmtH(v * v / (2 * 9.80665));
+    $('ecS').textContent = `${(v * 3.6).toFixed(0)} km/h · ${(v * 2.23694).toFixed(0)} mph · ${(v * 3.28084).toFixed(0)} ft/s · ${(v * 1.94384).toFixed(0)} kt`;
+  }
+  $('ecObj').onchange = () => { const [g, v] = $('ecObj').value.split(',').map(Number); set(g, v); };
+  $('ecM').oninput = upd; $('ecV').oninput = upd;
+  $('ecObj').onchange();
+})();
+
+// ---------- Blast calculator (the same formulas as the shop scene) ----------
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const P0 = 101325, C0 = 343;
+  const sideOn = (Z) => P0 * 808 * (1 + (Z / 4.5) ** 2) / Math.sqrt((1 + (Z / 0.048) ** 2) * (1 + (Z / 0.32) ** 2) * (1 + (Z / 1.35) ** 2));
+  const phase = (Z, W) => 1e-3 * Math.cbrt(W) * 980 * (1 + (Z / 0.54) ** 10) / ((1 + (Z / 0.02) ** 3) * (1 + (Z / 0.74) ** 6) * Math.sqrt(1 + (Z / 6.9) ** 2));
+  const imp = (Z, W) => 100 * Math.cbrt(W) * 0.067 * Math.sqrt(1 + (Z / 0.23) ** 4) / (Z * Z * Math.cbrt(1 + (Z / 1.55) ** 3));
+  const refl = (p) => 2 * p * (7 * P0 + 4 * p) / (7 * P0 + p);
+  const decayFor = (I, p, td) => {
+    const f = (b) => 1 / b - (1 - Math.exp(-b)) / (b * b), want = I / (p * td);
+    if (want >= f(0.05)) return 0.05;
+    let lo = 0.05, hi = 20;
+    for (let i = 0; i < 50; ++i) { const m = 0.5 * (lo + hi); if (f(m) > want) lo = m; else hi = m; }
+    return 0.5 * (lo + hi);
+  };
+  const arrival = (R, W) => {
+    let t = 0; const r0 = 0.05, n = 80;
+    for (let i = 0; i < n; ++i) { const a = r0 + (R - r0) * i / n, b = r0 + (R - r0) * (i + 1) / n; t += (b - a) / (C0 * Math.sqrt(1 + 6 * sideOn(0.5 * (a + b) / Math.cbrt(W)) / (7 * P0))); }
+    return t;
+  };
+  const kPa = (p) => p >= 1e6 ? (p / 1e6).toFixed(2) + ' MPa' : (p / 1e3).toFixed(p < 1e4 ? 1 : 0) + ' kPa';
+  const psi = (p) => (p / 6894.76).toFixed(p < 7e4 ? 1 : 0) + ' psi';
+  const ms = (t) => t < 1e-3 ? (t * 1e6).toFixed(0) + ' µs' : (t * 1e3).toFixed(2) + ' ms';
+  function upd() {
+    const W = 10 ** +$('bcW').value, R = 10 ** +$('bcR').value, a = +$('bcA').value * Math.PI / 180;
+    $('bcWv').textContent = W < 1 ? (W * 1000).toFixed(0) + ' g' : W.toFixed(W < 10 ? 1 : 0) + ' kg';
+    $('bcRv').textContent = R < 10 ? R.toFixed(2) + ' m' : R.toFixed(0) + ' m';
+    $('bcAv').textContent = $('bcA').value + '°';
+    const Z = R / Math.cbrt(W), ps = sideOn(Z), pr = refl(ps), p = ps + (pr - ps) * Math.cos(a) ** 2;
+    const td = phase(Z, W), I = imp(Z, W) * p / ps, b = decayFor(I, p, td), ta = arrival(R, W);
+    $('bcZ').textContent = Z.toFixed(2) + ' m/kg⅓';
+    $('bcPs').textContent = kPa(ps);
+    $('bcPr').textContent = `${kPa(p)} · ${psi(p)}`;
+    $('bcTd').textContent = ms(td);
+    $('bcI').textContent = I.toFixed(I < 10 ? 1 : 0) + ' Pa·s';
+    $('bcTa').textContent = ms(ta);
+    // the pulse
+    const svg = $('bcPlot'), w = 740, h = 220, x0 = 50, y0 = 30, x1 = w - 16, y1 = h - 34;
+    const T = 3 * td, n = 160, pts = [];
+    let lo = 0;
+    for (let i = 0; i <= n; ++i) { const t = T * i / n; lo = Math.min(lo, p * (1 - t / td) * Math.exp(-b * t / td)); }
+    const yOf = (v) => y0 + (y1 - y0) * (p - v) / (p - lo);
+    for (let i = 0; i <= n; ++i) { const t = T * i / n, v = p * (1 - t / td) * Math.exp(-b * t / td); pts.push(`${(x0 + (x1 - x0) * i / n).toFixed(1)},${yOf(v).toFixed(1)}`); }
+    const zy = yOf(0).toFixed(1), tdx = (x0 + (x1 - x0) / 3).toFixed(1);
+    svg.innerHTML = `<g font-family="JetBrains Mono, monospace" font-size="12" fill="#93a0b2">
+      <line x1="${x0}" y1="${zy}" x2="${x1}" y2="${zy}" stroke="rgba(255,255,255,.25)"/>
+      <line x1="${x0}" y1="${y0 - 10}" x2="${x0}" y2="${y1 + 4}" stroke="rgba(255,255,255,.25)"/>
+      <line x1="${tdx}" y1="${y0 - 6}" x2="${tdx}" y2="${y1}" stroke="rgba(255,211,107,.35)" stroke-dasharray="4 4"/>
+      <text x="${+tdx + 6}" y="${y0 + 4}" fill="#ffd36b">t_d = ${ms(td)}</text>
+      <text x="${x0 + 6}" y="${y0 - 14}">${kPa(p)}</text>
+      <text x="${x1 - 80}" y="${h - 12}">${ms(T)}</text>
+      <text x="${x0}" y="${h - 12}">0</text>
+      <path d="M${pts.join(' L')}" fill="none" stroke="#9fd6ff" stroke-width="2.5"/></g>`;
+    // a 6 mm tempered window, 0.9 x 1.2 m, fails at roughly 8-10 kPa held still; a short pulse needs more
+    const v = p < 5e3 ? 'A 6 mm tempered window would very likely survive this.' :
+      p < 2e4 ? 'Marginal for a 6 mm tempered window: a long pulse can break it, a short one often will not.' :
+      'A 6 mm tempered window breaks: the lab would craze it and throw the dice clear.';
+    $('bcVerdict').textContent = v + ' (A rough guide; the engine works it out from the plate, the flaws and the loading rate.)';
+  }
+  for (const id of ['bcW', 'bcR', 'bcA']) $(id).oninput = upd;
+  upd();
+})();
+
+// ---------- Contents: highlight the section in view ----------
+(() => {
+  const links = [...document.querySelectorAll('nav.toc a')];
+  const byId = new Map(links.map((a) => [a.getAttribute('href').slice(1), a]));
+  const io = new IntersectionObserver((es) => {
+    for (const e of es) if (e.isIntersecting) { links.forEach((a) => a.classList.remove('on')); byId.get(e.target.id)?.classList.add('on'); }
+  }, { rootMargin: '-10% 0px -80% 0px' });
+  document.querySelectorAll('main h2[id]').forEach((h) => io.observe(h));
+})();
+</script>
+</body>
+</html>
