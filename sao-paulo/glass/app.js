@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import createGlassModule from './glass.mjs';
 import { createGTScene } from './scene_gt.js';
+import { createHouseScene } from './scene_house.js';
 import { GlassAudio, glassProfile } from './glass_audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -20,7 +21,7 @@ const TIER_NAMES = ['Potato', 'Low', 'Medium', 'High', 'Ultra'];
 const PH = { FLIGHT: 0, CONTACT: 1, BALLISTIC: 2, MEMBRANE: 3, DONE: 4 };
 const KIND = { SPHERE: 0, SHARP: 1, FLAT: 2, PROJECTILE: 3, SOFT: 4 };
 const CAT_LABEL = { architectural: 'Buildings', automotive: 'Cars', aviation: 'Aircraft', security: 'Bullet-resistant',
-  test: 'Test standards', everyday: 'Everyday', tool: 'Tools', weather: 'Weather', ballistic: 'Firearms' };
+  test: 'Test standards', everyday: 'Everyday', tool: 'Tools', weather: 'Weather', ballistic: 'Firearms', explosive: 'Explosives', artillery: 'Artillery' };
 
 // ---------- Engine ----------
 let G, cat;
@@ -88,15 +89,16 @@ function resize() {
   else { const d = Math.min(window.devicePixelRatio || 1, 2); canvas2d.width = w * d; canvas2d.height = h * d; }
   camera.aspect = w / h;
   // On phones the bench sheet covers the lower part: centre the view above it.
-  if (w <= 860 && !(GT && GT.active)) camera.setViewOffset(w, h, 0, h * 0.2, w, h);
+  if (w <= 860 && !activeScene()) camera.setViewOffset(w, h, 0, h * 0.2, w, h);
   else camera.clearViewOffset();
   camera.updateProjectionMatrix();
-  if (GT && GT.active) GT.frameCamera();
+  if (activeScene()) activeScene().frameCamera();
 }
 
 let glassMat, fragMat, frameMat;
 const labObjects = [];  // the test hall: hidden when a scene takes over
 let GT = null;          // the armoured-car scene (3D only)
+let HS = null;          // the grenade-house scene (3D only)
 let tierCap = null;     // a scene that must run in real time caps the automatic tier
 // Sound, synthesized from what the engine reports; browsers start it on the first gesture.
 const sound = new GlassAudio();
@@ -204,8 +206,9 @@ let aim = null;  // pane point {x, y}
 
 // ---------- Pane state (rebuilt per pane) ----------
 let P = null;  // { W, H, T, plies: [...], glass: count, seed, shots: [], ... }
-const groupPane = new THREE.Group();
-scene.add(groupPane);
+const labGroup = new THREE.Group();   // the lab's pane (and the armoured car's windscreen)
+let groupPane = labGroup;             // the pane being worked on (a scene of many windows switches it)
+scene.add(labGroup);
 
 function toThree(x, y, z) { return [x - P.W / 2, y + FLOOR, -z]; }
 
@@ -500,7 +503,7 @@ const DICE_VERT_BODY = `
   vec3 objectNormal = dRot * normal;`;
 class DiceView {
   constructor() {
-    this.cap = DICE_CAP[clamp(tier, 0, 4)];
+    this.cap = DICE_CAP[clamp(P.viewTier ?? tier, 0, 4)];
     this.n = 0;
     this.sprays = 0;
     // Thin dice across every dicing ply; the shown ones grow so the pile keeps its area.
@@ -757,7 +760,7 @@ class PieceView {
     let expected = 0;
     for (const pl of P.plies) if (pl.dicing && pl.dice > 0) expected += (P.W * P.H) / (pl.dice * pl.dice);
     this.cellArea = (pl) => {
-      const keep = expected > 0 ? Math.min(1, CELL_CAP[clamp(tier, 0, 4)] / expected) : 1;
+      const keep = expected > 0 ? Math.min(1, CELL_CAP[clamp(P.viewTier ?? tier, 0, 4)] / expected) : 1;
       return pl.dice * pl.dice / keep;
     };
     // CPU mirrors; grown by doubling.
@@ -1172,23 +1175,20 @@ function fringe(order) {
 }
 const FRINGE_MPA = 20;  // stress per fringe order in the view
 
-function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false) {
-  if (P) {
-    for (const c of P.cracks) c.dispose();
-    P.frags.dispose();
-    if (P.dice) P.dice.dispose();
-    if (P.crush) P.crush.dispose();
-    for (const m of P.meshes) groupPane.remove(m);
-    for (const m of P.impMeshes) if (m) groupPane.remove(m);
-  }
-  if (!G.gls_new_pane(gIdx, tierCap === null ? tier : Math.min(tier, tierCap), seed)) throw new Error('could not build the pane');
+// opts: glazing (index, else the picked one), tier, quiet (a scene's window:
+// no aim marker, readouts or camera move).
+function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false, opts = {}) {
+  disposePane(P, groupPane);
+  const gi = opts.glazing ?? gIdx;
+  const t = opts.tier ?? (tierCap === null ? tier : Math.min(tier, tierCap));
+  if (!G.gls_new_pane(gi, t, seed)) throw new Error('could not build the pane');
   G.gls_set_floor(-FLOOR);
   const s = G.state();
-  const g = cat.glazings[gIdx];
+  const g = cat.glazings[gi];
   P = { W: s[14], H: s[15], T: s[13], nGlass: s[2], seed, cracks: [], frags: null, meshes: [], impMeshes: [], nImp: 0,
     shots: keepShots && P ? P.shots : [], shotDefs: [], pendingShots: [], fragShapes: 0, eventsShown: 0, broke: false, announced: new Set(),
     plies: [], monolithic: g.plies.every((p) => p.kind === 'glass'), simClock: 0, fieldTick: 0, glazing: g,
-    profile: glassProfile(g), heard: [], broken: [], pieceSize: [], prevVy: new Float32Array(0) };
+    profile: glassProfile(g), heard: [], broken: [], pieceSize: [], prevVy: new Float32Array(0), viewTier: opts.viewTier };
   const pl = G.plies(P.nGlass);
   for (let k = 0; k < P.nGlass; ++k) {
     P.plies.push({ z0: pl[12 * k], z1: pl[12 * k + 1], ply: pl[12 * k + 10], dicing: pl[12 * k + 5] > 0, ct: pl[12 * k + 6],
@@ -1201,6 +1201,7 @@ function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false) {
   else { P.frags = new FragmentView(); P.dice = new DiceView(); }
   P.crush = new CrushView();
   buildSlab();
+  if (opts.quiet) return P;
   aim = { x: P.W / 2, y: P.H / 2 };
   placeAimMarker();
   $('log').textContent = '';
@@ -1306,6 +1307,16 @@ function placeAimMarker() {
 }
 
 // ---------- Impactor meshes ----------
+let glowTex = null;
+function glowDot() {
+  if (glowTex) return glowTex;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.35, 'rgba(255,255,255,0.45)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  glowTex = new THREE.CanvasTexture(c);
+  return glowTex;
+}
 function impactorMesh(def) {
   const g = new THREE.Group();  // +Z is the travel direction
   const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0, ...o });
@@ -1320,6 +1331,15 @@ function impactorMesh(def) {
       g.add(seam);
       break;
     }
+    case 'hand_grenade': {
+      body = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 16), std(0x4b5233, { roughness: 0.55, metalness: 0.3 }));
+      const fuse = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.28, r * 0.34, r, 12), std(0x777b70, { metalness: 0.8, roughness: 0.35 }));
+      fuse.position.y = r * 1.2;
+      g.add(fuse);
+      break;
+    }
+    case 'cannonball_9lb': body = new THREE.Mesh(new THREE.SphereGeometry(r, 36, 20), std(0x2b2a29, { metalness: 0.55, roughness: 0.62 })); break;
+    case 'grenade_fragment': body = new THREE.Mesh(new THREE.TetrahedronGeometry(r * 1.3), std(0x3c3a38, { metalness: 0.7, roughness: 0.5, flatShading: true })); break;
     case 'buckshot_00': body = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10), std(0x8e9196, { metalness: 0.6, roughness: 0.45 })); break;
     case 'golf_ball': body = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 3), std(0xffffff, { roughness: 0.35, flatShading: true })); break;
     case 'hail_50': body = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 2), std(0xd8f0ff, { roughness: 0.25, transparent: true, opacity: 0.8 })); break;
@@ -1378,7 +1398,7 @@ function impactorMesh(def) {
   g.userData.body = body;
   // Something this small and fast gets a glow so the eye can follow it.
   if (def.kind === 'projectile' || def.id === 'bb' || def.id === 'stone') {
-    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xffd36b, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowDot(), color: 0xffd36b, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
     glow.scale.set(0.02, 0.02, 1);
     g.add(glow);
     g.userData.glow = glow;
@@ -1411,7 +1431,7 @@ function fire(at = aim, record = true) {
   if (auto) { scaleNow = Math.min(scaleNow, approachScale(def, lead)); }
   playing = true;
   syncPlay();
-  $('rWhat').textContent = `${def.name} · ${speed.toFixed(speed < 10 ? 2 : 1)} m/s`;
+  $('rWhat').textContent = `${def.name} · ${fmtSpeed(speed)}`;
 }
 function approachScale(def, lead) {
   const tFlight = lead / Math.max(speed, 0.1);
@@ -1419,6 +1439,7 @@ function approachScale(def, lead) {
 }
 
 function replay() {
+  if (HS && HS.active) { HS.restart(true); return; }
   if (!P || !P.shots.length) { toast('Nothing to replay yet'); return; }
   const shots = P.shots.slice();
   newPane(P.seed, true);
@@ -1501,15 +1522,15 @@ function updateReadouts(final) {
   if (k >= 0) {
     const r = G.report(k), v = r.v;
     const out = $('outcome');
-    out.textContent = r.outcome || (v[5] >= 0 ? 'In contact…' : 'On its way…');
+    out.textContent = (r.outcome || (v[5] >= 0 ? 'In contact…' : 'On its way…')).replace(/(\d+(?:\.\d+)?) m\/s/g, (m, x) => fmtSpeed(+x));
     out.className = v[11] ? 'bad' : v[10] ? 'warn' : r.outcome ? 'ok' : '';
-    kv.push(['Impact speed', `${v[0].toFixed(v[0] < 10 ? 2 : 1)} m/s (${(v[0] * 3.6).toFixed(0)} km/h)`]);
+    kv.push(['Impact speed', fmtSpeed2(v[0])]);
     kv.push(['Kinetic energy', v[2] < 10 ? `${v[2].toFixed(2)} J` : `${v[2].toFixed(0)} J`]);
     if (v[4] > 0) kv.push(['Peak force', v[4] >= 1e3 ? `${(v[4] / 1e3).toFixed(2)} kN` : `${v[4].toFixed(0)} N`]);
     if (v[6] > 0) kv.push(['Contact time', fmtTime(v[6])]);
     if (v[7] > 0) kv.push(['Peak stress at load', `${(v[7] / 1e6).toFixed(0)} MPa`]);
     if (r.outcome) kv.push(['Energy absorbed', `${Math.max(0, v[3]).toFixed(v[3] < 10 ? 2 : 0)} J`]);
-    if (r.outcome && v[1] > 0) kv.push(['Leaves at', `${v[1].toFixed(1)} m/s`]);
+    if (r.outcome && v[1] > 0) kv.push(['Leaves at', fmtSpeed(v[1])]);
     if (v[8] > 0) kv.push(['Depth reached', `${(v[8] * 1e3).toFixed(1)} mm of ${(P.T * 1e3).toFixed(1)}`]);
     if (v[9] > 0.0005) kv.push(['Bulge', `${(v[9] * 1e3).toFixed(0)} mm`]);
   }
@@ -1563,7 +1584,7 @@ function updateReadouts(final) {
 
 // Announce what happened to each shot once.
 function announce() {
-  if (GT && GT.active) return;
+  if (activeScene()) return;
   for (let k = 0; k < P.nImp; ++k) {
     if (P.announced.has(k)) continue;
     const r = G.report(k), v = r.v;
@@ -1620,9 +1641,14 @@ function updateField() {
 const cam = { theta: -0.55, phi: 1.32, r: 2.6, tx: 0, ty: 1.4, tz: 0 };
 if (R) GT = createGTScene({ THREE, scene, groupPane, camera, cam, applyCamera, FLOOR, tier, labObjects, leave: () => leaveScene(true), layout: resize,
   glassSound: () => sound.live, soundOn: () => sound.enabled, toggleSound: () => $('bSound').click() });
+if (R) HS = createHouseScene({ THREE, scene, camera, cam, applyCamera, FLOOR, tier, labObjects, leave: () => leaveScene(true), layout: resize,
+  G, cat, sound, impactorMesh, soundOn: () => sound.enabled, toggleSound: () => $('bSound').click(),
+  makeRigs, useRig, setClock: (next, target) => { multiNext = next; multiTarget = target; },
+  autoTargetOf: (r) => { useRig(r); return autoTarget(G.impactors(P.nImp), G.plies(P.nGlass)); },
+  insertShot: (r, sh) => { const q = r.P.pendingShots; let i = q.length; while (i > 0 && q[i - 1].t > sh.t) --i; q.splice(i, 0, sh); } });
 let camMode = 0;
 function frameCamera(keepAngles = true) {
-  if (GT && GT.active) { GT.frameCamera(); return; }
+  if (activeScene()) { activeScene().frameCamera(); return; }
   const m = Math.max(P.W, P.H);
   cam.tx = 0; cam.ty = FLOOR + P.H / 2; cam.tz = -P.T / 2;
   if (!keepAngles) {
@@ -1699,7 +1725,7 @@ surface.addEventListener('pointermove', (e) => {
 });
 function endPointer(e) {
   pointers.delete(e.pointerId);
-  if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && P) {
+  if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && P && !rigs) {
     const p = panePointFromEvent(e);
     if (p && p.x > 0.005 && p.y > 0.005 && p.x < P.W - 0.005 && p.y < P.H - 0.005) {
       aim = p;
@@ -1717,11 +1743,11 @@ surface.addEventListener('wheel', (e) => { e.preventDefault(); cam.r *= Math.exp
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   const k = e.key.toLowerCase();
-  if (k === ' ') { e.preventDefault(); fire(); }
+  if (k === ' ') { e.preventDefault(); if (!rigs) fire(); }
   else if (k === 'p') { playing = !playing; syncPlay(); }
   else if (k === 'z') replay();
   else if (k === 'r') $('bReset').click();
-  else if (k === 'c') { if (GT && GT.active) GT.nextView(); else { camMode = (camMode + 1) % 3; frameCamera(false); } }
+  else if (k === 'c') $('bCam').click();
   else if (k === 's') $('bStress').click();
   else if (k === 'm') $('bSound').click();
   else if (k === 'a') $('bAuto').click();
@@ -1731,14 +1757,31 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ---------- UI ----------
+// Speeds in the visitor's unit (click the unit to change it; remembered).
+const UNITS = [['m/s', 1], ['km/h', 3.6], ['mph', 2.2369363], ['ft/s', 3.2808399], ['kt', 1.9438445]];
+let unit = Math.max(0, UNITS.findIndex((u) => u[0] === store.get('unit', 'm/s')));
+const imperial = () => UNITS[unit][0] !== 'm/s' && UNITS[unit][0] !== 'km/h';
+function fmtSpeed(v) {
+  const [name, k] = UNITS[unit], x = v * k;
+  return `${x.toFixed(x < 10 ? 2 : x < 100 ? 1 : 0)} ${name}`;
+}
+// The unit, and a second one beside it for a feel of the number.
+function fmtSpeed2(v) {
+  const other = UNITS[unit][0] === 'm/s' ? 1 : unit === 1 ? 0 : UNITS[unit][0] === 'kt' ? 2 : 4;
+  const [name, k] = UNITS[other], x = v * k;
+  return `${fmtSpeed(v)} · ${x.toFixed(x < 10 ? 1 : 0)} ${name}`;
+}
+function syncUnit() { $('bUnit').textContent = UNITS[unit][0]; syncSpeed(); if (P && !rigs) updateReadouts(); }
+$('bUnit').onclick = () => { unit = (unit + 1) % UNITS.length; store.set('unit', UNITS[unit][0]); syncUnit(); };
 function speedToSlider(v, d) { return Math.round(1000 * Math.log(v / d.minSpeed) / Math.log(d.maxSpeed / d.minSpeed)); }
 function sliderToSpeed(s, d) { return d.minSpeed * Math.pow(d.maxSpeed / d.minSpeed, s / 1000); }
 function syncSpeed() {
   const d = cat.impactors[iIdx];
   $('speed').value = String(speedToSlider(speed, d));
   const drop = speed * speed / (2 * 9.80665);
-  $('vSpeed').textContent = `${speed.toFixed(speed < 10 ? 2 : speed < 100 ? 1 : 0)} m/s · ${(speed * 3.6).toFixed(0)} km/h` +
-    (drop < 30 && d.kind !== 'projectile' ? ` · ${drop.toFixed(drop < 1 ? 2 : 1)} m drop` : '') + (speed > 50 ? ` · ${(speed / 0.5144).toFixed(0)} kt` : '');
+  const dropU = imperial() ? drop * 3.2808399 : drop, dropName = imperial() ? 'ft' : 'm';
+  $('vSpeed').textContent = fmtSpeed2(speed) +
+    (drop < 30 && d.kind !== 'projectile' ? ` · ${dropU.toFixed(dropU < 1 ? 2 : 1)} ${dropName} drop` : '');
   $('iMass').textContent = `${d.mass < 1 ? (d.mass * 1e3).toFixed(d.mass < 0.01 ? 2 : 1) + ' g' : d.mass.toFixed(2) + ' kg'} · ${(0.5 * d.mass * speed * speed).toFixed(speed * speed * d.mass < 20 ? 2 : 0)} J`;
 }
 function chipGroup(box, list, current, onPick) {
@@ -1761,7 +1804,7 @@ function chipGroup(box, list, current, onPick) {
   });
 }
 function pickGlazing(i) {
-  if (GT && GT.active) leaveScene(false);
+  if (activeScene()) leaveScene(false);
   gIdx = i;
   chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
   newPane();
@@ -1797,12 +1840,15 @@ const PRESETS = [
   ['Buckshot through a window', 'annealed_6', 'buckshot_00', 395, 'A 12-gauge 00 buck shell from 7 m: nine pellets, one after another'],
   ['Buckshot vs car door glass', 'car_side_tempered', 'buckshot_00', 395, 'Nine pellets into tempered side glass'],
   ['Brick vs tempered', 'tempered_6', 'brick', 10, 'Tempered glass is four to five times stronger'],
+  ['Cannonball through a shop window', 'annealed_6', 'cannonball_9lb', 440, 'A Revolutionary War 9-pounder: 4 kg of iron at 1,450 ft/s'],
+  ['Cannonball vs tempered', 'tempered_6', 'cannonball_9lb', 440, 'The same round shot into fully tempered glass'],
 ];
 // ---------- The armoured car ----------
 let sceneLoading = false;
 async function startScene() {
   if (!GT) { toast('The armoured-car scene needs WebGL; this device is drawing in 2D'); return; }
   if (sceneLoading) return;
+  if (HS && HS.active) leaveScene(false);
   // The car (the Rosser V8) loads once; its windscreen sets the glazing.
   sceneLoading = true;
   const slow = setTimeout(() => toast('Bringing out the Rosser V8…', 6000), 400);
@@ -1831,9 +1877,29 @@ async function startScene() {
   if (window.innerWidth <= 860) showTab('none'); else $('lab').hidden = true;
   toast('Drag to look around · Camera switches view · Replay shows it again, at any speed', 4500);
 }
+// ---------- The grenade house ----------
+function startHouse() {
+  if (!HS) { toast('The house scene needs WebGL; this device is drawing in 2D'); return; }
+  if (activeScene()) leaveScene(false);
+  HS.enter();
+  $('res').hidden = true;   // one pane's results; the scene has its own readout
+  auto = true; syncAuto(); buildScaleButtons();
+  scaleNow = 1;
+  playing = true; syncPlay();
+  if (window.innerWidth <= 860) showTab('none'); else $('lab').hidden = true;
+  toast('Drag to look around · Camera switches view · Replay throws it again, New pane a new throw', 4500);
+}
 function leaveScene(rebuild) {
-  if (!GT || !GT.active) return;
-  GT.leave();
+  const sc = activeScene();
+  if (!sc) return;
+  sc.leave();
+  if (sc === HS) {
+    // The windows go; the lab's own pane comes back.
+    dropRigs();
+    multiNext = () => Infinity; multiTarget = null;
+    $('res').hidden = false;
+    rebuild = true;
+  }
   tierCap = null;
   if (window.innerWidth > 860) $('lab').hidden = false;
   auto = store.get('auto', true); syncAuto(); buildScaleButtons();
@@ -1850,13 +1916,20 @@ function buildPresets() {
     b.onclick = startScene;
     box.appendChild(b);
   }
+  {
+    const b = document.createElement('button');
+    b.className = 'feature';
+    b.innerHTML = 'Grenade in the house<small>A grenade thrown through a tempered window into a room with three windows on every wall: the blast blows all twelve out</small>';
+    b.onclick = startHouse;
+    box.appendChild(b);
+  }
   for (const [name, gid, iid, v, sub, opt = {}] of PRESETS) {
     const gi = cat.glazings.findIndex((g) => g.id === gid), ii = cat.impactors.findIndex((g) => g.id === iid);
     if (gi < 0 || ii < 0) continue;
     const b = document.createElement('button');
     b.innerHTML = `${name}<small>${sub}</small>`;
     b.onclick = () => {
-      if (GT && GT.active) leaveScene(false);
+      if (activeScene()) leaveScene(false);
       gIdx = gi;
       chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
       pickImpactor(ii);
@@ -1909,18 +1982,23 @@ $('speed').oninput = () => { speed = sliderToSpeed(+$('speed').value, cat.impact
 for (const id of ['yaw', 'pitch']) $(id).oninput = () => { yaw = +$('yaw').value; pitch = +$('pitch').value; $('vAngle').textContent = `${yaw}° / ${pitch}°`; };
 $('bSide').onclick = () => { fromBack = !fromBack; $('bSide').setAttribute('aria-pressed', String(fromBack)); placeAimMarker(); };
 $('bCentre').onclick = () => { aim = { x: P.W / 2, y: P.H / 2 }; placeAimMarker(); };
-$('fire').onclick = () => fire();
+$('fire').onclick = () => { if (!rigs) fire(); };
 $('bPlay').onclick = () => { playing = !playing; syncPlay(); };
 $('bReplay').onclick = replay;
 $('bAuto').onclick = () => { auto = !auto; store.set('auto', auto); syncAuto(); buildScaleButtons(); };
-$('bReset').onclick = () => { if (GT && GT.active) startScene(); else { newPane(); simClockReset(); } };
+$('bReset').onclick = () => {
+  if (GT && GT.active) startScene();
+  else if (HS && HS.active) HS.restart(false);
+  else { newPane(); simClockReset(); }
+};
 function syncSound() {
   $('bSound').setAttribute('aria-pressed', String(sound.enabled)); $('bSound').textContent = sound.enabled ? 'Sound' : 'Muted';
   if (GT) GT.syncSound();
+  if (HS) HS.syncSound();
 }
 $('bSound').onclick = () => { sound.setEnabled(!sound.enabled); store.set('sound:v2', sound.enabled); syncSound(); };
 syncSound();
-$('bCam').onclick = () => { if (GT && GT.active) GT.nextView(); else { camMode = (camMode + 1) % 3; frameCamera(false); } };
+$('bCam').onclick = () => { if (activeScene()) activeScene().nextView(); else { camMode = (camMode + 1) % 3; frameCamera(false); } };
 $('bStress').onclick = () => {
   stressOn = !stressOn;
   $('bStress').setAttribute('aria-pressed', String(stressOn));
@@ -2044,35 +2122,76 @@ function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000);
   last = now;
   if (!P) return;
-  let s = G.state();
-  const plies0 = G.plies(P.nGlass);
-  // Bullet time eases down fast and back up gently (in log space).
-  let target = auto ? autoTarget(G.impactors(P.nImp), plies0) : scaleManual;
+  let tEng, s, poses = null;
+  if (rigs) {
+    tEng = multiFrame(dt);
+    s = G.state();
+  } else {
+    s = G.state();
+    const plies0 = G.plies(P.nGlass);
+    // Bullet time eases down fast and back up gently (in log space).
+    easeScale(auto ? autoTarget(G.impactors(P.nImp), plies0) : scaleManual, dt);
+    fireDueShots();
+    if (playing) {
+      P.simClock = Math.max(P.simClock, G.gls_time()) + dt * scaleNow;
+      if (P.pendingShots.length) P.simClock = Math.min(P.simClock, P.pendingShots[0].t);
+      // Physics gets a share of the frame: more per frame when frames are slow.
+      const steps = advancePane(P.simClock, physicsBudget(dt));
+      limited = steps.limited;
+      if (limited) P.simClock = G.gls_time();
+      s = G.state();
+    }
+    tEng = G.gls_time();
+    poses = paneFrame(dt, s, tEng);
+  }
+  sound.frame(tEng, playing ? scaleNow : 0.0001, dt);
+  if (GT) GT.update(tEng, scaleNow, s);
+  if (HS) HS.update(tEng, scaleNow, dt);
+  // Readouts.
+  if ((uiTick += dt) > 0.12) {
+    uiTick = 0;
+    if (!rigs) { updateReadouts(); announce(); }
+    $('clock').innerHTML = `${fmtTime(tEng)}<small>${fmtScale(scaleNow)}${auto ? ' · auto' : ''}</small>`;
+    $('limit').textContent = limited ? 'device-limited' : '';
+  }
+  // Adaptive resolution if the GPU struggles.
+  if (R) {
+    slowFrames = dt > 0.045 ? slowFrames + 1 : Math.max(0, slowFrames - 1);
+    if (slowFrames > 90 && R.getPixelRatio() > 0.6) { R.setPixelRatio(R.getPixelRatio() * 0.8); slowFrames = 0; }
+    R.render(scene, camera);
+  } else {
+    draw2d(tEng, poses);
+  }
+}
+
+function easeScale(target, dt) {
   if (auto) {
     const lg = Math.log10(scaleNow), lt = Math.log10(target);
     scaleNow = Math.pow(10, lt < lg ? Math.max(lt, lg - dt * 6) : Math.min(lt, lg + dt * 0.9));
   } else scaleNow = target;
-  // Replayed shots fire at the engine time they were first fired.
+}
+// Replayed (and scripted) shots fire at the engine time they were first fired.
+function fireDueShots() {
   while (P.pendingShots.length && P.pendingShots[0].t <= G.gls_time() + 1e-12) {
     const sh = P.pendingShots.shift();
     iIdx = sh.iIdx; speed = sh.speed; yaw = sh.yaw; pitch = sh.pitch; fromBack = sh.fromBack;
     fire({ x: sh.x, y: sh.y }, false);
   }
-  if (playing) {
-    P.simClock = Math.max(P.simClock, G.gls_time()) + dt * scaleNow;
-    if (P.pendingShots.length) P.simClock = Math.min(P.simClock, P.pendingShots[0].t);
-    // Physics gets a share of the frame: more per frame when frames are slow.
-    const budgetMs = clamp(0.45 * dt * 1000, tier <= 1 ? 8 : 11, 80);
-    const maxSteps = Math.max(20, Math.floor(budgetMs / Math.max(msPerStep, 1e-4)));
-    const t0 = performance.now();
-    const steps = G.gls_advance(P.simClock, maxSteps);
-    const el = performance.now() - t0;
-    if (steps > 0) msPerStep = 0.85 * msPerStep + 0.15 * (el / steps);
-    limited = steps >= maxSteps && G.gls_time() < P.simClock - 1e-12;
-    if (limited) P.simClock = G.gls_time();
-    s = G.state();
-  }
-  const tEng = G.gls_time();
+}
+function physicsBudget(dt) { return clamp(0.45 * dt * 1000, tier <= 1 ? 8 : 11, 80); }
+// Whole engine steps toward `t` within `budgetMs`; learns the cost of a step.
+function advancePane(t, budgetMs) {
+  const maxSteps = Math.max(20, Math.floor(budgetMs / Math.max(msPerStep, 1e-4)));
+  const t0 = performance.now();
+  const steps = G.gls_advance(t, maxSteps);
+  const el = performance.now() - t0;
+  if (steps > 0) msPerStep = 0.85 * msPerStep + 0.15 * (el / steps);
+  return { steps, limited: steps >= maxSteps && G.gls_time() < t - 1e-12 };
+}
+
+// Everything one pane shows this frame: new cracks, pieces, dice, crushed
+// glass, the impactors, and the sound of it. Returns the piece poses.
+function paneFrame(dt, s, tEng) {
   // New cracks.
   const pl = G.plies(P.nGlass);
   for (let k = 0; k < P.nGlass; ++k) {
@@ -2086,7 +2205,7 @@ function frame(now) {
     if (R) {
       cv.mat.uniforms.uTime.value = tEng;
       cv.mat.uniforms.uGlow.value = 1 / Math.max(1e-7, 0.25 * scaleNow);
-      cv.mat.uniforms.uExag.value = exaggeration;
+      cv.mat.uniforms.uExag.value = rigs ? 0 : exaggeration;
       cv.mat.uniforms.uSize.value.set(P.W, P.H);
       // A pane in pieces: tempered dice draw their own pattern; other glass keeps
       // its cracks while the pieces they lie on are in the frame.
@@ -2115,7 +2234,7 @@ function frame(now) {
       }
     }
   }
-  if (P.frags.tick) P.frags.tick(tier >= 3 ? 6 : 4);   // cut whole tempered pieces into their dice, a few per frame
+  if (P.frags.tick) P.frags.tick(rigs ? 2 : tier >= 3 ? 6 : 4);   // cut whole tempered pieces into their dice, a few per frame
   let poses = null;
   if (nFrag > 0) {
     poses = G.fragmentPoses(nFrag).slice();
@@ -2125,7 +2244,7 @@ function frame(now) {
   const sprayView = P.dice || P.frags;
   if (s[24] > sprayView.sprays) {
     // The first dice to come loose: bring the floor into the shot.
-    if (!sprayView.sprays && !pointers.size && !(GT && GT.active)) P.glide = { ty: (FLOOR + P.H) / 2, r: cam.r * 1.2 };
+    if (!sprayView.sprays && !pointers.size && !activeScene()) P.glide = { ty: (FLOOR + P.H) / 2, r: cam.r * 1.2 };
     const rows = G.sprays(sprayView.sprays).slice();
     sprayView.addSprays(rows, poses);
     // When each spray's dice reach the floor, for the sound of them landing.
@@ -2135,7 +2254,6 @@ function frame(now) {
     }
   }
   listen(poses, nFrag);
-  sound.frame(tEng, playing ? scaleNow : 0.0001, dt);
   if (P.dice) P.dice.update(tEng);
   if (P.glide) {
     if (pointers.size) P.glide = null;
@@ -2154,9 +2272,10 @@ function frame(now) {
     if (P.edges) P.edges.visible = !gone;
     if (stressMesh) stressMesh.visible = stressOn && !gone;
   }
-  // Deflection and stress, a few times a second (every frame while it moves fast).
+  // Deflection and stress, a few times a second (every frame while it moves
+  // fast). One shared field: a scene of many panes goes without it.
   const dynamic = s[1] === 0;
-  if (dynamic || stressOn) {
+  if (!rigs && (dynamic || stressOn)) {
     if (++P.fieldTick >= (tier <= 1 ? 4 : 2)) { P.fieldTick = 0; updateField(); }
   }
   // Impactors.
@@ -2175,30 +2294,105 @@ function frame(now) {
         m.scale.set(1 / Math.sqrt(sq), 1 / Math.sqrt(sq), sq);
       }
       if (m.userData.glow) {
-        const d = camera.position.distanceTo(m.position);
+        const d = camera.position.distanceTo(m.getWorldPosition(_impW));
         m.userData.glow.scale.setScalar(0.012 * d);
         m.userData.glow.visible = imps[o + 9] !== PH.DONE;
       }
     }
   }
-  if (GT) GT.update(tEng, scaleNow, s);
-  // Readouts.
-  if ((uiTick += dt) > 0.12) {
-    uiTick = 0;
-    updateReadouts();
-    announce();
-    $('clock').innerHTML = `${fmtTime(tEng)}<small>${fmtScale(scaleNow)}${auto ? ' · auto' : ''}</small>`;
-    $('limit').textContent = limited ? 'device-limited' : '';
-  }
-  // Adaptive resolution if the GPU struggles.
-  if (R) {
-    slowFrames = dt > 0.045 ? slowFrames + 1 : Math.max(0, slowFrames - 1);
-    if (slowFrames > 90 && R.getPixelRatio() > 0.6) { R.setPixelRatio(R.getPixelRatio() * 0.8); slowFrames = 0; }
-    R.render(scene, camera);
-  } else {
-    draw2d(tEng, poses);
-  }
+  return poses;
 }
+const _impW = R ? new THREE.Vector3() : null;
+
+// ---------- Several panes at once (a building's windows) ----------
+// A rig is one window: its engine slot, its pane (P), the group it is drawn in
+// and its intact sheet. The globals P, groupPane and slab point at the rig in
+// use, so all of the single-pane code above works on whichever is selected.
+let rigs = null, curRig = null, multiClock = 0, multiNext = () => Infinity, multiTarget = null;
+function useRig(r) {
+  if (curRig === r) return;
+  if (curRig) Object.assign(curRig, { P, slab, stressMesh, aimMarker });
+  curRig = r;
+  G.gls_select(r.slot);
+  ({ P, slab, stressMesh, aimMarker } = r);
+  groupPane = r.group;
+}
+function disposePane(p, group) {
+  if (!p) return;
+  const prev = groupPane;
+  groupPane = group;
+  for (const c of p.cracks) c.dispose();
+  p.frags.dispose();
+  if (p.dice) p.dice.dispose();
+  if (p.crush) p.crush.dispose();
+  for (const m of p.meshes) group.remove(m);
+  for (const m of p.impMeshes) if (m) group.remove(m);
+  groupPane = prev;
+}
+// Builds one rig per spec ({ glazing id, seed, group, tier, viewTier }) in
+// slots 1.., each pane in its own group; the lab's pane (slot 0) is put away
+// meanwhile.
+function makeRigs(specs) {
+  dropRigs();
+  disposePane(P, labGroup);
+  P = null; slab = stressMesh = aimMarker = null;
+  G.gls_select(0); G.gls_free_pane();
+  rigs = [];
+  specs.forEach((sp, i) => {
+    const r = { slot: i + 1, group: sp.group, P: null, slab: null, stressMesh: null, aimMarker: null, spec: sp };
+    curRig = r;
+    G.gls_select(r.slot);
+    groupPane = r.group;
+    P = null;
+    newPane(sp.seed, false, { glazing: cat.glazings.findIndex((g) => g.id === sp.glazing), tier: sp.tier, viewTier: sp.viewTier, quiet: true });
+    for (const m of P.meshes) if (m.userData.lab) m.visible = false;
+    Object.assign(r, { P, slab, stressMesh, aimMarker });
+    rigs.push(r);
+  });
+  multiClock = 0;
+  deflData.fill(0); if (deflTex) deflTex.needsUpdate = true;
+  useRig(rigs[0]);
+  return rigs;
+}
+function dropRigs() {
+  if (!rigs) return;
+  for (const r of rigs) {
+    disposePane(r.P, r.group);
+    G.gls_select(r.slot); G.gls_free_pane();
+  }
+  rigs = null; curRig = null;
+  P = null; slab = stressMesh = aimMarker = null;
+  groupPane = labGroup;
+  G.gls_select(0);
+}
+// One frame of every rig on a shared engine clock: shots due, physics (the
+// frame's budget shared between them), then what each shows.
+function multiFrame(dt) {
+  easeScale(auto && multiTarget ? multiTarget() : auto ? 1 : scaleManual, dt);
+  for (const r of rigs) { useRig(r); fireDueShots(); }
+  if (playing) {
+    multiClock += dt * scaleNow;
+    let next = multiNext();
+    for (const r of rigs) if (r.P.pendingShots.length) next = Math.min(next, r.P.pendingShots[0].t);
+    multiClock = Math.min(multiClock, next);
+    const budget = physicsBudget(dt) * 1.3;
+    let tMin = Infinity, lim = false;
+    for (const r of rigs) {
+      useRig(r);
+      const res = advancePane(multiClock, budget / rigs.length);
+      lim = lim || res.limited;
+      tMin = Math.min(tMin, G.gls_time());
+    }
+    limited = lim;
+    if (lim) multiClock = tMin;
+  }
+  for (const r of rigs) {
+    useRig(r);
+    paneFrame(dt, G.state(), G.gls_time());
+  }
+  return multiClock;
+}
+function activeScene() { return GT && GT.active ? GT : HS && HS.active ? HS : null; }
 
 // Stereo position of a pane point: where it sits across the screen.
 const panV = R ? new THREE.Vector3() : null;
@@ -2239,7 +2433,8 @@ function listen(poses, nFrag) {
 }
 
 // Hook for automated browser tests.
-window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, groupPane, cam, applyCamera, sound };
+window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, get HS() { return HS; }, get rigs() { return rigs; },
+  get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound };
 
 // ---------- Boot ----------
 resize();
@@ -2247,6 +2442,7 @@ window.addEventListener('resize', resize);
 chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
 pickImpactor(iIdx);
 buildPresets();
+$('bUnit').textContent = UNITS[unit][0];
 buildScaleButtons();
 syncAuto();
 syncPlay();
@@ -2257,4 +2453,5 @@ $('loading').remove();
 if (!store.get('seenHelp', false)) { toast('Tap the glass to fire · drag to orbit · ? for how it works', 4500); store.set('seenHelp', true); }
 if (flat) toast('No WebGL here: drawing the front view in 2D. The physics is the same.', 4000);
 if (new URLSearchParams(location.search).get('scene') === 'gt') startScene();
+if (new URLSearchParams(location.search).get('scene') === 'house') startHouse();
 requestAnimationFrame(frame);

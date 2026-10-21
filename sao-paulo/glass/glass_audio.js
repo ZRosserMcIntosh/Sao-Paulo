@@ -367,6 +367,14 @@ export class GlassAudio {
     this.play(profile.damp || profile.heavy ? 'thud' : 'knock', {
       gain: 0.6 * loud, pan, rate: thud === 2 ? 1.25 : 1, lowpass: profile.damp ? 2500 : 0, delay: 0.002 });
   }
+  // A charge going off nearby: the crack of the shock, a long boom, a roar of air.
+  explosion(pan = 0) {
+    if (!this.live) return;
+    this.play('nwave', { gain: 1, pan, important: true, send: 0.3 });
+    this.play('boom', { gain: 1, rate: 0.85, pan, important: true, send: 0.6 });
+    this.play('crash', { gain: 0.5, rate: 0.6, pan, important: true, delay: 0.008 });
+    this.rush({ gain: 0.45, from: 1800, to: 120, dur: 1.8, pan });
+  }
   ricochet(pan) { this.play('whine', { gain: 0.5, pan, important: true, send: 0.4 }); }
 
   // New crack segments of one ply this frame (7 floats each, the last the kind).
