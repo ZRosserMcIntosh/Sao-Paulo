@@ -41,6 +41,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
 .top>*{pointer-events:auto}
 .top button,.top select{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.slider .unit{font:inherit;font-size:11px;padding:1px 7px;margin-left:4px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ice);cursor:pointer}
 .top button[aria-pressed="true"]{background:#fff;color:#0a1830}
 .plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
 .plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
@@ -161,7 +162,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <div class="chips" id="impactors"></div>
   <p class="desc" id="iDesc"></p>
 
-  <div class="slider"><span>Speed</span><b id="vSpeed"></b><input id="speed" type="range" min="0" max="1000" step="1" aria-label="Speed"></div>
+  <div class="slider"><span>Speed <button id="bUnit" class="unit" title="Units: m/s, km/h, mph, ft/s, knots">m/s</button></span><b id="vSpeed"></b><input id="speed" type="range" min="0" max="1000" step="1" aria-label="Speed"></div>
   <div class="slider"><span>Angle (yaw / pitch)</span><b id="vAngle">0° / 0°</b>
     <input id="yaw" type="range" min="-60" max="60" step="1" value="0" aria-label="Yaw angle">
     <input id="pitch" type="range" min="-60" max="60" step="1" value="0" aria-label="Pitch angle"></div>
@@ -224,6 +225,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     </ul>
     <h3>Armoured V8 under fire</h3>
     <p>The first scenario puts you in the driver's seat of the Rosser V8 (the car from the driving sim) with a 32 mm armoured windscreen while five gunmen fire about 190 rounds of 9 mm in ten seconds. The screen is raked about 70 degrees, so the rounds strike it at a glancing angle: they see a much thicker barrier, and some skip off. Every round that reaches the glass is fired into the engine with its real angle and arrival time; the craters, spider webs and the driver's view all come from the physics, and nothing is pre-scripted except where the gunmen aim. <kbd>C</kbd> switches between the driver, the outside and a gunman; Replay shows it again at any speed.</p>
+    <h3>Grenade in the house</h3>
+    <p>A one-room house with three windows of 6 mm fully tempered glass on every wall, each one its own engine pane. A grenade thrown hard breaks the front window for real (a soft throw can bounce off), rattles round the room and goes off two seconds after it left the hand. Its steel fragments reach the windows first, then the blast wave: each window gets the pressure, duration and arrival time its own distance and angle from the charge give (Kinney–Graham fits for the charge's TNT equivalent, the shock's reflection off the glass, and the gas of a closed room venting through its windows). The engine crazes every pane and the gas drives the dice out. <kbd>C</kbd> switches between outside, the thrower, inside and a cutaway; Replay throws the same throw again, New pane a new one.</p>
     <h3>Runs on anything</h3>
     <p>The <b>Auto</b> quality setting benchmarks this device and picks a tier: fewer plate modes, a coarser crack grid and fewer pieces on a weak chip, the same physics. If the device can't keep up, the clock slows down instead of skipping physics (the bar shows "device-limited"). Without WebGL the lab draws a flat front view.</p>
     <h3>Honest limits</h3>

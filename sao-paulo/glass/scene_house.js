@@ -398,6 +398,19 @@ export function createHouseScene(ctx) {
       E.smoke.push({ sp, out, delay: 0.004 + 0.02 * rnd(), size: 1.2 + 1.6 * rnd(), speed: 1.5 + 2.5 * rnd() });
       E.group.add(sp);
     }
+    // A jet of smoke and dust out of each window as its glass goes.
+    E.jets = [];
+    S.rigs.forEach((r, i) => {
+      const { N } = wallFrame(WALLS[Math.floor(i / 3)]);
+      const at = r.group.localToWorld(new THREE.Vector3(0, FLOOR + H / 2, 0));
+      for (let k = 0; k < 4; ++k) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: disc, color: 0x9a948c, transparent: true, opacity: 0, depthWrite: false }));
+        sp.position.copy(at);
+        const dir = N.clone().add(new THREE.Vector3(0.5 * (rnd() - 0.5), 0.25 + 0.3 * rnd(), 0.5 * (rnd() - 0.5))).normalize();
+        E.jets.push({ sp, at, dir, t0: (r.blast ? r.blast.t - t : 0.005) + 0.006 + 0.01 * k + 0.004 * rnd(), reach: 1.4 + 1.8 * rnd(), size: 0.8 + 0.9 * rnd() });
+        E.group.add(sp);
+      }
+    });
     S.world.add(E.group);
     S.effects = E;
   }
@@ -436,6 +449,13 @@ export function createHouseScene(ctx) {
       s.sp.position.copy(c).addScaledVector(s.out, s.speed * Math.log(1 + ts / 0.15) * 0.6).add(new THREE.Vector3(0, 0.25 * ts, 0));
       s.sp.scale.setScalar(0.2 + s.size * grow);
       s.sp.material.opacity = 0.55 * Math.min(1, ts / 0.03) * Math.exp(-ts / 3.5);
+    }
+    for (const j of E.jets) {
+      const ts = t - j.t0;
+      if (ts < 0) { j.sp.material.opacity = 0; continue; }
+      j.sp.position.copy(j.at).addScaledVector(j.dir, j.reach * (1 - Math.exp(-ts / 0.12))).add(new THREE.Vector3(0, 0.2 * ts, 0));
+      j.sp.scale.setScalar(0.25 + j.size * (1 - Math.exp(-ts / 0.2)));
+      j.sp.material.opacity = 0.5 * Math.min(1, ts / 0.01) * Math.exp(-ts / 2.5);
     }
   }
   function clearEffects() {

@@ -21,7 +21,7 @@ const TIER_NAMES = ['Potato', 'Low', 'Medium', 'High', 'Ultra'];
 const PH = { FLIGHT: 0, CONTACT: 1, BALLISTIC: 2, MEMBRANE: 3, DONE: 4 };
 const KIND = { SPHERE: 0, SHARP: 1, FLAT: 2, PROJECTILE: 3, SOFT: 4 };
 const CAT_LABEL = { architectural: 'Buildings', automotive: 'Cars', aviation: 'Aircraft', security: 'Bullet-resistant',
-  test: 'Test standards', everyday: 'Everyday', tool: 'Tools', weather: 'Weather', ballistic: 'Firearms', explosive: 'Explosives' };
+  test: 'Test standards', everyday: 'Everyday', tool: 'Tools', weather: 'Weather', ballistic: 'Firearms', explosive: 'Explosives', artillery: 'Artillery' };
 
 // ---------- Engine ----------
 let G, cat;
@@ -1338,6 +1338,7 @@ function impactorMesh(def) {
       g.add(fuse);
       break;
     }
+    case 'cannonball_9lb': body = new THREE.Mesh(new THREE.SphereGeometry(r, 36, 20), std(0x2b2a29, { metalness: 0.55, roughness: 0.62 })); break;
     case 'grenade_fragment': body = new THREE.Mesh(new THREE.TetrahedronGeometry(r * 1.3), std(0x3c3a38, { metalness: 0.7, roughness: 0.5, flatShading: true })); break;
     case 'buckshot_00': body = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10), std(0x8e9196, { metalness: 0.6, roughness: 0.45 })); break;
     case 'golf_ball': body = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 3), std(0xffffff, { roughness: 0.35, flatShading: true })); break;
@@ -1430,7 +1431,7 @@ function fire(at = aim, record = true) {
   if (auto) { scaleNow = Math.min(scaleNow, approachScale(def, lead)); }
   playing = true;
   syncPlay();
-  $('rWhat').textContent = `${def.name} · ${speed.toFixed(speed < 10 ? 2 : 1)} m/s`;
+  $('rWhat').textContent = `${def.name} · ${fmtSpeed(speed)}`;
 }
 function approachScale(def, lead) {
   const tFlight = lead / Math.max(speed, 0.1);
@@ -1521,15 +1522,15 @@ function updateReadouts(final) {
   if (k >= 0) {
     const r = G.report(k), v = r.v;
     const out = $('outcome');
-    out.textContent = r.outcome || (v[5] >= 0 ? 'In contact…' : 'On its way…');
+    out.textContent = (r.outcome || (v[5] >= 0 ? 'In contact…' : 'On its way…')).replace(/(\d+(?:\.\d+)?) m\/s/g, (m, x) => fmtSpeed(+x));
     out.className = v[11] ? 'bad' : v[10] ? 'warn' : r.outcome ? 'ok' : '';
-    kv.push(['Impact speed', `${v[0].toFixed(v[0] < 10 ? 2 : 1)} m/s (${(v[0] * 3.6).toFixed(0)} km/h)`]);
+    kv.push(['Impact speed', fmtSpeed2(v[0])]);
     kv.push(['Kinetic energy', v[2] < 10 ? `${v[2].toFixed(2)} J` : `${v[2].toFixed(0)} J`]);
     if (v[4] > 0) kv.push(['Peak force', v[4] >= 1e3 ? `${(v[4] / 1e3).toFixed(2)} kN` : `${v[4].toFixed(0)} N`]);
     if (v[6] > 0) kv.push(['Contact time', fmtTime(v[6])]);
     if (v[7] > 0) kv.push(['Peak stress at load', `${(v[7] / 1e6).toFixed(0)} MPa`]);
     if (r.outcome) kv.push(['Energy absorbed', `${Math.max(0, v[3]).toFixed(v[3] < 10 ? 2 : 0)} J`]);
-    if (r.outcome && v[1] > 0) kv.push(['Leaves at', `${v[1].toFixed(1)} m/s`]);
+    if (r.outcome && v[1] > 0) kv.push(['Leaves at', fmtSpeed(v[1])]);
     if (v[8] > 0) kv.push(['Depth reached', `${(v[8] * 1e3).toFixed(1)} mm of ${(P.T * 1e3).toFixed(1)}`]);
     if (v[9] > 0.0005) kv.push(['Bulge', `${(v[9] * 1e3).toFixed(0)} mm`]);
   }
@@ -1756,14 +1757,31 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ---------- UI ----------
+// Speeds in the visitor's unit (click the unit to change it; remembered).
+const UNITS = [['m/s', 1], ['km/h', 3.6], ['mph', 2.2369363], ['ft/s', 3.2808399], ['kt', 1.9438445]];
+let unit = Math.max(0, UNITS.findIndex((u) => u[0] === store.get('unit', 'm/s')));
+const imperial = () => UNITS[unit][0] !== 'm/s' && UNITS[unit][0] !== 'km/h';
+function fmtSpeed(v) {
+  const [name, k] = UNITS[unit], x = v * k;
+  return `${x.toFixed(x < 10 ? 2 : x < 100 ? 1 : 0)} ${name}`;
+}
+// The unit, and a second one beside it for a feel of the number.
+function fmtSpeed2(v) {
+  const other = UNITS[unit][0] === 'm/s' ? 1 : unit === 1 ? 0 : UNITS[unit][0] === 'kt' ? 2 : 4;
+  const [name, k] = UNITS[other], x = v * k;
+  return `${fmtSpeed(v)} · ${x.toFixed(x < 10 ? 1 : 0)} ${name}`;
+}
+function syncUnit() { $('bUnit').textContent = UNITS[unit][0]; syncSpeed(); if (P && !rigs) updateReadouts(); }
+$('bUnit').onclick = () => { unit = (unit + 1) % UNITS.length; store.set('unit', UNITS[unit][0]); syncUnit(); };
 function speedToSlider(v, d) { return Math.round(1000 * Math.log(v / d.minSpeed) / Math.log(d.maxSpeed / d.minSpeed)); }
 function sliderToSpeed(s, d) { return d.minSpeed * Math.pow(d.maxSpeed / d.minSpeed, s / 1000); }
 function syncSpeed() {
   const d = cat.impactors[iIdx];
   $('speed').value = String(speedToSlider(speed, d));
   const drop = speed * speed / (2 * 9.80665);
-  $('vSpeed').textContent = `${speed.toFixed(speed < 10 ? 2 : speed < 100 ? 1 : 0)} m/s · ${(speed * 3.6).toFixed(0)} km/h` +
-    (drop < 30 && d.kind !== 'projectile' ? ` · ${drop.toFixed(drop < 1 ? 2 : 1)} m drop` : '') + (speed > 50 ? ` · ${(speed / 0.5144).toFixed(0)} kt` : '');
+  const dropU = imperial() ? drop * 3.2808399 : drop, dropName = imperial() ? 'ft' : 'm';
+  $('vSpeed').textContent = fmtSpeed2(speed) +
+    (drop < 30 && d.kind !== 'projectile' ? ` · ${dropU.toFixed(dropU < 1 ? 2 : 1)} ${dropName} drop` : '');
   $('iMass').textContent = `${d.mass < 1 ? (d.mass * 1e3).toFixed(d.mass < 0.01 ? 2 : 1) + ' g' : d.mass.toFixed(2) + ' kg'} · ${(0.5 * d.mass * speed * speed).toFixed(speed * speed * d.mass < 20 ? 2 : 0)} J`;
 }
 function chipGroup(box, list, current, onPick) {
@@ -1822,6 +1840,8 @@ const PRESETS = [
   ['Buckshot through a window', 'annealed_6', 'buckshot_00', 395, 'A 12-gauge 00 buck shell from 7 m: nine pellets, one after another'],
   ['Buckshot vs car door glass', 'car_side_tempered', 'buckshot_00', 395, 'Nine pellets into tempered side glass'],
   ['Brick vs tempered', 'tempered_6', 'brick', 10, 'Tempered glass is four to five times stronger'],
+  ['Cannonball through a shop window', 'annealed_6', 'cannonball_9lb', 440, 'A Revolutionary War 9-pounder: 4 kg of iron at 1,450 ft/s'],
+  ['Cannonball vs tempered', 'tempered_6', 'cannonball_9lb', 440, 'The same round shot into fully tempered glass'],
 ];
 // ---------- The armoured car ----------
 let sceneLoading = false;
@@ -2422,6 +2442,7 @@ window.addEventListener('resize', resize);
 chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
 pickImpactor(iIdx);
 buildPresets();
+$('bUnit').textContent = UNITS[unit][0];
 buildScaleButtons();
 syncAuto();
 syncPlay();
