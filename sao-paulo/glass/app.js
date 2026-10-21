@@ -1072,6 +1072,8 @@ class CrushView {
     this.n = 0;
     this.lead = 0;
     this.discs = [];  // for the 2D view: x, y, r, alpha
+    this.at = [];     // per drawn disc: [ply, x, y, r, alpha]
+    this.maps = [];   // per glass ply: the engine's cell -> piece map once it is in pieces
     if (!R) return;
     this.cap = 8192;
     const geo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(1, 1));
@@ -1120,8 +1122,10 @@ class CrushView {
       this.m.compose(this.v, this.q, this.sc);
       this.mesh.setMatrixAt(this.n, this.m);
       this.alpha.array[this.n] = alpha;
+      this.at.push([g, x, y, r, alpha]);
       this.n++;
-      if (kind === 1 && depth === 0 && this.lead < 2048) {
+      // (a crater this big is no bullet: nothing of it stays in the glass)
+      if (kind === 1 && depth === 0 && r < 0.02 && this.lead < 2048) {
         // The bullet's own lead, flattened into the crater.
         this.v.set(px, py, fromBack ? -(P.T - 0.0005) : -0.0005);
         const s = Math.min(0.009, 0.6 * r);
@@ -1137,6 +1141,27 @@ class CrushView {
     this.alpha.needsUpdate = true;
     this.leadMesh.count = this.lead;
     this.leadMesh.instanceMatrix.needsUpdate = true;
+  }
+  // Crushed glass goes with the glass round it: once no piece bordering a
+  // disc is still in the frame, the disc goes too.
+  follow(poses) {
+    if (!R || !poses) return;
+    let changed = false;
+    for (let i = 0; i < this.at.length; ++i) {
+      const [g, x, y, r, a0] = this.at[i], m = this.maps[g];
+      if (!m) continue;
+      let held = false;
+      for (let k = 0; k < 8 && !held; ++k) {
+        const ang = k * Math.PI / 4, px = x + 1.25 * r * Math.cos(ang), py = y + 1.25 * r * Math.sin(ang);
+        const ci = Math.floor(px / m.cell), cj = Math.floor(py / m.cell);
+        if (ci < 0 || cj < 0 || ci >= m.nx || cj >= m.ny) continue;
+        const piece = m.label[cj * m.nx + ci];
+        if (piece >= 0 && 12 * piece + 10 < poses.length && poses[12 * piece + 10] === 0) held = true;
+      }
+      const a = held ? a0 : 0;
+      if (this.alpha.array[i] !== a) { this.alpha.array[i] = a; changed = true; }
+    }
+    if (changed) this.alpha.needsUpdate = true;
   }
   dispose() {
     if (!R) return;
@@ -2223,6 +2248,12 @@ function paneFrame(dt, s, tEng) {
       P.pieceSize[sh.index] = r;
     }
     P.frags.add(shapes); P.fragShapes = nFrag;
+    // Crushed discs follow the pieces round them.
+    {
+      const plm = G.plies(P.nGlass);
+      for (let k = 0; k < P.nGlass; ++k)
+        if (plm[12 * k + 4] > 0) { const m = G.fragmentMap(P.plies[k].ply); P.crush.maps[k] = { nx: m.nx, ny: m.ny, label: m.label.slice(), cell: plm[12 * k + 3] }; }
+    }
     // Monolithic plies in pieces: tell their crack lines which pieces they lie on.
     if (CRACK_PIECES && P.frags.uniforms) {
       const plk = G.plies(P.nGlass);
@@ -2241,6 +2272,7 @@ function paneFrame(dt, s, tEng) {
     P.frags.update(poses, Math.max(0, tEng - s[23]), tEng);  // pieces step every 0.5 ms; extrapolate between
   }
   if (s[26] > P.crush.count) P.crush.add(G.crushes(P.crush.count).slice());
+  if (poses && P.crush.maps.length) P.crush.follow(poses);
   const sprayView = P.dice || P.frags;
   if (s[24] > sprayView.sprays) {
     // The first dice to come loose: bring the floor into the shot.
