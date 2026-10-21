@@ -195,7 +195,8 @@ function banner(title, sub) {
 }
 
 // ---------- Selection state ----------
-let gIdx = Math.max(0, cat.glazings.findIndex((g) => g.id === store.get('glazing', 'annealed_6')));
+// Every visit opens on 6 mm fully tempered glass.
+let gIdx = Math.max(0, cat.glazings.findIndex((g) => g.id === 'tempered_6'));
 let iIdx = Math.max(0, cat.impactors.findIndex((g) => g.id === store.get('impactor', 'steel_ball_2260')));
 let speed = cat.impactors[iIdx].speed;
 let yaw = 0, pitch = 0, fromBack = false;
@@ -1762,7 +1763,6 @@ function chipGroup(box, list, current, onPick) {
 function pickGlazing(i) {
   if (GT && GT.active) leaveScene(false);
   gIdx = i;
-  store.set('glazing', cat.glazings[i].id);
   chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
   newPane();
   simClockReset();
