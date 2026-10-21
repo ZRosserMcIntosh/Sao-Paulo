@@ -41,6 +41,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
 .top>*{pointer-events:auto}
 .top button,.top select{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.top button[aria-pressed="true"]{background:#fff;color:#0a1830}
 .plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
 .plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
 .plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
@@ -135,6 +136,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span>Glass lab</span></a>
   <div class="row">
     <select id="tier" title="Simulation quality (Auto picks one for this device)" aria-label="Quality"></select>
+    <button id="bSound" aria-pressed="true" title="Sound on / off (M)">Sound</button>
     <button id="bStress" aria-pressed="false" title="Stress seen through crossed polarisers (S)">Stress</button>
     <button id="bCam" class="hide-sm" title="Camera: front, three-quarter, side (C)">Camera</button>
     <button id="bReset" title="New pane (R)">New pane</button>
@@ -208,6 +210,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <li>Tap or click the glass to fire the selected object there; <kbd>Space</kbd> fires at the aim point.</li>
       <li>Drag to orbit, scroll or pinch to zoom. <kbd>C</kbd> cycles the camera.</li>
       <li>Playback runs from real time down to <b>1/100,000</b>: one second on screen is ten microseconds of glass. <b>Bullet time</b> slows down by itself as the object arrives and the cracks run, then speeds back up for the falling pieces.</li>
+      <li><b>Sound</b> (<kbd>M</kbd>) is synthesized from what the engine reports: each glass has its own voice (annealed rings, tempered bursts and rains dice, laminate crunches, armour thumps), and in bullet time everything drops in pitch and stretches out.</li>
       <li><kbd>S</kbd> shows the bending stress as a photoelastic fringe pattern, <kbd>R</kbd> fits a new pane, <kbd>Z</kbd> replays the last shot exactly (the fracture is deterministic).</li>
     </ul>
     <h3>What is solved</h3>
