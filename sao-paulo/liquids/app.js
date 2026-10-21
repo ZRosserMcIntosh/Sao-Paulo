@@ -110,6 +110,7 @@ function resize() {
   R.setPixelRatio([0.75, 1, Math.min(dpr, 1.5), Math.min(dpr, 2), Math.min(dpr, 2)][tier]);
   R.setSize(w, h, false);
   camera.aspect = w / h;
+  stainPx.value = 1.3 * 2 * Math.tan(camera.fov * Math.PI / 360) / Math.max(h, 1) / 2;
   if (w <= 860) camera.setViewOffset(w, h, 0, h * 0.18, w, h); else camera.clearViewOffset();
   camera.updateProjectionMatrix();
 }
@@ -130,16 +131,35 @@ const dummyMat = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.
 const jointMat = new THREE.MeshStandardMaterial({ color: 0x1d1d22, roughness: 0.6 });
 let liquidMat = new THREE.MeshPhysicalMaterial({ color: 0x5a0410, roughness: 0.06, transmission: 0, clearcoat: 1, clearcoatRoughness: 0.04 });
 let dropMat = liquidMat;
+// Stains are drawn no smaller than about a pixel and a third (in the vertex
+// shader, from each one's distance), so fine spatter shows from across the
+// room; up close they are their true size.
+const stainPx = { value: 0.002 };
+function minPixelSize(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uStainPx = stainPx;
+    sh.vertexShader = 'uniform float uStainPx;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+#ifdef USE_INSTANCING
+  {
+    vec3 ctr = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float rw = min(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz));
+    float minR = uStainPx * length(cameraPosition - ctr);
+    transformed.xy *= max(1.0, minR / max(rw, 1e-7));
+  }
+#endif`);
+  };
+  return mat;
+}
 // Stains are seen from both sides: through a pane of glass from behind, too.
-let stainMat = new THREE.MeshStandardMaterial({ color: 0x300410, roughness: 0.4, transparent: true, opacity: 0.92, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide });
+let stainMat = minPixelSize(new THREE.MeshStandardMaterial({ color: 0x300410, roughness: 0.4, transparent: true, opacity: 0.92, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide }));
 function liquidMaterials(id) {
   const d = cat.liquids.find((x) => x.id === id) || cat.liquids[0];
   const col = lin(d.color);
   liquidMat = new THREE.MeshPhysicalMaterial({ color: col, roughness: 0.05, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03,
     transparent: d.opacity < 0.9, opacity: Math.max(0.35, d.opacity), envMapIntensity: 1.3, sheen: 0 });
   dropMat = liquidMat;
-  stainMat = new THREE.MeshStandardMaterial({ color: lin(d.stainColor), roughness: 0.45, transparent: true, opacity: 0.9,
-    depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
+  stainMat = minPixelSize(new THREE.MeshStandardMaterial({ color: lin(d.stainColor), roughness: 0.45, transparent: true, opacity: 0.9,
+    depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide }));
   return d;
 }
 
@@ -588,7 +608,18 @@ function drawLiquid(t) {
     M4.compose(V, Q, S3.set(r / Math.sqrt(stretch * 0.8 + 0.2), r * stretch, r / Math.sqrt(stretch * 0.8 + 0.2)));
     P.drops.setMatrixAt(i, M4);
   }
-  P.drops.count = n;
+  // A few hundred particles of liquid (spatter that ran together on a wall,
+  // a small puddle) are too few to make a surface: drawn as drops.
+  let m = n;
+  if (st[2] > 0 && st[2] < 400) {
+    const pp = L.particles(), rp = 0.5 * st[8];
+    for (let i = 0; i < pp.length / 4 && m < P.maxDrops; ++i) {
+      V.set(pp[4 * i], pp[4 * i + 1], pp[4 * i + 2]);
+      M4.compose(V, Q.identity(), S3.set(rp, rp, rp));
+      P.drops.setMatrixAt(m++, M4);
+    }
+  }
+  P.drops.count = m;
   P.drops.instanceMatrix.needsUpdate = true;
   // New stains: flat ellipses on their surfaces, long axis along the tail.
   const s = L.stains(P.stainsFrom);
