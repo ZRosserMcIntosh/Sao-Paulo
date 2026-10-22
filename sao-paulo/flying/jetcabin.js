@@ -165,7 +165,8 @@ export function buildJetCabin({ mobile, maxAniso, skin, scale = 1 }) {
   function update(st) {
     for (const g of yokes) { g.position.x = PX - 0.22 - st.elev * 0.08; g.rotation.x = st.ail * 0.8; }
     for (const p of pedals) p.g.position.x = -2.55 + (p.side < 0 ? 1 : -1) * st.rud * 0.05;
-    for (const t of throttles) t.rotation.y = (st.thr - 0.35) * 55 * DEG;
+    // Each lever follows its own engine (st.levers, as the core follows them); together on st.thr.
+    throttles.forEach((t, i) => { t.rotation.y = ((st.levers?.[i] ?? st.thr) - 0.35) * 55 * DEG; });
     spd.rotation.y = -st.spd * 40 * DEG;
     flap.rotation.y = -Math.min(st.flapLever / 3, 1) * 45 * DEG;
     gearH.position.z = PZ0 + (st.gearDown ? 0.04 : 0.12);

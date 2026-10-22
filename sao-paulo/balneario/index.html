@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/sao-paulo/balneario/">
+<meta name="description" content="Balneário Camboriú and Praia Brava at 1:1 for the same open-world driving game as São Paulo World: 116 tiles, every building with a height and a confidence flag, every street named with its CEP.">
+<meta property="og:title" content="Balneário Camboriú · São Paulo World">
+<meta property="og:description" content="116 tiles of Balneário Camboriú and Praia Brava at 1:1, with the cadastre's 3D buildings and every street's CEP.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/balneario/img/mosaic.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3EBC%3C/text%3E%3C/svg%3E">
+<title>Balneário Camboriú · São Paulo World</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eceeed;--paper:#f7f8f7;--ink:#0f1a2a;--mute:#5b6676;--line:#cfd5d8;--plate:#0a3a8c;--plate-ink:#fff;--masp:#d22a1f;--good:#1f9d63;--warn:#d99a12;--bad:#cf3b2f;--sea:#2a9db5;
+--display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;--body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b111b;--paper:#111a27;--ink:#e7ecf2;--mute:#93a0b2;--line:#233044;--plate:#1d57c2;--masp:#ec4a3c;--good:#36c483;--warn:#f0b43a;--bad:#ef5d4f;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0b111b;--paper:#111a27;--ink:#e7ecf2;--mute:#93a0b2;--line:#233044;--plate:#1d57c2;--masp:#ec4a3c;--good:#36c483;--warn:#f0b43a;--bad:#ef5d4f;color-scheme:dark}
+*{box-sizing:border-box}body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--body);margin:0}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(16px,4vw,40px)}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:.95}
+h2{font-size:clamp(40px,6vw,72px);font-weight:800;text-transform:uppercase}h3{font-size:24px;font-weight:800;text-transform:uppercase}
+p{margin:0;max-width:64ch}a{color:var(--plate)}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.topbar{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;padding-block:14px;font:600 13px var(--body)}
+.topbar a{text-decoration:none;color:var(--ink);padding:6px 0;border-bottom:2px solid transparent}.topbar a:hover{border-color:var(--plate)}
+.topbar .back{color:var(--mute);margin-right:auto}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:4px solid var(--plate-ink);outline:2px solid var(--plate);border-radius:6px;padding:14px 26px 12px;box-shadow:0 18px 40px -22px rgba(4,20,60,.7)}
+.plate b{font:900 clamp(40px,6vw,88px)/.86 var(--display);text-transform:uppercase;text-align:center;letter-spacing:.01em}
+.plate span{font:600 clamp(11px,1.3vw,15px)/1.2 var(--body);letter-spacing:.18em;text-transform:uppercase;margin-top:10px;opacity:.95}
+header.hero{padding-block:clamp(16px,3vw,32px) 28px}
+.herogrid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(20px,3vw,40px);align-items:start}
+@media (max-width:900px){.herogrid{grid-template-columns:1fr}}
+.lede{font-size:clamp(17px,1.6vw,19px);margin-top:26px}.lede em{font-style:normal;color:var(--masp);font-weight:600}
+.facts{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:22px;font:500 13px var(--mono);color:var(--mute)}.facts b{color:var(--ink);font-weight:600}
+.heroimg{border-radius:10px;overflow:hidden;background:#141a22;box-shadow:0 30px 60px -40px rgba(0,0,0,.6)}.heroimg img{width:100%;display:block}
+section{padding-block:clamp(48px,7vw,84px);border-top:1px solid var(--line)}
+.sechead{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px 40px;align-items:end;margin-bottom:30px}@media (max-width:820px){.sechead{grid-template-columns:1fr}}
+.sechead p{color:var(--mute)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));border-block:1px solid var(--line)}
+.stat{padding:20px 18px;border-right:1px solid var(--line)}.stat:last-child{border-right:0}
+.stat b{display:block;font:800 clamp(34px,4vw,48px)/1 var(--display);font-variant-numeric:tabular-nums}.stat span{font-size:13px;color:var(--mute)}.stat small{display:block;font:500 11.5px var(--mono);color:var(--mute);margin-top:6px}
+/* explorer */
+.explore{display:grid;grid-template-columns:minmax(0,6fr) minmax(0,6fr);gap:24px;align-items:start}@media (max-width:900px){.explore{grid-template-columns:1fr}}
+.mapcard{position:relative;background:#141a22;border-radius:10px;overflow:hidden;box-shadow:0 30px 60px -40px rgba(0,0,0,.6)}
+.mapcard img{width:100%;display:block}.mapcard svg{position:absolute;inset:0;width:100%;height:100%}
+.mapcard svg rect{fill:transparent;stroke:rgba(255,255,255,.28);stroke-width:1;cursor:pointer;vector-effect:non-scaling-stroke}
+.mapcard svg rect:hover{fill:rgba(255,255,255,.18)}.mapcard svg rect.sel{stroke:#ffd36b;stroke-width:3;fill:rgba(255,211,107,.18)}
+.mapcard svg rect.b{stroke:rgba(255,160,60,.6)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--body);color:var(--mute);margin-top:10px}.legend i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.tilecard{background:var(--paper);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.tilecard .view{position:relative;background:#141a22;aspect-ratio:1/1}.tilecard .view img,.tilecard .view canvas{position:absolute;inset:0;width:100%;height:100%}
+.tilecard .view canvas{cursor:crosshair}
+.banner{position:absolute;right:14px;bottom:14px;text-align:right;pointer-events:none;max-width:85%;opacity:0;transition:opacity .2s}.banner.on{opacity:1}
+.banner .n{font:900 italic clamp(20px,2.6vw,30px)/1 var(--display);color:#fff;text-shadow:0 0 2px #000,0 2px 8px rgba(0,0,0,.9)}
+.banner .a{font:700 13px/1.4 var(--body);color:#ffd36b;letter-spacing:.06em;text-shadow:0 1px 6px rgba(0,0,0,.95);margin-top:4px}
+.banner .c{font:600 12px/1.4 var(--mono);color:#dfe6ef;text-shadow:0 1px 6px rgba(0,0,0,.95)}
+.modes{position:absolute;left:10px;top:10px;display:flex;gap:6px}.modes button{font:600 12px var(--body);border:0;border-radius:6px;padding:6px 10px;background:rgba(10,18,30,.72);color:#dfe6ef;cursor:pointer}
+.modes button[aria-pressed="true"]{background:#fff;color:#0a1830}
+.tilemeta{padding:12px 14px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 14px;align-items:center;border-bottom:1px solid var(--line)}
+.tilemeta .g{font:900 22px/1 var(--display);width:44px;height:44px;border-radius:8px;display:grid;place-items:center;color:#fff;grid-row:span 2;background:var(--plate)}
+.tilemeta .t{font:600 14px var(--mono)}.tilemeta .s{font-size:13px;color:var(--mute)}
+.stlist{max-height:300px;overflow:auto;padding:8px 14px;font-size:13.5px}
+.stlist div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line);cursor:default}
+.stlist div:hover,.stlist div.hl{background:rgba(255,211,107,.18)}.stlist b{font-weight:600}.stlist small{color:var(--mute);display:block}.stlist .cep{font:600 12px var(--mono);color:var(--plate);text-align:right;white-space:nowrap}
+.hint{font:500 12px var(--mono);color:var(--mute);margin-top:10px}
+/* buildings */
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px}@media (max-width:820px){.two{grid-template-columns:1fr}}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:16px}
+.bar{display:flex;height:22px;border-radius:5px;overflow:hidden;margin:12px 0 10px}.bar div{height:100%}
+.key{display:flex;flex-wrap:wrap;gap:6px 16px;font:500 13px var(--body);color:var(--mute)}.key i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+table{border-collapse:collapse;width:100%;font-size:14px}td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font:600 11.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font:600 11px var(--mono);border-radius:99px;padding:2px 8px;color:#fff}
+.steps{display:grid;gap:10px;counter-reset:s;margin:0;padding:0;list-style:none}.steps li{display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px;align-items:baseline;font-size:15px}
+.steps li::before{counter-increment:s;content:"S" counter(s);font:600 12px var(--mono);color:var(--plate);border:1px solid var(--plate);border-radius:5px;text-align:center;padding:2px 0}
+footer{padding:40px 0 60px;color:var(--mute);font-size:13px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <div class="topbar"><a class="back" href="../">← São Paulo World</a><a href="#explore">Map &amp; tiles</a><a href="#buildings">Buildings</a><a href="#streets">Streets &amp; CEPs</a><a href="#data">Data</a><a href="#next">What comes next</a></div>
+  <div class="herogrid">
+    <div>
+      <div class="eyebrow">Santa Catarina · the second city</div>
+      <div class="plate" style="margin-top:14px"><b>Balneário<br>Camboriú</b><span>Praia Brava · Barra Sul → Warung · 1 : 1</span></div>
+      <p class="lede">The same 500 m tile pipeline as São Paulo, pointed at Brazil's tallest skyline. <em id="ledeN">116 tiles</em> from the Barra Sul jetty to the Warung Beach Club: real terrain, the 2021 widened beach from Sentinel-2, every street named with its CEP, and every building with a height and a confidence flag from the city's own 3D cadastre.</p>
+      <div class="facts" id="facts"></div>
+    </div>
+    <div class="heroimg"><img src="img/mosaic.jpg" alt="All tiles of Balneário Camboriú and Praia Brava seen from above" width="1600" height="1700"></div>
+  </div>
+</div></header>
+
+<div class="wrap"><div class="stats" id="stats"></div></div>
+
+<section id="explore"><div class="wrap">
+  <div class="sechead"><div><div class="eyebrow">Map &amp; tiles</div><h2>Pick a tile</h2></div>
+    <p>Click a tile for its top-down render. Hover a street to read its name, bairro and CEP; the list under the render carries the house-number range of each piece. Orange outlines are tiles still at checkpoint B (terrain and streets, no buildings yet).</p></div>
+  <div class="explore">
+    <div>
+      <div class="mapcard"><img id="mos" src="img/mosaic.jpg" alt="Tile mosaic"><svg id="grid" viewBox="0 0 100 100" preserveAspectRatio="none"></svg></div>
+      <div class="legend"><span><i style="background:#ffd36b"></i>selected</span><span><i style="border:1px solid rgba(255,160,60,.9)"></i>checkpoint B only</span><span><i style="border:1px solid rgba(255,255,255,.5)"></i>checkpoint C (buildings)</span></div>
+      <p class="hint" id="hint">500 m tiles · grid north · origin at the Barra Sul tile centre (SIRGAS 2000 / UTM 22S)</p>
+    </div>
+    <div class="tilecard">
+      <div class="tilemeta"><div class="g" id="tg">—</div><div class="t" id="tt">Select a tile</div><div class="s" id="ts"></div></div>
+      <div class="view"><img id="tv" alt="" src=""><canvas id="cv" width="1000" height="1000"></canvas>
+        <div class="modes"><button id="mStreets" aria-pressed="true">Streets</button><button id="mNames" aria-pressed="false">Labels</button></div>
+        <div class="banner" id="bn"><div class="n" id="bnN"></div><div class="a" id="bnA"></div><div class="c" id="bnC"></div></div></div>
+      <div class="stlist" id="sl"><em style="color:var(--mute)">Streets of the selected tile appear here with their CEPs.</em></div>
+    </div>
+  </div>
+</div></section>
+
+<section id="buildings"><div class="wrap">
+  <div class="sechead"><div><div class="eyebrow">Checkpoint C</div><h2>Every building, with a flag</h2></div>
+    <p>Balneário publishes a pseudo-3D cadastre: each building unit has a base level (<code>cota</code>) and a height (<code>pe_direito</code>), so podiums and towers come out as stacked parts. Checked against OpenStreetMap floor counts it agrees to a median ratio of 1.0. Where the cadastre was never surveyed the height comes from OSM, from a named-tower list (CTBUH), or from a flagged guess.</p></div>
+  <div class="two">
+    <div class="panel"><h3>Height sources</h3><div class="bar" id="cbar"></div><div class="key" id="ckey"></div>
+      <p style="margin-top:14px;font-size:14px;color:var(--mute)">Colours are the same in Blender: each confidence class is a material, so a provisional guess is never mistaken for a surveyed height. Praia Brava is in Itajaí, whose cadastre gives floor counts rather than heights.</p></div>
+    <div class="panel"><h3>The skyline</h3><table id="towers"><thead><tr><th>Building</th><th>Height</th><th>Source</th></tr></thead><tbody></tbody></table>
+      <p style="margin-top:12px;font-size:13px;color:var(--mute)">Heights from the CTBUH list are facts; the cadastre's values are municipal; "provisional" is a placeholder to be replaced.</p></div>
+  </div>
+</div></section>
+
+<section id="streets"><div class="wrap">
+  <div class="sechead"><div><div class="eyebrow">Street names &amp; CEPs</div><h2>Rua 3700, CEP 88330-203</h2></div>
+    <p>Balneário names its cross streets by number and numbers its houses by the metre: a house at 450 m from Avenida Atlântica is number 450, and Rua 2400 crosses the avenue at number 2400. The Correios ranges confirm it, so every piece of every street carries an estimated number range and the CEP that covers it.</p></div>
+  <ol class="steps">
+    <li><div><b>Names.</b> OpenStreetMap ways are matched to the city's official street axes within 15 m; unnamed service roads take the official name. Praia Brava uses Itajaí's lot register.</div></li>
+    <li><div><b>CEPs.</b> One ViaCEP reverse search per street (Correios data), with the <code>complemento</code> ranges parsed into number intervals and sides.</div></li>
+    <li><div><b>Numbers.</b> Metric distance along the official axis from the origin end. The origin is fitted to known house numbers where there are any (OSM addresses, Itajaí lots); otherwise cross streets start at Avenida Atlântica and shore-parallel streets at their north end. Every unanchored range is flagged as an estimate.</div></li>
+    <li><div><b>In the game.</b> The same index feeds the blue corner plates and the street banner, as in São Paulo.</div></li>
+  </ol>
+  <div class="facts" id="sfacts" style="margin-top:22px"></div>
+</div></section>
+
+<section id="data"><div class="wrap">
+  <div class="sechead"><div><div class="eyebrow">Data</div><h2>Where it comes from</h2></div><p>Every raw file is kept with its URL, fetch time and licence. Nothing here uses Google imagery.</p></div>
+  <table><thead><tr><th>Layer</th><th>Source</th><th>Date</th><th>Notes</th></tr></thead><tbody>
+    <tr><td>Blocks, curbs, lots, buildings, 3D units, street axes</td><td>Prefeitura de Balneário Camboriú GeoServer (WFS)</td><td>2018–2025 edits</td><td>no licence stated; the orthophotos are pre-widening and were not used for the shoreline</td></tr>
+    <tr><td>Praia Brava lots, buildings (floor counts), road widths</td><td>Prefeitura de Itajaí ArcGIS</td><td>2023–2026</td><td>no licence stated</td></tr>
+    <tr><td>Roads, footprints, names, addresses</td><td>OpenStreetMap via Overpass</td><td>October 2026</td><td>ODbL, © OpenStreetMap contributors</td></tr>
+    <tr><td>Shoreline</td><td>Sentinel-2 L2A, 8-scene median 2025-12 → 2026-08</td><td>2026</td><td>Copernicus Sentinel data; ±10 m</td></tr>
+    <tr><td>Terrain</td><td>Municipal 0.5 m contours (state 1 m survey when its server is up)</td><td>2010–2024</td><td>the state server has been down since October 2026, so every tile but one uses contours</td></tr>
+    <tr><td>CEPs</td><td>ViaCEP (Correios)</td><td>October 2026</td><td>one lookup per street, cached</td></tr>
+    <tr><td>Tower heights</td><td>CTBUH / Wikipedia list</td><td>2026</td><td>facts only, no content copied</td></tr>
+  </tbody></table>
+</div></section>
+
+<section id="next"><div class="wrap">
+  <div class="sechead"><div><div class="eyebrow">What comes next</div><h2>South of the river, then the road</h2></div>
+    <p>The 25 tiles south of the Rio Camboriú (Barra, Interpraias) come next, then facades and the promenade detail for the new orla, then the 100 km scenic road links to São Paulo, Rio and Florianópolis described on the main page.</p></div>
+</div></section>
+<footer><div class="wrap">Solo game project · Balneário Camboriú section generated <span id="gen"></span></div></footer>
+
+<script>
+const $=id=>document.getElementById(id); const CONF={municipal_3d:["#c7c5bf","cadastre 3D units"],verified:["#8fb58f","cadastre + OSM agree"],ctbuh:["#5c8fd6","CTBUH list"],municipal_floors:["#cdbfae","Itajaí floor count"],osm_only:["#6ea0e0","OSM height"],estimated:["#e7c24a","OSM floors × 3 m"],provisional:["#ec7f2b","provisional guess"],conflict:["#d6362a","sources disagree"],under_construction:["#8f6fc9","under construction"]};
+const KC={1:"#ffd36b",2:"#ffe6a6",3:"#ffffff",4:"#9fb4c9"};
+let D,T={},sel=null,SD=null,hl=-1,showNames=false,showStreets=true;
+(async()=>{
+  try{D=await (await fetch("site_data.json")).json()}catch(e){$("facts").textContent="Could not load the data.";return}
+  const t=D.totals; $("gen").textContent=D.generated; $("ledeN").textContent=t.tiles+" tiles";
+  $("facts").innerHTML=[["tiles",t.tiles],["with buildings",t.tiles_C],["buildings",t.buildings.toLocaleString("en")],["named streets",t.named_streets],["CEPs",t.ceps],["tallest",t.tallest_m+" m"]].map(([k,v])=>`<span><b>${v}</b> ${k}</span>`).join("");
+  $("stats").innerHTML=[[t.tiles,"tiles · 500 m each","29 km² at 1:1"],[t.buildings.toLocaleString("en"),"buildings","parts: "+t.parts.toLocaleString("en")],[t.named_streets,"named streets",t.streets_indexed+" indexed city-wide"],[t.streets_with_cep,"streets with a CEP",t.streets_anchored+" number origins anchored"],[t.tallest_m+" m","tallest building","Yachthouse by Pininfarina"]].map(([b,s,m])=>`<div class="stat"><b>${b}</b><span>${s}</span><small>${m}</small></div>`).join("");
+  // grid
+  const g=D.grid,nc=g.i1-g.i0+1,nr=g.j1-g.j0+1,svg=$("grid"); svg.setAttribute("viewBox",`0 0 ${nc} ${nr}`);
+  for(const r of D.tiles){T[r.t]=r;const e=document.createElementNS("http://www.w3.org/2000/svg","rect");e.setAttribute("x",r.i-g.i0);e.setAttribute("y",g.j1-r.j);e.setAttribute("width",1);e.setAttribute("height",1);if(r.stage!=="C")e.classList.add("b");e.dataset.t=r.t;e.addEventListener("click",()=>pick(r.t));const ti=document.createElementNS("http://www.w3.org/2000/svg","title");ti.textContent=r.t+(r.note?" · "+r.note:"");e.appendChild(ti);svg.appendChild(e)}
+  // confidence bar
+  const bc=t.by_conf,sum=Object.values(bc).reduce((a,b)=>a+b,0)||1,order=Object.keys(CONF).filter(k=>bc[k]);
+  $("cbar").innerHTML=order.map(k=>`<div style="width:${bc[k]/sum*100}%;background:${CONF[k][0]}" title="${CONF[k][1]}: ${bc[k]}"></div>`).join("");
+  $("ckey").innerHTML=order.map(k=>`<span><i style="background:${CONF[k][0]}"></i>${CONF[k][1]} · ${bc[k].toLocaleString("en")}</span>`).join("");
+  $("towers").querySelector("tbody").innerHTML=D.towers.map(x=>`<tr><td>${x.name}</td><td class="n">${x.h} m</td><td><span class="pill" style="background:${(CONF[x.conf]||CONF.provisional)[0]};color:#102">${(CONF[x.conf]||CONF.provisional)[1]}</span></td></tr>`).join("");
+  $("sfacts").innerHTML=[["streets indexed",t.streets_indexed],["with CEP",t.streets_with_cep],["number origins anchored",t.streets_anchored],["distinct CEPs on the map",t.ceps]].map(([k,v])=>`<span><b>${v}</b> ${k}</span>`).join("");
+  pick(location.hash.slice(1)||"SC_BC_T_p0_p0");
+})();
+async function pick(tid){const r=T[tid];if(!r)return;sel=tid;history.replaceState(null,"","#"+tid);
+  document.querySelectorAll("#grid rect").forEach(e=>e.classList.toggle("sel",e.dataset.t===tid));
+  $("tg").textContent=r.stage;$("tt").textContent=tid+" · "+(r.set==="praia_brava"?"Praia Brava (Itajaí)":r.set==="bc_city"?"Balneário Camboriú":"Praia Central");
+  $("ts").textContent=(r.stage==="C"?`${r.bld} buildings · ${r.parts} parts · tallest ${r.tallest} m · `:"terrain + streets only · ")+`${r.streets} named streets · QA ${r.qa?"pass":"open"}`+(r.note?" · "+r.note:"");
+  $("tv").src="tiles/"+tid+".jpg"; SD=null; hl=-1; draw(); $("sl").innerHTML="<em style='color:var(--mute)'>loading…</em>";
+  try{const q=await (await fetch("streets/"+tid+".json")).json(); if(sel!==tid)return; SD=q; list(); draw()}catch(e){$("sl").innerHTML="<em style='color:var(--mute)'>no street data for this tile</em>"}
+}
+function pieces(){const out=[];if(!SD)return out;SD.s.forEach((s,si)=>s.L.forEach((L,pi)=>out.push({s,si,pi,L,N:s.N[pi],C:s.C[pi]})));return out}
+function draw(){const c=$("cv"),x=c.getContext("2d");x.clearRect(0,0,1000,1000);if(!SD||!showStreets)return;
+  for(const p of pieces()){x.beginPath();for(let k=0;k<p.L.length;k+=2){k?x.lineTo(p.L[k],p.L[k+1]):x.moveTo(p.L[k],p.L[k+1])}
+    const on=p.si===hl;x.lineWidth=on?9:(p.s.k<=2?5:3);x.strokeStyle=on?"#ffd36b":KC[p.s.k]||"#fff";x.globalAlpha=on?1:.85;x.lineCap="round";x.lineJoin="round";x.stroke()}
+  x.globalAlpha=1;
+  if(showNames){x.font="600 22px Public Sans, sans-serif";x.textAlign="center";const done=new Set();
+    for(const p of pieces()){if(done.has(p.si))continue;const L=p.L,m=Math.floor(L.length/4)*2,px=L[m],py=L[m+1];if(px<40||px>960||py<40||py>960)continue;done.add(p.si);
+      const txt=p.s.n+(p.C?"  "+p.C.split(" ")[0]:"");x.lineWidth=5;x.strokeStyle="rgba(0,0,0,.85)";x.strokeText(txt,px,py-10);x.fillStyle="#fff";x.fillText(txt,px,py-10)}}}
+function dist(px,py,L){let d=1e9;for(let k=0;k+3<L.length;k+=2){const ax=L[k],ay=L[k+1],bx=L[k+2],by=L[k+3],dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy||1;let t=((px-ax)*dx+(py-ay)*dy)/l2;t=Math.max(0,Math.min(1,t));const qx=ax+t*dx,qy=ay+t*dy;d=Math.min(d,Math.hypot(px-qx,py-qy))}return d}
+$("cv").addEventListener("mousemove",e=>{if(!SD)return;const r=e.target.getBoundingClientRect(),px=(e.clientX-r.left)/r.width*1000,py=(e.clientY-r.top)/r.height*1000;let best=null,bd=22;
+  for(const p of pieces()){const d=dist(px,py,p.L);if(d<bd){bd=d;best=p}}
+  const nh=best?best.si:-1;if(nh!==hl){hl=nh;draw();document.querySelectorAll("#sl div").forEach(d=>d.classList.toggle("hl",+d.dataset.i===hl))}
+  const b=$("bn");if(best){b.classList.add("on");$("bnN").textContent=best.s.n;$("bnA").textContent=best.s.b+(best.N?`  ·  nº ${best.N[0]}–${best.N[1]}`:"");$("bnC").textContent=best.C?"CEP "+best.C:"CEP not found"}else b.classList.remove("on")});
+$("cv").addEventListener("mouseleave",()=>{hl=-1;draw();$("bn").classList.remove("on")});
+function list(){if(!SD)return;const rows=SD.s.map((s,i)=>({s,i})).sort((a,b)=>a.s.k-b.s.k||a.s.n.localeCompare(b.s.n));
+  $("sl").innerHTML=rows.map(({s,i})=>{const ceps=[...new Set(s.C.filter(Boolean))];const nums=s.N.length?`nº ${Math.min(...s.N.map(n=>n[0]))}–${Math.max(...s.N.map(n=>n[1]))}`:"";return `<div data-i="${i}"><span><b>${s.n}</b><small>${s.b}${nums?" · "+nums:""}</small></span><span class="cep">${ceps.join("<br>")||"—"}</span></div>`}).join("");
+  $("sl").querySelectorAll("div").forEach(d=>{d.addEventListener("mouseenter",()=>{hl=+d.dataset.i;draw()});d.addEventListener("mouseleave",()=>{hl=-1;draw()})})}
+$("mStreets").addEventListener("click",e=>{showStreets=!showStreets;e.target.setAttribute("aria-pressed",showStreets);draw()});
+$("mNames").addEventListener("click",e=>{showNames=!showNames;e.target.setAttribute("aria-pressed",showNames);draw()});
+</script>
+</body>
+</html>

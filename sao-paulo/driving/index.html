@@ -134,6 +134,24 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 }
 @media (max-width:640px){.speed{font-size:48px}.gg{display:none}.timers{display:none}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* left column: crash report, physics overlay, moose test, crash lab */
+#leftcol{position:fixed;left:12px;top:72px;width:min(340px,calc(100% - 24px));display:flex;flex-direction:column;gap:8px;z-index:2;max-height:calc(100% - 290px);overflow:auto;pointer-events:none}
+#leftcol>*{pointer-events:auto}
+#leftcol #crash{position:static;width:auto}
+#leftcol #crash:not(.on){display:none}
+#leftcol .panel{font:500 12px/1.55 var(--mono);padding:9px 11px}
+#leftcol .panel span{color:var(--mute)}
+#leftcol .panel small{color:var(--mute)}
+#xray i.k{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 3px 0 6px;vertical-align:-1px}
+#xray i.understeer{color:var(--warn);font-style:normal}#xray i.oversteer{color:var(--bad);font-style:normal}#xray i.neutral{color:var(--good);font-style:normal}
+#moose table,#lab table{width:100%;border-collapse:collapse;margin-top:6px;font-size:10.5px}
+#moose td,#moose th,#lab td,#lab th{text-align:left;padding:2px 4px;border-top:1px solid var(--line)}
+#lab .lhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+#lab .lhead button{padding:2px 7px}
+#lab svg.pulse{width:100%;height:auto;margin:6px 0;background:rgba(0,0,0,.25);border-radius:6px}
+#lab .row{margin:6px 0}
+#bRewind.on{background:var(--hot);color:#111}
+@media (pointer:coarse){#leftcol{max-height:calc(100% - 330px)}}
 </style>
 </head>
 <body>
@@ -216,6 +234,43 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <div class="row"><button id="bGarage2" title="U">Open the garage</button></div>
   <p class="note">A design test bed, not a menu of cheats. Set camber, toe, caster and camber gain; springs, ride height, slow and fast dampers and anti-roll bars per axle; tyre compound (off-road to racing slick, rain) and pressure; brake balance; final drive; splitter, rear body downforce and a rear wing that really stalls; altitude, air temperature and wind. The HUD shows each tyre's tread temperature and camber, plus the downforce and drag. Slicks are slow until they are warm (or use tyre warmers), and too little brake balance spins the car. Setups are saved per car and can be shared as .json files.</p>
 
+  <h2>Showcases</h2>
+  <div class="row">
+    <button id="bOverlay" aria-pressed="false" title="O">Physics overlay</button>
+    <button id="bRewind" title="Hold Backspace (or hold this) to rewind">⟲ Hold to rewind</button>
+    <button id="bGhost" aria-pressed="true" title="N">Ghost</button>
+    <button id="bShare" title="Copy a link to this car, its setup, the weather and the place">Share link</button>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <button id="bShadow" aria-pressed="false" title="J">Shadow car</button>
+    <select id="shadowCar" aria-label="Shadow car"><option value="-1">Stock version of this car</option></select>
+  </div>
+  <div class="row" style="margin-top:6px" role="group" aria-label="Weather">
+    <button data-rain="0" aria-pressed="true" title="I cycles">Dry</button><button data-rain="1">Drizzle</button><button data-rain="2">Rain</button><button data-rain="3">Downpour</button>
+  </div>
+  <p class="note"><b>Physics overlay</b> (<kbd>O</kbd>): each tyre's friction circle (how much force it can give at its load) and the force it gives now, the loads, the g vector, the roll centres and the roll axis. <b>Rewind</b>: hold <kbd>Backspace</kbd>; let go and you carry on from that moment (the physics is deterministic, so the replay is exact). <b>Ghost</b> (<kbd>N</kbd>): your last run from the same start drives beside you. <b>Shadow car</b> (<kbd>J</kbd>): a second car driven by your exact inputs, the stock version of yours or another model, through nothing: your setup against stock, same hands. <b>Rain</b> (<kbd>I</kbd>): wet grip, a water film, slick paint and cobbles, and puddles that can make a tyre hydroplane (water deeper than the tread clears, near 0.5-1 × the hydroplaning speed, Horne's 6.35 √p km/h) and pull the car toward them. <b>Share link</b>: this car, its setup, the weather and the place.</p>
+  <h2>Moose test</h2>
+  <div class="row">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute)">Robot <input id="mooseSpeed" type="range" min="40" max="110" step="1" value="70" style="width:110px"> <b id="mooseSpeedV" style="color:var(--ink)">70 km/h</b></label>
+  </div>
+  <div class="row" style="margin-top:6px"><button id="bMooseRun">Robot run</button><button id="bMooseLadder">Speed ladder</button><button id="bMooseStop">Stop</button></div>
+  <p class="note">ISO 3888-2 double lane change, the lane sized to your car's width. Drive in at a steady speed and lift off at the yellow line, or let the robot test driver do it (pure-pursuit steering, throttle released at the gate as the standard asks). The ladder raises the speed 4 km/h a run until a cone falls or the car rolls. Results are kept per car: try the 911 against the 4.2 t S 600 Guard.</p>
+  <h2>Crash lab</h2>
+  <div class="row"><select id="labTest" aria-label="Crash test"></select><button id="bLabRun">Run test</button></div>
+  <p class="note">The car goes on a sled at the test speed into the rigid barrier or, for the side test, the pole; every 1/360 s step is recorded and the impact replays at a tenth of real speed, the body crushing as the pulse the dummies feel (a half sine at the crush zone's natural frequency, its depth capped by the zone). Then the report: chest, HIC15, head, excursion and injury risk per seat, and the pulse. Hits while driving dent the car too, as deep as the Damage setting allows (<kbd>F</kbd> repairs it). The crash lab is always realistic.</p>
+  <h2>Stunt park</h2>
+  <div class="row"><button id="bLoopAssist" aria-pressed="true">Loop assist</button></div>
+  <p class="note">North of the smash lanes (Go to: Stunt). Two kickers (1.5 m and 3 m) with landing ramps, a half-pipe with 50° walls and parapets, and a 36 m clothoid loop that gets a road car over the top at ~100 km/h with about 4 g of centripetal acceleration at the bottom (a circular loop needs over 6 g); with gravity and the suspension settling, the toast's felt peak reads higher. Airtime, jump length and landing g after every jump. The loop is drawn on the inside of a cylinder and shifts sideways so the way in and out pass side by side; the assist steers the small corrections to stay on it.</p>
+
+  <h2>Damage</h2>
+  <div class="row">
+    <button data-damage="cosmetic" aria-pressed="true" title="Game-like: dents and scuffs, the car always drives on">Cosmetic</button>
+    <button data-damage="realistic" aria-pressed="false" title="Full crush depth and the crash report">Realistic</button>
+    <button data-damage="off" aria-pressed="false">Off</button>
+    <button id="bRepair" title="F">Repair</button>
+  </div>
+  <p class="note"><b>Cosmetic</b> is the game setting: hits leave shallow dents (a few centimetres, never folding the body in), there is no injury report, and a car left on its side or roof is put back on its wheels by itself. <b>Realistic</b> dents as deep as the crush model says and shows the dummies' report after every hit. In every mode the car drives exactly the same afterwards: damage is only skin deep. <kbd>F</kbd> repairs the body.</p>
+
   <h2>Crash dummies</h2>
   <div class="row">
     <button id="bDummies" aria-pressed="true" title="Two crash test dummies in the front seats">Dummies</button>
@@ -255,6 +310,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></span><span>Fun / Sport / Simulation / Drift</span>
     <span><kbd>X</kbd></span><span>Drift assist on / off (any preset)</span>
     <span><kbd>R</kbd> · <kbd>C</kbd> · <kbd>H</kbd></span><span>Reset (a car on its side or roof is put back on its wheels where it is) · camera · panel</span>
+    <span><kbd>F</kbd></span><span>Repair the body</span>
     <span><kbd>U</kbd></span><span>Tuning garage</span>
     <span><kbd>M</kbd></span><span>Sound on / off</span>
     <span><kbd>K</kbd> · <kbd>Z</kbd></span><span>Mouse steering on / off · centre the wheel</span>
@@ -284,7 +340,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 <div id="zone"></div>
 <div id="drift" aria-hidden="true"><b><span id="dScore">0</span><i id="dMult">×1</i></b><small id="dInfo"></small></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<div id="crash" aria-live="polite"></div>
+<div id="leftcol"><div id="crash" aria-live="polite"></div></div>
 <div id="drop">Drop the .glb to drive it</div>
 
 <div id="touch" aria-hidden="true">

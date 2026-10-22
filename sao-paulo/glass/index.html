@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<base href="/sao-paulo/glass/">
+<title>Glass Lab</title>
+<meta name="description" content="Break glass in your browser: annealed, tempered, laminated, bullet-resistant and aircraft glazing hit by balls, hail, birds, tools and bullets, solved by the Glass Dynamics C++ fracture core compiled to WebAssembly, down to 1/100,000 speed.">
+<meta property="og:title" content="São Paulo World · Glass Lab">
+<meta property="og:description" content="Real fracture physics for every kind of glass, in ultra slow motion.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/glass/og.jpg?v=1">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A 9 lb cannonball bursting a 10 mm annealed glass plate into flying shards">
+<meta property="og:type" content="website">
+<meta name="twitter:image" content="https://zrossermcintosh.com/sao-paulo/glass/og.jpg?v=1">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/glass/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"../driving/vendor/three.module.min.js"}}</script>
+<style>
+:root{
+  --bg:#0b111b; --panel:rgba(10,17,28,.86); --panel-solid:#0f1826; --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --plate-ink:#fff; --masp:#ec4a3c; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b; --ice:#9fd6ff;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#view,#view2d{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#view2d{display:none}
+button{font:600 12px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer;white-space:nowrap}
+button:hover{background:rgba(255,255,255,.13)}
+button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+select{font:600 12px var(--body);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:6px 8px;max-width:100%}
+input[type=range]{width:100%;accent-color:var(--hot)}
+kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:rgba(255,255,255,.05)}
+.eyebrow{font:600 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.panel{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:12px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.note{color:var(--mute);font-size:12px;margin:6px 0 0}
+.mono{font-family:var(--mono)}
+/* top bar */
+.top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
+.top>*{pointer-events:auto}
+.top button,.top select{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.slider .unit{font:inherit;font-size:11px;padding:1px 7px;margin-left:4px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ice);cursor:pointer}
+.top button[aria-pressed="true"]{background:#fff;color:#0a1830}
+.top a.how{font:600 12px var(--body);color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.top a.how:hover{background:rgba(255,255,255,.13)}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+/* left: the lab bench */
+#lab{position:fixed;left:12px;top:66px;width:318px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#lab h2,#res h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#lab h2:first-child,#res h2:first-child{margin-top:0}
+#lab h2 small,#res h2 small{font:500 10.5px var(--mono);color:var(--mute);text-transform:none;letter-spacing:0}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chips button{font-weight:600;padding:5px 8px}
+.chips .cat{width:100%;font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin:6px 0 1px}
+.stack{display:flex;height:22px;border-radius:4px;overflow:hidden;border:1px solid var(--line);margin-top:8px}
+.stack i{display:block;height:100%;min-width:2px}
+.layers{display:grid;gap:6px;margin-top:8px}.layers:empty{display:none}
+.layer{display:grid;grid-template-columns:auto 1fr auto;gap:4px 6px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px}
+.layer b{font:600 11px var(--mono);color:var(--mute)}
+.layer select{min-width:0}
+.layer .gap{grid-column:1/-1;display:flex;gap:8px;align-items:center;color:var(--mute)}
+.layer .gap input{flex:1}
+.meter{height:8px;border-radius:4px;background:rgba(255,255,255,.08);margin-top:10px;overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--good),var(--warn) 70%,var(--bad));transition:width .12s}
+.chips button small{color:var(--mute);font-weight:500;margin-left:4px}
+.addlayer{margin-top:8px;width:100%;background:transparent;border-style:dashed;color:var(--ice)}
+.stack .glass{background:linear-gradient(180deg,#bfe3ff,#7cbfe8)}.stack .glass.tempered{background:repeating-linear-gradient(90deg,#9fd0f5 0 3px,#cbe9ff 3px 6px)}
+.stack .glass.chem{background:linear-gradient(90deg,#3d8fd1,#bfe3ff 18%,#bfe3ff 82%,#3d8fd1)}
+.stack .interlayer{background:#f1c96a}.stack .polymer{background:#d9dde3}
+.desc{font-size:12.5px;color:#cfd8e3;margin:7px 0 0}
+.std{font:500 11px var(--mono);color:var(--mute);margin-top:4px}
+.slider{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-top:8px;font-size:12px;color:var(--mute)}
+.slider b{font:600 12px var(--mono);color:var(--ink);text-align:right}
+.slider input{grid-column:1/-1}
+#fire{width:100%;margin-top:10px;padding:10px;font:800 16px var(--display);letter-spacing:.06em;text-transform:uppercase;background:var(--masp);border-color:var(--masp);color:#fff}
+#fire:hover{filter:brightness(1.1)}
+.presets{display:grid;grid-template-columns:1fr;gap:5px}
+.presets button{text-align:left;white-space:normal;line-height:1.3}
+.presets button small{display:block;color:var(--mute);font-weight:500}
+.presets button.feature{border-color:rgba(255,211,107,.55);background:linear-gradient(180deg,rgba(255,211,107,.16),rgba(255,211,107,.05))}
+/* right: results */
+#res{position:fixed;right:12px;top:66px;width:300px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#outcome{font:700 14px/1.35 var(--body);margin:0}
+#outcome.ok{color:var(--good)}#outcome.bad{color:var(--bad)}#outcome.warn{color:var(--warn)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;margin-top:8px}
+.kv span{color:var(--mute)}.kv b{font:600 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.plies{display:grid;gap:3px;margin-top:6px;font:500 11px var(--mono)}
+.plies div{display:flex;justify-content:space-between;gap:8px;color:var(--mute)}
+.plies div b{color:var(--ink);font-weight:600}
+#log{font:500 10.5px/1.45 var(--mono);color:#b9c4d3;max-height:170px;overflow:auto;white-space:pre-wrap;margin-top:6px;user-select:text;-webkit-user-select:text}
+/* bottom: time */
+#time{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:3;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100% - 24px)}
+#clock{font:600 13px var(--mono);min-width:150px;text-align:center;font-variant-numeric:tabular-nums}
+#clock small{display:block;font:500 10px var(--mono);color:var(--mute);letter-spacing:.06em}
+#scale button{min-width:46px}
+#limit{font:600 10.5px var(--mono);color:var(--warn)}
+/* banner + overlays */
+#banner{position:fixed;left:50%;top:70px;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:2;opacity:0;transition:opacity .35s;text-shadow:0 2px 10px rgba(0,0,0,.9)}
+#banner.on{opacity:1}
+#banner b{display:block;font:900 italic clamp(26px,4vw,44px)/1 var(--display);text-transform:uppercase}
+#banner small{display:block;font:600 12px var(--mono);color:#dfe6ef;margin-top:5px;letter-spacing:.06em}
+#toast{position:fixed;left:50%;top:120px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
+#toast.on{opacity:1}
+#loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg)}
+#loading .panel{max-width:440px;text-align:center}
+#loading h1{font:900 34px/1 var(--display);text-transform:uppercase;margin:0 0 8px}
+#help{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
+#help.on{display:grid}
+#help .panel{max-width:min(720px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:18px 20px}
+#help h2{font:900 26px/1 var(--display);text-transform:uppercase;margin:0 0 10px}
+#help h3{font:800 16px/1 var(--display);text-transform:uppercase;margin:16px 0 6px}
+#help p,#help li{font-size:13.5px;color:#d3dbe6}
+#help ul{padding-left:18px;margin:6px 0}
+.legend{display:none;position:fixed;right:12px;bottom:64px;z-index:2;font:500 10.5px var(--mono);color:var(--mute);padding:8px 10px}
+.legend.on{display:block}
+.legend .bar{width:220px;height:10px;border-radius:3px;margin:5px 0 3px}
+.tabs{display:none}
+/* phones and narrow windows: the bench becomes a bottom sheet */
+@media (max-width:860px){
+  #lab,#res{left:8px;right:8px;width:auto;top:auto;bottom:calc(58px + env(safe-area-inset-bottom));max-height:38vh;border-radius:12px;padding:10px}
+  #lab[hidden],#res[hidden]{display:none}
+  .tabs{display:flex;position:fixed;left:8px;right:8px;bottom:calc(58px + 38vh + 6px + env(safe-area-inset-bottom));gap:5px;z-index:3;justify-content:center}
+  .tabs.closed{bottom:calc(58px + env(safe-area-inset-bottom))}
+  #time{left:8px;right:8px;bottom:calc(6px + env(safe-area-inset-bottom));transform:none;width:auto;gap:5px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;padding:6px 8px!important;scrollbar-width:none}
+  #time::-webkit-scrollbar{display:none}
+  #time button{padding:6px 7px;font-size:11.5px}
+  #scale{flex-wrap:nowrap}
+  #clock{min-width:96px;font-size:11px}
+  #clock small{font-size:9px}
+  .top .hide-sm{display:none}
+  .top a.how{padding:5px 7px;font-size:11.5px}
+  .top .plate b{font-size:16px}.top .plate span{font-size:8px}
+  .top button,.top select{padding:5px 7px;font-size:11.5px}
+  #banner{top:64px}
+  .legend{bottom:auto;top:64px}
+}
+@media (max-width:860px){#gtHud{top:auto!important;bottom:calc(96px + env(safe-area-inset-bottom));font-size:12px!important;gap:6px!important}#gtHud>b{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="3D view of a pane of glass in a test frame. Tap or click the glass to fire."></canvas>
+<canvas id="view2d" aria-label="Front view of a pane of glass. Tap or click the glass to fire."></canvas>
+
+<div class="top">
+  <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span>Glass lab</span></a>
+  <div class="row">
+    <select id="tier" title="Simulation quality (Auto picks one for this device)" aria-label="Quality"></select>
+    <button id="bSound" aria-pressed="true" title="Sound on / off (M)">Sound</button>
+    <button id="bStress" aria-pressed="false" title="Stress seen through crossed polarisers (S)">Stress</button>
+    <button id="bCam" class="hide-sm" title="Camera: front, three-quarter, side (C)">Camera</button>
+    <button id="bReset" title="New pane (R)">New pane</button>
+    <button id="bShare" title="Copy a link to exactly this setup and shot">Share</button>
+    <a class="how" href="how/" title="How every number is calculated: the equations, the data and their sources">How it works</a>
+    <button id="bHelp" title="Help (H)">?</button>
+  </div>
+</div>
+
+<div class="tabs" id="tabs" role="tablist">
+  <button id="tLab" role="tab" aria-pressed="true">Glass &amp; object</button>
+  <button id="tRes" role="tab" aria-pressed="false">Results</button>
+  <button id="tHide" role="tab" aria-pressed="false">Hide</button>
+</div>
+
+<aside id="lab" class="panel" aria-label="Glass and impactor">
+  <h2>Glass <small id="gDims"></small></h2>
+  <div class="chips" id="glazings"></div>
+  <div class="stack" id="stack" title="Layup, front (struck) face on the left"></div>
+  <p class="desc" id="gDesc"></p>
+  <div class="std" id="gStd"></div>
+  <div class="layers" id="layers"></div>
+  <button id="bAddLayer" class="addlayer" title="Put another pane behind this one, with a gap between: what comes through, and every flying piece of glass, hits it">+ Add a pane behind</button>
+
+  <h2>Object <small id="iMass"></small></h2>
+  <div class="chips" id="impactors"></div>
+  <p class="desc" id="iDesc"></p>
+
+  <div class="slider"><span>Speed <button id="bUnit" class="unit" title="Units: m/s, km/h, mph, ft/s, knots">m/s</button></span><b id="vSpeed"></b><input id="speed" type="range" min="0" max="1000" step="1" aria-label="Speed"></div>
+  <div class="slider"><span>Angle (yaw / pitch)</span><b id="vAngle">0° / 0°</b>
+    <input id="yaw" type="range" min="-60" max="60" step="1" value="0" aria-label="Yaw angle">
+    <input id="pitch" type="range" min="-60" max="60" step="1" value="0" aria-label="Pitch angle"></div>
+  <div class="row" style="margin-top:8px">
+    <button id="bSide" aria-pressed="false" title="Strike the back (inner) face">From inside</button>
+    <button id="bCentre" title="Aim at the centre">Aim centre</button>
+  </div>
+  <button id="fire" title="Fire at the aim point (Space)">Fire</button>
+  <p class="note">Or tap / click anywhere on the glass. Shots add up: hit the same pane again.</p>
+
+  <h2>Sound <small id="toneInfo"></small></h2>
+  <div class="row">
+    <button id="bTone" aria-pressed="false" title="Play a steady note at the glass (T)">Play note</button>
+    <button id="bMic" aria-pressed="false" title="Sing: your voice's pitch and loudness drive the glass">Sing</button>
+    <button id="bDrive" title="Loudspeaker: sound pushes the whole face. Shaker: pushes at one point, like a Chladni plate">Loudspeaker</button>
+  </div>
+  <div class="chips" id="modes" style="margin-top:8px" title="The pane's natural notes"></div>
+  <div class="slider"><span>Pitch</span><b id="vFreq"></b><input id="freq" type="range" min="0" max="2000" step="1" aria-label="Pitch"></div>
+  <div class="slider"><span id="lLevel">Level at the glass</span><b id="vLevel"></b><input id="level" type="range" min="60" max="170" step="0.5" aria-label="Level"></div>
+  <div class="slider" id="boostRow" hidden><span>Voice boost</span><b id="vBoost"></b><input id="boost" type="range" min="0" max="60" step="1" aria-label="Voice boost"></div>
+  <div class="meter" title="How near the glass is to breaking: the flaw closest to failing, against its own strength"><i id="meterBar"></i></div>
+  <div class="kv" id="toneKv"></div>
+  <div class="row" style="margin-top:8px">
+    <button id="bHolo" aria-pressed="false" title="Show how far each point swings (contours, as time-averaged holography shows a vibrating plate)">Mode view</button>
+    <button id="bExag" title="Magnify the swing on screen (the physics is unchanged)">Swing ×1</button>
+  </div>
+  <p class="note" id="toneNote">Every pane has notes it rings at. Play one of them loud enough and the swing builds up until the glass breaks.</p>
+
+  <h2>Scenarios</h2>
+  <div class="presets" id="presets"></div>
+</aside>
+
+<aside id="res" class="panel" aria-label="Results">
+  <h2>Result <small id="rWhat"></small></h2>
+  <p id="outcome">Pick a glass and an object, then fire.</p>
+  <div class="kv" id="stackRes" hidden></div>
+  <div class="kv" id="kv"></div>
+  <h2>Plies</h2>
+  <div class="plies" id="plies"></div>
+  <h2>Pane</h2>
+  <div class="kv" id="pane"></div>
+  <h2>Events <small>engine log</small></h2>
+  <div id="log"></div>
+</aside>
+
+<div id="time" class="panel" style="padding:8px 10px">
+  <button id="bPlay" title="Pause / play (P)" aria-pressed="false">Pause</button>
+  <button id="bReplay" title="Replay the last shot (Z)">Replay</button>
+  <div class="row" id="scale" role="group" aria-label="Playback speed"></div>
+  <button id="bAuto" aria-pressed="true" title="Slow down automatically around the impact (A)">Bullet time</button>
+  <div id="clock">0.000 ms<small>1× · real time</small></div>
+  <span id="limit"></span>
+</div>
+
+<div id="banner"><b id="bTitle"></b><small id="bSub"></small></div>
+<div id="toast" role="status"></div>
+<div class="legend panel" id="legend"><div>Principal stress, back face (crossed polarisers)</div><div class="bar" id="legendBar"></div><div style="display:flex;justify-content:space-between"><span>0</span><span id="legendMax">200 MPa</span></div></div>
+
+<div id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><h2 id="helpTitle">Glass Lab</h2><button id="bHelpClose">Close</button></div>
+    <p>Every crack you see is computed, not animated. The page runs <b>Glass Dynamics</b>, a C++ glazing fracture engine compiled to WebAssembly; the page only draws what it returns. It is the same core that couples to the São Paulo World vehicle and flight engines (windscreens, side glass, aircraft windshields).</p>
+    <h3>Controls</h3>
+    <ul>
+      <li>Tap or click the glass to fire the selected object there; <kbd>Space</kbd> fires at the aim point.</li>
+      <li>Drag to orbit, scroll or pinch to zoom. <kbd>C</kbd> cycles the camera.</li>
+      <li>Playback runs from real time down to <b>1/100,000</b>: one second on screen is ten microseconds of glass. <b>Bullet time</b> slows down by itself as the object arrives and the cracks run, then speeds back up for the falling pieces.</li>
+      <li><b>Sound</b> (<kbd>M</kbd>) is synthesized from what the engine reports: each glass has its own voice (annealed cracks and crashes, tempered bursts into a hiss and rains dice, laminate crunches, armour thumps), and in bullet time everything drops in pitch and stretches out.</li>
+      <li><b>+ Add a pane behind</b> (under the glass list) stacks up to four panes of any glass with the gap you choose; the object and the flying shards of each pane hit the next one for real.</li>
+      <li><b>Sound</b> plays a steady note at the glass. Every pane has natural notes (its plate modes); on one of them the swing builds up cycle after cycle until it breaks. <b>Sing</b> lets your voice drive it, boosted to what a loudspeaker could do. <kbd>T</kbd> plays or stops the note.</li>
+      <li><b>Share</b> copies a link to exactly this setup and shot: whoever opens it sees the same glass, the same shot and the same cracks.</li>
+      <li><kbd>S</kbd> shows the bending stress as a photoelastic fringe pattern, <kbd>R</kbd> fits a new pane, <kbd>Z</kbd> replays the last shot exactly (the fracture is deterministic).</li>
+    </ul>
+    <h3>What is solved</h3>
+    <ul>
+      <li><b>Plate dynamics:</b> the layup becomes one Kirchhoff plate (shear coupling of the interlayers by the Bennison-Wölfel effective-thickness method), solved by modal superposition with exact time steps from 50 ns to milliseconds, plus the logarithmic stress peak under a concentrated load that the modes cannot hold.</li>
+      <li><b>Contact:</b> Hertz with Thornton plasticity and Hunt-Crossley damping for balls, cone indentation at the glass hardness for sharp tips, a flat punch that crushes (timber, brick), Wilbeck's shock and steady-flow pressures for the bird.</li>
+      <li><b>Strength:</b> Weibull flaw populations over each face and edge, sped up by the stress-corrosion rate law (a microsecond impact finds glass about twice as strong as a minute-long load). Tempered and chemically strengthened plies carry their residual stress profile.</li>
+      <li><b>Cracks:</b> through-cracks grow tip by tip at up to the terminal crack speed (~1,500 m/s), turn by the maximum hoop-stress kink criterion, fork where stress times the square root of the run passes the branching constant (the fracture-mirror relation), shield and arrest each other, and stop at existing cracks. Radial cracks, concentric rings, Hertzian cones, crush zones and tempered dicing all come out of that.</li>
+      <li><b>Laminates and armour:</b> broken plies hand the load to the interlayer as an axisymmetric membrane that tears at its rim; bullets crush a cone through each ply (the white crater), mushroom if soft and are caught (or not) by the layers behind, calibrated against UL 752 ratings. A round off square meets each layer at its slant thickness and glances off near grazing; one landing in an old crater only has to push the rubble aside. A shotgun shell (00 buckshot) fires its nine pellets as separate projectiles across its pattern, arriving one after another.</li>
+      <li><b>Pieces:</b> enclosed regions are cut out as polygons and flown as rigid bodies (gravity, drag, floor friction); hard landings break them again. A shattered tempered pane is a sheet of dice held only by friction: it lets go from the hole up, in slabs that come apart in the air, and the frame keeps a ragged fringe. Each piece is drawn as its real dice (cells of the real fragment size, extruded to the glass thickness), and the dice you see in the crazed pane are the very ones that fall, keeping their shapes, some still stuck together in small clumps; in bullet time every die flies, bounces and slides on its own path.</li>
+    </ul>
+    <h3>Armoured V8 under fire</h3>
+    <p>The first scenario puts you in the driver's seat of the Rosser V8 (the car from the driving sim) with a 32 mm armoured windscreen while five gunmen fire about 190 rounds of 9 mm in ten seconds. The screen is raked about 70 degrees, so the rounds strike it at a glancing angle: they see a much thicker barrier, and some skip off. Every round that reaches the glass is fired into the engine with its real angle and arrival time; the craters, spider webs and the driver's view all come from the physics, and nothing is pre-scripted except where the gunmen aim. <kbd>C</kbd> switches between the driver, the outside and a gunman; Replay shows it again at any speed.</p>
+    <h3>Grenade in the shop</h3>
+    <p>A glass shop on a street at night (Day / Night switches): a storefront of four floor-to-ceiling panels of 10 mm fully tempered glass, a frameless glass door with a transom over it, and three 6 mm tempered windows on every other wall, each pane its own engine pane. <b>Tap a window</b> (or press Throw) and a crash-test dummy throws a grenade through it: the throw plays in real time and only slows as the grenade reaches the glass, which the engine breaks for real. It rattles round the room and goes off 1.6 s after the throw. Its steel reaches the panes first, then the blast wave: each pane gets the pressure, duration and arrival time its own distance and angle from the charge give, plus the gas of a closed room venting through its windows. The panel at the bottom says what reaches the dummy: the blast (eardrum and lung injury), the steel (against the 79 J incapacitation mark) and the flying glass. <kbd>C</kbd> switches views; Replay throws the same throw again; Share sends a link straight to the scene. The <b>Glass</b> menu reglazes the shop: tempered, annealed, laminated, hurricane or bullet-resistant. Where the glass would stop a thrown grenade, the door is propped open to throw through. Panes far away are drawn with less detail, and panes behind a wall not at all, so it runs lighter.</p>
+    <h3>The full working</h3>
+    <p>Every equation, constant and source is on the <a href="how/" style="color:var(--ice)">How it works</a> page, with calculators for the impact energy and the blast.</p>
+    <h3>Runs on anything</h3>
+    <p>The <b>Auto</b> quality setting benchmarks this device and picks a tier: fewer plate modes, a coarser crack grid and fewer pieces on a weak chip, the same physics. If the device can't keep up, the clock slows down instead of skipping physics (the bar shows "device-limited"). Without WebGL the lab draws a flat front view.</p>
+    <h3>Honest limits</h3>
+    <p>Panes are flat and simply supported. Layups for bullet-resistant and aircraft glazing are representative builds, not certified products, and the ballistic constants are fitted to UL 752 ratings. Tempered glass is drawn with fewer, larger dice than reality on lower tiers; the result panel gives the real fragment size from the energy balance.</p>
+  </div>
+</div>
+
+<div id="loading"><div class="panel"><h1>Glass Lab</h1><p id="loadMsg">Loading the fracture engine…</p></div></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

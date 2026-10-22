@@ -92,7 +92,7 @@ footer{border-top:1px solid var(--line);padding-block:30px 50px;color:var(--mute
   <div class="eyebrow">OpenRoad Dynamics · technical reference</div>
   <h1>Motor Vehicle Dynamics</h1>
   <p class="subtitle">The mathematics of an open-source vehicle physics engine: every model, equation, constant and assumption as it is implemented, and how each one is checked.</p>
-  <p class="meta">Engine: OpenRoad Dynamics, C++20, MIT licence · Source: <a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">github.com/ZRosserMcIntosh/Vehicle-Dynamics</a> · Revision of 20 October 2026 (151 automated tests)</p>
+  <p class="meta">Engine: OpenRoad Dynamics, C++20, MIT licence · Source: <a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">github.com/ZRosserMcIntosh/Vehicle-Dynamics</a> · Revision of 22 October 2026 (157 automated tests)</p>
   <div class="ctas">
     <a class="btn gh" href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Source on GitHub</a>
     <a class="btn drive" href="../driving/">▶ Drive it in the browser</a>
@@ -121,6 +121,7 @@ footer{border-top:1px solid var(--line);padding-block:30px 50px;color:var(--mute
     <li><a href="#s15">15 · Level of detail and traffic</a></li>
     <li><a href="#s16">16 · Validation</a></li>
     <li><a href="#s17">17 · Limitations</a></li>
+    <li><a href="#s18">18 · Showcases on the proving ground</a></li>
     <li><a href="#refs">References</a></li>
   </ol>
 </nav>
@@ -553,7 +554,16 @@ $$G_{y\kappa}=\cos\!\big(r_{Cy1}\arctan(B_{y\kappa}\kappa)\big),\quad B_{y\kappa
 <p>A generator turns a size string \(W/AR\,R\,D\) plus a category into a parameter set, using round textbook-range scalings (Pacejka 2012 ch. 3–4; Milliken and Milliken 1995) rather than a fit to any product. With \(w=W/1000\), \(f_w=W/225\) and \(f_p=55/AR\):</p>
 <div class="eq">$$R_u=\tfrac{0.0254D}{2}+w\tfrac{AR}{100},\quad k_z=250\,000\,f_w^{0.7}f_p^{0.5},\quad c_K=16f_w^{0.4}f_p^{0.35}s_c,\quad k_x=18f_p^{0.2}s_c,\quad \sigma_y=1.8w\sqrt{AR/55},\quad \sigma_x=0.4\sigma_y,$$
 $$t_0=0.15\sqrt{2R_u\delta},\quad m=18+0.9(D-15)+0.03(W-205),\quad I=0.6\,mR_u^2,\qquad \delta=F_{z0}/k_z .$$</div>
-<p class="note limit"><b>Not modelled.</b> MF shifts, ply-steer and conicity. Load dependence of \(C\) and \(E\). The κ-induced side force \(S_{Vy\kappa}\). A full MF \(M_z\), and overturning and rolling moments. Relaxation lengths that vary with load or slip. Rigid-ring belt dynamics. A two-node thermal model, wear, and the pressure–temperature coupling. A water-film or hydroplaning model. In the implicit wheel solve the longitudinal force is linear in κ about the start-of-step value, with its slope clipped at zero past the peak. This favours stability over exactness on the falling side of the curve.</p>
+<h3>7.10 Standing water and hydroplaning</h3>
+<p class="src">tire.hpp/.cpp (hydroplaningSpeed, hydroplaneLift, waterDrag), vehicle.cpp</p>
+<p>A surface can carry standing water of depth \(h\). The wedge of water in front of the patch carries a dynamic pressure \(\tfrac12\rho_w v^2C_L\); the tyre rides up onto it when that reaches the inflation pressure \(p\):</p>
+<div class="eq">$$v_p=\sqrt{\frac{2p}{\rho_wC_L}},\qquad C_L=0.643\quad\Longleftrightarrow\quad v_p\,[\text{km/h}]=6.35\sqrt{p\,[\text{kPa}]}$$</div>
+<p>which is Horne's NASA rule for water deeper than the tread clears (94 km/h at 220 kPa). The share of the patch on water ramps with depth past what the tread of depth \(d\) carries away and with speed past half of \(v_p\):</p>
+<div class="eq">$$\lambda=\operatorname{clamp}\!\Big(\frac{h-h_0}{h_1-h_0}\Big)\,S\!\Big(\frac{v/v_p-0.5}{0.5}\Big),\quad h_0=0.5\,\text{mm}+0.1d,\ h_1=1\,\text{mm}+0.4d,\qquad \mu\leftarrow\mu\,(1-0.95\lambda)$$</div>
+<p>with \(S\) the smoothstep. Pushing the water aside costs a displacement drag on the car at the patch, whatever the tyre's grip, and the lifted load, acting at the front of the patch where the wedge is, spins the wheel down:</p>
+<div class="eq">$$F_w=\tfrac12\rho_wC_D\,w\,h\,v^2\ (C_D=0.75),\qquad \tau_w=-\lambda F_z\,a\,\operatorname{sgn}\omega .$$</div>
+<p class="inf"><b>Interpretation.</b> In 10 mm of water the reference car still steers at 50 km/h (0.36 vs 0.37 rad/s dry) and doesn't at 130 km/h (0.007 rad/s), its front tyres spun down 33 m/s short of road speed. A 20 m puddle under one side at 100 km/h turns it 4.1° toward the water, hands off. The displacement drag is the method certification uses for contaminated runways (EASA AMC 25.1591).</p>
+<p class="note limit"><b>Not modelled.</b> MF shifts, ply-steer and conicity. Load dependence of \(C\) and \(E\). The κ-induced side force \(S_{Vy\kappa}\). A full MF \(M_z\), and overturning and rolling moments. Relaxation lengths that vary with load or slip. Rigid-ring belt dynamics. A two-node thermal model, wear, and the pressure–temperature coupling. A measured partial-hydroplaning curve and tread-pattern effects (§7.10 uses a smooth ramp). In the implicit wheel solve the longitudinal force is linear in κ about the start-of-step value, with its slope clipped at zero past the peak. This favours stability over exactness on the falling side of the curve.</p>
 </section>
 <section class="ch" id="s8">
 <h2><span class="n">8</span>Wheel spin and the drivetrain</h2>
@@ -758,8 +768,9 @@ approached at \(6T_{b\max}\) per second.</li>
 <p class="src">vehicle.cpp (hull construction, body contact, tilt fade), vehicle_def.hpp (BodyDef)</p>
 <p>A car tipped onto its side used to be held up by tyre contacts found by casting along its own tilted down axis. It could never land on its side or roof. Two mechanisms fix this.</p>
 <h3>12.1 Tyre support fades with tilt</h3>
-<p>Measured against the vertical, not the local ground normal (a kerb's face would otherwise trigger it), the tyre's support fades out by a smoothstep between about 53° and 70° of tilt:</p>
-<div class="eq">$$t_c=\operatorname{clamp}\!\Big(\frac{\hat u_z-0.34}{0.26},0,1\Big),\qquad \tau=t_c^2(3-2t_c) .$$</div>
+<p>The tyre's support fades out by a smoothstep between about 53° and 70° of tilt, measured against the vertical (a kerb's face would otherwise trigger it) or, where the ground the wheel finds within its reach is itself steeper than about 25°, against that ground's mean normal \(\hat n_g\), whichever is better aligned: a car on a banking, a wall or inside a loop is on its wheels, not tipping over.</p>
+<div class="eq">$$a=\max\big(\hat u_z,\ \hat u\cdot\hat n_g\big),\qquad t_c=\operatorname{clamp}\!\Big(\frac{a-0.34}{0.26},0,1\Big),\qquad \tau=t_c^2(3-2t_c) .$$</div>
+<p>On a 70° face the tyres carry \(Mg\cos70^\circ\) and the body touches nothing (test). Hull points (§12.2) are probed straight down and, past 60° of tilt, also along the car's own \(-\hat u\), and the deeper of the two counts; a derived floor rises with the garage's ride height.</p>
 <p>\(\tau\) multiplies every tyre sample force and the massless wheel's load.</p>
 <h3>12.2 The body hull</h3>
 <p>Each car has a hull of 17 points plus one per wheel, 21 for a car. Unset dimensions are derived from the wheels: 0.9 m overhangs, half-width = track/2 + 0.12 m, a floor 13 cm above the static ground, and a roof 1.15 m above the floor. The points are:</p>
@@ -1007,8 +1018,33 @@ $$P_{\text{life-threatening}}=1-(1-P_h)(1-P_c),\qquad P_{\text{fatal}}^{\text{Jo
 <li><b>Explicit couplings.</b> The body acceleration seen by the wheels lags one step. The anti-roll bar partner, limited-slip capacity and contact geometry are lagged, and the gyroscopic term is explicit. Convergence studies show these are small at 240–360 Hz, but they bound the usable step.</li>
 <li><b>Driver aids are game controllers</b> reading ground truth, with hand-set gains, not models of production ECUs.</li>
 <li><b>Aero</b> acts through ride-height factors only. There is no pitch or yaw sensitivity, wake or slipstream.</li>
-<li><b>Damage.</b> Rollover and crashes treat the body as rigid, and crash survivability is an estimate.</li>
+<li><b>Damage.</b> Rollover and crashes treat the body as rigid, and crash survivability is an estimate. The browser demo draws dents from the crush model (§18.4), shallow by default; nothing breaks off and no part's function changes.</li>
 </ol>
+</section>
+
+<section class="ch" id="s18">
+<h2><span class="n">18</span>Showcases on the proving ground</h2>
+<p class="src">web/ord_web.cpp (stunt park, weather, snapshots, shadow car, launches); the page's moose.js, crashlab.js, crumple.js, rewind.js</p>
+<p>The browser demo puts the model through set pieces. Each is physics from the chapters above; the page only draws, drives a robot, or records.</p>
+<h3>18.1 Moose test (ISO 3888-2)</h3>
+<p>The lane is sized from the car's width \(W\): entry 12 m long and \(1.1W+0.25\) wide, a 13.5 m gap, an offset lane 11 m long and \(W+1\) wide whose right edge is 1 m left of the entry lane's left edge, a 12.5 m gap, and an exit lane \(\min(3,1.3W+0.25)\) wide. The body has to move across by at least \(1+W\approx2.8\) m within the gap. Doing that on the lane's centre line would need</p>
+<div class="eq">$$a_y\approx\frac{4\,\Delta y\,v^2}{L^2}=\frac{4(2.8)(16.7)^2}{13.5^2}\approx17\ \text{m/s}^2\quad(1.7\,g\ \text{at 60 km/h}),$$</div>
+<p>so a driver turns in while still inside the entry lane and crosses the gap yawed. The robot test driver follows such a line (cosine swings, tuned once in simulation) with the Stanley path-tracking law at the front axle, curvature feedforward a little ahead, and an inner loop that holds the road-wheel angle it asks for whatever the preset's steering shaping:</p>
+<div class="eq">$$\delta=\arctan\!\big(l\,\kappa(s+0.08v)\,(1-0.001v^2)\big)+(\psi_r-\psi)+\arctan\frac{0.91\,e}{v+2}-0.069\,r .$$</div>
+<p>It lifts off at the entry gate, as the standard asks. A cone touched or a rollover is a fail; the speed ladder adds 4 km/h a run.</p>
+<h3>18.2 The loop</h3>
+<p>To make the top a car needs \(v_t^2\ge gR_t\); energy then asks \(v_b^2\ge gR_t+2gH\) at the bottom, where the load is \(1+v_b^2/(gR_b)\). A circle (\(R_b=R_t=R\), \(H=2R\)) needs at least 6 g there, which bottoms any road suspension. The loop is a clothoid-entry teardrop: curvature rises linearly over 25 m, then follows the slope angle \(\theta\):</p>
+<div class="eq">$$\rho(\theta)=R_b+(R_t-R_b)\frac{1-\cos\theta}{2},\qquad R_b=22\ \text{m},\ R_t=9\ \text{m},\qquad H=36.4\ \text{m}$$</div>
+<p>and is the inside of a cylinder whose ribbon shifts 9 m sideways over its 136 m, so a car entering at \(\psi=\arctan(9/136)\) follows a straight line on the unrolled surface. On a concave curve the overhangs sink toward the surface by about \(x_f x_r/(2\rho)\) (2.75 m²/ρ for a 911), which is why small loops need high-riding cars. Every car in the demo makes it with lane keeping once fast enough (the 911 from ~80 km/h on full throttle, the 4.2 t Guard from ~125 km/h).</p>
+<h3>18.3 Rewind and the shadow car</h3>
+<p>The step is deterministic: a snapshot of the whole state (car, dummies, walls, latched inputs, the step remainder) plus the same frame times and inputs reproduces the state bit for bit (smoke test). Rewinding restores the last snapshot before the shown frame and replays to it. The shadow car is a second <code>Vehicle</code> fed the same inputs every step, with another setup or model, colliding with nothing.</p>
+<h3>18.4 Crash lab and dents</h3>
+<p>Tests put the car on a sled (full-width rigid barrier at 50, 56, 64 and 80 km/h; a pole at 32 km/h and 75°), record every 1/360 s step, and replay the impact at a tenth of real speed with the crush growing as the half-sine pulse's displacement \(d(t)=\tfrac12 d_{\max}(1-\cos\omega t)\), \(d_{\max}=0.85\min(\Delta v/\omega,\ \text{crush limit})\). The dent is drawn on the mesh: vertices behind the impact surface within the crush zone \(z=\max(0.35,2.2d)\) move in by</p>
+<div class="eq">$$\Delta=d_{\max}\,e^{-r^2/R^2}\Big(1-\frac{s}{z}\Big)\quad(R=1.15\ \text{m wall},\ 0.8\ \text{side},\ 0.22\ \text{pole}),$$</div>
+<p>plus buckling folds. It is a drawing of the crush model, not a soft-body simulation.</p>
+<p>That depth is the <b>Realistic</b> damage setting. The default, <b>Cosmetic</b>, is the game setting: a dent is \(d_c=0.08\,(1-e^{-d_{\max}/0.25})\) m over three quarters of the patch, the drawn displacement of any point is capped smoothly at \(0.08\tanh(|\Delta|/0.08)\) m so stacked hits flatten instead of folding the body in, there is no injury report, and a car left on its side or roof is set back on its wheels. The stored offsets stay exact, so switching modes redraws the same hits at the other depth. In every mode the car drives the same afterwards (no mechanical damage), and the crash lab is always Realistic.</p>
+<h3>18.5 Glass</h3>
+<p>Whether a storefront pane gives way is decided here (its fracture energy against the hit, §3); how it breaks is the Glass Dynamics engine's: the same engine and glazing library as the Glass Lab, run in a worker as the car approaches, firing a 1.5 t blunt impactor at the bumper's height and speed.</p>
 </section>
 
 <section class="ch" id="refs">
@@ -1027,6 +1063,10 @@ $$P_{\text{life-threatening}}=1-(1-P_h)(1-P_c),\qquad P_{\text{fatal}}^{\text{Jo
 <li>NHTSA, "Development of improved injury criteria for the assessment of advanced automotive restraint systems II," 1999; FMVSS 208 and FMVSS 126.</li>
 <li>SAE J1349, "Engine power test code: spark ignition and compression ignition."</li>
 <li>ISO 8855, "Road vehicles: vehicle dynamics and road-holding ability, vocabulary."</li>
+<li>W. B. Horne, R. C. Dreher, "Phenomena of pneumatic tire hydroplaning," NASA TN D-2056, 1963.</li>
+<li>EASA CS-25, AMC 25.1591, "Performance information for operations with contaminated runway surface conditions."</li>
+<li>ISO 3888-2:2011, "Passenger cars: test track for a severe lane-change manoeuvre, part 2: obstacle avoidance."</li>
+<li>S. Thrun et al., "Stanley: the robot that won the DARPA Grand Challenge," <i>Journal of Field Robotics</i> 23(9), 2006.</li>
 </ol>
 </section>
 </main>

@@ -67,6 +67,18 @@ export class CarAudio {
     const rf = ctx.createBiquadFilter(); rf.type = 'lowpass'; rf.frequency.value = 170;
     this.roadG = ctx.createGain(); this.roadG.gain.value = 0;
     noise().connect(rf).connect(this.roadG).connect(this.master);
+    // Rain: a bright wash of drops on the car and the road; on a wet road, the tyres hiss
+    // (water squeezed out of the tread), more with speed.
+    const rb = ctx.createBiquadFilter(); rb.type = 'bandpass'; rb.frequency.value = 4200; rb.Q.value = 0.5;
+    const rl = ctx.createBiquadFilter(); rl.type = 'lowpass'; rl.frequency.value = 1100;
+    this.rainG = ctx.createGain(); this.rainG.gain.value = 0;
+    this.rainLowG = ctx.createGain(); this.rainLowG.gain.value = 0;
+    noise().connect(rb).connect(this.rainG).connect(this.master);
+    noise().connect(rl).connect(this.rainLowG).connect(this.master);
+    const hb = ctx.createBiquadFilter(); hb.type = 'bandpass'; hb.frequency.value = 2400; hb.Q.value = 0.8;
+    this.hissG = ctx.createGain(); this.hissG.gain.value = 0;
+    noise().connect(hb).connect(this.hissG).connect(this.master);
+    this.noiseBuf = nb;
 
     ctx.onstatechange = () => { if (ctx.state !== 'running') this.kick(); };
     this.lastBeat = performance.now();
@@ -193,5 +205,20 @@ export class CarAudio {
     this.windG.gain.setTargetAtTime(Math.min(1, (v / 70) ** 2) * (st.interior ? 0.15 : 0.35), t, 0.1);
     this.roadG.gain.setTargetAtTime(Math.min(1, v / 45) * (st.interior ? 0.4 : 0.3), t, 0.1);
     this.engineGain.gain.setTargetAtTime(st.engineOn === false ? 0 : st.interior ? 0.45 : 0.55, t, 0.1); // engineOn false: bicycle, e-scooter
+    const rain = ok(st.rain ?? 0, 0, 1) ?? 0;
+    this.rainG.gain.setTargetAtTime(0.11 * rain * (st.interior ? 1.4 : 1), t, 0.3);
+    this.rainLowG.gain.setTargetAtTime(0.05 * rain * (st.interior ? 1.6 : 1), t, 0.3);
+    this.hissG.gain.setTargetAtTime(Math.min(1, ok(st.wet ?? 0, 0, 1) * v / 30) * (st.interior ? 0.12 : 0.22), t, 0.08);
+  }
+
+  // A tyre through a puddle: a burst of water.
+  splash(k) {
+    if (!this.ready || !this.ctx || this.ctx.state !== 'running' || !(k > 0)) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900 + 700 * Math.random(); bp.Q.value = 0.7;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.5 * Math.min(1, k), t + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35 + 0.3 * k);
+    src.connect(bp).connect(g).connect(this.master); src.start(t, Math.random()); src.stop(t + 0.8);
   }
 }
