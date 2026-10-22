@@ -94,6 +94,8 @@ try {
   loadMsg('The flight core could not start: ' + e.message);
   throw e;
 }
+// The core's identity, for bug reports: shown at the foot of the menu.
+$('coreId').textContent = `flight core ${A.buildId()} · ABI ${A.abiVersion}`;
 const RW = A.runway();  // [paved start east, north, elevation, true heading, length, width] of the runway in use
 const AP = A.airport();  // { icao, name, runway, reciprocal }
 const ELEV = RW[2];
@@ -395,11 +397,22 @@ const ui = {
 // this many times slower than real time, as in the golf ball's wind tunnel.
 const SLOWS = [1, 10, 100, 1000, 5000];
 let propPhase = 0, simClock = 0, stepPos = null, stepT = 0, stepVel = new THREE.Vector3();
-const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0, starter: 0 };
+// levers: the jet's two thrust levers while split ([engine 1, engine 2]);
+// null while they move together on `throttle`.
+const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0, starter: 0, levers: null };
+// One engine's lever (splits them; `throttle` keeps their mean), and the lever as it stands.
+function setLever(i, v) {
+  if (!input.levers) input.levers = [input.throttle, input.throttle];
+  input.levers[i] = clamp(v, 0, 1);
+  input.throttle = (input.levers[0] + input.levers[1]) / 2;
+}
+const leverPos = (i) => (input.levers ? input.levers[i] : input.throttle);
+// Every lever together (the plain throttle keys, the slider, the gamepad).
+function setThrottle(v) { input.throttle = clamp(v, 0, 1); input.levers = null; }
 let trimPulse = null;  // { rate, until }: the cockpit's trim wheel turned by hand
-let s = new Float64Array(64), c = new Float64Array(96), j = new Float64Array(64);
+let s = new Float64Array(A.layout.state), c = new Float64Array(A.layout.cockpit), j = new Float64Array(A.layout.jet);
 let lastIas = 0, iasAcc = 0;  // speed trend (kt/s, filtered)
-const failed = { fuel: false, 0: false, 1: false, 2: false, 3: false };
+const failed = { fuel: false, 0: false, 1: false, 2: false, 3: false, 4: false, 5: false };
 let parkHint = false;
 
 const PISTON_STARTS = [
@@ -628,6 +641,7 @@ function restart(i = ui.start) {
   A.avd_set_assist(ui.assist);
   input.pitch = input.roll = input.yaw = input.trimRate = 0;
   input.throttle = st.trim ? A.avd_trim_throttle() : st.thr;
+  input.levers = null;
   input.mixture = st.trim ? A.avd_trim_mixture() : 1;
   for (const k of Object.keys(failed)) failed[k] = false;
   document.querySelectorAll('[data-fail]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
@@ -666,8 +680,11 @@ function cycleSpeedbrake() {
   const n = A.cockpit().find((x) => x.id === 'speedbrake.lever')?.positions.length || 3;
   setControl('speedbrake.lever', (controlPos('speedbrake.lever') + 1) % n);
 }
+// The jet's levers one at a time: Shift+X / Shift+Z engine 1, Alt+X / Alt+Z engine 2.
+const THR_KEYS = { KeyX: 'thrUp', KeyZ: 'thrDown' };
 addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, select, textarea')) return;
+  if (THR_KEYS[e.code] && P.jet && (e.shiftKey || e.altKey) && !e.ctrlKey && !e.metaKey) { keys.add(THR_KEYS[e.code] + (e.shiftKey ? 1 : 2)); e.preventDefault(); return; }
   if (keyMap[e.code]) { keys.add(keyMap[e.code]); e.preventDefault(); }
   if (e.repeat) return;
   switch (e.code) {
@@ -695,7 +712,10 @@ addEventListener('keydown', (e) => {
     default:
   }
 });
-addEventListener('keyup', (e) => { if (keyMap[e.code]) keys.delete(keyMap[e.code]); });
+addEventListener('keyup', (e) => {
+  if (keyMap[e.code]) keys.delete(keyMap[e.code]);
+  if (THR_KEYS[e.code]) for (const k of ['', 1, 2]) keys.delete(THR_KEYS[e.code] + k);  // the modifier may go first
+});
 addEventListener('blur', () => keys.clear());
 
 // Touch: stick (pitch/roll; on the ground it also steers), throttle slider, flaps and brake.
@@ -713,7 +733,7 @@ const touch = { x: 0, y: 0, id: null, thrId: null, brake: false };
   const end = (e) => { if (e.pointerId !== touch.id) return; touch.id = null; touch.x = touch.y = 0; knob.style.transform = ''; };
   stick.addEventListener('pointerup', end); stick.addEventListener('pointercancel', end);
   const thr = $('thr');
-  const setThr = (e) => { const r = thr.getBoundingClientRect(); input.throttle = clamp(1 - (e.clientY - r.top - 15) / (r.height - 30), 0, 1); };
+  const setThr = (e) => { const r = thr.getBoundingClientRect(); setThrottle(1 - (e.clientY - r.top - 15) / (r.height - 30)); };
   thr.addEventListener('pointerdown', (e) => { touch.thrId = e.pointerId; thr.setPointerCapture(e.pointerId); setThr(e); });
   thr.addEventListener('pointermove', (e) => { if (e.pointerId === touch.thrId) setThr(e); });
   thr.addEventListener('pointerup', () => { touch.thrId = null; });
@@ -734,7 +754,8 @@ function readPad(dt) {
   if (!gp) return null;
   const dz = (v) => (Math.abs(v) < 0.08 ? 0 : v);
   const edge = (i) => { const on = !!gp.buttons[i]?.pressed, was = padPrev[i]; padPrev[i] = on; return on && !was; };
-  input.throttle = clamp(input.throttle + ((gp.buttons[7]?.value || 0) - (gp.buttons[6]?.value || 0)) * 0.5 * dt, 0, 1);
+  const dThr = ((gp.buttons[7]?.value || 0) - (gp.buttons[6]?.value || 0)) * 0.5 * dt;
+  if (dThr) setThrottle(input.throttle + dThr);
   if (edge(5)) flaps(1);
   if (edge(4)) flaps(-1);
   if (edge(3)) restart();
@@ -752,8 +773,12 @@ function readInputs(dt) {
   input.pitch = approach(input.pitch, pitchT, pitchT ? 1.5 : 3, dt);
   input.roll = approach(input.roll, rollT, rollT ? 2 : 4, dt);
   input.yaw = approach(input.yaw, k('yawRight') ? 1 : k('yawLeft') ? -1 : 0, 3, dt);
-  if (k('thrUp')) input.throttle = clamp(input.throttle + 0.5 * dt, 0, 1);
-  if (k('thrDown')) input.throttle = clamp(input.throttle - 0.5 * dt, 0, 1);
+  if (k('thrUp')) setThrottle(input.throttle + 0.5 * dt);
+  if (k('thrDown')) setThrottle(input.throttle - 0.5 * dt);
+  if (P.jet) for (let i = 0; i < 2; ++i) {
+    const d = (k(`thrUp${i + 1}`) ? 1 : 0) - (k(`thrDown${i + 1}`) ? 1 : 0);
+    if (d) setLever(i, leverPos(i) + d * 0.5 * dt);
+  }
   input.trimRate = k('trimUp') ? 1 : k('trimDown') ? -1 : 0;
   if (trimPulse && performance.now() < trimPulse.until) input.trimRate = trimPulse.rate;
   input.brake = k('brake') || touch.brake ? 1 : 0;
@@ -934,7 +959,7 @@ function buildSpots() {
   const p = cabin.parts || {}, list = [];
   const mesh = (obj, spec) => obj && list.push({ obj, ...spec });
   if (P.jet) {
-    for (const t of p.throttles || []) mesh(t, lever(() => input.throttle, (v) => { input.throttle = v; }, 'Thrust levers'));
+    (p.throttles || []).forEach((t, i) => mesh(t, lever(() => leverPos(i), (v) => setLever(i, v), `Thrust lever ${i + 1} (alone: X / Z rejoin them)`)));
     mesh(p.spd, stepper('speedbrake.lever'));
     mesh(p.flap, stepper('flaps.lever'));
     mesh(p.gear, { label: () => `${named('gear.lever')} · click to move the handle`, down: () => toggleGear() });
@@ -945,7 +970,7 @@ function buildSpots() {
       wheel: (n) => A.avd_heading_bug((Math.round(c[K.bug]) + n + 360) % 360), down: () => A.avd_heading_bug(Math.round(s[9]) % 360) });
     mesh(p.baroKnob, { label: () => `Altimeter ${c[K.kollsman].toFixed(2)} inHg · scroll to set`, wheel: (n) => A.avd_altimeter_adjust(n) });
   } else {
-    mesh(p.throttle, lever(() => input.throttle, (v) => { input.throttle = v; }, 'Throttle'));
+    mesh(p.throttle, lever(() => input.throttle, (v) => setThrottle(v), 'Throttle'));
     mesh(p.mixture, lever(() => input.mixture, (v) => { input.mixture = v; }, 'Mixture'));
     mesh(p.flap, stepper('flaps.lever', 'scroll too'));
     mesh(p.trimWheel, { label: () => `Elevator trim ${Math.round(s[27] * 100)} % · scroll or drag (up: nose down)`, cursor: 'ns-resize',
@@ -1153,6 +1178,7 @@ function hud() {
     ['Brakes', s[49] ? 'PARKING SET' : input.brake ? 'on' : 'off'],
   ];
   hRead.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
+  $('lThr').parentElement.classList.remove('split');
   $('lThr').style.height = `${input.throttle * 100}%`;
   $('lMix').style.height = `${input.mixture * 100}%`;
   $('lFlp').style.height = `${clamp(s[26] / 30, 0, 1) * 100}%`;
@@ -1170,10 +1196,15 @@ function jetHud() {
     ['N1 L / R', `${fmt(j[8], 1)} / ${fmt(j[16], 1)} %`], ['Fuel flow', `${fmt(j[7] * 2.20462 / 10) * 10 || 0} lb/h`],
     ['Fuel', `${fmt(j[6] * 2.20462)} lb`], ['Flaps', `${fmt(j[27])}°`], ['Gear', gear], ['Speedbrake', j[56] ? 'ground spoilers' : j[3] > 0.02 ? `${fmt(j[3] * 100)} %` : 'retracted'],
     ...(j[57] ? [['Reversers', j[52] > 0.02 ? ['', 'reverse thrust', 'reverse idle', 'stowing'][j[53] | 0] || `${fmt(j[52] * 100)} %` : 'stowed (auto)']] : []),
+    ['Thrust levers', input.levers ? `${fmt(j[58] * 100)} / ${fmt(j[59] * 100)} %` : `${fmt(input.throttle * 100)} %`],
     ['Load', `${fmt(s[18], 2)} g`], ['Brakes', s[49] ? 'PARKING SET' : input.brake ? 'on' : 'off'],
   ];
   hRead.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
-  $('lThr').style.height = `${input.throttle * 100}%`;
+  // Split levers: two thin bars, engine 1 left.
+  const split = !!input.levers;
+  $('lThr').parentElement.classList.toggle('split', split);
+  $('lThr').style.height = `${(split ? j[58] : input.throttle) * 100}%`;
+  $('lThr2').style.height = `${(split ? j[59] : input.throttle) * 100}%`;
   $('lMix').style.height = `${j[3] * 100}%`;
   $('lFlp').style.height = `${clamp(j[27] / 39, 0, 1) * 100}%`;
   if (MOBILE) $('thr').querySelector('i').style.top = `${(1 - input.throttle) * (170 - 34) + 2}px`;
@@ -1185,14 +1216,18 @@ function jetData() {
     ias: c[K.ias], alt: c[K.alt], baro: c[K.kollsman], vsi: c[K.vsi], pitch: c[K.aiPitch], roll: c[K.aiRoll], hdg: c[K.dg], bug: c[K.bug],
     ball: c[K.ball], stall: c[K.stall] > 0.5, mach: j[5], gs: s[12], tas: j[26], agl: Math.max(0, s[14]), vmo: j[25], mmo: j[24],
     assist: FMA[ui.assist] + (s[58] ? ' · UNDERSPD' : s[55] ? ' · ALT HDG HOLD' : ''), n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
-    run: [j[13], j[21]], starting: [j[14], j[22]], fuelSw: [j[15], j[23]], n1cmd: 22 + 78 * input.throttle,
+    run: [j[13], j[21]], starting: [j[14], j[22]], fuelSw: [j[15], j[23]], n1cmd: [22 + 78 * j[58], 22 + 78 * j[59]],
     fuelKg: j[6], gear: j[1], spd: j[3], flaps: j[27], wow: j[29], park: s[49],
     x: s[0], y: s[1], trueHdg: s[9], runway: RW, airport: AP.icao, points: LANDMARKS,
     rangeNm: agl < 4000 ? 5 : agl < 15000 ? 10 : agl < 28000 ? 20 : 40,
     trend: iasAcc * 10, vs1g: j[32], vsTO: j[33], vsLDG: j[34], gw: j[35], fpa: j[36], drift: ((j[37] - s[9] + 540) % 360) - 180,
     windDir: s[59], windKt: s[60], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
-    vfe: j[47], vle: j[48], toFlap: j[49], ldgFlap: j[50], trim: j[28], thrLever: input.throttle, crashed: ui.crashed, pusher: !!j[51],
+    vfe: j[47], vle: j[48], toFlap: j[49], ldgFlap: j[50], trim: j[28], thrLever: Math.max(j[58], j[59]), crashed: ui.crashed, pusher: !!j[51],
     rev: [j[52], j[54]], gndSpoilers: !!j[56], typeName: def.visual?.short_name || 'TOP G',
+    // Systems: generators on line, hydraulic pressure A/B, brake accumulator, gear free fall, battery.
+    gens: [j[60], j[61]], hyd: [j[62], j[63]], brakeAccum: j[69], gearFreeFall: !!j[70], hydFit: !!j[71], battSoc: j[72], battA: j[73],
+    // Essential bus: load shed on (controller or pilot), the controller's own shed, a controller fitted.
+    loadShed: !!j[82], autoShed: !!j[83], shedFit: !!j[84],
     // Navigation: the GPS route and leg, the destination runway, NAV 1.
     route: DEST ? A.route() : null, gps: DEST ? A.gps().slice() : null, dest: DEST,
     destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
@@ -1332,6 +1367,7 @@ function drawLabels() {
 
 // ---------- Events ----------
 function handleEvents() {
+  const plain = [];  // this frame's other events, one toast between them
   for (const e of A.events()) {
     if (e.startsWith('Touchdown')) {
       const fpm = Math.abs(+(e.match(/(-?\d+) fpm/)?.[1] || 0));
@@ -1340,8 +1376,14 @@ function handleEvents() {
       toast('Tail strike! Rotate less steeply.', 3);
     } else if (e.startsWith('PROPELLER STRIKE') || e.startsWith('Airframe ground contact')) {
       ui.crashed = true; toast(`${e}. Press R to restart.`, 1e9);
-    } else if (!e.includes(' -> ')) toast(e);
+    } else if (/^(Generator \d|Alternator) online$/.test(e)) {
+      // Expected while the Quick Start brings the engines up; worth a word otherwise.
+      if (A.procedure().status !== 1) plain.push(e);
+    } else if (e === 'Battery depleted') {
+      plain.push('Battery depleted: the bus is dead until a generator comes on line');
+    } else if (!e.includes(' -> ')) plain.push(e);
   }
+  if (plain.length) toast(plain.join(' · '), 3.5 + plain.length);
   if (s[48] && !ui.crashed) { ui.crashed = true; toast('The airplane is damaged beyond flight. Press R to restart.', 1e9); }
 }
 
@@ -1377,8 +1419,6 @@ function applyProfileUi() {
   document.querySelectorAll('[data-aircraft]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aircraft === P.id)));
   $('lMixLbl').textContent = P.jet ? 'SPD BRK' : 'MIX';
   document.querySelector('[data-fail="fuel"]').textContent = P.jet ? 'Engine 1 cut-off' : 'Fuel shutoff';
-  document.querySelector('[data-fail="2"]').hidden = P.jet;
-  document.querySelector('[data-fail="3"]').textContent = P.jet ? 'Generators' : 'Alternator';
   document.querySelectorAll('.jetonly').forEach((el) => { el.hidden = !P.jet; });
   document.querySelectorAll('.pistononly').forEach((el) => { el.hidden = P.jet; });
   document.body.classList.toggle('jet', P.jet);
@@ -1448,6 +1488,7 @@ function frame() {
       else if (!parkHint) { parkHint = true; toast('The parking brake is set: P releases it.'); }
     }
     A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, input.starter);
+    if (input.levers) { A.setThrottle(0, input.levers[0]); A.setThrottle(1, input.levers[1]); }  // set_input rejoined them
     A.avd_advance(simDt);
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
@@ -1505,7 +1546,7 @@ function frame() {
   panelT += dt; cabinT += dt; swT += dt;
   if (swT > 0.2) { swT = 0; readSwitches(); }
   if (P.jet) {
-    cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2], pos: sw.pos });
+    cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, levers: [j[58], j[59]], spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2], pos: sw.pos });
     if (ui.cam === 1 && cabinT > 1 / 20) { cabinT = 0; cabin.redraw(jetData()); }
   } else {
     cabin.update({ elev: s[46], ail: s[45], rud: s[47], trim: s[27], thr: input.throttle, mix: input.mixture, flapLever: sw.flaps, fuelSel: sw.fuelSel, shutoff: sw.pos?.['fuel.shutoff'], park: s[49] });
