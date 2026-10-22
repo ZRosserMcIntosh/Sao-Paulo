@@ -129,6 +129,9 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   #hud{bottom:auto;top:110px;font-size:11px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.turret{display:grid;grid-template-columns:72px 1fr auto auto;gap:6px;align-items:center;margin-top:6px;font-size:12.5px;color:#cfd8e3}
+.turret b{font:600 12px var(--mono);color:#fff}
+.turret button{min-width:34px}
 </style>
 </head>
 <body>
@@ -160,10 +163,20 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   <h2>Rifle &amp; load <small id="sgInfo"></small></h2>
   <select id="cartridge" aria-label="Cartridge"></select>
   <p class="desc" id="loadDesc"></p>
+  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Scope <select id="scope" aria-label="Scope"><option value="own">The rifle's own</option><option value="mil">Mil-dot, 3–32×, 0.1 mil clicks</option><option value="moa">MOA, 3–32×, ¼ MOA clicks</option><option value="acog">ACOG 4×32 (TA31): bullet-drop marks</option><option value="pso1">PSO-1 4× (SVD): drum and chevrons</option><option value="pu">PU 3.5× (Mosin): drum and post</option></select></label>
+  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Aim <select id="aim" aria-label="Aim"><option value="assist">Assisted: your dope is dialled and held for you</option><option value="manual">Manual: you dial the turrets and hold the crosshair</option></select></label>
+  <div id="manualBox" hidden>
+    <div class="turret"><span>Elevation</span><b id="tEl"></b><button id="tElDn" title="Elevation turret down (F)">▼</button><button id="tElUp" title="Elevation turret up (R)">▲</button></div>
+    <div class="turret"><span>Windage</span><b id="tWd"></b><button id="tWdL" title="Windage turret left (Q)">◀</button><button id="tWdR" title="Windage turret right (E)">▶</button></div>
+    <div class="row" style="margin-top:8px"><button id="bDial" title="Set the elevation turret (or drum) to your dope card; the wind stays yours to hold">Dial the dope</button><button id="bCentre" title="Put the crosshair back on the target's centre">Centre</button></div>
+    <label class="check"><input type="checkbox" id="hint"> Show where the call says to aim (dashed ring)</label>
+    <p class="note">In the scope, drag or use the arrow keys (Shift for bigger steps) to move the crosshair. R and F turn the elevation, Q and E the windage. Space fires.</p>
+  </div>
   <div class="slider"><span>Distance</span><b id="vDist"></b><input id="dist" type="range" min="100" max="3600" step="10" aria-label="Distance"></div>
   <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Target <select id="tgt" aria-label="Target"><option value="plate">Steel plate</option><option value="dummy">Crash dummy behind glass</option><option value="v8">Rosser V8: armoured windscreen, dummy driving</option></select></label>
   <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Hit markers <select id="markers" aria-label="Hit markers"><option value="off">Off</option><option value="hits">On hits</option><option value="all">Every impact</option></select></label>
   <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Tracer <select id="tracer" aria-label="Tracer"><option value="off">Off: ball</option><option value="red">Red (NATO M62, M856)</option><option value="green">Green (Russian 7.62×54R)</option><option value="orange">Orange</option><option value="yellow">Yellow</option><option value="white">White</option></select></label>
+  <label class="check"><input type="checkbox" id="tracerToImpact"> Tracer stays lit to the impact (off: it burns out at its real range)</label>
   <div id="glazeBox" hidden><label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Glass <select id="glazing" aria-label="Glazing in front of the dummy"></select></label>
     <p class="note">A hit opens the impact in the Liquids Lab: the round arrives at its real speed and angle, the Glass engine breaks the pane and the fluid engine throws the spatter.</p></div>
   <div class="slider" id="sizeBox"><span>Target size</span><b id="vSize"></b><input id="size" type="range" min="0.2" max="2" step="0.05" aria-label="Target size"></div>
@@ -204,7 +217,6 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   <h2>What moved it <small>at the target</small></h2>
   <div class="bars" id="bars"></div>
   <h2>Dope card <small id="dopeWhat"></small></h2>
-  <div class="row" style="justify-content:flex-end"><button id="bDopeUnit" class="unit" title="MIL or MOA">MIL</button></div>
   <table class="dope" id="dope"></table>
 </aside>
 
@@ -233,6 +245,7 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
       <li>Cameras (<kbd>C</kbd>): the <b>scope</b> with its MIL reticle and the mirage, the shooter's shoulder, the bullet, and the target.</li>
       <li><b>Share</b> copies a link that rebuilds exactly this shot: the same air, the same gusts at the same instant, the same impact.</li>
       <li><b>Trace</b> (<kbd>T</kbd>) shows the round's wake bending the light as it goes downrange, the swirl a spotter watches through the scope. <b>Hit markers</b>: an X flash on a hit, and marks on the reticle where your last shots went (every impact, misses too, if you choose).</li>
+      <li><b>Scope</b>: put any scope on any rifle: mil-dot, MOA, the ACOG 4×32, the PSO-1 or the PU. <b>Aim</b>: Assisted sets your dope for you; Manual hands you the turrets (R/F elevation, Q/E windage) and the crosshair (drag in the scope or use the arrow keys). <b>Dial the dope</b> sets the elevation from your card; the wind is yours.</li>
       <li><b>Tracer</b>: light the round in red, green, orange, yellow or white; it burns out at its real range. The <b>Mosin M91/30</b> and the <b>SVD</b> wear their own scopes, the PU and the PSO-1: set the drum to the hundreds of metres the dope card gives, then hold the rest in thousandths (the red ring).</li>
       <li><b>The armoured V8</b>: the Rosser V8 from the driving sim with a crash dummy at the wheel behind its armoured windscreen, raked about 70°. The Glass engine takes the round at its real angle: it may stop it, glance off, or let it through to the driver, and the Liquids Lab plays the rest.</li>
       <li>Set the target to <b>Crash dummy behind glass</b> (or pick <b>Through a windscreen</b>): a hit opens the impact in the <b>Liquids Lab</b>, with the round arriving at the speed and angle this range computed; the Glass engine breaks the pane and the fluid engine does the rest, in bullet time.</li>

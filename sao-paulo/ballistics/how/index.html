@@ -198,6 +198,23 @@ footer{color:var(--mute);font-size:13px;border-top:1px solid var(--line);margin-
 
 <h2 id="dope"><span class="n">10</span>Zero, dope and the call</h2>
 <p>Every rifle is zeroed at 100 m: the engine finds the bore angle that crosses the line of sight there. Your <b>dope</b> is the elevation and wind hold for the target, solved by flying the round through the wind you <b>call</b> (and, if ticked, with spin and Coriolis). The elevation is dialled; the wind is held on the reticle (the red ring shows where to put the target). The shot is then fired through the <b>true</b> wind, with its gusts at that instant. The difference between the call and the truth is your miss.</p>
+<p><b>Scope and aim are yours.</b> Any scope goes on any rifle:
+<ul>
+<li>a mil-dot scope (3–32×, 0.1 mil clicks);</li>
+<li>an MOA scope (¼ MOA clicks);</li>
+<li>the <b>ACOG</b> 4×32 (TA31 class, 7° field);</li>
+<li>the PSO-1;</li>
+<li>the PU.</li>
+</ul>
+By default each rifle wears its own: the Mosin the PU, the SVD the PSO-1, the 5.56 rifle the ACOG, the rest a mil scope. The dope card speaks the scope's language: mils or MOA to dial, a drum mark and a hold, or an ACOG mark and a hold.</p>
+<p>In <b>Assisted</b> aim, the dope for your wind call is set and held for you: dialled, or drummed, or held on the marks. The view shows the sight picture: the crosshair where the shooter puts it, and the red ring on the target's centre.</p>
+<p>In <b>Manual</b> aim you do it:
+<ul>
+<li>turn the elevation turret (or the drum) and the windage turret, click by click;</li>
+<li>put the crosshair where you think it should go, by dragging in the scope or with the arrow keys.</li>
+</ul>
+<b>Dial the dope</b> sets the elevation from your card and leaves the wind to you. A dashed ring can show where the call says to aim. The shot leaves at the zero plus the turrets plus where the crosshair is.</p>
+<p><b>The ACOG</b> is not dialled for range. Its illuminated chevron's tip is the 100 m zero, and the bars below it are for 400 to 800 m. Each bar is as wide as a man's shoulders (19 in) at its range, so it also tells you the range. The engine places the bars from this load's trajectory in standard air; the real reticle is engraved for M855 from a 20 in barrel. The 7° field is published. The chevron's size and the ¼ MOA clicks are estimated.</p>
 <p><b>The Soviet scopes.</b> The Mosin M91/30 wears the 3.5× <b>PU</b> (1940) and the SVD the 4× <b>PSO-1</b> (1964). Neither dials in mils. The elevation drum is engraved in hundreds of metres (PU 1 to 13, PSO-1 1 to 10), and holds are read in <b>thousandths</b>, 1/6000 of a circle (1.047 mrad). The engine engraves each drum for its own load in the firing tables' normal conditions: 15 °C, 750 mmHg and still air. Your dope is the nearest drum mark, plus what the day's air and wind leave over, held on the reticle. The PU has no scales: it shows a pointed post, whose tip is the aim point, between two heavy bars, and everything beyond the drum is held by eye. The PSO-1 has the aiming chevron; three chevrons below it for 1,100, 1,200 and 1,300 m with the drum on 10, which the engine places from the 7N1's own trajectory; a wind and lead scale with a mark every thousandth out to 10 each side; and, bottom left, a rangefinder that fits a 1.7 m man between its base line and the curve at 200 to 1,000 m. The PSO-1's 6° field is published. The PU's 4.5° field and both reticles' line widths are estimated from photographs.</p>
 
 <h2 id="time"><span class="n">11</span>Bullet time</h2>
@@ -207,7 +224,7 @@ footer{color:var(--mute);font-size:13px;border-top:1px solid var(--line);margin-
 <p>A spotter behind the rifle watches the round go downrange: not the bullet, too small and too fast, but its <b>trace</b>, the turbulent wake it leaves, a thin tube of stirred, slower, slightly warmer air that bends the light behind it. The engine sheds that wake along the path every fraction of a metre, where the round was and with its speed and drag then, ages it as the round flies on, and lets the wind carry it. Each stretch spreads as the self-similar far wake of an axisymmetric body (Pope, <i>Turbulent Flows</i>):</p>
 <div class="eq">θ = √(C<sub>D</sub>A / 2π)&nbsp;&nbsp;&nbsp; r<sub>½</sub> = a θ (x/θ)<sup>1/3</sup>&nbsp;&nbsp;&nbsp; u₀/U = b (x/θ)<sup>−2/3</sup>,&nbsp;&nbsp; x = U · age
 <span class="c">The wake widens as the cube root of its age and fades as its two-thirds power: a .308's trace is a few centimetres wide after 50 m. a and b are estimated at the order of measured values. The page draws it as a refractive tube bending the scene behind it, with a contrast curve (the square root of the strength) so the eye can pick it out, as a spotting scope does; that curve is presentation, not physics.</span></div>
-<p><b>Tracers</b> are optional, in red (NATO M62 and M856), green (seen on Russian 7.62×54R), orange, yellow or white. The trace lights about 30 m out (the M62 datasheet gives 13 to 140 m) and burns out by range for each calibre. The 7.62 NATO figure of at least 775 m is published (RWS M62 datasheet); the others are estimated: 5.56 mm 800 m, 6.5 mm 900 m, 7.62×54R and .338 1,000 m, .408 1,200 m, .50 1,600 m and 9 mm 250 m. Behind the glowing base the page draws the streak the eye keeps, the last 0.07 s of flight. The round flies as the ball load does: tracers are built to match ball out to burnout, and the mass the composition burns off is not modelled.</p>
+<p><b>Tracers</b> are optional, in red (NATO M62 and M856), green (seen on Russian 7.62×54R), orange, yellow or white. The trace lights about 30 m out (the M62 datasheet gives 13 to 140 m). By default it stays lit all the way to the impact, so you can follow any shot to the target. Untick that option to make it burn out by range for each calibre, as real tracers do. The 7.62 NATO figure of at least 775 m is published (RWS M62 datasheet); the others are estimated: 5.56 mm 800 m, 6.5 mm 900 m, 7.62×54R and .338 1,000 m, .408 1,200 m, .50 1,600 m and 9 mm 250 m. Behind the glowing base the page draws the streak the eye keeps, the last 0.07 s of flight. The round flies as the ball load does: tracers are built to match ball out to burnout, and the mass the composition burns off is not modelled.</p>
 <p><b>Hit markers</b> are optional: an X flash on a hit (red when the round reached the dummy), and on the reticle a mark where each of your last six shots went, so you can walk your next shot in. Set them to every impact to see the misses too.</p>
 
 <h2 id="dummy"><span class="n">13</span>The dummy and the glass</h2>
