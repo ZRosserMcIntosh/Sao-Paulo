@@ -134,6 +134,42 @@ export class CarAudio {
     const g = ctx.createGain(); g.gain.value = 0.25 + 0.75 * k;
     src.connect(lp).connect(g).connect(this.master); src.start();
   }
+  // Glass breaking: a sharp crack, then a shower of short ringing partials as the shards land.
+  shatter(k = 1) {
+    if (!this.ready || !this.ctx || this.ctx.state !== 'running') return;
+    const ctx = this.ctx, sr = ctx.sampleRate, len = Math.floor(sr * 1.5), buf = ctx.createBuffer(1, len, sr), d = buf.getChannelData(0);
+    const parts = [];
+    for (let p = 0; p < 36; ++p) parts.push({ t0: 0.03 + Math.random() * 0.9, f: 2500 + Math.random() * 6500, a: 0.12 + Math.random() * 0.3, dec: 25 + Math.random() * 70 });
+    for (let i = 0; i < len; ++i) {
+      const x = i / sr;
+      let v = (Math.random() * 2 - 1) * Math.exp(-x * 45) * 0.9;  // the crack
+      for (const p of parts) if (x > p.t0 && x < p.t0 + 0.25) v += p.a * Math.sin(2 * Math.PI * p.f * (x - p.t0)) * Math.exp(-(x - p.t0) * p.dec);
+      d[i] = v * 0.3;
+    }
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1400;
+    const g = ctx.createGain(); g.gain.value = 0.35 + 0.55 * Math.min(1, k);
+    src.connect(hp).connect(g).connect(this.master); src.start();
+  }
+  // Masonry giving way: a deep crunch, then blocks thudding down over the next second.
+  rubble(k = 1) {
+    if (!this.ready || !this.ctx || this.ctx.state !== 'running') return;
+    const ctx = this.ctx, sr = ctx.sampleRate, len = Math.floor(sr * 1.6), buf = ctx.createBuffer(1, len, sr), d = buf.getChannelData(0);
+    const thuds = [];
+    for (let p = 0; p < 14; ++p) thuds.push({ t0: 0.05 + Math.random() * 1.1, f: 50 + Math.random() * 90, a: 0.3 + Math.random() * 0.5 });
+    let b = 0;
+    for (let i = 0; i < len; ++i) {
+      const x = i / sr;
+      b = b * 0.96 + (Math.random() * 2 - 1) * 0.04;
+      let v = b * 5 * Math.exp(-x * 6) + (Math.random() * 2 - 1) * Math.exp(-x * 18) * 0.5;  // crunch
+      for (const t of thuds) if (x > t.t0 && x < t.t0 + 0.3) v += t.a * Math.sin(2 * Math.PI * t.f * (x - t.t0)) * Math.exp(-(x - t.t0) * 16);
+      d[i] = v * 0.3;
+    }
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800;
+    const g = ctx.createGain(); g.gain.value = 0.4 + 0.6 * Math.min(1, k);
+    src.connect(lp).connect(g).connect(this.master); src.start();
+  }
   // st: { dt, rpm, load, limiter, gear, speed (m/s), tyre: { squeal, scrub, pitch }, interior (bool) }
   update(st) {
     if (!this.ready || !this.ctx || this.ctx.state !== 'running') return;
