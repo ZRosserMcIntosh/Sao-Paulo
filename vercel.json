@@ -47,6 +47,11 @@
       "permanent": true
     },
     {
+      "source": "/sao-paulo/ballistics",
+      "destination": "/sao-paulo/ballistics/",
+      "permanent": true
+    },
+    {
       "source": "/sao-paulo/wake",
       "destination": "/sao-paulo/wake/",
       "permanent": true
@@ -104,6 +109,15 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=3600"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/ballistics/(.*\\.wasm)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
         }
       ]
     },
