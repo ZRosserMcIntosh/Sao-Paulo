@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<base href="/sao-paulo/ballistics/">
+<title>Ballistics Range</title>
+<meta name="description" content="Long-range shooting in your browser: 1 km, 1 mile, 2 km and 2 mile shots solved by the Ballistic Dynamics C++ engine compiled to WebAssembly: drag, wind along the range, air temperature and altitude, spin drift, aerodynamic jump, Coriolis and Eötvös, with a slow-motion bullet camera.">
+<meta property="og:title" content="São Paulo World · Ballistics Range">
+<meta property="og:description" content="Real exterior ballistics out to two miles, in bullet time.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/ballistics/">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"../driving/vendor/three.module.min.js"}}</script>
+<style>
+:root{
+  --bg:#0b111b; --panel:rgba(10,17,28,.86); --panel-solid:#0f1826; --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --plate-ink:#fff; --masp:#ec4a3c; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b; --ice:#9fd6ff;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#reticle{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;display:none}
+button{font:600 12px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer;white-space:nowrap}
+button:hover{background:rgba(255,255,255,.13)}
+button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+select{font:600 12px var(--body);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:6px 8px;max-width:100%;width:100%}
+input[type=range]{width:100%;accent-color:var(--hot)}
+kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:rgba(255,255,255,.05)}
+.panel{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:12px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.note{color:var(--mute);font-size:12px;margin:6px 0 0}
+.top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
+.top>*{pointer-events:auto}
+.top button,.top select{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);width:auto}
+.top button[aria-pressed="true"]{background:#fff;color:#0a1830}
+.top a.how{font:600 12px var(--body);color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.top a.how:hover{background:rgba(255,255,255,.13)}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+#lab{position:fixed;left:12px;top:66px;width:318px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#res{position:fixed;right:12px;top:66px;width:310px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#lab h2,#res h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#lab h2:first-child,#res h2:first-child{margin-top:0}
+#lab h2 small,#res h2 small{font:500 10.5px var(--mono);color:var(--mute);text-transform:none;letter-spacing:0}
+.presets{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.presets button{text-align:left;white-space:normal;line-height:1.25}
+.presets button small{display:block;color:var(--mute);font-weight:500}
+.presets button.feature{border-color:rgba(255,211,107,.55);background:linear-gradient(180deg,rgba(255,211,107,.16),rgba(255,211,107,.05))}
+.slider{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-top:8px;font-size:12px;color:var(--mute)}
+.slider b{font:600 12px var(--mono);color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+.slider input{grid-column:1/-1}
+.unit{font:inherit;font-size:11px;padding:1px 7px;margin-left:4px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ice);cursor:pointer}
+.layer{border:1px solid var(--line);border-radius:8px;padding:6px 8px 8px;margin-top:6px}
+.layer .eyebrow{font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.desc{font-size:12.5px;color:#cfd8e3;margin:7px 0 0}
+.check{display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:6px;color:#cfd8e3;cursor:pointer}
+.check input{accent-color:var(--hot)}
+#fire{width:100%;margin-top:10px;padding:10px;font:800 16px var(--display);letter-spacing:.06em;text-transform:uppercase;background:var(--masp);border-color:var(--masp);color:#fff}
+#fire:hover{filter:brightness(1.1)}
+#outcome{font:700 14px/1.35 var(--body);margin:0}
+#outcome.ok{color:var(--good)}#outcome.bad{color:var(--bad)}#outcome.warn{color:var(--warn)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;margin-top:8px}
+.kv span{color:var(--mute)}.kv b{font:600 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+table.dope{width:100%;border-collapse:collapse;font:500 11px var(--mono);margin-top:6px;font-variant-numeric:tabular-nums}
+table.dope th{color:var(--mute);font-weight:600;text-align:right;padding:2px 4px;border-bottom:1px solid var(--line)}
+table.dope td{text-align:right;padding:2px 4px;border-bottom:1px solid rgba(255,255,255,.05)}
+table.dope tr.at td{color:var(--hot);font-weight:600}
+table.dope th:first-child,table.dope td:first-child{text-align:left}
+.bars{display:grid;gap:4px;margin-top:8px;font:500 11px var(--mono)}
+.bars div{display:grid;grid-template-columns:96px 1fr 62px;gap:6px;align-items:center;color:var(--mute)}
+.bars i{display:block;height:6px;border-radius:3px;background:var(--ice);min-width:1px}
+.bars i.neg{background:var(--warn)}
+.bars b{color:var(--ink);text-align:right;font-weight:600}
+#time{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:3;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100% - 24px)}
+#clock{font:600 13px var(--mono);min-width:150px;text-align:center;font-variant-numeric:tabular-nums}
+#clock small{display:block;font:500 10px var(--mono);color:var(--mute);letter-spacing:.06em}
+#scale button{min-width:46px}
+#cams button{min-width:56px}
+#banner{position:fixed;left:50%;top:70px;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:2;opacity:0;transition:opacity .35s;text-shadow:0 2px 10px rgba(0,0,0,.9)}
+#banner.on{opacity:1}
+#banner b{display:block;font:900 italic clamp(26px,4vw,44px)/1 var(--display);text-transform:uppercase}
+#banner small{display:block;font:600 12px var(--mono);color:#dfe6ef;margin-top:5px;letter-spacing:.06em}
+#hud{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);z-index:2;font:600 12px var(--mono);color:#e7ecf2;text-shadow:0 1px 6px rgba(0,0,0,.95);pointer-events:none;text-align:center;white-space:nowrap}
+#hud span{color:var(--mute);margin:0 4px}
+#toast{position:fixed;left:50%;top:120px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
+#toast.on{opacity:1}
+#loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg)}
+#loading .panel{max-width:440px;text-align:center}
+#loading h1{font:900 34px/1 var(--display);text-transform:uppercase;margin:0 0 8px}
+#help{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
+#help.on{display:grid}
+#help .panel{max-width:min(720px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:18px 20px}
+#help h2{font:900 26px/1 var(--display);text-transform:uppercase;margin:0 0 10px}
+#help h3{font:800 16px/1 var(--display);text-transform:uppercase;margin:16px 0 6px}
+#help p,#help li{font-size:13.5px;color:#d3dbe6}
+#help ul{padding-left:18px;margin:6px 0}
+.tabs{display:none}
+@media (max-width:860px){
+  #lab,#res{left:8px;right:8px;width:auto;top:auto;bottom:calc(58px + env(safe-area-inset-bottom));max-height:38vh;border-radius:12px;padding:10px}
+  #lab[hidden],#res[hidden]{display:none}
+  .tabs{display:flex;position:fixed;left:8px;right:8px;bottom:calc(58px + 38vh + 6px + env(safe-area-inset-bottom));gap:5px;z-index:3;justify-content:center}
+  .tabs.closed{bottom:calc(58px + env(safe-area-inset-bottom))}
+  #time{left:8px;right:8px;bottom:calc(6px + env(safe-area-inset-bottom));transform:none;width:auto;gap:5px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;padding:6px 8px!important;scrollbar-width:none}
+  #time::-webkit-scrollbar{display:none}
+  #time button{padding:6px 7px;font-size:11.5px}
+  #scale,#cams{flex-wrap:nowrap}
+  #clock{min-width:96px;font-size:11px}
+  .top .hide-sm{display:none}
+  .top a.how{padding:5px 7px;font-size:11.5px}
+  .top .plate b{font-size:16px}.top .plate span{font-size:8px}
+  .top button{padding:5px 7px;font-size:11.5px}
+  #banner{top:64px}
+  #hud{bottom:auto;top:110px;font-size:11px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="3D view of a long-range shooting range. Fire from the panel or press Space."></canvas>
+<canvas id="reticle" aria-hidden="true"></canvas>
+
+<div class="top">
+  <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span>Ballistics range</span></a>
+  <div class="row">
+    <button id="bSound" aria-pressed="true" title="Sound on / off (M)">Sound</button>
+    <button id="bUnits" class="hide-sm" title="Units: metric or imperial (U)">Metric</button>
+    <button id="bShare" title="Copy a link to exactly this shot">Share</button>
+    <a class="how" href="how/" title="How every number is calculated: the equations, the data and their sources">How it works</a>
+    <button id="bHelp" title="Help (H)">?</button>
+  </div>
+</div>
+
+<div class="tabs" id="tabs" role="tablist">
+  <button id="tLab" role="tab" aria-pressed="true">Shot</button>
+  <button id="tRes" role="tab" aria-pressed="false">Results</button>
+  <button id="tHide" role="tab" aria-pressed="false">Hide</button>
+</div>
+
+<aside id="lab" class="panel" aria-label="The shot">
+  <h2>Scenarios</h2>
+  <div class="presets" id="presets"></div>
+
+  <h2>Rifle &amp; load <small id="sgInfo"></small></h2>
+  <select id="cartridge" aria-label="Cartridge"></select>
+  <p class="desc" id="loadDesc"></p>
+  <div class="slider"><span>Distance</span><b id="vDist"></b><input id="dist" type="range" min="100" max="3600" step="10" aria-label="Distance"></div>
+  <div class="slider"><span>Target size</span><b id="vSize"></b><input id="size" type="range" min="0.2" max="2" step="0.05" aria-label="Target size"></div>
+
+  <h2>Air <small id="daInfo"></small></h2>
+  <div class="slider"><span>Temperature</span><b id="vTemp"></b><input id="temp" type="range" min="-25" max="48" step="1" aria-label="Temperature"></div>
+  <div class="slider"><span>Altitude</span><b id="vAlt"></b><input id="alt" type="range" min="0" max="3500" step="10" aria-label="Altitude"></div>
+  <div class="slider"><span>Humidity</span><b id="vRh"></b><input id="rh" type="range" min="0" max="100" step="1" aria-label="Relative humidity"></div>
+
+  <h2>Wind <small>true wind on the range</small></h2>
+  <div id="layers"></div>
+  <label class="check"><input type="checkbox" id="sameWind" checked> The same wind all the way</label>
+  <div class="layer">
+    <div class="eyebrow">Your wind call</div>
+    <label class="check"><input type="checkbox" id="callTrue" checked> Call the average true wind exactly</label>
+    <div id="callBox" hidden>
+      <div class="slider"><span>Speed</span><b id="vCallSpd"></b><input id="callSpd" type="range" min="0" max="50" step="0.5" aria-label="Called wind speed"></div>
+      <div class="slider"><span>From</span><b id="vCallDir"></b><input id="callDir" type="range" min="0" max="12" step="0.5" aria-label="Called wind direction, o'clock"></div>
+    </div>
+  </div>
+
+  <h2>The Earth &amp; the spin</h2>
+  <div class="slider"><span>Latitude</span><b id="vLat"></b><input id="lat" type="range" min="-70" max="70" step="0.5" aria-label="Latitude"></div>
+  <div class="slider"><span>Firing toward</span><b id="vAz"></b><input id="az" type="range" min="0" max="359" step="1" aria-label="Direction of fire"></div>
+  <label class="check"><input type="checkbox" id="fSpin" checked> Spin: stability, spin drift, aerodynamic jump</label>
+  <label class="check"><input type="checkbox" id="fEarth" checked> Earth's rotation: Coriolis and Eötvös</label>
+  <label class="check"><input type="checkbox" id="fSolver" checked> My dope accounts for spin and Coriolis</label>
+
+  <button id="fire" title="Fire with your dope (Space)">Fire</button>
+  <p class="note">The rifle is zeroed at 100 m. The elevation from your dope is dialled; the wind is held on the reticle.</p>
+</aside>
+
+<aside id="res" class="panel" aria-label="Results">
+  <h2>Result <small id="rWhat"></small></h2>
+  <p id="outcome">Pick a scenario and fire.</p>
+  <div class="kv" id="kv"></div>
+  <h2>What moved it <small>at the target</small></h2>
+  <div class="bars" id="bars"></div>
+  <h2>Dope card <small id="dopeWhat"></small></h2>
+  <div class="row" style="justify-content:flex-end"><button id="bDopeUnit" class="unit" title="MIL or MOA">MIL</button></div>
+  <table class="dope" id="dope"></table>
+</aside>
+
+<div id="time" class="panel" style="padding:8px 10px">
+  <button id="bReplay" title="Replay the last shot (Z)">Replay</button>
+  <div class="row" id="scale" role="group" aria-label="Playback speed"></div>
+  <button id="bAuto" aria-pressed="true" title="Bullet time: follow the round and slow down on the way in (B)">Bullet time</button>
+  <div class="row" id="cams" role="group" aria-label="Camera"></div>
+  <div id="clock">0.000 s<small>ready</small></div>
+</div>
+
+<div id="hud"></div>
+<div id="banner"><b id="bTitle"></b><small id="bSub"></small></div>
+<div id="toast" role="status"></div>
+
+<div id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><h2 id="helpTitle">Ballistics Range</h2><button id="bHelpClose">Close</button></div>
+    <p>Every round here is flown, not animated. The page runs <b>Ballistic Dynamics</b>, a C++ exterior-ballistics engine compiled to WebAssembly, through air from the <b>Aviation Dynamics</b> standard atmosphere; it only draws what the engine returns.</p>
+    <h3>How to shoot</h3>
+    <ul>
+      <li>Pick a scenario, or set the load, the distance, the air and the wind yourself, and press <b>Fire</b> (<kbd>Space</kbd>).</li>
+      <li>Your <b>dope</b> (the elevation and wind holds) is solved for the wind you <b>call</b>. The round flies through the <b>true</b> wind, which can change along the range and gusts. Untick "Call the average true wind exactly" to call it yourself, the way a shooter reads the flags and the mirage.</li>
+      <li><b>Bullet time</b> (<kbd>B</kbd>) follows the round from the muzzle to the target, slowing right down on the way in. The slow motion is the same flight: the engine's steps never change, only how fast they are shown.</li>
+      <li>Cameras (<kbd>C</kbd>): the <b>scope</b> with its MIL reticle and the mirage, the shooter's shoulder, the bullet, and the target.</li>
+      <li><b>Share</b> copies a link that rebuilds exactly this shot: the same air, the same gusts at the same instant, the same impact.</li>
+    </ul>
+    <h3>What is solved</h3>
+    <ul>
+      <li><b>Drag:</b> the standard G7 or G1 drag curve scaled by each bullet's published ballistic coefficient, against the Mach number in the local air.</li>
+      <li><b>Air:</b> the U.S. Standard Atmosphere 1976 with your temperature, altitude and humidity (moist air is lighter): density, speed of sound and density altitude change along the path.</li>
+      <li><b>Wind:</b> up to three stretches along the range, each with its own speed, direction and gusts, blended at the joins.</li>
+      <li><b>Spin:</b> Miller's stability from the twist, the yaw of repose and the spin drift it gives, the aerodynamic jump from a crosswind, the wobble after the muzzle, and tumbling if the twist is too slow.</li>
+      <li><b>The Earth:</b> Coriolis (right in the northern hemisphere, left in the southern) and Eötvös (a round fired east rises, one fired west drops).</li>
+    </ul>
+    <h3>Honest limits</h3>
+    <p>Every round of a load is the same round: muzzle-velocity spread, powder temperature and group size come in the next milestone, so the temperature here changes the air, not the powder. Spin-drift coefficients are estimated per bullet class and land within about 20 % of Litz's measured formula. Transonic dynamic instability is not modelled yet. The range is flat. Full details on the <a href="how/" style="color:var(--ice)">How it works</a> page.</p>
+  </div>
+</div>
+
+<div id="loading"><div class="panel"><h1>Ballistics Range</h1><p id="loadMsg">Loading the ballistics engine…</p></div></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
