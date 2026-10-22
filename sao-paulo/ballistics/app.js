@@ -18,7 +18,25 @@ const BENCH = 1.2;         // m: the muzzle over the ground (a bench)
 const SCALES = [[1, '1×'], [0.1, '1/10'], [0.01, '1/100'], [1e-3, '1/1k']];
 const RIFLE_FOR = { fgmm_308_175: 'm24_sws', hornady_65cm_140: 'bolt_65cm', lapua_338lm_250: 'bolt_338lm',
   hornady_50bmg_750: 'm107_50bmg', federal_xm855: 'm16a2', speer_9mm_124gd: 'pistol_9mm',
-  cheytac_408_419: 'm200_408', hornady_65cm_147: 'bolt_65cm' };
+  cheytac_408_419: 'm200_408', hornady_65cm_147: 'bolt_65cm', ussr_762x54r_l: 'm9130_pu', ussr_762x54r_7n1: 'svd_pso1' };
+// The Soviet scopes: fixed power, a range drum in hundreds of metres, and
+// holds in thousandths (1/6000 of a circle). Field of view: PSO-1 6 deg
+// (published); PU about 4.5 deg (estimated). Every other rifle wears a
+// variable mil-dot scope.
+const THOU = (2 * Math.PI) / 6000;
+const SCOPES = {
+  m9130_pu: { kind: 'pu', name: 'PU', mag: 3.5, fov: 4.5, drumMax: 13 },
+  svd_pso1: { kind: 'pso1', name: 'PSO-1', mag: 4, fov: 6, drumMax: 10 },
+};
+const scopeOf = () => SCOPES[RIFLE_FOR[S.c]] ?? null;
+// Tracers: the colour is the shooter's choice; the trace lights a little way
+// out and burns out about here (m), by calibre. M62 7.62 NATO: at least 775 m
+// (published, RWS datasheet); the rest estimated.
+const TRACER_COLOURS = { red: 0xff3a24, green: 0x5dff4a, orange: 0xff9a1f, yellow: 0xffe14a, white: 0xf4f1ff };
+const TRACER_BURNOUT = { m855_224_62: 800, eldm_264_140: 900, eldm_264_147: 900, smk_308_175: 800, l_762x54r_148: 1000,
+  '7n1_762x54r_151': 1000, scenar_338_250: 1000, cheytac_408_419: 1200, amax_510_750: 1600, gdhp_355_124: 250 };
+const tracerBurnout = (p) => TRACER_BURNOUT[p.id] ?? 1000;
+const TRACER_LIGHTS = 30;  // m: where the trace becomes visible (M62: 13 to 140 m)
 
 // ---------- Engine ----------
 let B, cat, raw;
@@ -93,6 +111,12 @@ const SCENARIOS = [
   { id: '408', name: '2.5 km', sub: '.408 CheyTac · M200', feature: true,
     s: { c: 'cheytac_408_419', dist: 2500, size: 1.2, temp: 25, alt: 800, rh: 30, lat: 40, az: 0,
       same: true, layers: [layer(8, 3, 1.5), layer(8, 3, 1.5), layer(8, 3, 1.5)], callTrue: true, call: layer(8, 3) } },
+  { id: 'mosin', name: '500 m', sub: 'Mosin M91/30 · PU · a winter at −12 °C', feature: true,
+    s: { c: 'ussr_762x54r_l', dist: 500, size: 0.5, temp: -12, alt: 80, rh: 80, lat: 48.7, az: 270,
+      same: true, layers: [layer(9, 3, 1.5), layer(9, 3, 1.5), layer(9, 3, 1.5)], callTrue: true, call: layer(9, 3) } },
+  { id: 'svd', name: '800 m', sub: 'SVD · PSO-1 · 7N1', feature: true,
+    s: { c: 'ussr_762x54r_7n1', dist: 800, size: 0.5, temp: 18, alt: 150, rh: 55, lat: 55.75, az: 0,
+      same: true, layers: [layer(10, 9, 1.5), layer(10, 9, 1.5), layer(10, 9, 1.5)], callTrue: true, call: layer(10, 9) } },
   { id: 'dummy', name: 'Through a windscreen', sub: '.308 at 600 m · the dummy behind it', feature: true,
     s: { c: 'fgmm_308_175', dist: 600, size: 0.5, temp: 22, alt: 760, rh: 60, lat: -23.55, az: 0, tgt: 'dummy', glazing: 'windscreen',
       same: true, layers: [layer(8, 3, 1), layer(8, 3, 1), layer(8, 3, 1)], callTrue: true, call: layer(8, 3) } },
@@ -122,7 +146,7 @@ const SCENARIOS = [
       same: true, layers: [layer(8, 3, 2), layer(8, 3, 2), layer(8, 3, 2)], callTrue: true, call: layer(8, 3) } },
 ];
 const S = structuredClone(SCENARIOS[0].s);
-Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen', markers: store.get('markers', 'hits') });
+Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen', markers: store.get('markers', 'hits'), tracer: store.get('tracer', 'off') });
 let metric = store.get('metric', true);
 let dopeMil = store.get('dopeMil', true);
 
@@ -148,6 +172,7 @@ let autoFire = false;
   }
   if (Q.has('f')) { const f = Q.get('f'); S.spin = f.includes('s'); S.earth = f.includes('e'); S.solver = f.includes('k'); }
   if (Q.get('tg') === 'v8') S.tgt = 'v8';
+  if (Q.has('tr')) S.tracer = Q.get('tr') in TRACER_COLOURS ? Q.get('tr') : 'off';
   if (Q.has('hm')) S.markers = ['off', 'hits', 'all'].includes(Q.get('hm')) ? Q.get('hm') : 'hits';
   if (Q.get('tg') === 'dummy') { S.tgt = 'dummy'; S.glazing = (Q.get('gz') || 'windscreen').replace(/[^a-z0-9_]/g, ''); }
   autoFire = Q.has('fire');
@@ -200,6 +225,7 @@ const v3 = (p) => { const l = lof(p); return new THREE.Vector3(l.r, l.u, -l.d); 
 // The shooter's solution: holds for the called wind (and, if ticked, the
 // spin and the Earth), and a dope card.
 function solveDope() {
+  drumTable();  // engraved before the day's air goes in
   station();
   setup(true);
   B.wind(S.az * DEG, callLayers());
@@ -664,6 +690,52 @@ const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.Me
 scene.add(flash);
 const dust = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), new THREE.MeshLambertMaterial({ color: 0xb59a74, transparent: true, opacity: 0 }));
 scene.add(dust);
+// The tracer: the burning base of the round, and the streak the eye keeps
+// behind it. Two sets of glows: a fixed size on screen (seen from the rifle
+// or through the scope) and life size (the bullet camera).
+const glowTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.2, 'rgba(255,255,255,0.9)');
+  gr.addColorStop(0.55, 'rgba(255,255,255,0.28)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+const TRACER_N = 28, TRACER_DT = 0.0025;  // glows along the last 0.07 s of flight
+const tracerSets = [false, true].map((life) => {
+  const grp = new THREE.Group();
+  for (let k = 0; k < TRACER_N; ++k)
+    grp.add(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, sizeAttenuation: life })));
+  grp.visible = false;
+  scene.add(grp);
+  return grp;
+});
+function updateTracer(tEngine, life, fov) {
+  for (const g of tracerSets) g.visible = false;
+  if (!shot || phase === 'idle' || S.tracer === 'off') return;
+  const fade = phase === 'after' ? Math.exp(-afterWall * 8) : 1;
+  if (fade < 0.02) return;
+  const grp = tracerSets[life ? 1 : 0], burn = tracerBurnout(projRaw(shot.S.c)), col = TRACER_COLOURS[S.tracer];
+  const screen = 2 * Math.tan((fov * DEG) / 2);  // a glow's size as a share of the view's height
+  grp.visible = true;
+  for (let k = 0; k < TRACER_N; ++k) {
+    const sp = grp.children[k], t = tEngine - k * TRACER_DT;
+    const st = t >= shot.t0 ? B.stateAt(t) : null, d = st ? lof(st.position).d : -1;
+    sp.visible = !!st && d >= TRACER_LIGHTS && d <= burn;
+    if (!sp.visible) continue;
+    sp.position.copy(v3(st.position));
+    if (k === 0 && life) sp.position.addScaledVector(v3(st.velocity).normalize(), -bullet.userData.length * 0.5);
+    const f = 1 - k / TRACER_N;
+    // A white-hot core at the head, the colour along the streak.
+    sp.material.color.setHex(col);
+    if (k === 0) sp.material.color.lerp(new THREE.Color(0xffffff), 0.35);
+    sp.material.opacity = (k === 0 ? 1 : 0.45 * f * f) * fade;
+    const sz = life ? (k === 0 ? 0.03 : 0.02 * f) : screen * (k === 0 ? 0.022 : 0.012 * (0.4 + 0.6 * f));
+    sp.scale.set(sz, sz, 1);
+  }
+}
 
 // ---------- Scope: render target, mirage, reticle ----------
 const rt = new THREE.WebGLRenderTarget(1, 1, { samples: 4 });
@@ -726,59 +798,67 @@ const mirage = new THREE.ShaderMaterial({
 post.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mirage));
 const ret = $('reticle'), rg = ret.getContext('2d');
 let magnification = 20;
-const magFor = (d) => Math.max(6, Math.min(25, Math.round(d / 45)));
-const scopeFov = () => 35 / magnification;  // degrees, vertical (a typical riflescope's field)
+const magFor = (d) => { const sc = scopeOf(); return sc ? sc.mag : Math.max(6, Math.min(25, Math.round(d / 45))); };
+const zoomBy = (k) => { if (!scopeOf()) magnification = Math.max(3, Math.min(32, magnification + k)); };
+// Degrees, vertical: a Soviet scope's own field, else a typical riflescope's.
+const scopeFov = () => { const sc = scopeOf(); return sc ? sc.fov : 35 / magnification; };
+
+// The Soviet drum: the elevation (from the 100 m zero) each mark gives, worked
+// out by the engine for this load in the tables' normal conditions (15 C,
+// 750 mmHg, still air): the drum is engraved once, and the day's air is a hold.
+const drumCache = {};
+function drumTable() {
+  const sc = scopeOf();
+  if (!sc) return null;
+  if (drumCache[S.c]) return drumCache[S.c];
+  B.bd_station(99992, 288.15, 0.5, 0);
+  B.bd_setup(twist(), 0, 0);
+  B.wind(0, []);
+  const el = [0, 0];
+  for (const r of B.table(ci(), ZERO, sightHeight(), 1300, 100, 0)) if (r.range > 0) el[Math.round(r.range / 100)] = -r.drop / r.range;
+  return (drumCache[S.c] = el);
+}
+// A hold (rad up) on a Soviet scope: the drum mark that comes nearest, and
+// what is left to hold (rad, + aim higher).
+function drumFor(up) {
+  const sc = scopeOf(), el = drumTable();
+  let k = 1;
+  for (let i = 1; i <= sc.drumMax; ++i) if (Number.isFinite(el[i]) && Math.abs(up - el[i]) < Math.abs(up - el[k])) k = i;
+  return { drum: k, rest: up - el[k] };
+}
 
 function drawReticle(dope) {
   const w = ret.width, h = ret.height, dpr = window.devicePixelRatio || 1;
   rg.clearRect(0, 0, w, h);
   const cx = w / 2, cy = h / 2;
-  const pxPerMil = (h / (scopeFov() * DEG)) * 1e-3;
+  const pxPerRad = h / (scopeFov() * DEG);
   const R0 = Math.min(w, h) * 0.455;
+  const sc = scopeOf();
   rg.save();
   rg.beginPath();
   rg.arc(cx, cy, R0, 0, Math.PI * 2);
   rg.clip();
   rg.strokeStyle = 'rgba(8,8,8,0.92)';
   rg.fillStyle = 'rgba(8,8,8,0.92)';
-  rg.lineWidth = 1.4 * dpr;
-  rg.beginPath();
-  rg.moveTo(cx - R0, cy); rg.lineTo(cx + R0, cy);
-  rg.moveTo(cx, cy - R0); rg.lineTo(cx, cy + R0);
-  rg.stroke();
-  rg.lineWidth = 3.5 * dpr;
-  rg.beginPath();
-  rg.moveTo(cx - R0, cy); rg.lineTo(cx - pxPerMil * 10, cy);
-  rg.moveTo(cx + pxPerMil * 10, cy); rg.lineTo(cx + R0, cy);
-  rg.moveTo(cx, cy + pxPerMil * 10); rg.lineTo(cx, cy + R0);
-  rg.stroke();
-  rg.lineWidth = 1.2 * dpr;
-  rg.font = `600 ${10 * dpr}px "JetBrains Mono", monospace`;
-  for (let m = -10; m <= 10; m += 0.5) {
-    if (m === 0) continue;
-    const L = (Number.isInteger(m) ? (m % 5 === 0 ? 9 : 6) : 3) * dpr;
-    rg.beginPath();
-    rg.moveTo(cx + m * pxPerMil, cy - L); rg.lineTo(cx + m * pxPerMil, cy + L);
-    rg.moveTo(cx - L, cy + m * pxPerMil); rg.lineTo(cx + L, cy + m * pxPerMil);
-    rg.stroke();
-    if (Number.isInteger(m) && m % 2 === 0) {
-      rg.fillText(String(Math.abs(m)), cx + m * pxPerMil - 4 * dpr, cy + 22 * dpr);
-      if (m > 0) rg.fillText(String(m), cx + 12 * dpr, cy + m * pxPerMil + 4 * dpr);
-    }
-  }
-  // The wind hold: where the shooter puts the target on the reticle.
+  if (!sc) milReticle(cx, cy, R0, pxPerRad * 1e-3, dpr);
+  else if (sc.kind === 'pu') puReticle(cx, cy, R0, pxPerRad * THOU, dpr);
+  else pso1Reticle(cx, cy, R0, pxPerRad * THOU, dpr);
+  // The hold: where the shooter puts the target (the wind; on a Soviet scope
+  // also what the drum leaves over).
+  let rest = 0;
   if (dope) {
-    const hx = cx - (dope.hold.right / 1e-3) * pxPerMil;
+    if (sc) rest = drumFor(dope.hold.up).rest;
+    const hx = cx - dope.hold.right * pxPerRad, hy = cy + rest * pxPerRad;
     rg.strokeStyle = '#ff3b2f';
     rg.lineWidth = 2 * dpr;
     rg.beginPath();
-    rg.arc(hx, cy, 5 * dpr, 0, Math.PI * 2);
+    rg.arc(hx, hy, 5 * dpr, 0, Math.PI * 2);
     rg.stroke();
   }
   // Where the last shots went, as the spotter saw them.
   if (S.markers !== 'off')
     for (const im of impacts) {
-      const x = cx + (im.right / S.dist / 1e-3) * pxPerMil, y = cy - (im.up / S.dist / 1e-3) * pxPerMil, k = 5 * dpr;
+      const x = cx + (im.right / S.dist) * pxPerRad, y = cy - (im.up / S.dist) * pxPerRad, k = 5 * dpr;
       rg.strokeStyle = im.hit ? 'rgba(255,255,255,0.95)' : '#ff3b2f';
       rg.lineWidth = 2 * dpr;
       rg.beginPath();
@@ -789,11 +869,121 @@ function drawReticle(dope) {
   rg.fillStyle = 'rgba(231,236,242,0.95)';
   rg.font = `600 ${12 * dpr}px "JetBrains Mono", monospace`;
   rg.textAlign = 'center';
-  if (dope) {
+  if (dope && sc) {
+    const d = drumFor(dope.hold.up), r = d.rest / THOU, wd = dope.hold.right / THOU;
+    const over = sc.kind === 'pso1' && d.drum === 10 && r > 0.2 ? ` (chevron ${pso1Chevron(dope.hold.up)})` : '';
+    rg.fillText(`${sc.name} ${sc.mag}×   drum ${d.drum}   hold ${Math.abs(r) < 0.1 ? 'on' : r.toFixed(1) + (r > 0 ? ' high' : ' low')}${over}   wind ${Math.abs(wd) < 0.1 ? 'centre' : Math.abs(wd).toFixed(1) + (wd > 0 ? ' right' : ' left')} (thousandths)`, cx, cy + R0 + 20 * dpr);
+  } else if (dope) {
     const el = dope.hold.up / 1e-3, wd = dope.hold.right / 1e-3;
     rg.fillText(`${magnification}×   dialled ${el >= 0 ? 'up' : 'down'} ${fmtAngle(Math.abs(el))}   hold ${Math.abs(wd) < 0.05 ? 'centre' : fmtAngle(Math.abs(wd)) + (wd > 0 ? ' right' : ' left')}`, cx, cy + R0 + 20 * dpr);
   }
   rg.textAlign = 'start';
+}
+// A mil-dot style reticle: fine crosshair, heavy outer posts, ticks every 0.5 mil.
+function milReticle(cx, cy, R0, u, dpr) {
+  rg.lineWidth = 1.4 * dpr;
+  rg.beginPath();
+  rg.moveTo(cx - R0, cy); rg.lineTo(cx + R0, cy);
+  rg.moveTo(cx, cy - R0); rg.lineTo(cx, cy + R0);
+  rg.stroke();
+  rg.lineWidth = 3.5 * dpr;
+  rg.beginPath();
+  rg.moveTo(cx - R0, cy); rg.lineTo(cx - u * 10, cy);
+  rg.moveTo(cx + u * 10, cy); rg.lineTo(cx + R0, cy);
+  rg.moveTo(cx, cy + u * 10); rg.lineTo(cx, cy + R0);
+  rg.stroke();
+  rg.lineWidth = 1.2 * dpr;
+  rg.font = `600 ${10 * dpr}px "JetBrains Mono", monospace`;
+  for (let m = -10; m <= 10; m += 0.5) {
+    if (m === 0) continue;
+    const L = (Number.isInteger(m) ? (m % 5 === 0 ? 9 : 6) : 3) * dpr;
+    rg.beginPath();
+    rg.moveTo(cx + m * u, cy - L); rg.lineTo(cx + m * u, cy + L);
+    rg.moveTo(cx - L, cy + m * u); rg.lineTo(cx + L, cy + m * u);
+    rg.stroke();
+    if (Number.isInteger(m) && m % 2 === 0) {
+      rg.fillText(String(Math.abs(m)), cx + m * u - 4 * dpr, cy + 22 * dpr);
+      if (m > 0) rg.fillText(String(m), cx + 12 * dpr, cy + m * u + 4 * dpr);
+    }
+  }
+}
+// The PU (1940): a pointed post rising from the bottom to the aim point, and a
+// heavy horizontal bar from each side, stopping short of it. No scales: wind
+// and range beyond the drum are held by eye. Widths estimated from photographs.
+function puReticle(cx, cy, R0, u, dpr) {
+  const pw = 1.1 * u, tip = 1.6 * u;
+  rg.beginPath();
+  rg.moveTo(cx, cy);
+  rg.lineTo(cx + pw / 2, cy + tip);
+  rg.lineTo(cx + pw / 2, cy + R0);
+  rg.lineTo(cx - pw / 2, cy + R0);
+  rg.lineTo(cx - pw / 2, cy + tip);
+  rg.closePath();
+  rg.fill();
+  const bh = 0.7 * u, gap = 4 * u;
+  rg.fillRect(cx - R0, cy - bh / 2, R0 - gap, bh);
+  rg.fillRect(cx + gap, cy - bh / 2, R0 - gap, bh);
+}
+// Which PSO-1 chevron (11, 12, 13 hundred metres) a hold past the drum's 10 is nearest.
+function pso1Chevron(up) {
+  const el = drumTable();
+  let k = 11;
+  for (const i of [11, 12, 13]) if (Math.abs(up - el[i]) < Math.abs(up - el[k])) k = i;
+  return k * 100 + ' m';
+}
+// The PSO-1 (1964): the aiming chevron; below it the chevrons for 1100, 1200
+// and 1300 m with the drum on 10 (placed here by the engine from the 7N1's
+// trajectory in the tables' normal conditions); the wind and lead scale, a
+// mark every thousandth to 10 each side; and the rangefinder for a 1.7 m man,
+// 200 to 1000 m, bottom left.
+function pso1Reticle(cx, cy, R0, u, dpr) {
+  const chevron = (y, size, lw) => {
+    rg.lineWidth = lw * dpr;
+    rg.beginPath();
+    rg.moveTo(cx - size, y + size * 1.1); rg.lineTo(cx, y); rg.lineTo(cx + size, y + size * 1.1);
+    rg.stroke();
+  };
+  chevron(cy, 1.0 * u, 2.4);
+  const el = drumTable();
+  let yl = cy;
+  for (const k of [11, 12, 13]) {
+    if (!Number.isFinite(el[k])) continue;
+    yl = cy + (el[k] - el[10]) * (u / THOU);
+    chevron(yl, 0.5 * u, 1.6);
+  }
+  // The post below the chevrons.
+  rg.lineWidth = 1.6 * dpr;
+  rg.beginPath();
+  rg.moveTo(cx, yl + 1.2 * u); rg.lineTo(cx, cy + R0);
+  rg.stroke();
+  // The wind scale: ticks hanging from the chevron's level, a line beyond 10.
+  rg.lineWidth = 1.3 * dpr;
+  rg.beginPath();
+  for (let m = 1; m <= 10; ++m) {
+    const L = (m % 5 === 0 ? 1.0 : 0.55) * u;
+    for (const sgn of [-1, 1]) { rg.moveTo(cx + sgn * m * u, cy); rg.lineTo(cx + sgn * m * u, cy + L); }
+  }
+  rg.moveTo(cx - 10 * u, cy); rg.lineTo(cx - R0, cy);
+  rg.moveTo(cx + 10 * u, cy); rg.lineTo(cx + R0, cy);
+  rg.stroke();
+  rg.font = `600 ${10 * dpr}px "JetBrains Mono", monospace`;
+  rg.fillText('10', cx - 10 * u - 7 * dpr, cy - 4 * dpr);
+  rg.fillText('10', cx + 10 * u - 7 * dpr, cy - 4 * dpr);
+  // The rangefinder: a 1.7 m man between the base line and the curve.
+  const base = cy + 13 * u, x0 = cx - 24 * u, x1 = cx - 6 * u;
+  const xOf = (R) => x0 + ((R - 200) / 800) * (x1 - x0);
+  rg.lineWidth = 1.3 * dpr;
+  rg.beginPath();
+  rg.moveTo(x0, base); rg.lineTo(x1, base);
+  for (let R = 200; R <= 1000; R += 10) {
+    const y = base - (1.7 / R / THOU) * u;
+    if (R === 200) rg.moveTo(xOf(R), y); else rg.lineTo(xOf(R), y);
+  }
+  rg.stroke();
+  rg.beginPath();
+  for (let R = 200; R <= 1000; R += 100) { rg.moveTo(xOf(R), base); rg.lineTo(xOf(R), base + 0.4 * u); }
+  rg.stroke();
+  for (const R of [200, 400, 600, 800, 1000]) rg.fillText(String(R / 100), xOf(R) - 3 * dpr, base + 0.4 * u + 11 * dpr);
 }
 const fmtAngle = (mil) => (dopeMil ? `${mil.toFixed(1)} mil` : `${(mil * 3.4377).toFixed(1)} MOA`);
 
@@ -904,6 +1094,7 @@ function syncUI() {
   sel.value = S.c;
   $('tgt').value = S.tgt; $('glazing').value = S.glazing; $('glazeBox').hidden = S.tgt !== 'dummy'; $('sizeBox').hidden = S.tgt !== 'plate';
   $('markers').value = S.markers;
+  $('tracer').value = S.tracer;
   if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); }
   $('dist').value = S.dist; $('size').value = S.size; $('temp').value = S.temp; $('alt').value = S.alt; $('rh').value = S.rh;
   $('lat').value = S.lat; $('az').value = S.az;
@@ -961,6 +1152,20 @@ function refresh() {
 }
 function dopeUI() {
   const t = $('dope');
+  const sc = scopeOf();
+  if (sc) {
+    $('dopeWhat').textContent = `${sc.name} drum · holds in thousandths · call ${fmtSpeedW(call().spd)} from ${clockName(call().clock)}`;
+    let h = `<tr><th>${metric ? 'm' : 'yd'}</th><th>Drum</th><th>Hold</th><th>Wind</th><th>${metric ? 'm/s' : 'ft/s'}</th><th>s</th></tr>`;
+    for (const r of dope.rows) {
+      if (r.range <= 0) continue;
+      const d = drumFor(-r.drop / r.range), rest = d.rest / THOU, wd = (-r.windage / r.range) / THOU;
+      h += `<tr class="${Math.abs(r.range - S.dist) < 1 ? 'at' : ''}"><td>${(metric ? r.range : r.range / YD).toFixed(0)}</td><td>${d.drum}</td><td>${Math.abs(rest) < 0.05 ? '·' : Math.abs(rest).toFixed(1) + (rest > 0 ? '↑' : '↓')}</td><td>${Math.abs(wd).toFixed(1)}${wd > 0.05 ? 'R' : wd < -0.05 ? 'L' : ''}</td><td>${(metric ? r.speed : r.speed / FT).toFixed(0)}</td><td>${r.time.toFixed(2)}</td></tr>`;
+    }
+    t.innerHTML = h;
+    $('bDopeUnit').disabled = true;
+    return;
+  }
+  $('bDopeUnit').disabled = false;
   const k = dopeMil ? 1e3 : 1e3 * 3.4377;
   $('dopeWhat').textContent = `${dopeMil ? 'mil' : 'MOA'} · call ${fmtSpeedW(call().spd)} from ${clockName(call().clock)}`;
   let h = `<tr><th>${metric ? 'm' : 'yd'}</th><th>Elev</th><th>Wind</th><th>${metric ? 'm/s' : 'ft/s'}</th><th>s</th></tr>`;
@@ -1021,7 +1226,10 @@ function resultsUI() {
     const st = B.stateAt(sh.t0 + sh.round.subsonicTime);
     kv.push(['Went subsonic at', fmtDist(lof(st.position).d)]);
   }
-  kv.push(['Holds used', `${fmtAngle(sh.dope.hold.up / 1e-3)} up · ${fmtAngle(Math.abs(sh.dope.hold.right / 1e-3))} ${sh.dope.hold.right >= 0 ? 'R' : 'L'}`]);
+  if (scopeOf()) {
+    const d = drumFor(sh.dope.hold.up), r = d.rest / THOU;
+    kv.push(['Holds used', `drum ${d.drum}, ${Math.abs(r).toFixed(1)} ${r >= 0 ? 'high' : 'low'} · ${Math.abs(sh.dope.hold.right / THOU).toFixed(1)} ${sh.dope.hold.right >= 0 ? 'R' : 'L'} (thousandths)`]);
+  } else kv.push(['Holds used', `${fmtAngle(sh.dope.hold.up / 1e-3)} up · ${fmtAngle(Math.abs(sh.dope.hold.right / 1e-3))} ${sh.dope.hold.right >= 0 ? 'R' : 'L'}`]);
   kv.push(['Air', `${fmtT(S.temp)} · ${(isaPressure(S.alt) / 100).toFixed(0)} hPa · DA ${fmtAlt(sh.air.densityAltitude)}`]);
   $('kv').innerHTML = kv.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   // What moved it.
@@ -1121,6 +1329,7 @@ $('cartridge').onchange = (e) => { S.c = e.target.value; changed(true); };
 }
 $('tgt').onchange = (e) => { S.tgt = e.target.value; if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); } syncUI(); changed(true); };
 $('markers').onchange = (e) => { S.markers = e.target.value; store.set('markers', S.markers); };
+$('tracer').onchange = (e) => { S.tracer = e.target.value; store.set('tracer', S.tracer); };
 $('bTrace').onclick = () => { showTrace = !showTrace; store.set('trace', showTrace); $('bTrace').setAttribute('aria-pressed', String(showTrace)); };
 $('bTrace').setAttribute('aria-pressed', String(showTrace));
 $('glazing').onchange = (e) => { S.glazing = e.target.value; changed(true); };
@@ -1151,6 +1360,7 @@ function shareUrl(sh, absolute = true) {
     f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : ''), ts: sh ? sh.t0 : X.t0, fire: 1 });
   if (X.tgt === 'dummy') { q.set('tg', 'dummy'); q.set('gz', X.glazing); }
   if (X.tgt === 'v8') q.set('tg', 'v8');
+  if (S.tracer !== 'off') q.set('tr', S.tracer);
   return `${absolute ? location.origin : ''}/sao-paulo/ballistics/?${q}`;
 }
 $('bShare').onclick = async () => {
@@ -1185,15 +1395,15 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 't' || e.key === 'T') $('bTrace').click();
   else if (e.key === 'u' || e.key === 'U') $('bUnits').click();
   else if (e.key === 'h' || e.key === 'H') $('help').classList.toggle('on');
-  else if (e.key === '+' || e.key === '=') magnification = Math.min(32, magnification + 1);
-  else if (e.key === '-') magnification = Math.max(3, magnification - 1);
+  else if (e.key === '+' || e.key === '=') zoomBy(1);
+  else if (e.key === '-') zoomBy(-1);
 });
 // Drag to look around (shooter and target cameras); wheel zooms the scope.
 let drag = null;
 canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, ...orbit }; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', (e) => { if (!drag) return; orbit.yaw = drag.yaw - (e.clientX - drag.x) * 0.004; orbit.pitch = Math.max(-0.6, Math.min(0.6, drag.pitch + (e.clientY - drag.y) * 0.003)); });
 canvas.addEventListener('pointerup', () => { drag = null; });
-canvas.addEventListener('wheel', (e) => { if (cam === 'scope') { magnification = Math.max(3, Math.min(32, magnification + (e.deltaY < 0 ? 1 : -1))); } }, { passive: true });
+canvas.addEventListener('wheel', (e) => { if (cam === 'scope') zoomBy(e.deltaY < 0 ? 1 : -1); }, { passive: true });
 
 // ---------- Frame ----------
 function resize() {
@@ -1335,6 +1545,7 @@ function frame(now) {
     scopeCam.updateProjectionMatrix();
     rifle.visible = false;
     mirage.uniforms.scope.value = 1;
+    updateTracer(tEngine, false, scopeCam.fov);
     present(scopeCam, tEngine);
     drawReticle(dope);
     path.visible = false;
@@ -1370,6 +1581,7 @@ function frame(now) {
     path.visible = !!shot && phase === 'after';  // in flight the trace shows the way
   }
   camera.updateProjectionMatrix();
+  updateTracer(tEngine, cam === 'bullet', camera.fov);
   present(camera, tEngine);
 }
 
