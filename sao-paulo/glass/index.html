@@ -161,7 +161,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 <div class="top">
   <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span>Glass lab</span></a>
   <div class="row">
-    <select id="tier" title="Simulation quality (Auto picks one for this device)" aria-label="Quality"></select>
+    <select id="tier" title="Drawing quality (Auto picks one for this device). The physics is the same on every setting" aria-label="Drawing quality"></select>
     <button id="bSound" aria-pressed="true" title="Sound on / off (M)">Sound</button>
     <button id="bStress" aria-pressed="false" title="Stress seen through crossed polarisers (S)">Stress</button>
     <button id="bCam" class="hide-sm" title="Camera: front, three-quarter, side (C)">Camera</button>
@@ -262,7 +262,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <p class="note" id="oddsWhat"></p>
     <canvas id="oddsChart" width="660" height="330" aria-label="Chance of breaking and of going through against speed"></canvas>
     <div class="row" style="margin-top:8px"><button id="bOddsRun">Run 100 panes</button><span class="note" id="oddsStatus" style="margin:0"></span></div>
-    <p class="note">No two panes are alike: each has its own scattering of microscopic flaws (a Weibull population, the same model the lab uses for every shot). So the same shot breaks one pane and not the next. This fires it into ten panes at each of ten speeds, every pane with fresh flaws, in a second copy of the engine running in the background.</p>
+    <p class="note">No two panes are alike: each has its own scattering of microscopic flaws (a Weibull population, the same model the lab uses for every shot). So the same shot breaks one pane and not the next. This fires it into ten panes at each of ten speeds, every pane with fresh flaws, at the lab's physics, on copies of the engine running in the background.</p>
   </div>
 </div>
 <div id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
@@ -300,9 +300,9 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <h3>The full working</h3>
     <p>Every equation, constant and source is on the <a href="how/" style="color:var(--ice)">How it works</a> page, with calculators for the impact energy and the blast.</p>
     <h3>Runs on anything</h3>
-    <p>The <b>Auto</b> quality setting benchmarks this device and picks a tier: fewer plate modes, a coarser crack grid and fewer pieces on a weak chip, the same physics. If the device can't keep up, the clock slows down instead of skipping physics (the bar shows "device-limited"). Without WebGL the lab draws a flat front view.</p>
+    <p>The physics is the same on every device: the same pane breaks the same way on a phone and on a desktop. The <b>Auto</b> quality setting benchmarks this device and picks how to draw it: resolution, shadows, materials and how many of the real dice are shown. Where the browser allows, the physics runs on a core of its own. If the device can't keep up, the clock slows down instead of skipping physics (the bar shows "device-limited"). Without WebGL the lab draws a flat front view.</p>
     <h3>Honest limits</h3>
-    <p>Panes are flat and simply supported. Layups for bullet-resistant and aircraft glazing are representative builds, not certified products, and the ballistic constants are fitted to UL 752 ratings. Tempered glass is drawn with fewer, larger dice than reality on lower tiers; the result panel gives the real fragment size from the energy balance.</p>
+    <p>Panes are flat and simply supported. Layups for bullet-resistant and aircraft glazing are representative builds, not certified products, and the ballistic constants are fitted to UL 752 ratings. The engine flies tempered glass as pieces somewhat larger than its real dice, and the page cuts each into dice of the real size as it comes apart (fewer of them on lower drawing settings); the result panel gives the real fragment size from the energy balance.</p>
   </div>
 </div>
 

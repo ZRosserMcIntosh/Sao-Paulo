@@ -1,11 +1,13 @@
 // Glass Lab · odds of breaking: the same shot into many panes, each with its
-// own flaws (seed), across a range of speeds. Runs its own copy of the engine.
+// own flaws (seed), across a range of speeds. Runs its own copy of the engine;
+// the page runs several of these, each with its share of the speeds.
 import createGlassModule from './glass.mjs';
+import { wasmFile } from './engine_rpc.js';
 
 let G = null;
 async function engine() {
   if (G) return G;
-  G = await createGlassModule(await (await fetch('glass.wasm', { cache: 'no-cache' })).arrayBuffer());
+  G = await createGlassModule(await (await fetch(wasmFile, { cache: 'no-cache' })).arrayBuffer());
   const errs = G.load(await (await fetch('library.json', { cache: 'no-cache' })).text());
   if (errs.length) throw new Error(errs.join('; '));
   return G;
@@ -31,7 +33,7 @@ onmessage = async (e) => {
         const s = G.state();
         broke += s[6] ? 1 : 0;
         through += s[7] ? 1 : 0;
-        postMessage({ id, progress: ++done / (speeds.length * seeds.length) });
+        postMessage({ id, tick: ++done });
       }
       postMessage({ id, point: { v, broke: broke / seeds.length, through: through / seeds.length } });
     }

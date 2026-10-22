@@ -804,7 +804,7 @@ export function createHouseScene(ctx) {
       const group = paneGroup(p, i === DOOR && doorOpen());
       S.world.add(group);
       return { ...p, glazing: k[p.role], seed: (seed + 7919 * i) >>> 0, group, floor: -p.bottom,
-        tier: Math.max(0, Math.min(ctx.tier, p.wall === 0 ? top : top - 1)), viewTier: Math.min(ctx.tier, 1) };
+        tier: p.wall === 0 ? top : top - 1, viewTier: Math.min(ctx.tier, 1) };
     });
     S.handle.visible = !doorOpen();
     S.rigs = ctx.makeRigs(specs);
