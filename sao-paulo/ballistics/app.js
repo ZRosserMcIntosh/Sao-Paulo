@@ -38,6 +38,36 @@ try {
 // is played in the Liquids Lab, which breaks the glass with Glass Dynamics).
 let glazings = [];
 try { glazings = (await (await fetch('../glass/library.json')).json()).glazings.map((g) => ({ id: g.id, name: g.name, category: g.category, width: g.width, height: g.height })); } catch { glazings = []; }
+// The Rosser V8 with its armoured windscreen: the Glass Lab's engine breaks it.
+let G = null, gcat = null, carGltf = null, carLoading = false;
+async function ensureGlass() {
+  if (G) return G;
+  const { default: createGlassModule } = await import('../glass/glass.mjs');
+  const g = await createGlassModule();
+  const errs = g.load(await (await fetch('../glass/library.json', { cache: 'no-cache' })).text());
+  if (errs.length) throw new Error(errs.join('; '));
+  gcat = g.catalog();
+  G = g;
+  return G;
+}
+function ensureCar() {
+  if (carGltf || carLoading) return;
+  carLoading = true;
+  Promise.all([import('../driving/vendor/loaders/GLTFLoader.js'), import('../driving/vendor/libs/meshopt_decoder.module.js')])
+    .then(([{ GLTFLoader }, { MeshoptDecoder }]) => new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync('../driving/models/car.glb'))
+    .then((g) => { carGltf = g; if (S.tgt === 'v8') buildRange(); })
+    .catch((e) => toast('The V8 model did not load: ' + e.message))
+    .finally(() => { carLoading = false; });
+}
+// The car's frame (as the Glass Lab's armoured-car scene): +Z forward, +X
+// the car's left, y up from the ground. The windscreen pane: raked 69.5 deg,
+// front face bottom centre at the cowl. The car faces the shooter.
+const V8 = { glazing: 'armoured_windscreen_v8', rake: 69.5 * DEG, cowl: [0, 0.807, 0.988], W: 1.0, H: 0.9 };
+const V8_AIM = (() => {
+  // Aim at the windscreen in front of the driver's face (left-hand drive: x 0.36).
+  const y = 0.97, z = V8.cowl[2] - Math.tan(V8.rake) * (y - V8.cowl[1]);
+  return [0.36, y, z];
+})();
 const cartIndex = (id) => cat.cartridges.findIndex((c) => c.id === id);
 const rifleRaw = (cid) => raw.rifles.find((r) => r.id === RIFLE_FOR[cid]);
 const projRaw = (cid) => raw.projectiles.find((p) => p.id === cat.cartridges[cartIndex(cid)].projectile);
@@ -66,6 +96,9 @@ const SCENARIOS = [
   { id: 'dummy', name: 'Through a windscreen', sub: '.308 at 600 m · the dummy behind it', feature: true,
     s: { c: 'fgmm_308_175', dist: 600, size: 0.5, temp: 22, alt: 760, rh: 60, lat: -23.55, az: 0, tgt: 'dummy', glazing: 'windscreen',
       same: true, layers: [layer(8, 3, 1), layer(8, 3, 1), layer(8, 3, 1)], callTrue: true, call: layer(8, 3) } },
+  { id: 'v8', name: 'The armoured V8', sub: '.338 at 800 m · dummy at the wheel', feature: true,
+    s: { c: 'lapua_338lm_250', dist: 800, size: 0.5, temp: 24, alt: 760, rh: 55, lat: -23.55, az: 0, tgt: 'v8',
+      same: true, layers: [layer(6, 3, 1), layer(6, 3, 1), layer(6, 3, 1)], callTrue: true, call: layer(6, 3) } },
   { id: 'wrongcall', name: 'Wrong call', sub: '.308 · called 10, true 15 km/h',
     s: { c: 'fgmm_308_175', dist: 1000, size: 0.5, temp: 20, alt: 0, rh: 50, lat: -23.55, az: 0,
       same: true, layers: [layer(15, 3, 0), layer(15, 3, 0), layer(15, 3, 0)], callTrue: false, call: layer(10, 3) } },
@@ -89,7 +122,7 @@ const SCENARIOS = [
       same: true, layers: [layer(8, 3, 2), layer(8, 3, 2), layer(8, 3, 2)], callTrue: true, call: layer(8, 3) } },
 ];
 const S = structuredClone(SCENARIOS[0].s);
-Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen' });
+Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen', markers: store.get('markers', 'hits') });
 let metric = store.get('metric', true);
 let dopeMil = store.get('dopeMil', true);
 
@@ -114,6 +147,8 @@ let autoFire = false;
     if (v.length === 2 && v.every(Number.isFinite)) { S.callTrue = false; S.call = layer(v[0], v[1]); } else S.callTrue = true;
   }
   if (Q.has('f')) { const f = Q.get('f'); S.spin = f.includes('s'); S.earth = f.includes('e'); S.solver = f.includes('k'); }
+  if (Q.get('tg') === 'v8') S.tgt = 'v8';
+  if (Q.has('hm')) S.markers = ['off', 'hits', 'all'].includes(Q.get('hm')) ? Q.get('hm') : 'hits';
   if (Q.get('tg') === 'dummy') { S.tgt = 'dummy'; S.glazing = (Q.get('gz') || 'windscreen').replace(/[^a-z0-9_]/g, ''); }
   autoFire = Q.has('fire');
 })();
@@ -215,7 +250,51 @@ function liquidsUrl(sh) {
     range: Math.round(sh.S.dist), mass_g: (p.mass_gr * 0.06479891).toFixed(2), dia_mm: (p.diameter_in * 25.4).toFixed(2), v: speed.toFixed(1),
     desc: (Math.atan2(-v.u, v.d) / DEG).toFixed(2), drift: (Math.atan2(v.r, v.d) / DEG).toFixed(2), gi: glassImpactor(p),
     glazing: sh.S.glazing, pane: sh.S.glazing === 'none' ? 'none' : 'front', target: dummyPart(sh.impact) || 'chest', back: shareUrl(sh, false) });
+  if (sh.S.tgt === 'v8' && sh.glass) {
+    // Through the V8's windscreen already (Glass Dynamics here): the dummy gets what is left.
+    q.set('v', sh.glass.vout.toFixed(1));
+    q.set('pane', 'none');
+    q.set('target', 'shoulder');
+    q.set('via', `through the Rosser V8's armoured windscreen, ${sh.glass.vin.toFixed(0)} → ${sh.glass.vout.toFixed(0)} m/s`);
+  }
   return `/sao-paulo/liquids/?${q}`;
+}
+
+// The round at the V8: the target plane (across the line of fire at the aim
+// point) is where the range measured it; follow its path on to the raked
+// pane, and fire it into Glass Dynamics there at its real angle, with its own
+// mass and radius.
+function strikeV8(impact, at) {
+  const r = V8.rake, X = [1, 0, 0], Vv = [0, Math.cos(r), -Math.sin(r)], N = [0, Math.sin(r), Math.cos(r)];
+  const dotp = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  // In the car's frame the shooter is toward +Z; shooter's right is the car's +X.
+  const l = lof(at.velocity), sp = Math.hypot(l.r, l.u, l.d);
+  const d = [l.r / sp, l.u / sp, -l.d / sp];
+  const q0 = [V8_AIM[0] + impact.right, V8_AIM[1] + impact.up, V8_AIM[2]];
+  const rel = [q0[0] - V8.cowl[0], q0[1] - V8.cowl[1], q0[2] - V8.cowl[2]];
+  const s = -dotp(N, rel) / dotp(N, d);
+  const q = [rel[0] + s * d[0], rel[1] + s * d[1], rel[2] + s * d[2]];
+  const u = dotp(q, X), v = dotp(q, Vv);
+  const out = { onGlass: Math.abs(u) <= V8.W / 2 - 0.01 && v >= 0.01 && v <= V8.H - 0.01, u, v, vin: sp };
+  if (!out.onGlass || !G) return out;
+  const gi = gcat.glazings.findIndex((g) => g.id === V8.glazing);
+  const p = projRaw(S.c);
+  const ii = Math.max(0, gcat.impactors.findIndex((x) => x.id === glassImpactor(p)));
+  const dl = [dotp(d, X), dotp(d, Vv), dotp(d, N)], dp = [dl[0], dl[1], -dl[2]];
+  out.yaw = Math.atan2(dp[0], dp[2]); out.pitch = Math.asin(Math.max(-1, Math.min(1, dp[1])));
+  if (gi < 0 || !G.gls_new_pane(gi, 2, 1)) return out;
+  G.gls_fire_as(ii, u + V8.W / 2, v, sp, out.yaw, out.pitch, 0, 0.002, p.mass_gr * 6.479891e-5, (p.diameter_in * IN) / 2);
+  for (let k = 0; k < 400; ++k) {
+    G.gls_advance(G.gls_time() + 2.5e-4, 1 << 16);
+    const rep = G.report(0);
+    if ((rep.v[11] || rep.v[12] || rep.v[13]) && G.gls_time() > rep.v[5] + 0.002) break;
+  }
+  const rep = G.report(0);
+  Object.assign(out, { vout: rep.v[1], penetrated: !!rep.v[11], rebounded: !!rep.v[12], embedded: !!rep.v[13], outcome: rep.outcome, depth: rep.v[8] });
+  out.cracks = [];
+  const plies = G.state()[2];
+  for (let g = 0; g < plies; ++g) out.cracks.push(Array.from(G.cracks(g, 0)));
+  return out;
 }
 
 // The flight: holds applied, fired through the true wind, flown to the end
@@ -252,7 +331,7 @@ function fire() {
     impact = { right: p.r, up: p.u - sh };
     // Hit only if it reached the plane above the ground.
     const above = p.u > -BENCH;
-    hit = above && (S.tgt === 'dummy' ? dummyPart(impact) !== null : Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2);
+    hit = above && (S.tgt === 'dummy' ? dummyPart(impact) !== null : S.tgt === 'v8' ? true : Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2);
     if (!above) tTarget = null;
   }
   // Where it lands if it misses: the ground.
@@ -265,9 +344,15 @@ function fire() {
   const air = B.air(0, 0, 0, t0);
   const sg = S.spin ? B.bd_stability(ci()) : 0;
   const atT = tTarget !== null ? B.stateAt(tTarget) : null;
+  // The V8: where the round meets the raked windscreen, and what the glass does to it.
+  let glass = null;
+  if (S.tgt === 'v8' && hit && atT) {
+    glass = strikeV8(impact, atT);
+    hit = glass.onGlass;
+  }
   shot = {
     S: structuredClone(S), dope, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg,
-    round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity),
+    round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
     bars: breakdown(),
   };
   // breakdown() reset the engine's air and wind: fly the shot again so the
@@ -365,7 +450,9 @@ const paint = new THREE.MeshStandardMaterial({ color: 0xf6f6f6, roughness: 0.8 }
 const wood = new THREE.MeshLambertMaterial({ color: 0x6b4e2e });
 const poleMat = new THREE.MeshLambertMaterial({ color: 0xd8d8d8 });
 const flagMat = new THREE.MeshLambertMaterial({ color: 0xff5a2a, side: THREE.DoubleSide });
-let target = null, plate = null, hitMarks = [];
+let target = null, plate = null, hitMarks = [], v8Cracks = null;
+// Where the last shots went (the reticle's impact marks), and the 3D marks of misses.
+let impacts = [], missMarks = [];
 function buildRange() {
   range.clear();
   flags.length = 0;
@@ -406,6 +493,53 @@ function buildRange() {
   target = new THREE.Group();
   target.position.set(0, sightHeight(), -D);
   const sz = S.size;
+  if (S.tgt === 'v8') {
+    // The car, placed so the aim point on its windscreen is the target centre,
+    // on a gravel ramp; the dummy at the wheel; the armoured pane where the
+    // Glass Lab mounts it, with its cracks drawn from Glass Dynamics.
+    const car = new THREE.Group();
+    car.position.set(-V8_AIM[0], sightHeight() - V8_AIM[1], -D - V8_AIM[2]);
+    if (carGltf) {
+      const inner = carGltf.scene.clone(true);
+      inner.rotation.y = -Math.PI / 2;
+      inner.traverse((o) => {
+        if (!o.isMesh) return;
+        const fix = (m) => { if (m && m.transmission > 0) { m = m.clone(); m.transmission = 0; m.transparent = true; m.opacity = 0.3; m.depthWrite = false; } return m; };
+        o.material = Array.isArray(o.material) ? o.material.map(fix) : fix(o.material);
+      });
+      car.add(inner);
+    } else {
+      ensureCar();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.75, 4.4), new THREE.MeshStandardMaterial({ color: 0x0b2c7a, metalness: 0.6, roughness: 0.4 }));
+      body.position.set(0, 0.55, 0);
+      car.add(body);
+    }
+    const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.55 });
+    const cap = (r, len, x, y, z, rx = 0) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 12), yellow); m.position.set(x, y, z); m.rotation.x = rx; car.add(m); };
+    cap(0.1, 0.06, 0.36, 0.98, -0.42);                 // head, at the driver's eye
+    cap(0.16, 0.36, 0.36, 0.62, -0.5, 0.25);           // torso, leaning back
+    cap(0.05, 0.42, 0.18, 0.72, -0.15, 1.1); cap(0.05, 0.42, 0.54, 0.72, -0.15, 1.1);  // arms to the wheel
+    const pane = new THREE.Group();
+    pane.position.set(V8.cowl[0], V8.cowl[1], V8.cowl[2]);
+    pane.rotation.x = -V8.rake;
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(V8.W, V8.H), new THREE.MeshPhysicalMaterial({ color: 0xbfe0f0, transparent: true, opacity: 0.18, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false }));
+    sheet.position.y = V8.H / 2;
+    pane.add(sheet);
+    v8Cracks = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }));
+    v8Cracks.position.set(-V8.W / 2, 0, 0.004);
+    pane.add(v8Cracks);
+    car.add(pane);
+    const ramp = new THREE.Mesh(new THREE.BoxGeometry(3.4, Math.max(0.05, car.position.y + BENCH), 6), new THREE.MeshLambertMaterial({ color: 0x8b8378 }));
+    ramp.position.set(car.position.x, (-BENCH + car.position.y) / 2, car.position.z);
+    range.add(ramp, car);
+    target = new THREE.Group();
+    target.position.set(0, sightHeight(), -D);
+    plate = new THREE.Group();
+    plate.add(new THREE.Group());
+    target.add(plate);
+    range.add(target);
+    return;
+  }
   if (S.tgt === 'dummy') {
     // A crash dummy (chest at the aim point) behind a pane of the chosen glass.
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.55 });
@@ -516,18 +650,11 @@ function buildBullet() {
 }
 bullet.visible = false;
 scene.add(bullet);
-// The shock cone (Mach angle) and the trail.
+// The shock cone (Mach angle) and the dashed path.
 const shock = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 32, 1, true), new THREE.MeshBasicMaterial({
   color: 0xdbe8ff, transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false }));
 shock.visible = false;
 scene.add(shock);
-const TRAIL = 160;
-const trailGeo = new THREE.BufferGeometry();
-trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL * 3), 3));
-trailGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRAIL * 3), 3));
-const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }));
-trail.frustumCulled = false;
-scene.add(trail);
 const pathGeo = new THREE.BufferGeometry();
 const path = new THREE.Line(pathGeo, new THREE.LineDashedMaterial({ color: 0xffd36b, dashSize: 4, gapSize: 3, transparent: true, opacity: 0.55 }));
 path.frustumCulled = false;
@@ -540,25 +667,59 @@ scene.add(dust);
 
 // ---------- Scope: render target, mirage, reticle ----------
 const rt = new THREE.WebGLRenderTarget(1, 1, { samples: 4 });
+// The trace: the engine's wake, drawn as how much it bends the light behind
+// it (a refractive tube along the path), into its own buffer.
+const wakeRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+const wakeScene = new THREE.Scene();
+const MAX_WAKE = 4000;
+const wakeGeo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(2, 2));
+const wCenter = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE * 3), 3);
+const wRadius = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE), 1);
+const wStrength = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE), 1);
+wakeGeo.setAttribute('aCenter', wCenter); wakeGeo.setAttribute('aRadius', wRadius); wakeGeo.setAttribute('aStrength', wStrength);
+wakeGeo.instanceCount = 0;
+const wakeMat = new THREE.ShaderMaterial({
+  uniforms: { pxScale: { value: 0.001 } },
+  vertexShader: `attribute vec3 aCenter; attribute float aRadius, aStrength; uniform float pxScale; varying vec2 vC; varying float vS;
+    void main(){ vec4 mv = viewMatrix * vec4(aCenter, 1.); float depth = max(0.01, -mv.z);
+      // A wake thinner than a few pixels is drawn a few pixels wide, keeping its integrated strength.
+      float r = max(aRadius, 2.5 * pxScale * depth);
+      mv.xy += position.xy * r; vC = position.xy;
+      // Shown with a contrast curve (the square root of the deficit), as a spotter's eye and scope pick out a faint trace.
+      vS = sqrt(aStrength) * aRadius / r; gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `varying vec2 vC; varying float vS;
+    void main(){ float r2 = dot(vC, vC); if (r2 > 1.) discard; float f = exp(-3. * r2);
+      gl_FragColor = vec4(-vC * f * vS, f * vS, 1.); }`,
+  transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const wakeMesh = new THREE.Mesh(wakeGeo, wakeMat);
+wakeMesh.frustumCulled = false;
+wakeScene.add(wakeMesh);
+let showTrace = store.get('trace', true);
 const post = new THREE.Scene();
 const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const mirage = new THREE.ShaderMaterial({
-  uniforms: { tex: { value: rt.texture }, t: { value: 0 }, amp: { value: 0.0006 }, drift: { value: 0 }, aspect: { value: 1 } },
+  uniforms: { tex: { value: rt.texture }, wake: { value: wakeRT.texture }, wakeGain: { value: 0 }, scope: { value: 1 },
+    t: { value: 0 }, amp: { value: 0.0006 }, drift: { value: 0 }, aspect: { value: 1 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
   fragmentShader: `
-    uniform sampler2D tex; uniform float t, amp, drift, aspect; varying vec2 vUv;
+    uniform sampler2D tex, wake; uniform float t, amp, drift, aspect, wakeGain, scope; varying vec2 vUv;
     void main(){
       vec2 p = vUv;
+      // The trace: the wake bends the light through it.
+      vec3 wk = texture2D(wake, vUv).xyz;
+      p += wk.xy * wakeGain;
       // Heat shimmer: rising, boiling waves that lean and run with the crosswind.
       float w1 = sin(p.y * 260. + t * 5.1 - p.x * 60. * drift + drift * t * 9.);
       float w2 = sin(p.y * 170. - t * 3.7 + p.x * 90. + drift * t * 6.);
       p.x += amp * (0.6 * w1 + 0.4 * w2);
       p.y += amp * 0.5 * sin(p.x * 210. + t * 4.3);
       vec3 c = texture2D(tex, p).rgb;
+      c = mix(c, vec3(0.92, 0.95, 1.0), min(0.45, wk.z * 0.9));
       vec2 q = (vUv - 0.5) * vec2(aspect, 1.);
       float r = length(q);
-      float tube = smoothstep(0.47, 0.455, r);
-      c *= tube * (1. - 0.25 * smoothstep(0.3, 0.46, r));
+      float tube = mix(1., smoothstep(0.47, 0.455, r) * (1. - 0.25 * smoothstep(0.3, 0.46, r)), scope);
+      c *= tube;
       gl_FragColor = vec4(c, 1.);
     }`,
 });
@@ -614,6 +775,16 @@ function drawReticle(dope) {
     rg.arc(hx, cy, 5 * dpr, 0, Math.PI * 2);
     rg.stroke();
   }
+  // Where the last shots went, as the spotter saw them.
+  if (S.markers !== 'off')
+    for (const im of impacts) {
+      const x = cx + (im.right / S.dist / 1e-3) * pxPerMil, y = cy - (im.up / S.dist / 1e-3) * pxPerMil, k = 5 * dpr;
+      rg.strokeStyle = im.hit ? 'rgba(255,255,255,0.95)' : '#ff3b2f';
+      rg.lineWidth = 2 * dpr;
+      rg.beginPath();
+      rg.moveTo(x - k, y - k); rg.lineTo(x + k, y + k); rg.moveTo(x + k, y - k); rg.lineTo(x - k, y + k);
+      rg.stroke();
+    }
   rg.restore();
   rg.fillStyle = 'rgba(231,236,242,0.95)';
   rg.font = `600 ${12 * dpr}px "JetBrains Mono", monospace`;
@@ -698,7 +869,7 @@ function presetsUI() {
     const b = document.createElement('button');
     if (p.feature) b.className = 'feature';
     b.innerHTML = `${p.name}<small>${p.sub}</small>`;
-    b.onclick = () => { Object.assign(S, structuredClone(p.s)); S.t0 = 10; syncUI(); changed(true); refresh(); fireNow(); };
+    b.onclick = () => { Object.assign(S, { tgt: 'plate', glazing: 'windscreen' }, structuredClone(p.s)); S.t0 = 10; syncUI(); changed(true); refresh(); fireNow(); };
     box.appendChild(b);
   }
 }
@@ -731,7 +902,9 @@ function syncUI() {
   if (!sel.options.length)
     for (const c of cat.cartridges) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; sel.appendChild(o); }
   sel.value = S.c;
-  $('tgt').value = S.tgt; $('glazing').value = S.glazing; $('glazeBox').hidden = S.tgt !== 'dummy'; $('sizeBox').hidden = S.tgt === 'dummy';
+  $('tgt').value = S.tgt; $('glazing').value = S.glazing; $('glazeBox').hidden = S.tgt !== 'dummy'; $('sizeBox').hidden = S.tgt !== 'plate';
+  $('markers').value = S.markers;
+  if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); }
   $('dist').value = S.dist; $('size').value = S.size; $('temp').value = S.temp; $('alt').value = S.alt; $('rh').value = S.rh;
   $('lat').value = S.lat; $('az').value = S.az;
   $('sameWind').checked = S.same; $('callTrue').checked = S.callTrue; $('callBox').hidden = S.callTrue;
@@ -766,7 +939,7 @@ function changed(rebuild = false) {
   labels();
   clearTimeout(dopeTimer);
   dopeTimer = setTimeout(refresh, rebuild ? 0 : 90);
-  if (rebuild) { buildRange(); buildBullet(); placeRifle(); magnification = magFor(S.dist); }
+  if (rebuild) { impacts = []; missMarks = []; buildRange(); buildBullet(); placeRifle(); magnification = magFor(S.dist); }
 }
 // The dope for the call, then the true air back in the engine for the flags.
 function refresh() {
@@ -804,8 +977,16 @@ function resultsUI() {
   const o = $('outcome');
   const sh = shot;
   const mil = (m) => ((m / S.dist) * 1e3).toFixed(2);
-  $('watch').hidden = !(sh.hit && S.tgt === 'dummy');
-  if (sh.hit && S.tgt === 'dummy') {
+  $('watch').hidden = !((sh.hit && S.tgt === 'dummy') || (S.tgt === 'v8' && sh.glass && sh.glass.penetrated));
+  if (S.tgt === 'v8' && sh.glass && sh.glass.onGlass) {
+    const gl = sh.glass;
+    if (gl.penetrated) { o.className = 'bad'; o.textContent = `Through the armoured windscreen: ${gl.vin.toFixed(0)} → ${gl.vout.toFixed(0)} m/s, on to the driver.`; $('watch').href = liquidsUrl(sh); }
+    else if (gl.rebounded) { o.className = 'ok'; o.textContent = `Glanced off the windscreen at ${(90 - Math.abs(gl.pitch) / DEG).toFixed(0)}° to the glass: the driver is safe.`; }
+    else { o.className = 'ok'; o.textContent = `The armoured windscreen stopped it ${(gl.depth * 1000).toFixed(0)} mm in: the driver is safe.`; }
+  } else if (S.tgt === 'v8') {
+    o.className = 'warn';
+    o.textContent = sh.impact ? `It missed the windscreen: ${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'} (bodywork or past).` : 'It never reached the car.';
+  } else if (sh.hit && S.tgt === 'dummy') {
     o.className = 'ok';
     o.textContent = `Hit the dummy (${dummyPart(sh.impact)}) through ${sh.S.glazing === 'none' ? 'the open air' : 'the glass'}: watch it in the Liquids Lab.`;
     $('watch').href = liquidsUrl(sh);
@@ -833,6 +1014,7 @@ function resultsUI() {
     const lag = (sh.tTarget - sh.t0) - S.dist / a.speedOfSound;
     kv.push(['The report reaches the target', `${Math.abs(lag).toFixed(2)} s ${lag > 0 ? 'before' : 'after'} the round`]);
   }
+  if (sh.glass && sh.glass.onGlass) kv.push(['Glass Dynamics', `${sh.glass.outcome} · struck at ${(90 - Math.abs(sh.glass.pitch) / DEG).toFixed(0)}° to the glass`]);
   kv.push(['Muzzle', `${fmtV(sh.muzzleSpeed)} · Mach ${(sh.muzzleSpeed / sh.air.speedOfSound).toFixed(2)}`]);
   if (S.spin) kv.push(['Stability Sg', `${sh.sg.toFixed(2)} → ${sh.round.stability.toFixed(2)}${sh.round.tumbling ? ' · TUMBLED' : ''}`]);
   if (sh.round.subsonicTime > 0) {
@@ -856,10 +1038,52 @@ function resultsUI() {
   $('bars').innerHTML = h || '<div><span>Nothing</span></div>';
 }
 
+function drawV8Cracks(gl) {
+  if (!v8Cracks || !gl.cracks) return;
+  const pts = [];
+  for (const seg of gl.cracks)
+    for (let k = 0; k + 6 < seg.length; k += 7) pts.push(seg[k], seg[k + 1], 0, seg[k + 2], seg[k + 3], 0);
+  v8Cracks.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+}
+// Hit markers: an X flash and a tick on a hit (MW2 style), and on the reticle
+// where every shot went; misses marked too when set to every impact.
+function hitFeedback(sh) {
+  if (S.markers === 'off' || !sh.impact) return;
+  const isHit = sh.hit;
+  if (isHit) {
+    const m = $('hitmark');
+    m.classList.remove('on', 'kill');
+    void m.offsetWidth;
+    m.classList.add('on');
+    // Red when it reached the dummy (through the V8's glass, or the dummy target).
+    if (S.tgt === 'dummy' || (S.tgt === 'v8' && sh.glass && sh.glass.penetrated)) m.classList.add('kill');
+    tick();
+  }
+  if (isHit || S.markers === 'all') {
+    impacts.push({ right: sh.impact.right, up: sh.impact.up, hit: isHit });
+    if (impacts.length > 6) impacts.shift();
+    if (!isHit && S.tgt === 'plate') {
+      const x = label('×', Math.max(0.15, S.size * 0.3), '#ff3b2f', 'rgba(0,0,0,0)');
+      x.position.set(sh.impact.right, sightHeight() + sh.impact.up, -S.dist + 0.05);
+      range.add(x);
+      missMarks.push(x);
+      if (missMarks.length > 6) range.remove(missMarks.shift());
+    }
+  }
+}
+function tick() {
+  const a = audio();
+  if (!a || !soundOn) return;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = 'square'; o.frequency.value = 2400;
+  g.gain.setValueAtTime(0.08, a.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.06);
+  o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + 0.07);
+}
 function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2400); }
 function banner(a, b) { $('bTitle').textContent = a; $('bSub').textContent = b; $('banner').classList.add('on'); clearTimeout(banner.t); banner.t = setTimeout(() => $('banner').classList.remove('on'), 3200); }
 
 function fireNow() {
+  if (S.tgt === 'v8' && !G) { toast('Loading the glass engine for the windscreen…'); $('outcome').className = ''; $('outcome').textContent = 'Loading the glass engine…'; $('watch').hidden = true; ensureGlass().then(() => fireNow()).catch((e) => toast('Glass engine: ' + e.message)); return; }
   if (dopeTimer) refresh();  // settings still pending: apply them first
   if (!fire()) return;
   te = 0;
@@ -895,7 +1119,10 @@ $('cartridge').onchange = (e) => { S.c = e.target.value; changed(true); };
     const o = document.createElement('option'); o.value = g.id; o.textContent = g.name; groups[g.category].appendChild(o);
   }
 }
-$('tgt').onchange = (e) => { S.tgt = e.target.value; syncUI(); changed(true); };
+$('tgt').onchange = (e) => { S.tgt = e.target.value; if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); } syncUI(); changed(true); };
+$('markers').onchange = (e) => { S.markers = e.target.value; store.set('markers', S.markers); };
+$('bTrace').onclick = () => { showTrace = !showTrace; store.set('trace', showTrace); $('bTrace').setAttribute('aria-pressed', String(showTrace)); };
+$('bTrace').setAttribute('aria-pressed', String(showTrace));
 $('glazing').onchange = (e) => { S.glazing = e.target.value; changed(true); };
 for (const [id, k, rebuild] of [['dist', 'dist', true], ['size', 'size', true], ['temp', 'temp'], ['alt', 'alt'], ['rh', 'rh'], ['lat', 'lat'], ['az', 'az']])
   $(id).oninput = (e) => { S[k] = +e.target.value; changed(!!rebuild); };
@@ -923,6 +1150,7 @@ function shareUrl(sh, absolute = true) {
     cw: X.callTrue ? 'true' : [X.call.spd, X.call.clock].join(','),
     f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : ''), ts: sh ? sh.t0 : X.t0, fire: 1 });
   if (X.tgt === 'dummy') { q.set('tg', 'dummy'); q.set('gz', X.glazing); }
+  if (X.tgt === 'v8') q.set('tg', 'v8');
   return `${absolute ? location.origin : ''}/sao-paulo/ballistics/?${q}`;
 }
 $('bShare').onclick = async () => {
@@ -954,6 +1182,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'b' || e.key === 'B') $('bAuto').click();
   else if (e.key === 'z' || e.key === 'Z') $('bReplay').click();
   else if (e.key === 'm' || e.key === 'M') $('bSound').click();
+  else if (e.key === 't' || e.key === 'T') $('bTrace').click();
   else if (e.key === 'u' || e.key === 'U') $('bUnits').click();
   else if (e.key === 'h' || e.key === 'H') $('help').classList.toggle('on');
   else if (e.key === '+' || e.key === '=') magnification = Math.min(32, magnification + 1);
@@ -972,6 +1201,7 @@ function resize() {
   R.setPixelRatio(dpr);
   R.setSize(w, h, false);
   rt.setSize(Math.floor(w * dpr), Math.floor(h * dpr));
+  wakeRT.setSize(Math.floor(w * dpr / 2), Math.floor(h * dpr / 2));
   ret.width = Math.floor(w * dpr); ret.height = Math.floor(h * dpr);
   camera.aspect = scopeCam.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -1016,7 +1246,12 @@ function frame(now) {
       te = shot.tStop - shot.t0;
       phase = 'after';
       afterWall = 0;
-      if (shot.hit && S.tgt === 'dummy') {
+      hitFeedback(shot);
+      if (S.tgt === 'v8' && shot.glass && shot.glass.onGlass) {
+        drawV8Cracks(shot.glass);
+        noiseBurst(0.35, 3000, 0.4);
+        banner(shot.glass.penetrated ? 'Through the glass' : 'Stopped', shot.glass.penetrated ? `${shot.glass.vin.toFixed(0)} → ${shot.glass.vout.toFixed(0)} m/s: watch it in the Liquids Lab` : 'the armoured windscreen held');
+      } else if (shot.hit && S.tgt === 'dummy') {
         banner('Hit', `the dummy's ${dummyPart(shot.impact)} at ${fmtDist(S.dist)}: watch it in the Liquids Lab`);
       } else if (shot.hit) {
         ping();
@@ -1072,24 +1307,10 @@ function frame(now) {
       shock.quaternion.copy(q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
       shock.position.copy(p).addScaledVector(nose, bullet.userData.length * 0.5 - L / 2);
     }
-    // The trail: the last stretch of the flight behind it.
-    const pos = trailGeo.attributes.position.array, col = trailGeo.attributes.color.array;
-    const span = cam === 'bullet' ? 0.04 : 0.6;
-    for (let k = 0; k < TRAIL; ++k) {
-      const tk = Math.max(shot.t0, tEngine - (k / (TRAIL - 1)) * span);
-      const pk = v3(B.stateAt(tk).position);
-      pos[k * 3] = pk.x; pos[k * 3 + 1] = pk.y; pos[k * 3 + 2] = pk.z;
-      const f = 1 - k / TRAIL;
-      col[k * 3] = 0.85 * f + 0.1; col[k * 3 + 1] = 0.9 * f + 0.1; col[k * 3 + 2] = 1.0 * f + 0.15;
-    }
-    trailGeo.attributes.position.needsUpdate = true;
-    trailGeo.attributes.color.needsUpdate = true;
-    trail.visible = phase === 'flight';
     const hud = `${fmtDist(lof(st.position).d)}<span>·</span>${fmtV(Math.hypot(...st.velocity))}<span>·</span>Mach ${M.toFixed(2)}<span>·</span>${(st.spin / (2 * Math.PI)).toFixed(0)} turns/s`;
     $('hud').innerHTML = phase === 'flight' ? hud : '';
   } else {
     $('hud').innerHTML = '';
-    trail.visible = false;
     shock.visible = false;
   }
   // Muzzle flash, dust, the plate swinging.
@@ -1113,14 +1334,14 @@ function frame(now) {
     scopeCam.lookAt(0, sightHeight(), -D);
     scopeCam.updateProjectionMatrix();
     rifle.visible = false;
-    R.setRenderTarget(rt);
-    R.render(scene, scopeCam);
-    R.setRenderTarget(null);
-    R.render(post, postCam);
+    mirage.uniforms.scope.value = 1;
+    present(scopeCam, tEngine);
     drawReticle(dope);
     path.visible = false;
     return;
   }
+  mirage.uniforms.scope.value = 0;
+  mirage.uniforms.amp.value = 0;
   rifle.visible = true;
   if (cam === 'bullet' && st) {
     const p = bullet.position;
@@ -1146,10 +1367,45 @@ function frame(now) {
     camera.fov = 55;
     camera.position.set(0.55, sightHeight() + 0.35, 1.9);
     camera.lookAt(new THREE.Vector3(Math.sin(orbit.yaw) * 60, sightHeight() + orbit.pitch * 40 - 1, -60 * Math.cos(orbit.yaw)));
-    path.visible = !!shot;
+    path.visible = !!shot && phase === 'after';  // in flight the trace shows the way
   }
   camera.updateProjectionMatrix();
-  R.render(scene, camera);
+  present(camera, tEngine);
+}
+
+// Draw the scene through the final pass: the trace bends it, the scope adds
+// its tube and the mirage.
+const clearTmp = new THREE.Color();
+function present(cam, tEngine) {
+  R.setRenderTarget(rt);
+  R.render(scene, cam);
+  let n = 0;
+  if (showTrace && shot && phase !== 'idle') {
+    const p = projRaw(shot.S.c);
+    const w = B.wake(tEngine, Math.max(0.25, shot.S.dist / 6000), 0.5, p.mass_gr * 6.479891e-5, p.diameter_in * IN);
+    n = Math.min(MAX_WAKE, w.length / 6);
+    for (let k = 0; k < n; ++k) {
+      const q = v3([w[6 * k], w[6 * k + 1], w[6 * k + 2]]);
+      wCenter.setXYZ(k, q.x, q.y, q.z);
+      wRadius.setX(k, w[6 * k + 3]);
+      wStrength.setX(k, w[6 * k + 4]);
+    }
+    wCenter.needsUpdate = wRadius.needsUpdate = wStrength.needsUpdate = true;
+  }
+  wakeGeo.instanceCount = n;
+  R.getClearColor(clearTmp);
+  const ca = R.getClearAlpha();
+  R.setRenderTarget(wakeRT);
+  R.setClearColor(0x000000, 0);
+  R.clear();
+  if (n) {
+    wakeMat.uniforms.pxScale.value = (2 * Math.tan((cam.fov * DEG) / 2)) / (wakeRT.height || 1);
+    R.render(wakeScene, cam);
+  }
+  R.setClearColor(clearTmp, ca);
+  mirage.uniforms.wakeGain.value = n ? 0.012 : 0;
+  R.setRenderTarget(null);
+  R.render(post, postCam);
 }
 
 // ---------- Start ----------
@@ -1163,3 +1419,7 @@ dopeUI();
 $('loading').remove();
 requestAnimationFrame(frame);
 if (autoFire) setTimeout(fireNow, 300);
+// The Glass engine (for the V8's windscreen) loads in the background.
+setTimeout(() => ensureGlass().catch(() => {}), 1500);
+// For the browser console: the engine and the current shot.
+window.ballisticsRange = { B, R, wakeRT, wakeGeo, get shot() { return shot; }, get G() { return G; } };

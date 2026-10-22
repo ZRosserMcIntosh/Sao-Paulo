@@ -70,6 +70,12 @@ export default async function createBallisticModule(wasmBytes) {
       spin: a[8], roll: a[9], stability: a[10], tumbling: a[11] !== 0, jump: a[12], minStability: a[13],
       transonicStart: a[14], subsonicTime: a[15] };
   };
+  // The trace: [{position: [e, n, u], radius, deficit, age}] (a copy).
+  B.wake = (t, spacing, maxAge, mass, diameter) => {
+    const p = ex.bd_wake(t, spacing, maxAge, mass, diameter), n = new Float32Array(memory.buffer, p, 1)[0];
+    const a = new Float32Array(memory.buffer, p + 4, n * 6).slice();
+    return a;
+  };
   B.noseAt = (t) => Array.from(new Float64Array(memory.buffer, ex.bd_nose_at(t), 3));
   // Bullet time: the round at any engine time it has already flown, smooth between steps.
   B.stateAt = (t) => {

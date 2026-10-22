@@ -32,6 +32,7 @@ const ARRIVAL = (() => {
     descent: n('desc', 0, -30, 60), drift: n('drift', 0, -20, 20), glassImpactor: (q.get('gi') || 'rifle_762').replace(/[^a-z0-9_]/g, ''),
     glazing: (q.get('glazing') || 'windscreen').replace(/[^a-z0-9_]/g, ''), pane, target,
     back: (q.get('back') || '').startsWith('/sao-paulo/ballistics/') ? q.get('back') : '/sao-paulo/ballistics/',
+    via: (q.get('via') || '').replace(/[<>]/g, '').slice(0, 120),
   };
 })();
 
@@ -45,7 +46,7 @@ try {
     const from = `the Ballistics Range: ${ARRIVAL.name} after ${Math.round(ARRIVAL.range)} m`;
     lib.projectiles.push({
       id: 'ballistics_arrival', name: `${ARRIVAL.name} at ${Math.round(ARRIVAL.range)} m`,
-      description: `Arriving from ${from}, flown by Ballistic Dynamics.`,
+      description: `Arriving from ${from}, flown by Ballistic Dynamics${ARRIVAL.via ? `, ${ARRIVAL.via}` : ''}.`,
       mass_g: ARRIVAL.mass_g, diameter_mm: ARRIVAL.diameter_mm, speed_ms: ARRIVAL.speed, cd_tissue: 0.27,
       glass_impactor: ARRIVAL.glassImpactor,
       provenance: {
@@ -1487,7 +1488,7 @@ if (ARRIVAL) {
   setFollow(true);
   setTimeout(() => {
     fireShot();
-    banner(`From ${Math.round(ARRIVAL.range).toLocaleString('en')} m`, `${ARRIVAL.name} · ${ARRIVAL.speed.toFixed(0)} m/s · ${ARRIVAL.descent.toFixed(1)}° down`);
+    banner(`From ${Math.round(ARRIVAL.range).toLocaleString('en')} m`, ARRIVAL.via ? `${ARRIVAL.name}, ${ARRIVAL.via}` : `${ARRIVAL.name} · ${ARRIVAL.speed.toFixed(0)} m/s · ${ARRIVAL.descent.toFixed(1)}° down`);
   }, 900);
 }
 // For the browser console: the engines and the current run.
