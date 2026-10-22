@@ -153,6 +153,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <div class="row">
     <button id="bSmoke" aria-pressed="true" title="Smoke from the jet's wingtips, carried by the air (M)">Smoke</button>
     <button id="bCores" aria-pressed="true" title="The wake's vortex lines, coloured by strength (V)">Vortices</button>
+    <button id="bLite" class="hide-sm" aria-pressed="false" title="Lite: less smoke and fewer pixels, for slow devices (phones start in it)">Lite</button>
     <button id="bCam" title="Camera views (C)">Camera</button>
     <button id="bReset" title="Fly it again (R)">Again</button>
     <button id="bHelp" title="How it works (H)">?</button>
@@ -225,7 +226,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <li>Pick a scenario or set one up, then <b>Fly it</b> (<kbd>Space</kbd>). <kbd>R</kbd> flies it again.</li>
       <li><b>Slow-mo</b> (<kbd>A</kbd>) slows the clock by itself while the 172 is in the wake, and back up after; the buttons beside it set the speed by hand, down to 1/50. <kbd>P</kbd> pauses.</li>
       <li>Drag to orbit, scroll or pinch to zoom, <kbd>C</kbd> cycles the camera: chase, the 172's cockpit, the tower, beside the two, and behind the jet.</li>
-      <li><b>Smoke</b> (<kbd>M</kbd>) puts smoke on the jet's wingtips, carried by the air the engine computes, so you see the wake roll up, sink and spread. <b>Vortices</b> (<kbd>V</kbd>) draws the wake's vortex lines themselves, brighter where they are stronger.</li>
+      <li><b>Lite</b> draws less smoke at a lower resolution for slow devices; phones start in it, and a computer that cannot keep up switches to it by itself.</li>
+      <li><b>Smoke</b> (<kbd>M</kbd>) puts smoke on the jet's wingtips, carried by the air the engine computes (the wind and the jet's vortices, summed from the same vortex segments the engine flies the 172 through), so you see the wake roll up, sink and spread. <b>Vortices</b> (<kbd>V</kbd>) draws the wake's vortex lines themselves, brighter where they are stronger.</li>
     </ul>
     <h3>What is solved</h3>
     <ul>
