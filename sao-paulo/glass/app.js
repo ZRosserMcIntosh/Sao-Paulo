@@ -1649,6 +1649,12 @@ function updateReadouts(final) {
     const out = $('outcome');
     out.textContent = (r.outcome || (v[5] >= 0 ? 'In contact…' : 'On its way…')).replace(/(\d+(?:\.\d+)?) m\/s/g, (m, x) => fmtSpeed(+x));
     out.className = v[11] ? 'bad' : v[10] ? 'warn' : r.outcome ? 'ok' : '';
+    if (P.scores && P.scores.length && s[6] && r.outcome) {
+      // The score let go (often as the pane rang down, after the knock).
+      const loop = P.scores.some((sc) => sc.closed);
+      out.textContent = loop ? 'The score gave way: the crack ran round it and the disc dropped out' : 'The score gave way: the glass snapped along it';
+      out.className = 'warn';
+    }
     kv.push(['Impact speed', fmtSpeed2(v[0])]);
     kv.push(['Kinetic energy', v[2] < 10 ? `${v[2].toFixed(2)} J` : `${v[2].toFixed(0)} J`]);
     if (v[4] > 0) kv.push(['Peak force', v[4] >= 1e3 ? `${(v[4] / 1e3).toFixed(2)} kN` : `${v[4].toFixed(0)} N`]);
@@ -1840,12 +1846,26 @@ const pointers = new Map();
 let drag = null, pinch0 = 0;
 const surface = flat ? canvas2d : canvas;
 surface.addEventListener('pointerdown', (e) => {
+  if (cutMode && P && !rigs && !activeScene()) {
+    const p = panePointFromEvent(e);
+    if (p && p.x > 0 && p.y > 0 && p.x < P.W && p.y < P.H) {
+      surface.setPointerCapture(e.pointerId);
+      if (cutMode === 'circle') { addScore(circlePts(p, 0.1), true); setCutMode('circle'); }
+      else cutLine = { id: e.pointerId, pts: [p] };
+      return;
+    }
+  }
   surface.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 1) drag = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0, theta: cam.theta, phi: cam.phi };
   if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); drag = null; }
 });
 surface.addEventListener('pointermove', (e) => {
+  if (cutLine && e.pointerId === cutLine.id) {
+    const p = panePointFromEvent(e), last = cutLine.pts[cutLine.pts.length - 1];
+    if (p && p.x > 0 && p.y > 0 && p.x < P.W && p.y < P.H && Math.hypot(p.x - last.x, p.y - last.y) > 0.005) cutLine.pts.push(p);
+    return;
+  }
   if (!pointers.has(e.pointerId)) {
     if (e.pointerType === 'mouse' && P) {
       const p = panePointFromEvent(e);
@@ -1871,6 +1891,12 @@ surface.addEventListener('pointermove', (e) => {
   }
 });
 function endPointer(e) {
+  if (cutLine && e.pointerId === cutLine.id) {
+    const pts = cutLine.pts;
+    cutLine = null;
+    if (pts.length >= 2) { addScore(pts, false); setCutMode('line'); }
+    return;
+  }
   pointers.delete(e.pointerId);
   // A tap in the shop picks the pane to throw through.
   if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && HS && HS.active) {
@@ -2087,6 +2113,13 @@ function buildPresets() {
     b.className = 'feature';
     b.innerHTML = 'Grenade in the shop<small>Pick a window of a glass shop at night: a crash dummy throws a grenade through it and the blast blows out the storefront and every window</small>';
     b.onclick = startHouse;
+    box.appendChild(b);
+  }
+  {
+    const b = document.createElement('button');
+    b.className = 'feature';
+    b.innerHTML = 'Cut a hole like a burglar<small>Score a circle in a window with a glass cutter, knock it from behind with a rubber mallet, and the disc drops out along the score</small>';
+    b.onclick = startBurglar;
     box.appendChild(b);
   }
   {
@@ -2987,6 +3020,73 @@ $('bOddsRun').onclick = runOdds;
 $('bOddsClose').onclick = () => $('odds').classList.remove('on');
 $('odds').onclick = (e) => { if (e.target === $('odds')) $('odds').classList.remove('on'); };
 
+// ---------- A glass cutter ----------
+// A score is a scratch with a vent crack under it: it gives at a fraction of
+// the glass's strength, and a crack that meets it follows it. Knocking it from
+// the far side opens it (bending closes a score on the side you push).
+let cutMode = null, cutLine = null;
+function addScore(pts, closed) {
+  if (!P || rigs || activeScene() || pts.length < 2) return;
+  G.gls_score_begin();
+  for (const p of pts) G.gls_score_point(p.x, p.y);
+  if (G.gls_score_end(closed ? 1 : 0, 0) < 0) return;
+  (P.scores ||= []).push({ pts: pts.map((p) => ({ x: p.x, y: p.y })), closed });
+  if (R) {
+    const v = pts.map((p) => new THREE.Vector3(p.x - P.W / 2, p.y + FLOOR, 0.0006));
+    if (closed) v.push(v[0].clone());
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(v), new THREE.LineBasicMaterial({ color: 0xe8f4ff, transparent: true, opacity: 0.75 }));
+    line.renderOrder = 3;
+    groupPane.add(line); P.meshes.push(line);
+  }
+  $('bKnock').disabled = false;
+  toast(closed ? 'Scored a circle. Now knock it out from behind' : 'Scored. Knock it from behind to snap it', 2600);
+}
+function circlePts(c, r) { return Array.from({ length: 64 }, (_, i) => ({ x: c.x + r * Math.cos(2 * Math.PI * i / 64), y: c.y + r * Math.sin(2 * Math.PI * i / 64) })); }
+function setCutMode(m) {
+  cutMode = cutMode === m ? null : m;
+  $('bCutter').setAttribute('aria-pressed', String(cutMode === 'line'));
+  $('bCircle').setAttribute('aria-pressed', String(cutMode === 'circle'));
+  if (cutMode) toast(cutMode === 'line' ? 'Drag across the glass to score it' : 'Tap the glass where the circle goes');
+}
+// Behind the last score: inside a circle, or 4 cm beside the middle of a line.
+function knockOut() {
+  const sc = P && P.scores && P.scores[P.scores.length - 1];
+  if (!sc) return;
+  const n = sc.pts.length;
+  let at;
+  if (sc.closed) at = sc.pts.reduce((a, p) => ({ x: a.x + p.x / n, y: a.y + p.y / n }), { x: 0, y: 0 });
+  else {
+    const i = Math.floor((n - 1) / 2), a = sc.pts[i], b = sc.pts[Math.min(n - 1, i + 1)];
+    const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1;
+    at = { x: (a.x + b.x) / 2 - 0.04 * dy / L, y: (a.y + b.y) / 2 + 0.04 * dx / L };
+  }
+  const ii = cat.impactors.findIndex((d) => d.id === 'rubber_mallet');
+  if (ii < 0) return;
+  pickImpactor(ii);
+  speed = 5; fromBack = true;
+  $('bSide').setAttribute('aria-pressed', 'true');
+  syncSpeed();
+  aim = { x: clamp(at.x, 0.01, P.W - 0.01), y: clamp(at.y, 0.01, P.H - 0.01) };
+  placeAimMarker();
+  fire(aim);
+}
+$('bCutter').onclick = () => setCutMode('line');
+$('bCircle').onclick = () => setCutMode('circle');
+$('bKnock').onclick = knockOut;
+function startBurglar() {
+  const gi = cat.glazings.findIndex((g) => g.id === 'annealed_6');
+  if (gi < 0) return;
+  if (activeScene()) leaveScene(false);
+  if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
+  if (TONE.on) setTone(false);
+  gIdx = gi;
+  chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+  newPane();
+  simClockReset();
+  addScore(circlePts({ x: P.W / 2, y: P.H / 2 }, 0.1), true);
+  setTimeout(() => { if (P && P.scores) knockOut(); }, 1400);
+}
+
 // ---------- Read the cracks ----------
 // Three stones hit a windscreen while you look away. Their cracks say in which
 // order: a running crack stops where it meets one already there, so the first
@@ -3398,6 +3498,8 @@ function shareURL() {
   for (const l of stack) q.append('L', `${cat.glazings[l.gid].id}:${+(l.gap * 100).toFixed(1)}`);
   q.set('seed', (stackOn ? rigs.map((r) => r.P.seed) : [pane.seed]).join('.'));
   const at = aim || { x: pane.W / 2, y: pane.H / 2 };
+  if (P && P.scores && !stackOn)
+    for (const sc of P.scores) q.append('cut', (sc.closed ? 'c' : 'l') + sc.pts.map((p) => `${+p.x.toFixed(4)},${+p.y.toFixed(4)}`).join(';'));
   if (P && P.nis && !stackOn) q.set('nis', [+P.nis.x.toFixed(4), +P.nis.y.toFixed(4), +P.nis.d.toFixed(3)].join(','));
   const toned = (TONE.on || TONE.broke) && !stackOn;
   if (toned) q.set('tone', [+TONE.freq.toFixed(2), +TONE.dB.toFixed(1), TONE.shaker ? 1 : 0].join(','));
@@ -3459,6 +3561,10 @@ function applyShareLink() {
   if (last) { aim = { x: P.shots[P.shots.length - 1].x, y: P.shots[P.shots.length - 1].y }; placeAimMarker(); }
   auto = true; syncAuto(); buildScaleButtons();
   simClockReset();
+  for (const c of q.getAll('cut').slice(0, 20)) {
+    const pts = c.slice(1).split(';').map((v) => v.split(',').map(Number)).filter((v) => v.length === 2 && v.every(Number.isFinite)).slice(0, 400).map(([x, y]) => ({ x, y }));
+    if (!stackOn) addScore(pts, c[0] === 'c');
+  }
   const ns = (q.get('nis') || '').split(',').map(Number);
   if (ns.length === 3 && ns[2] > 0 && !stackOn) plantStone({ x: clamp(ns[0], 0, P.W), y: clamp(ns[1], 0, P.H), d: clamp(ns[2], 0.01, 2) });
   const tn = (q.get('tone') || '').split(',').map(Number);
