@@ -2066,6 +2066,13 @@ function buildPresets() {
     box.appendChild(b);
   }
   {
+    const b = document.createElement('button');
+    b.className = 'feature';
+    b.innerHTML = "Prince Rupert's drop<small>Its head stops a bullet; snap its tail and the whole drop explodes at 1.5 km/s. Under a high-speed camera and between crossed polarisers</small>";
+    b.onclick = () => { location.href = 'drop/'; };
+    box.appendChild(b);
+  }
+  {
     const gi = cat.glazings.findIndex((g) => g.id === 'picture_glass_2');
     if (gi >= 0) {
       const b = document.createElement('button');
