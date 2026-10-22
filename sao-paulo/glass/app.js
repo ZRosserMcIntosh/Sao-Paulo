@@ -1487,6 +1487,7 @@ function replay() {
     simClockReset();
     return;
   }
+  if (P && P.nis && !P.shots.length) { const n = P.nis; newPane(P.seed); simClockReset(); plantStone(n, 0.4); return; }
   if (!P || !P.shots.length) { toast('Nothing to replay yet'); return; }
   const shots = P.shots.slice();
   newPane(P.seed, true);
@@ -1657,10 +1658,25 @@ function updateReadouts(final) {
     if (r.outcome && v[1] > 0) kv.push(['Leaves at', fmtSpeed(v[1])]);
     if (v[8] > 0) kv.push(['Depth reached', `${(v[8] * 1e3).toFixed(1)} mm of ${(P.T * 1e3).toFixed(1)}`]);
     if (v[9] > 0.0005) kv.push(['Bulge', `${(v[9] * 1e3).toFixed(0)} mm`]);
+    const verdict = P.test && (r.outcome || (P.test === 'z97' && s[6])) ? testVerdict(P.test, v, s) : null;
+    if (verdict) {
+      kv.unshift(['Test', `<span style="color:var(--${verdict.pass ? 'good' : 'bad'})">${verdict.pass ? 'PASS' : 'FAIL'}</span> · ${verdict.name}`]);
+      kv.push(['Why', verdict.why]);
+    }
+  } else if (P.nis && P.nis.text) {
+    const out = $('outcome');
+    out.textContent = P.nis.text;
+    out.className = P.nis.broke ? 'bad' : 'ok';
   } else if (TONE.on || TONE.broke) {
     const out = $('outcome');
     out.textContent = TONE.broke ? TONE.brokeText : `Playing ${fmtHz(TONE.freq)} at the glass…`;
     out.className = TONE.broke ? 'bad' : '';
+  }
+  if (P.puzzle) {
+    // The puzzle says what it needs; the shots' numbers would give it away.
+    $('outcome').textContent = P.puzzle.text;
+    $('outcome').className = P.puzzle.cls || '';
+    if (P.puzzle.phase !== 'done') kv.length = 0;
   }
   $('kv').innerHTML = kv.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   // Plies
@@ -1713,6 +1729,7 @@ function updateReadouts(final) {
 // Announce what happened to each shot once.
 function announce() {
   if (activeScene()) return;
+  if (P.puzzle) { for (let k = 0; k < P.nImp; ++k) P.announced.add(k); return; }   // no spoilers
   for (let k = 0; k < P.nImp; ++k) {
     if (P.announced.has(k)) continue;
     const r = G.report(k), v = r.v;
@@ -1860,6 +1877,11 @@ function endPointer(e) {
     const rect = canvas.getBoundingClientRect();
     HS.pick(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
   }
+  if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && P && P.puzzle && P.puzzle.phase !== 'done') {
+    puzzleTap(panePointFromEvent(e));
+    drag = null;
+    return;
+  }
   if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && P && (!rigs || stackOn)) {
     if (stackOn) useRig(rigs[0]);
     const p = panePointFromEvent(e);
@@ -1958,21 +1980,23 @@ const PRESETS = [
   ['Ball through a window', 'annealed_6', 'steel_ball_2260', 8.86, 'A 2.26 kg steel ball dropped 4 m onto 6 mm plate glass'],
   ['Baseball through a house window', 'annealed_4', 'baseball', 40, '90 mph fastball, thin annealed glass'],
   ['Escape tool on a car door', 'car_side_tempered', 'window_punch', 5.5, 'Spring punch: tempered glass crumbles from a 0.3 J tap'],
-  ['ECE R43 windscreen ball test', 'windscreen', 'steel_ball_2260', 8.86, 'The PVB must catch a 2.26 kg ball from 4 m'],
+  ['ECE R43 windscreen ball test', 'windscreen', 'steel_ball_2260', 8.86, 'The PVB must catch a 2.26 kg ball from 4 m', { test: 'r43' }],
   ['Pedestrian head on a windscreen', 'windscreen', 'headform', 11.1, 'Euro NCAP adult headform at 40 km/h', { y: 0.32 }],
   ['Occupant head from inside', 'windscreen', 'headform', 7, 'Unbelted head strike, 25 km/h, from the cabin', { back: true, y: 0.55 }],
   ['Stone chip at highway speed', 'windscreen', 'stone', 30, 'A granite chip stars the outer ply only'],
-  ['Bird strike at 250 kt', 'aircraft_windshield', 'bird_4lb', 128.6, '14 CFR 25.775: 4 lb bird, pressurised cabin'],
+  ['Bird strike at 250 kt', 'aircraft_windshield', 'bird_4lb', 128.6, '14 CFR 25.775: 4 lb bird, pressurised cabin', { test: 'far25' }],
+  ['Bird strike at 350 kt', 'aircraft_windshield', 'bird_4lb', 180, 'The same bird at a typical airliner design cruise speed', { test: 'far25' }],
   ['Hail on a window', 'annealed_4', 'hail_50', 33, '50 mm hailstone at terminal velocity'],
-  ['Hurricane debris', 'hurricane', 'timber_2x4', 15.2, 'ASTM E1996 missile D: 2x4 stud at 15 m/s'],
-  ['Falling into a shower door', 'tempered_6', 'body_bag', 4.89, 'ANSI Z97.1 bag from 48 in: tempered glass'],
-  ['Falling into an old door', 'annealed_6', 'body_bag', 4.89, 'The same fall into annealed glass'],
-  ['9 mm vs Level 1', 'ul752_l1', 'pistol_9mm', 380, 'UL 752 Level 1 class all-glass laminate'],
-  ['.44 Magnum vs Level 3', 'ul752_l3', 'magnum_44', 430, 'Glass-clad polycarbonate catches it'],
-  ['Rifle vs Level 3', 'ul752_l3', 'rifle_762', 850, 'A handgun rating does not stop 7.62 mm'],
-  ['Rifle vs Level 8', 'ul752_l8', 'rifle_762', 850, 'Rifle-rated: stopped deep in the layup'],
-  ['.50 BMG vs Level 8', 'ul752_l8', 'bmg_50', 900, 'A heavy machine-gun round has five times a rifle\'s energy: straight through'],
-  ['.50 BMG vs Level 10', 'ul752_l10', 'bmg_50', 900, 'Nearly 4 in of glass-clad polycarbonate stops it'],
+  ['Hurricane debris', 'hurricane', 'timber_2x4', 15.2, 'ASTM E1996 missile D: 2x4 stud at 15 m/s', { test: 'e1996' }],
+  ['Hurricane debris vs a plain window', 'annealed_6', 'timber_2x4', 15.2, 'The same 2x4 into ordinary 6 mm glass', { test: 'e1996' }],
+  ['Falling into a shower door', 'tempered_6', 'body_bag', 4.89, 'ANSI Z97.1 bag from 48 in: tempered glass', { test: 'z97' }],
+  ['Falling into an old door', 'annealed_6', 'body_bag', 4.89, 'The same fall into annealed glass', { test: 'z97' }],
+  ['9 mm vs Level 1', 'ul752_l1', 'pistol_9mm', 380, 'UL 752 Level 1 class all-glass laminate', { test: 'ul752' }],
+  ['.44 Magnum vs Level 3', 'ul752_l3', 'magnum_44', 430, 'Glass-clad polycarbonate catches it', { test: 'ul752' }],
+  ['Rifle vs Level 3', 'ul752_l3', 'rifle_762', 850, 'A handgun rating does not stop 7.62 mm', { test: 'ul752' }],
+  ['Rifle vs Level 8', 'ul752_l8', 'rifle_762', 850, 'Rifle-rated: stopped deep in the layup', { test: 'ul752' }],
+  ['.50 BMG vs Level 8', 'ul752_l8', 'bmg_50', 900, 'A heavy machine-gun round has five times a rifle\'s energy: straight through', { test: 'ul752' }],
+  ['.50 BMG vs Level 10', 'ul752_l10', 'bmg_50', 900, 'Nearly 4 in of glass-clad polycarbonate stops it', { test: 'ul752' }],
   ['BB gun vs plate glass', 'annealed_6', 'bb', 120, 'Hertzian cone: the classic conical hole'],
   ['Buckshot through a window', 'annealed_6', 'buckshot_00', 395, 'A 12-gauge 00 buck shell from 7 m: nine pellets, one after another'],
   ['Buckshot vs car door glass', 'car_side_tempered', 'buckshot_00', 395, 'Nine pellets into tempered side glass'],
@@ -2068,6 +2092,33 @@ function buildPresets() {
   {
     const b = document.createElement('button');
     b.className = 'feature';
+    b.innerHTML = 'Read the cracks<small>Three stones hit a windscreen while you look away. Can you tell which came first, the way a forensic examiner would?</small>';
+    b.onclick = startForensics;
+    box.appendChild(b);
+  }
+  {
+    const gi = cat.glazings.findIndex((g) => g.id === 'storefront_tempered_10');
+    if (gi >= 0) {
+      const b = document.createElement('button');
+      b.className = 'feature';
+      b.innerHTML = 'A window that explodes on its own<small>A storefront of tempered glass, years after it was fitted: a 0.4 mm nickel-sulfide stone in its core swells as it changes phase, and the whole panel dices with nothing touching it</small>';
+      b.onclick = () => {
+        if (activeScene()) leaveScene(false);
+        if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
+        if (TONE.on) setTone(false);
+        gIdx = gi;
+        chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+        newPane();
+        simClockReset();
+        const r = mulberry32(P.seed);
+        plantStone({ x: P.W * (0.3 + 0.4 * r()), y: P.H * (0.25 + 0.3 * r()), d: 0.4 });
+      };
+      box.appendChild(b);
+    }
+  }
+  {
+    const b = document.createElement('button');
+    b.className = 'feature';
     b.innerHTML = "Prince Rupert's drop<small>Its head stops a bullet; snap its tail and the whole drop explodes at 1.5 km/s. Under a high-speed camera and between crossed polarisers</small>";
     b.onclick = () => { location.href = 'drop/'; };
     box.appendChild(b);
@@ -2120,6 +2171,7 @@ function buildPresets() {
       const at = { x: P.W / 2, y: P.H * (opt.y ?? 0.5) };
       aim = at;
       placeAimMarker();
+      P.test = opt.test || null;
       fire(at);
       if (window.innerWidth <= 860) showTab('res');
     };
@@ -2849,6 +2901,224 @@ function listen(poses, nFrag) {
 window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, get HS() { return HS; }, get rigs() { return rigs; },
   get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound };
 
+// ---------- Odds of breaking ----------
+// The same shot into a hundred panes, each with its own flaws, in a second
+// copy of the engine on a worker.
+let oddsWorker = null, oddsId = 0, oddsPts = [], oddsSpeeds = [];
+function oddsRange() {
+  const d = cat.impactors[iIdx];
+  const lo = Math.max(d.minSpeed || 0.1, speed / 20), hi = Math.min(Math.max(d.maxSpeed || speed, speed) * 1.5, 4 * speed);
+  return Array.from({ length: 10 }, (_, i) => lo * Math.pow(hi / lo, i / 9));
+}
+function openOdds() {
+  $('odds').classList.add('on');
+  $('oddsWhat').textContent = `${cat.impactors[iIdx].name} into ${cat.glazings[gIdx].name}${P ? ` (${P.W.toFixed(2)} × ${P.H.toFixed(2)} m)` : ''}, square on at the centre.`;
+  oddsSpeeds = oddsRange();
+  oddsPts = [];
+  $('oddsStatus').textContent = '';
+  drawOdds();
+}
+function runOdds() {
+  if (!oddsWorker) {
+    oddsWorker = new Worker('odds_worker.js', { type: 'module' });
+    oddsWorker.onmessage = (e) => {
+      const m = e.data;
+      if (m.id !== oddsId) return;
+      if (m.error) { $('oddsStatus').textContent = 'Could not run: ' + m.error; return; }
+      if (m.progress !== undefined) $('oddsStatus').textContent = `${Math.round(100 * m.progress)} % · ${oddsPts.length} of ${oddsSpeeds.length} speeds`;
+      if (m.point) { oddsPts.push(m.point); drawOdds(); }
+      if (m.done) {
+        const half = (key) => {
+          for (let i = 1; i < oddsPts.length; ++i) {
+            const a = oddsPts[i - 1], b = oddsPts[i];
+            if (a[key] < 0.5 && b[key] >= 0.5) return a.v * Math.pow(b.v / a.v, (0.5 - a[key]) / Math.max(1e-9, b[key] - a[key]));
+          }
+          return oddsPts.length && oddsPts[0][key] >= 0.5 ? -1 : null;
+        };
+        const hb = half('broke'), ht = half('through');
+        const say = (h, what) => (h === null ? `never ${what} in this range` : h < 0 ? `${what} half the time or more even at the slowest` : `${what} half the time at ${fmtSpeed(h)}`);
+        $('oddsStatus').textContent = `${say(hb, 'breaks')} · ${say(ht, 'goes through')}`;
+        $('bOddsRun').disabled = false;
+      }
+    };
+  }
+  oddsId++;
+  oddsPts = [];
+  oddsSpeeds = oddsRange();
+  const seeds = Array.from({ length: 10 }, () => (Math.random() * 1e9) >>> 0);
+  $('bOddsRun').disabled = true;
+  $('oddsStatus').textContent = 'Starting the second engine…';
+  drawOdds();
+  oddsWorker.postMessage({ id: oddsId, glazing: gIdx, impactor: iIdx, speeds: oddsSpeeds, seeds, tier: 0, width: P ? P.W : 0, height: P ? P.H : 0 });
+}
+function drawOdds() {
+  const c = $('oddsChart'), g = c.getContext('2d'), W = c.width, H = c.height;
+  const L = 52, Rm = 14, T = 16, B = 40;
+  g.clearRect(0, 0, W, H);
+  g.font = '11px "JetBrains Mono", monospace';
+  g.fillStyle = '#93a0b2'; g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 1;
+  const v0 = oddsSpeeds[0] || 1, v1 = oddsSpeeds[oddsSpeeds.length - 1] || 2;
+  const X = (v) => L + (W - L - Rm) * Math.log(v / v0) / Math.log(v1 / v0), Y = (p) => T + (H - T - B) * (1 - p);
+  for (const p of [0, 0.25, 0.5, 0.75, 1]) {
+    g.beginPath(); g.moveTo(L, Y(p)); g.lineTo(W - Rm, Y(p)); g.stroke();
+    g.fillText(`${Math.round(100 * p)} %`, 8, Y(p) + 4);
+  }
+  for (let i = 0; i < oddsSpeeds.length; i += 3) {
+    const v = oddsSpeeds[i];
+    g.fillText(fmtSpeed(v), X(v) - 18, H - B + 18);
+  }
+  g.fillText('speed', W - Rm - 40, H - 6);
+  // The speed set in the lab.
+  if (speed >= v0 && speed <= v1) {
+    g.strokeStyle = 'rgba(255,211,107,0.6)'; g.setLineDash([4, 4]);
+    g.beginPath(); g.moveTo(X(speed), T); g.lineTo(X(speed), H - B); g.stroke(); g.setLineDash([]);
+  }
+  for (const [key, col, label] of [['broke', '#f0b43a', 'breaks'], ['through', '#ef5d4f', 'goes through']]) {
+    g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 2;
+    g.beginPath();
+    oddsPts.forEach((pt, i) => (i ? g.lineTo(X(pt.v), Y(pt[key])) : g.moveTo(X(pt.v), Y(pt[key]))));
+    g.stroke();
+    for (const pt of oddsPts) { g.beginPath(); g.arc(X(pt.v), Y(pt[key]), 3.5, 0, 2 * Math.PI); g.fill(); }
+    g.fillText(label, key === 'broke' ? L + 8 : L + 80, T + 12);
+  }
+}
+$('bOdds').onclick = openOdds;
+$('bOddsRun').onclick = runOdds;
+$('bOddsClose').onclick = () => $('odds').classList.remove('on');
+$('odds').onclick = (e) => { if (e.target === $('odds')) $('odds').classList.remove('on'); };
+
+// ---------- Read the cracks ----------
+// Three stones hit a windscreen while you look away. Their cracks say in which
+// order: a running crack stops where it meets one already there, so the first
+// star's cracks run out to the frame and the later ones' end at the earlier.
+function startForensics() {
+  const gi = cat.glazings.findIndex((g) => g.id === 'windscreen'), ii = cat.impactors.findIndex((d) => d.id === 'steel_ball_227');
+  if (gi < 0 || ii < 0) return;
+  if (activeScene()) leaveScene(false);
+  if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
+  if (TONE.on) setTone(false);
+  gIdx = gi;
+  chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+  pickImpactor(ii);
+  speed = 16; yaw = 0; pitch = 0; fromBack = false;
+  $('bSide').setAttribute('aria-pressed', 'false');
+  syncSpeed();
+  newPane();
+  simClockReset();
+  P.puzzle = { phase: 'hidden', text: 'Three stones are about to hit this windscreen while you look away…' };
+  if (aimMarker) aimMarker.visible = false;
+  toast('Look away… three stones hit the windscreen', 2400);
+  setTimeout(() => {
+    // Across the windscreen, in a random order, 60 ms apart; every one must
+    // have broken the glass (a stone can bounce off), or the evidence is
+    // thrown away and it happens again.
+    for (let attempt = 0; attempt < 8; ++attempt) {
+      if (attempt) newPane();
+      const r = mulberry32((P.seed ^ 0x9e3779b9) >>> 0);
+      const cols = [0.2, 0.5, 0.8].sort(() => r() - 0.5);
+      const pts = cols.map((c) => ({ x: P.W * (c + 0.06 * (r() - 0.5)), y: P.H * (0.3 + 0.4 * r()) }));
+      const t0 = G.gls_time();
+      pts.forEach((p, k) => { G.gls_advance(t0 + 0.06 * k, 50000000); fire(p); });
+      G.gls_advance(t0 + 0.12 + 0.4, 50000000);
+      P.puzzle = { pts, guess: [], phase: 'hidden' };
+      let all = true;
+      for (let k = 0; k < 3; ++k) all = all && G.report(k).v[10] > 0;
+      if (all) break;
+    }
+    for (const m of P.impMeshes) if (m) m.visible = false;
+    if (aimMarker) aimMarker.visible = false;
+    simClockReset();
+    auto = true; syncAuto(); buildScaleButtons();
+    P.puzzle.phase = 'guess';
+    P.puzzle.text = 'Which came first? Tap the three impact points in the order they happened.';
+    P.puzzle.cls = '';
+    $('rWhat').textContent = 'Read the cracks';
+    banner('Which came first?', 'Tap the impact points in order');
+  }, 1200);
+}
+function puzzleLabel(text, color) {
+  const c = document.createElement('canvas'); c.width = c.height = 96;
+  const g = c.getContext('2d');
+  g.fillStyle = color; g.beginPath(); g.arc(48, 48, 40, 0, 2 * Math.PI); g.fill();
+  g.fillStyle = '#0a1830'; g.font = '900 44px "Big Shoulders Display", Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, 48, 51);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  sp.renderOrder = 8;
+  return sp;
+}
+function puzzleTap(p) {
+  const pz = P.puzzle;
+  if (!p || pz.phase !== 'guess') return;
+  let best = -1, bd = 0.1;
+  pz.pts.forEach((q, i) => { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd && !pz.guess.includes(i)) { bd = d; best = i; } });
+  if (best < 0) { toast('Tap right on an impact point'); return; }
+  pz.guess.push(best);
+  if (R) {
+    const q = pz.pts[best], sp = puzzleLabel(String(pz.guess.length), '#ffd36b');
+    sp.position.set(q.x - P.W / 2, q.y + FLOOR, 0.02);
+    sp.scale.setScalar(0.09);
+    groupPane.add(sp); P.meshes.push(sp);
+  }
+  if (pz.guess.length < pz.pts.length) return;
+  // The reveal: the true order beside each guess.
+  pz.phase = 'done';
+  const right = pz.guess.every((g, k) => g === k);
+  if (R) pz.pts.forEach((q, i) => {
+    const rank = pz.guess.indexOf(i) + 1, ok = rank === i + 1;
+    const sp = puzzleLabel(String(i + 1), ok ? '#36c483' : '#ef5d4f');
+    sp.position.set(q.x - P.W / 2 + 0.07, q.y + FLOOR + 0.06, 0.02);
+    sp.scale.setScalar(0.07);
+    groupPane.add(sp); P.meshes.push(sp);
+  });
+  banner(right ? 'Read it right' : 'Not quite', right ? 'The order of the stones, from their cracks alone' : 'Green: the true order, where you had it right');
+  pz.cls = right ? 'ok' : 'bad';
+  pz.text = (right ? 'Right. ' : 'Not quite. ') + 'The first star\'s cracks run out to the frame; the second\'s stop where they meet the first\'s; the third\'s stop at both. Replay (Z) shows it happening.';
+  updateReadouts();
+}
+
+// ---------- Certification tests ----------
+// Each scenario that reproduces a published test says whether the glass would
+// pass it, by that test's own criterion, and what of the test is not simulated.
+// v: the shot's report; s: the pane's state.
+function testVerdict(kind, v, s) {
+  const through = !!v[11], stopped = !!v[13], broke = !!s[6], intact = !!s[8];
+  switch (kind) {
+    case 'r43': return { name: 'ECE R43 2.26 kg ball', pass: !through,
+      why: through ? 'the ball went through the windscreen' : 'the interlayer held the ball' };
+    case 'e1996': return { name: 'ASTM E1996 missile D', pass: !through,
+      why: (through ? 'the 2x4 went through' : 'no penetration on impact') + '; the 9,000 pressure cycles that follow in the real test are not simulated' };
+    case 'far25': return { name: '14 CFR 25.775 bird strike', pass: intact && !through,
+      why: intact ? 'the windshield kept the cabin sealed' : 'the windshield was breached: the cabin would depressurise' };
+    case 'z97': {
+      const tempered = P.plies.some((p) => p.dicing);
+      return { name: 'ANSI Z97.1 impact', pass: !broke || tempered,
+        why: !broke ? 'it did not break' : tempered ? 'it broke into small dice, as safety glass must' : 'it broke into long sharp shards: annealed glass cannot pass' };
+    }
+    case 'ul752': return { name: 'UL 752 (one shot)', pass: stopped && !through,
+      why: stopped ? 'the round was stopped in the layup' : 'the round went through' };
+    default: return null;
+  }
+}
+
+// ---------- A pane that breaks by itself ----------
+// Nickel sulfide: a stone in the glass that slowly changes phase and swells,
+// years after tempering. In the tensile core of a tempered pane, a big enough
+// one breaks it with nothing touching it.
+function plantStone(n, delay = 1.6) {
+  if (!P || rigs || activeScene()) return;
+  P.nis = { x: n.x, y: n.y, d: n.d };
+  toast(delay > 0.5 ? `A ${n.d.toFixed(2)} mm nickel-sulfide stone sits in the glass. Years pass…` : 'Again', 2600);
+  setTimeout(() => {
+    if (!P || !P.nis) return;
+    const broke = G.gls_nickel_sulfide(n.x, n.y, n.d);
+    P.nis.broke = !!broke;
+    P.nis.text = (G.text() || '').replace(/^\s*[\d.]+ us\s+/, '').replace(/^./, (c) => c.toUpperCase());
+    banner(broke ? 'Exploded on its own' : 'Still standing', broke ? 'Nothing touched it' : 'The stone is too small to break it');
+    simClockReset();
+    auto = true; syncAuto(); buildScaleButtons();
+  }, delay * 1000);
+}
+
 // ---------- Sound: a steady note at the glass ----------
 // A loudspeaker (or a voice) is a plane wave on the struck face: the engine
 // gets its peak pressure at the glass, doubled by the reflection there. A
@@ -3128,9 +3398,10 @@ function shareURL() {
   for (const l of stack) q.append('L', `${cat.glazings[l.gid].id}:${+(l.gap * 100).toFixed(1)}`);
   q.set('seed', (stackOn ? rigs.map((r) => r.P.seed) : [pane.seed]).join('.'));
   const at = aim || { x: pane.W / 2, y: pane.H / 2 };
+  if (P && P.nis && !stackOn) q.set('nis', [+P.nis.x.toFixed(4), +P.nis.y.toFixed(4), +P.nis.d.toFixed(3)].join(','));
   const toned = (TONE.on || TONE.broke) && !stackOn;
   if (toned) q.set('tone', [+TONE.freq.toFixed(2), +TONE.dB.toFixed(1), TONE.shaker ? 1 : 0].join(','));
-  const shots = pane.shots.length ? pane.shots : toned ? [] : [{ t: 0, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack }];
+  const shots = pane.shots.length ? pane.shots : toned || P.nis ? [] : [{ t: 0, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack }];
   const t0 = shots.length ? shots[0].t : 0;
   for (const sh of shots)
     q.append('shot', [cat.impactors[sh.iIdx].id, +sh.speed.toFixed(2), +sh.x.toFixed(4), +sh.y.toFixed(4), +sh.yaw.toFixed(1),
@@ -3140,6 +3411,7 @@ function shareURL() {
 function shareText() {
   if (HS && HS.active) return 'Grenade in the shop';
   if (GT && GT.active) return 'Rosser V8 under fire';
+  if (P.nis && !stackOn && !P.shots.length) return `${cat.glazings[gIdx].name} with a ${P.nis.d.toFixed(2)} mm nickel-sulfide stone`;
   if ((TONE.on || TONE.broke) && !stackOn && !P.shots.length) return `${cat.glazings[gIdx].name} sung at ${fmtHz(TONE.freq)}, ${TONE.shaker ? $('vLevel').textContent + ' shaker' : `${TONE.dB.toFixed(0)} dB`}`;
   const pane = stackOn ? rigs[0].P : P;
   const sh = pane.shots[pane.shots.length - 1] || { iIdx, speed };
@@ -3187,6 +3459,8 @@ function applyShareLink() {
   if (last) { aim = { x: P.shots[P.shots.length - 1].x, y: P.shots[P.shots.length - 1].y }; placeAimMarker(); }
   auto = true; syncAuto(); buildScaleButtons();
   simClockReset();
+  const ns = (q.get('nis') || '').split(',').map(Number);
+  if (ns.length === 3 && ns[2] > 0 && !stackOn) plantStone({ x: clamp(ns[0], 0, P.W), y: clamp(ns[1], 0, P.H), d: clamp(ns[2], 0.01, 2) });
   const tn = (q.get('tone') || '').split(',').map(Number);
   if (tn[0] > 0 && !stackOn) {
     TONE.freq = clamp(tn[0], 10, 5000);
