@@ -50,6 +50,11 @@
       "source": "/sao-paulo/ballistics",
       "destination": "/sao-paulo/ballistics/",
       "permanent": true
+    },
+    {
+      "source": "/sao-paulo/wake",
+      "destination": "/sao-paulo/wake/",
+      "permanent": true
     }
   ],
   "headers": [
