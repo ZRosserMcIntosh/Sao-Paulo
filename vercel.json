@@ -45,6 +45,11 @@
       "source": "/sao-paulo/liquids",
       "destination": "/sao-paulo/liquids/",
       "permanent": true
+    },
+    {
+      "source": "/sao-paulo/wake",
+      "destination": "/sao-paulo/wake/",
+      "permanent": true
     }
   ],
   "headers": [
