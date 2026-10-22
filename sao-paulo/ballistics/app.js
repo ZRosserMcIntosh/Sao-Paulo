@@ -347,8 +347,22 @@ function strikeV8(impact, at) {
 
 // The flight: holds applied, fired through the true wind, flown to the end
 // first ("fly first, then show": docs/bullet-time.md in the engine).
+// Every round fired is in `shots`, each with its engine id; `shot` is the
+// latest, the one the cameras, bullet time and results follow.
 let shot = null;
-function fire() {
+const shots = [];
+let tNow = S.t0;     // the range's clock: engine time (s)
+let nowWall = 0;     // the page's clock (s)
+// Reads a round's state from the engine (selecting it first).
+const stateOf = (sh, t) => { B.bd_select(sh.id); return B.stateAt(t); };
+function retire(sh) {
+  scene.remove(sh.mesh);
+  if (sh.tracerGroups) for (const g of sh.tracerGroups) scene.remove(g);
+  B.bd_release(sh.id);
+  shots.splice(shots.indexOf(sh), 1);
+}
+function retireAll(keep = null) { for (const sh of [...shots]) if (sh !== keep) retire(sh); }
+function fire(tFire) {
   const dope = solveDope();
   station();
   setup(false);
@@ -356,9 +370,10 @@ function fire() {
   const e0 = B.bd_zero(ci(), ZERO, sightHeight());
   const aim = shotHold(dope);
   const el = e0 + aim.up, az = S.az * DEG + aim.right;
-  if (!Number.isFinite(e0) || !B.bd_fire(ci(), 0, 0, 0, az, el, S.t0)) { toast('This load cannot reach the zero.'); return null; }
+  const id = Number.isFinite(e0) ? B.bd_fire(ci(), 0, 0, 0, az, el, tFire) : 0;
+  if (!id) { toast('This load cannot reach the zero.'); return null; }
   // Fly to the target plane, then on to the ground.
-  const t0 = S.t0;
+  const t0 = tFire;
   let t = t0, r = B.round();
   while (!r.stopped && t - t0 < 25) {
     t += 0.05;
@@ -399,18 +414,19 @@ function fire() {
     glass = strikeV8(impact, atT);
     hit = glass.onGlass;
   }
+  const mesh = bullet.clone(true);
+  mesh.visible = true;
+  scene.add(mesh);
   shot = {
-    S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg,
+    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg,
     round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
+    mesh, body: mesh.getObjectByName('body'), len: bullet.userData.length, done: false, doneWall: 0, left: false,
+    // The engine keeps the round in the air it was fired into, so the
+    // breakdown's flights (new air, new wind) leave it alone.
     bars: breakdown(),
   };
-  // breakdown() reset the engine's air and wind: fly the shot again so the
-  // round in the engine is this one (the same inputs give the same bits).
-  station();
-  setup(false);
-  B.wind(S.az * DEG, trueLayers());
-  B.bd_fire(ci(), 0, 0, 0, az, el, t0);
-  B.bd_advance(tEnd + 0.002, 0);
+  shots.push(shot);
+  if (shots.length > 24) retire(shots[0]);
   return shot;
 }
 
@@ -672,7 +688,9 @@ function placeRifle() { rifle.getObjectByName('scope').position.set(0, sightHeig
 // The bullet: true size, copper, with the rifling's engraving so the spin shows.
 const bullet = new THREE.Group();
 const bulletBody = new THREE.Group();
+bulletBody.name = 'body';
 bullet.add(bulletBody);
+bullet.visible = false;  // the pattern each round's own copy is made from
 function buildBullet() {
   bulletBody.clear();
   const p = projRaw(S.c);
@@ -727,39 +745,47 @@ const glowTex = (() => {
   return new THREE.CanvasTexture(c);
 })();
 const TRACER_N = 28, TRACER_DT = 0.0025;  // glows along the last 0.07 s of flight
-const tracerSets = [false, true].map((life) => {
-  const grp = new THREE.Group();
-  for (let k = 0; k < TRACER_N; ++k)
-    grp.add(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, sizeAttenuation: life })));
-  grp.visible = false;
-  scene.add(grp);
-  return grp;
-});
-function updateTracer(tEngine, life, fov) {
-  for (const g of tracerSets) g.visible = false;
-  if (!shot || phase === 'idle' || S.tracer === 'off') return;
-  const fade = phase === 'after' ? Math.exp(-afterWall * 8) : 1;
-  if (fade < 0.02) return;
-  const grp = tracerSets[life ? 1 : 0], burn = S.tracerToImpact ? Infinity : tracerBurnout(projRaw(shot.S.c)), col = TRACER_COLOURS[S.tracer];
+function tracerGroups(sh) {
+  if (!sh.tracerGroups)
+    sh.tracerGroups = [false, true].map((life) => {
+      const grp = new THREE.Group();
+      for (let k = 0; k < TRACER_N; ++k)
+        grp.add(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, sizeAttenuation: life })));
+      grp.visible = false;
+      scene.add(grp);
+      return grp;
+    });
+  return sh.tracerGroups;
+}
+function updateTracer(life, fov) {
   const screen = 2 * Math.tan((fov * DEG) / 2);  // a glow's size as a share of the view's height
-  grp.visible = true;
-  for (let k = 0; k < TRACER_N; ++k) {
-    const sp = grp.children[k], t = tEngine - k * TRACER_DT;
-    const st = t >= shot.t0 ? B.stateAt(t) : null, d = st ? lof(st.position).d : -1;
-    sp.visible = !!st && d >= TRACER_LIGHTS && d <= burn;
-    if (!sp.visible) continue;
-    sp.position.copy(v3(st.position));
-    if (k === 0 && life) sp.position.addScaledVector(v3(st.velocity).normalize(), -bullet.userData.length * 0.5);
-    const f = 1 - k / TRACER_N;
-    // A white-hot core at the head, the colour along the streak.
-    sp.material.color.setHex(col);
-    if (k === 0) sp.material.color.lerp(new THREE.Color(0xffffff), life ? 0.35 : 0.12);
-    sp.material.opacity = (k === 0 ? 1 : 0.45 * f * f) * fade;
-    const sz = life ? (k === 0 ? 0.03 : 0.02 * f) : screen * (k === 0 ? 0.022 : 0.012 * (0.4 + 0.6 * f));
-    sp.scale.set(sz, sz, 1);
+  const col = TRACER_COLOURS[S.tracer];
+  for (const sh of shots) {
+    if (sh.tracerGroups) for (const g of sh.tracerGroups) g.visible = false;
+    if (S.tracer === 'off' || tNow < sh.t0) continue;
+    const fade = sh.done ? Math.exp(-(nowWall - sh.doneWall) * 8) : 1;
+    if (fade < 0.02) continue;
+    const grp = tracerGroups(sh)[life ? 1 : 0], burn = S.tracerToImpact ? Infinity : tracerBurnout(projRaw(sh.S.c));
+    const tE = Math.min(tNow, sh.tStop);
+    grp.visible = true;
+    B.bd_select(sh.id);
+    for (let k = 0; k < TRACER_N; ++k) {
+      const sp = grp.children[k], t = tE - k * TRACER_DT;
+      const st = t >= sh.t0 ? B.stateAt(t) : null, d = st ? lof(st.position).d : -1;
+      sp.visible = !!st && d >= TRACER_LIGHTS && d <= burn;
+      if (!sp.visible) continue;
+      sp.position.copy(v3(st.position));
+      if (k === 0 && life) sp.position.addScaledVector(v3(st.velocity).normalize(), -sh.len * 0.5);
+      const f = 1 - k / TRACER_N;
+      // A white-hot core at the head, the colour along the streak.
+      sp.material.color.setHex(col);
+      if (k === 0) sp.material.color.lerp(new THREE.Color(0xffffff), life ? 0.35 : 0.12);
+      sp.material.opacity = (k === 0 ? 1 : 0.45 * f * f) * fade;
+      const sz = life ? (k === 0 ? 0.03 : 0.02 * f) : screen * (k === 0 ? 0.022 : 0.012 * (0.4 + 0.6 * f));
+      sp.scale.set(sz, sz, 1);
+    }
   }
 }
-
 // ---------- Scope: render target, mirage, reticle ----------
 const rt = new THREE.WebGLRenderTarget(1, 1, { samples: 4 });
 // The trace: the engine's wake, drawn as how much it bends the light behind
@@ -1118,18 +1144,17 @@ function setCam(c) {
 }
 
 // ---------- Time ----------
-let te = 0;          // engine time since the shot (s)
+let te = 0;          // engine time since the latest shot (s)
 let scale = 1;       // manual playback speed
 let auto = true;     // bullet time
 let phase = 'idle';  // idle | flight | after
 let afterWall = 0;
-function autoScale() {
-  if (!shot) return 1;
-  const tof = (shot.tStop - shot.t0);
+function autoScale(sh) {
+  const tof = (sh.tStop - sh.t0);
   const cruise = Math.min(1, Math.max(0.01, tof / 7));
-  const st = B.stateAt(shot.t0 + te);
+  const st = stateOf(sh, Math.min(tNow, sh.tStop));
   const d = lof(st.position).d;
-  const rem = Math.max(0, (shot.hit ? S.dist : lof(B.stateAt(shot.tStop).position).d) - d);
+  const rem = Math.max(0, (sh.hit ? sh.S.dist : lof(B.stateAt(sh.tStop).position).d) - d);
   const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
   const fromMuzzle = 0.003 + (cruise - 0.003) * sm(1, 40, d);
   const toEnd = 0.0004 + (cruise - 0.0004) * sm(0.5, 35, rem);
@@ -1179,7 +1204,7 @@ function presetsUI() {
     const b = document.createElement('button');
     if (p.feature) b.className = 'feature';
     b.innerHTML = `${p.name}<small>${p.sub}</small>`;
-    b.onclick = () => { Object.assign(S, { tgt: 'plate', glazing: 'windscreen' }, structuredClone(p.s)); S.t0 = 10; resetAim(); syncUI(); changed(true); refresh(); fireNow(); };
+    b.onclick = () => { Object.assign(S, { tgt: 'plate', glazing: 'windscreen' }, structuredClone(p.s)); S.t0 = 10; resetAim(); syncUI(); changed(true); refresh(); tNow = S.t0; fireNow(); };
     box.appendChild(b);
   }
 }
@@ -1253,7 +1278,7 @@ function changed(rebuild = false) {
   labels();
   clearTimeout(dopeTimer);
   dopeTimer = setTimeout(refresh, rebuild ? 0 : 90);
-  if (rebuild) { impacts = []; missMarks = []; buildRange(); buildBullet(); placeRifle(); magnification = magFor(S.dist); }
+  if (rebuild) { retireAll(); shot = null; path.visible = false; impacts = []; missMarks = []; buildRange(); buildBullet(); placeRifle(); magnification = magFor(S.dist); }
 }
 // The dope for the call, then the true air back in the engine for the flags.
 function refresh() {
@@ -1269,8 +1294,6 @@ function refresh() {
     $('daInfo').textContent = `ρ ${a.density.toFixed(3)} kg/m³ · DA ${fmtAlt(a.densityAltitude)}`;
     const sg = S.spin ? B.bd_stability(ci()) : 0;
     $('sgInfo').textContent = S.spin ? `Sg ${sg.toFixed(2)}${sg < 1 ? ' · unstable' : sg < 1.4 ? ' · marginal' : ''}` : '';
-    // New air or wind replaced the round in the engine: the last shot is gone.
-    phase = 'idle'; shot = null; bullet.visible = false; path.visible = false;
   }
 }
 function dopeUI() {
@@ -1339,7 +1362,7 @@ function resultsUI() {
   kv.push(['Muzzle', `${fmtV(sh.muzzleSpeed)} · Mach ${(sh.muzzleSpeed / sh.air.speedOfSound).toFixed(2)}`]);
   if (S.spin) kv.push(['Stability Sg', `${sh.sg.toFixed(2)} → ${sh.round.stability.toFixed(2)}${sh.round.tumbling ? ' · TUMBLED' : ''}`]);
   if (sh.round.subsonicTime > 0) {
-    const st = B.stateAt(sh.t0 + sh.round.subsonicTime);
+    const st = stateOf(sh, sh.t0 + sh.round.subsonicTime);
     kv.push(['Went subsonic at', fmtDist(lof(st.position).d)]);
   }
   {
@@ -1374,6 +1397,7 @@ function drawV8Cracks(gl) {
 // where every shot went; misses marked too when set to every impact.
 function hitFeedback(sh) {
   if (S.markers === 'off' || !sh.impact) return;
+  const T = sh.S;  // the range as it was for this round
   const isHit = sh.hit;
   if (isHit) {
     const m = $('hitmark');
@@ -1381,15 +1405,15 @@ function hitFeedback(sh) {
     void m.offsetWidth;
     m.classList.add('on');
     // Red when it reached the dummy (through the V8's glass, or the dummy target).
-    if (S.tgt === 'dummy' || (S.tgt === 'v8' && sh.glass && sh.glass.penetrated)) m.classList.add('kill');
+    if (T.tgt === 'dummy' || (T.tgt === 'v8' && sh.glass && sh.glass.penetrated)) m.classList.add('kill');
     tick();
   }
   if (isHit || S.markers === 'all') {
     impacts.push({ right: sh.impact.right, up: sh.impact.up, hit: isHit });
     if (impacts.length > 6) impacts.shift();
-    if (!isHit && S.tgt === 'plate') {
-      const x = label('×', Math.max(0.15, S.size * 0.3), '#ff3b2f', 'rgba(0,0,0,0)');
-      x.position.set(sh.impact.right, sightHeight() + sh.impact.up, -S.dist + 0.05);
+    if (!isHit && T.tgt === 'plate') {
+      const x = label('×', Math.max(0.15, T.size * 0.3), '#ff3b2f', 'rgba(0,0,0,0)');
+      x.position.set(sh.impact.right, sightHeight() + sh.impact.up, -T.dist + 0.05);
       range.add(x);
       missMarks.push(x);
       if (missMarks.length > 6) range.remove(missMarks.shift());
@@ -1407,30 +1431,59 @@ function tick() {
 function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2400); }
 function banner(a, b) { $('bTitle').textContent = a; $('bSub').textContent = b; $('banner').classList.add('on'); clearTimeout(banner.t); banner.t = setTimeout(() => $('banner').classList.remove('on'), 3200); }
 
+// The quickest a rifle shoots again (s of engine time): a bolt has to be
+// worked, a semi-automatic is ready as fast as the trigger. Estimated. A shot
+// asked for sooner waits its turn: in bullet time the rounds still leave the
+// muzzle at the rifle's true cadence.
+const RIFLE_CYCLE = { m24_sws: 1.2, bolt_65cm: 1.2, bolt_338lm: 1.4, m200_408: 1.6, m9130_pu: 1.3, m107_50bmg: 0.25, svd_pso1: 0.2, m16a2: 0.12, pistol_9mm: 0.12 };
+// A round arrives: the plate rings and swings, the glass breaks, the dust flies.
+function arrive(sh) {
+  const T = sh.S;
+  hitFeedback(sh);
+  if (T.tgt === 'v8' && sh.glass && sh.glass.onGlass) {
+    drawV8Cracks(sh.glass);
+    noiseBurst(0.35, 3000, 0.4);
+    banner(sh.glass.penetrated ? 'Through the glass' : 'Stopped', sh.glass.penetrated ? `${sh.glass.vin.toFixed(0)} → ${sh.glass.vout.toFixed(0)} m/s: watch it in the Liquids Lab` : 'the armoured windscreen held');
+  } else if (sh.hit && T.tgt === 'dummy') {
+    banner('Hit', `the dummy's ${dummyPart(sh.impact)} at ${fmtDist(T.dist)}: watch it in the Liquids Lab`);
+  } else if (sh.hit) {
+    ping();
+    plate.userData.swing = Math.min(0.9, 0.2 + (sh.atTarget ? Math.hypot(...sh.atTarget.velocity) / 2000 : 0.3));
+    plate.userData.phase = 0;
+    const mark = new THREE.Mesh(new THREE.CircleGeometry(Math.max(0.012, T.size * 0.02), 16), new THREE.MeshBasicMaterial({ color: 0xd9d4c8 }));
+    mark.position.set(sh.impact.right, sh.impact.up, 0.012);
+    plate.children[0].add(mark);
+    hitMarks.push(mark);
+    if (hitMarks.length > 12) plate.children[0].remove(hitMarks.shift());
+    banner('Hit', `${fmtLen(Math.hypot(sh.impact.right, sh.impact.up))} from centre at ${fmtDist(T.dist)}`);
+  } else {
+    const p = v3(stateOf(sh, sh.tStop).position);
+    dust.position.copy(p);
+    dust.scale.setScalar(0.3);
+    dust.material.opacity = 0.85;
+    noiseBurst(0.25, 600, 0.25);
+    banner('Miss', sh.impact ? `${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'}` : 'short of the target');
+  }
+}
+
 function fireNow() {
   if (S.tgt === 'v8' && !G) { toast('Loading the glass engine for the windscreen…'); $('outcome').className = ''; $('outcome').textContent = 'Loading the glass engine…'; $('watch').hidden = true; ensureGlass().then(() => fireNow()).catch((e) => toast('Glass engine: ' + e.message)); return; }
+  const cycle = RIFLE_CYCLE[RIFLE_FOR[S.c]] ?? 0.9;
+  const prev = shots.at(-1), t0 = Math.max(tNow, prev ? prev.t0 + cycle : tNow);
+  if (t0 - tNow > 8 * cycle) { toast('Eight rounds are already waiting to go'); return; }
   if (dopeTimer) refresh();  // settings still pending: apply them first
-  if (!fire()) return;
-  te = 0;
-  phase = 'flight';
-  bullet.visible = true;
-  hitMarks.forEach((m) => target.remove(m));
-  hitMarks = [];
-  plate.rotation.x = 0;
-  plate.userData.swing = 0;
-  flash.material.opacity = 1;
-  dust.material.opacity = 0;
-  noiseBurst(0.5, 2200, 0.5);
+  if (!fire(t0)) return;
+  if (t0 > tNow + 1e-6) toast(cycle > 0.5 ? 'Working the bolt…' : 'Next round');
   if (auto) setCam('bullet');
   resultsUI();
   // The dashed path of the whole flight, for the scope and shooter views.
   const pts = [];
+  B.bd_select(shot.id);
   for (let t = shot.t0; t <= shot.tStop; t += Math.max(0.002, (shot.tStop - shot.t0) / 400)) pts.push(v3(B.stateAt(t).position));
   pts.push(v3(B.stateAt(shot.tStop).position));
   pathGeo.setFromPoints(pts);
   path.computeLineDistances();
   path.visible = false;
-  S.t0 = shot.t0 + 7.3;  // the next shot meets the gusts at another moment
 }
 
 $('cartridge').onchange = (e) => { S.c = e.target.value; resetAim(); syncUI(); changed(true); };
@@ -1494,7 +1547,7 @@ $('fSpin').onchange = (e) => { S.spin = e.target.checked; changed(); };
 $('fEarth').onchange = (e) => { S.earth = e.target.checked; changed(); };
 $('fSolver').onchange = (e) => { S.solver = e.target.checked; changed(); };
 $('fire').onclick = () => fireNow();
-$('bReplay').onclick = () => { if (!shot) return; te = 0; phase = 'flight'; bullet.visible = true; plate.rotation.x = 0; dust.material.opacity = 0; flash.material.opacity = 1; noiseBurst(0.5, 2200, 0.5); if (auto) setCam('bullet'); };
+$('bReplay').onclick = () => { if (!shot) return; retireAll(shot); tNow = shot.t0; shot.done = false; shot.left = false; plate.rotation.x = 0; if (auto) setCam('bullet'); };
 $('bAuto').onclick = () => { auto = !auto; $('bAuto').setAttribute('aria-pressed', String(auto)); };
 $('bSound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); $('bSound').setAttribute('aria-pressed', String(soundOn)); };
 $('bSound').setAttribute('aria-pressed', String(soundOn));
@@ -1620,44 +1673,26 @@ function frame(now) {
   const wallDt = Math.min(0.1, (now - last) / 1000);
   last = now;
   const wall = now / 1000;
+  nowWall = wall;
+  // The range's clock. Bullet time follows the latest round still flying.
   let s = 1;
-  if (phase === 'flight' && shot) {
-    s = auto ? autoScale() : scale;
-    te += wallDt * s;
-    if (te >= shot.tStop - shot.t0) {
-      te = shot.tStop - shot.t0;
-      phase = 'after';
-      afterWall = 0;
-      hitFeedback(shot);
-      if (S.tgt === 'v8' && shot.glass && shot.glass.onGlass) {
-        drawV8Cracks(shot.glass);
-        noiseBurst(0.35, 3000, 0.4);
-        banner(shot.glass.penetrated ? 'Through the glass' : 'Stopped', shot.glass.penetrated ? `${shot.glass.vin.toFixed(0)} → ${shot.glass.vout.toFixed(0)} m/s: watch it in the Liquids Lab` : 'the armoured windscreen held');
-      } else if (shot.hit && S.tgt === 'dummy') {
-        banner('Hit', `the dummy's ${dummyPart(shot.impact)} at ${fmtDist(S.dist)}: watch it in the Liquids Lab`);
-      } else if (shot.hit) {
-        ping();
-        plate.userData.swing = Math.min(0.9, 0.2 + (shot.atTarget ? Math.hypot(...shot.atTarget.velocity) / 2000 : 0.3));
-        const mark = new THREE.Mesh(new THREE.CircleGeometry(Math.max(0.012, S.size * 0.02), 16), new THREE.MeshBasicMaterial({ color: 0xd9d4c8 }));
-        mark.position.set(shot.impact.right, shot.impact.up, 0.012);
-        plate.children[0].add(mark);
-        hitMarks.push(mark);
-        banner('Hit', `${fmtLen(Math.hypot(shot.impact.right, shot.impact.up))} from centre at ${fmtDist(S.dist)}`);
-      } else {
-        const p = v3(B.stateAt(shot.tStop).position);
-        dust.position.copy(p);
-        dust.scale.setScalar(0.3);
-        dust.material.opacity = 0.85;
-        noiseBurst(0.25, 600, 0.25);
-        banner('Miss', shot.impact ? `${fmtLen(Math.abs(shot.impact.right))} ${shot.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(shot.impact.up))} ${shot.impact.up >= 0 ? 'high' : 'low'}` : 'short of the target');
-      }
-    }
-  } else if (phase === 'after') {
-    afterWall += wallDt;
-    if (auto && afterWall > 1.2 && cam === 'bullet') setCam('target');
-  }
-  const tEngine = shot ? shot.t0 + te : 0;
-  updateFlags(phase === 'idle' || !shot ? wall : tEngine, wall);
+  const lead = [...shots].reverse().find((x) => tNow < x.tStop && tNow >= x.t0);
+  if (lead) s = auto ? autoScale(lead) : scale;
+  tNow += wallDt * s;
+  // Rounds leaving the muzzle: the flash and the report.
+  for (const sh of shots) if (!sh.left && tNow >= sh.t0) { sh.left = true; flash.material.opacity = 1; dust.material.opacity = 0; noiseBurst(0.5, 2200, 0.5); }
+  // Rounds arriving: what each does at the end of its flight.
+  for (const sh of shots) if (!sh.done && tNow >= sh.tStop && tNow >= sh.t0) { sh.done = true; sh.doneWall = wall; arrive(sh); }
+  // Rounds long since landed go (the latest stays, for replay and the results).
+  for (const sh of [...shots]) if (sh !== shot && sh.done && wall - sh.doneWall > 4) retire(sh);
+  // The round the cameras and the HUD follow: the latest to have left the muzzle.
+  const fs = [...shots].reverse().find((x) => tNow >= x.t0) ?? shot;
+  phase = !fs ? 'idle' : tNow < fs.tStop ? 'flight' : 'after';
+  te = fs ? Math.max(0, Math.min(tNow, fs.tStop) - fs.t0) : 0;
+  afterWall = fs && fs.done ? wall - fs.doneWall : 0;
+  if (phase === 'after' && auto && afterWall > 1.2 && cam === 'bullet' && !lead) setCam('target');
+  const tEngine = tNow;
+  updateFlags(tNow, wall);
   mirage.uniforms.t.value = wall;
   // Mirage: stronger in heat and still air, leaning with the crosswind at the target.
   {
@@ -1667,18 +1702,22 @@ function frame(now) {
     mirage.uniforms.amp.value = (0.00035 + 0.0011 * heat) / (1 + Math.abs(w.r) / 4) * Math.min(1.6, S.dist / 800);
     mirage.uniforms.drift.value = Math.max(-1.5, Math.min(1.5, w.r / 3));
   }
-  // The round.
+  // The rounds.
+  for (const sh of shots) {
+    if (tNow < sh.t0) { sh.mesh.visible = false; continue; }
+    const tt = Math.min(tNow, sh.tStop), x = stateOf(sh, tt);
+    sh.mesh.position.copy(v3(x.position));
+    sh.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), v3(B.noseAt(tt)).normalize());
+    sh.body.rotation.z = -x.roll;  // the engraving turns with the spin
+    sh.mesh.visible = !(sh.done && sh.hit);
+  }
+  // The latest: the shock cone and the HUD.
   let st = null;
-  if (shot && phase !== 'idle') {
-    st = B.stateAt(tEngine);
+  if (fs && phase !== 'idle' && tNow >= fs.t0) {
+    st = stateOf(fs, fs.t0 + te);
     const p = v3(st.position);
-    bullet.position.copy(p);
-    const nose = v3(B.noseAt(tEngine)).normalize();
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), nose);
-    bullet.quaternion.copy(q);
-    bulletBody.rotation.z = -st.roll;  // the engraving turns with the spin
-    bullet.visible = !(phase === 'after' && shot.hit);
-    // Shock cone while supersonic.
+    const nose = v3(B.noseAt(fs.t0 + te)).normalize();
+    const q = fs.mesh.quaternion;
     const a = B.air(st.position[0], st.position[1], st.position[2], tEngine);
     const u = Math.hypot(st.velocity[0] - a.wind[0], st.velocity[1] - a.wind[1], st.velocity[2] - a.wind[2]);
     const M = u / a.speedOfSound;
@@ -1687,9 +1726,10 @@ function frame(now) {
       const L = 0.35, half = Math.asin(1 / M);
       shock.scale.set(L * Math.tan(half), L, L * Math.tan(half));
       shock.quaternion.copy(q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
-      shock.position.copy(p).addScaledVector(nose, bullet.userData.length * 0.5 - L / 2);
+      shock.position.copy(p).addScaledVector(nose, fs.len * 0.5 - L / 2);
     }
-    const hud = `${fmtDist(lof(st.position).d)}<span>·</span>${fmtV(Math.hypot(...st.velocity))}<span>·</span>Mach ${M.toFixed(2)}<span>·</span>${(st.spin / (2 * Math.PI)).toFixed(0)} turns/s`;
+    const inAir = shots.filter((x) => tNow >= x.t0 && tNow < x.tStop).length;
+    const hud = `${fmtDist(lof(st.position).d)}<span>·</span>${fmtV(Math.hypot(...st.velocity))}<span>·</span>Mach ${M.toFixed(2)}<span>·</span>${(st.spin / (2 * Math.PI)).toFixed(0)} turns/s${inAir > 1 ? `<span>·</span>${inAir} rounds in the air` : ''}`;
     $('hud').innerHTML = phase === 'flight' ? hud : '';
   } else {
     $('hud').innerHTML = '';
@@ -1704,7 +1744,7 @@ function frame(now) {
     plate.rotation.x = -plate.userData.swing * Math.exp(-plate.userData.phase / 6) * Math.sin(plate.userData.phase);
   }
   // Clock.
-  if (shot && phase !== 'idle') {
+  if (fs && phase !== 'idle') {
     const sp = s >= 0.95 ? '1×' : `1/${Math.round(1 / s).toLocaleString()}`;
     $('clock').innerHTML = `${te.toFixed(4)} s<small>${phase === 'flight' ? sp + (auto ? ' · bullet time' : '') : 'impact'}</small>`;
   } else $('clock').innerHTML = `0.000 s<small>ready</small>`;
@@ -1718,7 +1758,7 @@ function frame(now) {
     scopeCam.updateProjectionMatrix();
     rifle.visible = false;
     mirage.uniforms.scope.value = 1;
-    updateTracer(tEngine, false, scopeCam.fov);
+    updateTracer(false, scopeCam.fov);
     present(scopeCam, tEngine);
     drawReticle(dope);
     path.visible = false;
@@ -1728,7 +1768,7 @@ function frame(now) {
   mirage.uniforms.amp.value = 0;
   rifle.visible = true;
   if (cam === 'bullet' && st) {
-    const p = bullet.position;
+    const p = fs.mesh.position;
     const dir = v3(st.velocity).normalize();  // v3 is linear: it converts directions too
     const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
     // Behind and beside the round, orbiting it slowly (drag to swing round it).
@@ -1754,7 +1794,7 @@ function frame(now) {
     path.visible = !!shot && phase === 'after';  // in flight the trace shows the way
   }
   camera.updateProjectionMatrix();
-  updateTracer(tEngine, cam === 'bullet', camera.fov);
+  updateTracer(cam === 'bullet', camera.fov);
   present(camera, tEngine);
 }
 
@@ -1765,18 +1805,20 @@ function present(cam, tEngine) {
   R.setRenderTarget(rt);
   R.render(scene, cam);
   let n = 0;
-  if (showTrace && shot && phase !== 'idle') {
-    const p = projRaw(shot.S.c);
-    const w = B.wake(tEngine, Math.max(0.25, shot.S.dist / 6000), 0.5, p.mass_gr * 6.479891e-5, p.diameter_in * IN);
-    n = Math.min(MAX_WAKE, w.length / 6);
-    for (let k = 0; k < n; ++k) {
-      const q = v3([w[6 * k], w[6 * k + 1], w[6 * k + 2]]);
-      wCenter.setXYZ(k, q.x, q.y, q.z);
-      wRadius.setX(k, w[6 * k + 3]);
-      wStrength.setX(k, w[6 * k + 4]);
+  if (showTrace)
+    for (const sh of shots) {
+      if (tNow < sh.t0 || n >= MAX_WAKE) continue;
+      const p = projRaw(sh.S.c);
+      B.bd_select(sh.id);
+      const w = B.wake(Math.min(tNow, sh.tStop), Math.max(0.25, sh.S.dist / 6000), 0.5, p.mass_gr * 6.479891e-5, p.diameter_in * IN);
+      for (let k = 0; k < w.length / 6 && n < MAX_WAKE; ++k, ++n) {
+        const q = v3([w[6 * k], w[6 * k + 1], w[6 * k + 2]]);
+        wCenter.setXYZ(n, q.x, q.y, q.z);
+        wRadius.setX(n, w[6 * k + 3]);
+        wStrength.setX(n, w[6 * k + 4]);
+      }
     }
-    wCenter.needsUpdate = wRadius.needsUpdate = wStrength.needsUpdate = true;
-  }
+  if (n) wCenter.needsUpdate = wRadius.needsUpdate = wStrength.needsUpdate = true;
   wakeGeo.instanceCount = n;
   R.getClearColor(clearTmp);
   const ca = R.getClearAlpha();
@@ -1807,4 +1849,4 @@ if (autoFire) setTimeout(fireNow, 300);
 // The Glass engine (for the V8's windscreen) loads in the background.
 setTimeout(() => ensureGlass().catch(() => {}), 1500);
 // For the browser console: the engine and the current shot.
-window.ballisticsRange = { B, R, wakeRT, wakeGeo, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; } };
+window.ballisticsRange = { B, R, wakeRT, wakeGeo, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; } };
