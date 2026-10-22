@@ -1242,6 +1242,7 @@ function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false, opts = {})
   $('log').textContent = '';
   updatePaneInfo();
   frameCamera(false);
+  toneNewPane();
   return P;
 }
 
@@ -1324,7 +1325,7 @@ function buildSlab() {
   front.setIndex(idx.slice(0, (FX - 1) * (FY - 1) * 6));
   stressMesh = new THREE.Mesh(front, new THREE.MeshBasicMaterial({ map: stressTex, transparent: true, opacity: 0.9, depthWrite: false,
     polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide }));
-  stressMesh.visible = stressOn;
+  stressMesh.visible = overlayOn();
   stressMesh.renderOrder = 4;
   groupPane.add(stressMesh);
   P.meshes.push(stressMesh);
@@ -1610,6 +1611,8 @@ function autoTargetBase(imps, plies) {
   let tips = 0;
   for (let k = 0; k < P.nGlass; ++k) tips += plies[12 * k + 11];
   if (contact || tips > 0) return 1 / 5000;
+  // A note building up to break the glass: slow enough to watch it swing.
+  if (TONE.on) return TONE_SLOW;
   if (membrane) return 1 / 400;
   if (approach < Infinity) return clamp(approach / 0.8, 1 / 5000, 1);
   const s = G.state();
@@ -1654,6 +1657,10 @@ function updateReadouts(final) {
     if (r.outcome && v[1] > 0) kv.push(['Leaves at', fmtSpeed(v[1])]);
     if (v[8] > 0) kv.push(['Depth reached', `${(v[8] * 1e3).toFixed(1)} mm of ${(P.T * 1e3).toFixed(1)}`]);
     if (v[9] > 0.0005) kv.push(['Bulge', `${(v[9] * 1e3).toFixed(0)} mm`]);
+  } else if (TONE.on || TONE.broke) {
+    const out = $('outcome');
+    out.textContent = TONE.broke ? TONE.brokeText : `Playing ${fmtHz(TONE.freq)} at the glass…`;
+    out.className = TONE.broke ? 'bad' : '';
   }
   $('kv').innerHTML = kv.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   // Plies
@@ -1739,6 +1746,7 @@ function updateField() {
     slab.geometry.attributes.position.needsUpdate = true;
     if (maxW * exaggeration > 1e-4) slab.geometry.computeVertexNormals();
   }
+  toneField(f);
   if (stressOn) {
     const img = stressCtx.createImageData(FX, FY);
     let smax = 0;
@@ -1878,6 +1886,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'c') $('bCam').click();
   else if (k === 's') $('bStress').click();
   else if (k === 'm') $('bSound').click();
+  else if (k === 't') $('bTone').click();
   else if (k === 'a') $('bAuto').click();
   else if (k === 'h' || k === '?') $('help').classList.toggle('on');
   else if (k === 'escape') $('help').classList.remove('on');
@@ -1975,6 +1984,7 @@ const PRESETS = [
 // ---------- The armoured car ----------
 let sceneLoading = false;
 async function startScene() {
+  if (TONE.on) setTone(false);
   leaveStack(true);
   if (!GT) { toast('The armoured-car scene needs WebGL; this device is drawing in 2D'); return; }
   if (sceneLoading) return;
@@ -2009,6 +2019,7 @@ async function startScene() {
 }
 // ---------- The grenade house ----------
 function startHouse() {
+  if (TONE.on) setTone(false);
   leaveStack(true);
   if (!HS) { toast('The house scene needs WebGL; this device is drawing in 2D'); return; }
   if (activeScene()) leaveScene(false);
@@ -2053,6 +2064,31 @@ function buildPresets() {
     b.innerHTML = 'Grenade in the shop<small>Pick a window of a glass shop at night: a crash dummy throws a grenade through it and the blast blows out the storefront and every window</small>';
     b.onclick = startHouse;
     box.appendChild(b);
+  }
+  {
+    const gi = cat.glazings.findIndex((g) => g.id === 'picture_glass_2');
+    if (gi >= 0) {
+      const b = document.createElement('button');
+      b.className = 'feature';
+      b.innerHTML = 'Sing a picture frame to pieces<small>2 mm of picture glass rings at about 135 Hz, in the range of a voice. Play its note at 145 dB and watch the swing build up until it shatters</small>';
+      b.onclick = () => {
+        if (activeScene()) leaveScene(false);
+        if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
+        gIdx = gi;
+        chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+        newPane();
+        simClockReset();
+        TONE.shaker = false;
+        TONE.freq = TONE.modes[0].f;
+        TONE.dB = 145;
+        TONE.holo = true;
+        if (stressOn) $('bStress').click();
+        if (stressMesh) stressMesh.visible = true;
+        renderModes();
+        setTone(true);
+      };
+      box.appendChild(b);
+    }
   }
   for (const [name, gid, iid, v, sub, opt = {}] of PRESETS) {
     const gi = cat.glazings.findIndex((g) => g.id === gid), ii = cat.impactors.findIndex((g) => g.id === iid);
@@ -2134,7 +2170,8 @@ $('bCam').onclick = () => { if (activeScene()) activeScene().nextView(); else { 
 $('bStress').onclick = () => {
   stressOn = !stressOn;
   $('bStress').setAttribute('aria-pressed', String(stressOn));
-  if (stressMesh) stressMesh.visible = stressOn;
+  if (stressOn && TONE.holo) { TONE.holo = false; syncToneUI(); }
+  if (stressMesh) stressMesh.visible = overlayOn();
   $('legend').classList.toggle('on', stressOn);
   if (stressOn) updateField();
 };
@@ -2279,6 +2316,7 @@ function frame(now) {
     checkImpactFuses();
     detonateGrenades(tEng);
     poses = paneFrame(dt, s, tEng);
+    toneFrame(dt, s, tEng);
     for (const fx of P.blastFX || []) fx.update(tEng);
   }
   sound.frame(tEng, playing ? scaleNow : 0.0001, dt);
@@ -2287,7 +2325,7 @@ function frame(now) {
   // Readouts.
   if ((uiTick += dt) > 0.12) {
     uiTick = 0;
-    if (!rigs) { updateReadouts(); announce(); }
+    if (!rigs) { updateReadouts(); announce(); toneReadout(); }
     else if (stackOn) { useRig(rigs[0]); updateReadouts(); announce(); stackReadout(); }
     $('clock').innerHTML = `${fmtTime(tEng)}<small>${fmtScale(scaleNow)}${auto ? ' · auto' : ''}</small>`;
     $('limit').textContent = limited ? 'device-limited' : '';
@@ -2416,12 +2454,12 @@ function paneFrame(dt, s, tEng) {
     const gone = (P.monolithic && pl[4] > 0) || s[28] > 0;
     slab.visible = !gone;
     if (P.edges) P.edges.visible = !gone;
-    if (stressMesh) stressMesh.visible = stressOn && !gone;
+    if (stressMesh) stressMesh.visible = overlayOn() && !gone;
   }
   // Deflection and stress, a few times a second (every frame while it moves
   // fast). One shared field: a scene of many panes goes without it.
   const dynamic = s[1] === 0;
-  if (!rigs && (dynamic || stressOn)) {
+  if (!rigs && (dynamic || overlayOn())) {
     if (++P.fieldTick >= (tier <= 1 ? 4 : 2)) { P.fieldTick = 0; updateField(); }
   }
   // Impactors.
@@ -2574,6 +2612,7 @@ function stackDepthTotal() {
 }
 // (Re)builds the stack; seeds: one per pane to rebuild the same panes.
 function buildStack(seeds) {
+  if (TONE.on) setTone(false);
   if (activeScene()) leaveScene(false);
   for (const g of stackGroups) scene.remove(g);
   stackGroups = [];
@@ -2803,6 +2842,272 @@ function listen(poses, nFrag) {
 window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, get HS() { return HS; }, get rigs() { return rigs; },
   get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound };
 
+// ---------- Sound: a steady note at the glass ----------
+// A loudspeaker (or a voice) is a plane wave on the struck face: the engine
+// gets its peak pressure at the glass, doubled by the reflection there. A
+// shaker pushes at one point instead, and can drive every mode.
+const TONE = { ratio: 0, on: false, freq: 0, dB: 140, shaker: false, mic: null, boost: 40, holo: false, env: null, envT: 0,
+  swing: 0, stress: 0, strength: 0, stressT: 0, startT: 0, osc: null, gain: null, broke: false, modes: [], lastSent: '' };
+const SHAKER_AT = [0.31, 0.37];   // share of the width and height: off every line of symmetry
+const EXAGS = [1, 10, 50];
+const TONE_SLOW = 1 / 12;   // playback speed while a note builds up
+const dBToPa = (dB) => 2 * Math.SQRT2 * 20e-6 * Math.pow(10, dB / 20);
+const levelToN = (v) => Math.pow(10, (v - 140) / 20);   // the shaker's slider: 140 = 1 N peak
+function toneLevel() { return TONE.shaker ? levelToN(TONE.dB) : dBToPa(TONE.dB); }
+function fmtHz(f) { return f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${f.toFixed(f < 100 ? 1 : 0)} Hz`; }
+function freqToSlider(f) { return Math.round(2000 * Math.log(f / 10) / Math.log(500)); }
+function sliderToFreq(v) { return 10 * Math.pow(500, v / 2000); }
+function toneAvailable() { return !!P && !rigs && !activeScene(); }
+// Send the note to the engine (only when it changed).
+function applyTone(force = false) {
+  if (!toneAvailable()) return;
+  const lvl = TONE.on ? toneLevel() * (TONE.mic ? TONE.mic.gate : 1) : 0;
+  const key = `${TONE.freq.toFixed(3)}|${lvl.toPrecision(4)}|${TONE.shaker}`;
+  if (!force && key === TONE.lastSent) return;
+  TONE.lastSent = key;
+  G.gls_tone(TONE.freq, lvl, TONE.mic ? 0.03 : 0.05, TONE.shaker ? 1 : 0, SHAKER_AT[0] * P.W, SHAKER_AT[1] * P.H);
+}
+// The pane's lowest notes, as chips (a loudspeaker only drives the ones odd both ways).
+function toneNewPane() {
+  TONE.env = null; TONE.swing = TONE.stress = TONE.ratio = 0; TONE.broke = false; TONE.lastSent = '';
+  if (!P || rigs) return;
+  const fresh = TONE.gid !== P.glazing.id;
+  TONE.gid = P.glazing.id;
+  const s = G.state(), M = Math.min(s[18], 7), N = Math.min(s[19], 7), list = [];
+  for (let m = 1; m <= M; ++m) for (let n = 1; n <= N; ++n) list.push({ m, n, f: G.gls_mode_hz(m, n) });
+  list.sort((a, b) => a.f - b.f);
+  TONE.modes = list.slice(0, 8);
+  if ((!TONE.freq || fresh) && !TONE.mic) TONE.freq = TONE.modes[0]?.f || 100;
+  renderModes();
+  syncToneUI();
+  if (TONE.on) { TONE.startT = G.gls_time(); applyTone(true); }
+}
+function renderModes() {
+  const box = $('modes');
+  box.textContent = '';
+  for (const md of TONE.modes) {
+    const b = document.createElement('button');
+    const odd = md.m % 2 && md.n % 2;
+    b.innerHTML = `${fmtHz(md.f)}<small>${md.m}·${md.n}</small>`;
+    b.title = `Mode ${md.m}×${md.n}: ${md.m} half-waves across, ${md.n} up` + (odd || TONE.shaker ? '' : '. Sound pushes the whole face evenly and cannot drive this one: use the shaker');
+    b.setAttribute('aria-pressed', String(Math.abs(TONE.freq / md.f - 1) < 0.002));
+    if (!odd && !TONE.shaker) b.style.opacity = '0.55';
+    b.onclick = () => { TONE.freq = md.f; syncToneUI(); applyTone(); };
+    box.appendChild(b);
+  }
+}
+function syncToneUI() {
+  $('bTone').setAttribute('aria-pressed', String(TONE.on));
+  $('bTone').textContent = TONE.on ? 'Stop note' : 'Play note';
+  $('bMic').setAttribute('aria-pressed', String(!!TONE.mic));
+  $('bDrive').textContent = TONE.shaker ? 'Shaker' : 'Loudspeaker';
+  $('freq').value = String(freqToSlider(Math.max(10, TONE.freq)));
+  $('vFreq').textContent = fmtHz(TONE.freq);
+  $('level').value = String(TONE.dB);
+  $('lLevel').textContent = TONE.shaker ? 'Shaker force' : TONE.mic ? 'Your voice at the glass' : 'Level at the glass';
+  const n = levelToN(TONE.dB);
+  $('vLevel').textContent = TONE.shaker ? (n >= 1 ? `${n.toFixed(n >= 10 ? 0 : 1)} N` : `${(n * 1e3).toFixed(n >= 0.01 ? 0 : 1)} mN`)
+    : `${TONE.dB.toFixed(0)} dB · ${fmtPa(dBToPa(TONE.dB))}`;
+  $('boostRow').hidden = !TONE.mic;
+  $('vBoost').textContent = `+${TONE.boost} dB`;
+  $('level').disabled = !!TONE.mic;
+  $('freq').disabled = !!TONE.mic;
+  $('bHolo').setAttribute('aria-pressed', String(TONE.holo));
+  $('bExag').textContent = `Swing ×${exaggeration}`;
+  for (const b of $('modes').children) b.setAttribute('aria-pressed', 'false');
+  TONE.modes.forEach((md, i) => { if (Math.abs(TONE.freq / md.f - 1) < 0.002) $('modes').children[i]?.setAttribute('aria-pressed', 'true'); });
+  const ok = toneAvailable();
+  for (const id of ['bTone', 'bMic', 'bDrive']) $(id).disabled = !ok;
+}
+function fmtPa(p) { return p >= 1000 ? `${(p / 1000).toFixed(p >= 1e4 ? 0 : 1)} kPa` : `${p.toFixed(p >= 10 ? 0 : 1)} Pa`; }
+function setTone(on) {
+  if (on && !toneAvailable()) return;
+  TONE.on = on;
+  TONE.broke = false;
+  if (on) {
+    sound.start();
+    if (P && (P.broken.some(Boolean) || G.state()[6])) newPane();   // a fresh pane to sing at
+    TONE.startT = G.gls_time();
+    TONE.env = null;
+    playing = true; syncPlay();
+    auto = true; syncAuto(); buildScaleButtons();
+  }
+  if (!on && TONE.mic) stopMic();
+  applyTone(true);
+  syncToneUI();
+}
+// What you hear: the note itself, quietly (not while singing, so the
+// microphone does not hear it), stopping when the glass breaks.
+function toneSound() {
+  const live = sound.live && TONE.on && !TONE.mic;
+  if (!live) { if (TONE.gain) TONE.gain.gain.setTargetAtTime(0, sound.ctx.currentTime, 0.05); return; }
+  const c = sound.ctx;
+  if (!TONE.osc) {
+    TONE.osc = c.createOscillator(); TONE.gain = c.createGain(); TONE.gain.gain.value = 0;
+    TONE.osc.type = 'sine'; TONE.osc.connect(TONE.gain).connect(c.destination); TONE.osc.start();
+  }
+  // At its own pitch while it builds up, even in slow motion: it is the note being played.
+  const heard = playing ? TONE.freq : 0;
+  const g = heard < 25 || heard > 16000 ? 0 : clamp(0.02 + 0.0016 * (TONE.dB - 60), 0.02, 0.16);
+  TONE.osc.frequency.setTargetAtTime(Math.max(20, heard), c.currentTime, 0.02);
+  TONE.gain.gain.setTargetAtTime(g, c.currentTime, 0.05);
+}
+// Every frame of a single pane.
+function toneFrame(dt, s, tEng) {
+  toneSound();
+  if (!TONE.on || !P) return;
+  if (TONE.mic) micFrame();
+  applyTone();
+  if (!TONE.broke && (s[6] || P.broken.some(Boolean))) {
+    TONE.broke = true;
+    applyTone(true);
+    const took = tEng - TONE.startT;
+    const sub = `${fmtHz(TONE.freq)} at ${TONE.shaker ? $('vLevel').textContent : `${TONE.dB.toFixed(0)} dB`}, after ${took < 1 ? `${(took * 1e3).toFixed(0)} ms` : `${took.toFixed(2)} s`} of it`;
+    TONE.brokeText = `Shattered by sound: ${sub}, swinging ${(TONE.swing * 1e3).toFixed(1)} mm`;
+    banner('Shattered by sound', sub);
+    // The note ends with the glass (the readouts keep what it reached).
+    TONE.on = false;
+    if (TONE.mic) stopMic();
+    syncToneUI();
+    return;
+  }
+  // How near a flaw has come to failing, held over the last few cycles.
+  const ss = G.stressStrength();
+  const keep = Math.exp(-Math.max(0, tEng - TONE.stressT) * TONE.freq / 4);
+  if (ss[0] >= TONE.ratio * keep) { TONE.ratio = ss[0]; TONE.stress = ss[1]; TONE.strength = ss[2]; } else TONE.ratio *= keep;
+  TONE.stressT = tEng;
+  TONE.swing = G.gls_tone_swing();
+}
+function toneReadout() {
+  if (!TONE.on && !TONE.broke) { $('toneKv').innerHTML = ''; $('meterBar').style.width = '0'; $('toneInfo').textContent = ''; return; }
+  const net = Math.max(0, TONE.stress), ratio = TONE.ratio;
+  $('meterBar').style.width = `${clamp(100 * ratio, 0, 100)}%`;
+  const near = TONE.modes.reduce((b, md) => (Math.abs(Math.log(TONE.freq / md.f)) < Math.abs(Math.log(TONE.freq / b.f)) ? md : b), TONE.modes[0] || { f: TONE.freq, m: 1, n: 1 });
+  const cents = 1200 * Math.log2(TONE.freq / near.f);
+  const rows = [
+    ['Nearest note', `${fmtHz(near.f)} (mode ${near.m}×${near.n}) · ${Math.abs(cents) < 1 ? 'on it' : `${cents > 0 ? '+' : '−'}${Math.abs(cents).toFixed(0)} cents`}`],
+    ['Swing', `${(TONE.swing * 1e3).toFixed(TONE.swing < 1e-3 ? 3 : 1)} mm${P ? ` · ${(TONE.swing / P.T).toFixed(1)}× its thickness` : ''}`],
+    ['Weakest flaw', `${(net / 1e6).toFixed(net < 1e7 ? 1 : 0)} of the ${(TONE.strength / 1e6).toFixed(0)} MPa it takes (${(100 * ratio).toFixed(0)} %)`],
+  ];
+  if (TONE.mic) rows.unshift(['Your voice', TONE.mic.pitch ? `${fmtHz(TONE.mic.pitch)} · about ${TONE.mic.db.toFixed(0)} dB + ${TONE.boost} boost` : 'listening…']);
+  $('toneKv').innerHTML = rows.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
+  $('toneInfo').textContent = TONE.broke ? 'broken' : TONE.on ? 'playing' : '';
+  $('toneNote').textContent = P && TONE.swing > P.T
+    ? 'Swinging further than its own thickness: a real pane would stretch, stiffen and drift off the note here, so this linear plate is generous past this point.'
+    : 'Every pane has notes it rings at. Play one of them loud enough and the swing builds up until the glass breaks.';
+}
+// The swing of every point, from the deflection field, and the hologram of it.
+function toneField(f) {
+  if ((!TONE.on && !TONE.holo) || TONE.broke) return;
+  const n = FX * FY, t = G.gls_time();
+  if (!TONE.env || TONE.env.length !== n) TONE.env = new Float32Array(n);
+  const keep = Math.exp(-Math.max(0, t - TONE.envT) * Math.max(TONE.freq, 1) / 4);
+  TONE.envT = t;
+  let mx = 0;
+  for (let i = 0; i < n; ++i) { TONE.env[i] = Math.max(Math.abs(f[i]), TONE.env[i] * keep); mx = Math.max(mx, TONE.env[i]); }
+  if (!TONE.holo) return;
+  // Time-averaged holography: brightness J0(2 pi A / step)^2, so the still
+  // lines (nodes) shine and each dark band is a step more swing.
+  const step = Math.max(mx / 4, 1e-9), img = stressCtx.createImageData(FX, FY);
+  for (let j = 0; j < FY; ++j)
+    for (let i = 0; i < FX; ++i) {
+      const a = TONE.env[j * FX + i], b = besselJ0(2.405 * a / step * 1.25);
+      const I = b * b, o = ((FY - 1 - j) * FX + i) * 4;
+      img.data[o] = 255 * (0.08 + 0.92 * I); img.data[o + 1] = 255 * (0.03 + 0.42 * I); img.data[o + 2] = 255 * (0.04 + 0.3 * I); img.data[o + 3] = 230;
+    }
+  stressCtx.putImageData(img, 0, 0);
+  if (stressTex) stressTex.needsUpdate = true;
+}
+function besselJ0(x) {
+  const ax = Math.abs(x);
+  if (ax < 8) {
+    const y = x * x;
+    return (57568490574.0 + y * (-13362590354.0 + y * (651619640.7 + y * (-11214424.18 + y * (77392.33017 + y * -184.9052456))))) /
+      (57568490411.0 + y * (1029532985.0 + y * (9494680.718 + y * (59272.64853 + y * (267.8532712 + y)))));
+  }
+  const z = 8 / ax, y = z * z, xx = ax - 0.785398164;
+  const p1 = 1 + y * (-0.1098628627e-2 + y * (0.2734510407e-4 + y * (-0.2073370639e-5 + y * 0.2093887211e-6)));
+  const p2 = -0.1562499995e-1 + y * (0.1430488765e-3 + y * (-0.6911147651e-5 + y * (0.7621095161e-6 - y * 0.934935152e-7)));
+  return Math.sqrt(0.636619772 / ax) * (Math.cos(xx) * p1 - z * Math.sin(xx) * p2);
+}
+function overlayOn() { return stressOn || TONE.holo; }
+
+// Singing: the voice's pitch (autocorrelation) and loudness drive the note.
+// A phone or laptop microphone is not calibrated: full scale is taken as
+// about 120 dB SPL, so the level shown is a rough one.
+async function startMic() {
+  if (!toneAvailable()) return;
+  try {
+    sound.start();
+    const c = sound.ctx || new (window.AudioContext || window.webkitAudioContext)();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const src = c.createMediaStreamSource(stream), an = c.createAnalyser();
+    an.fftSize = 2048;
+    src.connect(an);
+    TONE.mic = { stream, an, buf: new Float32Array(an.fftSize), rate: c.sampleRate, pitch: 0, db: 0, gate: 0 };
+    setTone(true);
+    toast('Sing a steady note near one of the glass\'s notes');
+  } catch (e) {
+    toast('The microphone is not available here');
+    TONE.mic = null;
+  }
+  syncToneUI();
+}
+function stopMic() {
+  if (!TONE.mic) return;
+  for (const tr of TONE.mic.stream.getTracks()) tr.stop();
+  TONE.mic = null;
+  syncToneUI();
+}
+function micFrame() {
+  const m = TONE.mic, b = m.buf;
+  m.an.getFloatTimeDomainData(b);
+  let rms = 0;
+  for (let i = 0; i < b.length; ++i) rms += b[i] * b[i];
+  rms = Math.sqrt(rms / b.length);
+  const dbfs = 20 * Math.log10(Math.max(rms, 1e-8));
+  const f = dbfs > -55 ? pitchOf(b, m.rate) : 0;
+  m.gate = f ? 1 : 0;
+  if (!f) return;
+  m.pitch = m.pitch ? m.pitch + (f - m.pitch) * 0.35 : f;
+  m.db = dbfs + 120;
+  TONE.freq = m.pitch;
+  TONE.dB = clamp(m.db + TONE.boost, 60, 175);
+}
+// Normalised autocorrelation, 70 Hz to 1.2 kHz, refined by a parabola.
+function pitchOf(b, rate) {
+  const n = b.length, lo = Math.floor(rate / 1200), hi = Math.min(Math.floor(rate / 70), n >> 1);
+  let best = 0, lag = 0;
+  const corr = new Float32Array(hi + 2);
+  for (let L = lo; L <= hi + 1; ++L) {
+    let c = 0, e1 = 0, e2 = 0;
+    for (let i = 0; i + L < n; ++i) { c += b[i] * b[i + L]; e1 += b[i] * b[i]; e2 += b[i + L] * b[i + L]; }
+    corr[L] = c / Math.sqrt(e1 * e2 + 1e-12);
+    if (L <= hi && corr[L] > best) { best = corr[L]; lag = L; }
+  }
+  if (best < 0.85 || !lag) return 0;
+  const a = corr[lag - 1] || 0, c2 = corr[lag + 1] || 0, d = a - 2 * corr[lag] + c2;
+  return rate / (lag + (d ? 0.5 * (a - c2) / d : 0));
+}
+
+$('bTone').onclick = () => setTone(!TONE.on);
+$('bMic').onclick = () => (TONE.mic ? setTone(false) : startMic());
+$('bDrive').onclick = () => { TONE.shaker = !TONE.shaker; if (TONE.shaker && TONE.dB > 165) TONE.dB = 150; renderModes(); syncToneUI(); applyTone(true); };
+$('freq').oninput = (e) => { TONE.freq = sliderToFreq(+e.target.value); syncToneUI(); applyTone(); };
+$('level').oninput = (e) => { TONE.dB = +e.target.value; syncToneUI(); applyTone(); };
+$('boost').oninput = (e) => { TONE.boost = +e.target.value; syncToneUI(); };
+$('bHolo').onclick = () => {
+  TONE.holo = !TONE.holo;
+  if (TONE.holo && stressOn) $('bStress').click();
+  if (stressMesh) stressMesh.visible = overlayOn();
+  syncToneUI();
+};
+$('bExag').onclick = () => {
+  exaggeration = EXAGS[(EXAGS.indexOf(exaggeration) + 1) % EXAGS.length];
+  syncToneUI();
+  if (P) updateField();
+};
+
 // ---------- Share links ----------
 // The lab's whole setup in the address: the glass and any panes behind it,
 // every shot fired (object, speed, angles, side, aim point, time) and the
@@ -2816,8 +3121,10 @@ function shareURL() {
   for (const l of stack) q.append('L', `${cat.glazings[l.gid].id}:${+(l.gap * 100).toFixed(1)}`);
   q.set('seed', (stackOn ? rigs.map((r) => r.P.seed) : [pane.seed]).join('.'));
   const at = aim || { x: pane.W / 2, y: pane.H / 2 };
-  const shots = pane.shots.length ? pane.shots : [{ t: 0, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack }];
-  const t0 = shots[0].t;
+  const toned = (TONE.on || TONE.broke) && !stackOn;
+  if (toned) q.set('tone', [+TONE.freq.toFixed(2), +TONE.dB.toFixed(1), TONE.shaker ? 1 : 0].join(','));
+  const shots = pane.shots.length ? pane.shots : toned ? [] : [{ t: 0, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack }];
+  const t0 = shots.length ? shots[0].t : 0;
   for (const sh of shots)
     q.append('shot', [cat.impactors[sh.iIdx].id, +sh.speed.toFixed(2), +sh.x.toFixed(4), +sh.y.toFixed(4), +sh.yaw.toFixed(1),
       +sh.pitch.toFixed(1), sh.fromBack ? 1 : 0, +(sh.t - t0).toFixed(5)].join(','));
@@ -2826,6 +3133,7 @@ function shareURL() {
 function shareText() {
   if (HS && HS.active) return 'Grenade in the shop';
   if (GT && GT.active) return 'Rosser V8 under fire';
+  if ((TONE.on || TONE.broke) && !stackOn && !P.shots.length) return `${cat.glazings[gIdx].name} sung at ${fmtHz(TONE.freq)}, ${TONE.shaker ? $('vLevel').textContent + ' shaker' : `${TONE.dB.toFixed(0)} dB`}`;
   const pane = stackOn ? rigs[0].P : P;
   const sh = pane.shots[pane.shots.length - 1] || { iIdx, speed };
   const glass = [cat.glazings[gIdx], ...stack.map((l) => cat.glazings[l.gid])].map((g) => g.name).join(' + ');
@@ -2872,7 +3180,14 @@ function applyShareLink() {
   if (last) { aim = { x: P.shots[P.shots.length - 1].x, y: P.shots[P.shots.length - 1].y }; placeAimMarker(); }
   auto = true; syncAuto(); buildScaleButtons();
   simClockReset();
-  if (window.innerWidth <= 860) showTab('res');
+  const tn = (q.get('tone') || '').split(',').map(Number);
+  if (tn[0] > 0 && !stackOn) {
+    TONE.freq = clamp(tn[0], 10, 5000);
+    TONE.dB = clamp(tn[1] || 140, 60, 175);
+    TONE.shaker = tn[2] === 1;
+    renderModes();
+    setTone(true);
+  } else if (window.innerWidth <= 860) showTab('res');
   return true;
 }
 

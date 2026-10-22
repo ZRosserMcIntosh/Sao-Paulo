@@ -394,6 +394,16 @@ Lungs are flagged above about 70 kPa for a millisecond-long pulse, the threshold
 <li><b>The glass.</b> Every free piece moving faster than 2 m/s that carries at least 0.05 J is fired into the pane its path meets, as a sharp glass impactor (a 55° tip, the glass's own stiffness and hardness) with the piece's mass, 2500 kg/m³ × thickness × ½ π r² for its size r. It hits with a cone indentation like any sharp tip, so a fast shard chips, stars or breaks the next pane, and a slow one only taps it. The piece is then taken out of the first pane: what happens next is the second pane's. The first 30 pieces to arrive at a pane are fired into it, to keep the solve light; later ones pass on. <span class="tag est">estimated</span>: the half-disc mass and the sharp-tip contact of a tumbling shard.</li>
 </ul>
 <p>The result panel lists each pane: whether it held, cracked or went through, and what hit it. Shards a pane throws back can hit the one in front.</p>
+<h3 id="tone">Sound: breaking glass with a note</h3>
+<p>Every pane has natural notes: the modes of its plate, each with its own pattern of swinging and still lines. A simply supported pane of width a, height b and bending stiffness D rings at</p>
+<div class="eq">f<sub>mn</sub> = (π / 2) (m² / a² + n² / b²) √(D / ρh)
+<span class="c">m and n count the half-waves across and up. 2 mm picture glass, 30 × 25 cm, rings at 135 Hz: inside a voice's range. A 6 mm window, 1.2 × 1 m, at 25 Hz, below it. <span class="tag pub">published</span>: Navier's solution</span></div>
+<p>The <b>Sound</b> panel plays a steady note at the glass. A loudspeaker or a voice square on is a uniform pressure on the face, twice the sound's own pressure because the glass reflects it; a uniform push can only drive modes odd in both directions. A <b>shaker</b> pushes at one point instead (off every line of symmetry) and drives them all. On a mode, each cycle adds a little to the swing until the damping takes away as much as the note puts in:</p>
+<div class="eq">swing = static deflection × 1 / (2ζ),&nbsp;&nbsp; built up over τ = 1 / (ζ ω)
+<span class="c">ζ is the modal damping: 0.5–2 % for glass in a frame, 0.5 % taken for the lightly held picture glass, so it swings about 100 times further than the same pressure would push it, after about 0.24 s. The engine's test plays it and gets 102. <span class="tag pub">published</span></span></div>
+<p>The engine checks every flaw 24 times a cycle. A flaw grows only near the peaks of tension, so the strength it is checked against is the one for a tenth of the time the note has played, the share of each cycle spent near its peak for glass's stress-corrosion exponent (n ≈ 16). <span class="tag est">estimated</span>: that equivalent time. The meter shows the flaw nearest to failing against its own strength.</p>
+<p>What it gives for the picture glass: 130 dB at the glass never breaks it (an 8 mm swing); 135 dB breaks it in 0.8 s; 145 dB in 0.15 s. <b>Read those as a lower bound.</b> At the break the glass is swinging about 7 times its own thickness, and the plate here is linear: a real pane that far out stretches like a drumskin, stiffens, and drifts off the note, so it needs more than this, or a note that slides up after it. The panel says when the swing passes the thickness.</p>
+<p><b>Sing</b> takes the pitch of your voice (autocorrelation) and its loudness from the microphone. A phone or laptop microphone is not calibrated: full scale is taken as about 120 dB SPL, so the voice level shown is rough, and a voice near the glass gives 90–110 dB. The boost (up to +60 dB) is what a loudspeaker would have to add. <b>Mode view</b> draws the swing the way time-averaged holography shows a vibrating plate: the still lines shine, and each dark band is a step more swing.</p>
 <h3 id="share">Share links</h3>
 <p><b>Share</b> copies a link that rebuilds exactly what is on screen: the glass, every pane behind it and its gap, the random seeds of each pane's flaws, and every shot (object, speed, point, angle, side and time). The fracture is deterministic, so whoever opens it sees the same cracks and the same pieces.</p>
 
@@ -461,6 +471,7 @@ Lungs are flagged above about 70 kPa for a millisecond-long pulse, the threshold
 <li>the plate does not soften as it cracks (except under the impactor), so a heavily cracked laminate is too stiff;</li>
 <li>polycarbonate and acrylic plies do not crack or craze; thermal stress (sunlit panes, heated windshields) is not modelled;</li>
 <li>falling pieces do not collide with each other (only with the next pane of a stack), and walls do not stop them;</li>
+<li>the plate is linear: a pane bent further than its own thickness does not stretch and stiffen as a real one does, so very large swings (a note on resonance, a big pane under a blast) are generous;</li>
 <li>a blast is a pressure history given to the pane; the air itself (reflections round a room, the jet through each window) is not simulated.</li>
 </ul>
 </div>
