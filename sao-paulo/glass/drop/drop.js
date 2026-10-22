@@ -6,6 +6,7 @@
 // given, ballistically, to the bench.
 import * as THREE from 'three';
 import createGlassModule from '../glass.mjs';
+import { wasmFile } from '../engine_rpc.js';
 import { GlassAudio } from '../glass_audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -23,7 +24,7 @@ const LAMBDA = 550e-9;
 // ---------- Engine ----------
 let G, cat;
 try {
-  G = await createGlassModule(await (await fetch('../glass.wasm', { cache: 'no-cache' })).arrayBuffer());
+  G = await createGlassModule(await (await fetch('../' + wasmFile, { cache: 'no-cache' })).arrayBuffer());
   const errs = G.load(await (await fetch('../library.json', { cache: 'no-cache' })).text());
   if (errs.length) throw new Error(errs.join('; '));
   cat = G.catalog();

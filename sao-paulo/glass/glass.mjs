@@ -32,6 +32,7 @@ export default async function createGlassModule(wasmBytes) {
   memory = ex.memory;
   ex._initialize?.();
   const G = { ...Object.fromEntries(Object.entries(ex).filter(([k]) => k.startsWith('gls_'))) };
+  G.memory = memory;  // the module's memory (its buffer changes when it grows)
   const enc = new TextEncoder(), dec = new TextDecoder();
   G.text = (len) => dec.decode(new Uint8Array(memory.buffer, ex.gls_text(0), len ?? ex.gls_text_length()));
   // Loads a JSON library document; returns the error strings (empty when fine).
