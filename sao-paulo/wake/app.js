@@ -66,7 +66,7 @@ const left = [-fwd[1], fwd[0]];
 // ---------- Renderer & scene ----------
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !MOBILE, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));  // lowered for lite (setQuality)
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const scene = new THREE.Scene();
@@ -192,7 +192,14 @@ const ltPose = poseTracker(), jetPose = poseTracker();
 // Smoke from the jet's wing tips, carried by the air the engine computes
 // (the wind and both wakes): each puff's velocity is sampled from the core in
 // turn, a share of them every frame.
-const NS = MOBILE ? 3000 : 7000, LIFE = 35, RATE = MOBILE ? 40 : 95;
+const NS = 7000, LIFE = 35;
+// Quality: full, or lite for slow devices (phones start lite; a desktop that
+// cannot hold 30 frames a second drops to it by itself).
+const QUALITY = {
+  full: { rate: 95, refresh: 2400, pixels: 2, puff: 1 },
+  lite: { rate: 45, refresh: 700, pixels: 1, puff: 1.5 },
+};
+let Q = QUALITY[store.get('quality', MOBILE ? 'lite' : 'full')] || QUALITY.full;
 const sPos = new Float32Array(3 * NS), sVel = new Float32Array(3 * NS), sAge = new Float32Array(NS).fill(-1);
 let sHead = 0, sRefresh = 0;
 const smokeGeo = new THREE.BufferGeometry();
@@ -201,8 +208,8 @@ smokeGeo.setAttribute('position', new THREE.BufferAttribute(sDraw, 3));
 smokeGeo.setAttribute('age', new THREE.BufferAttribute(sAge, 1));
 const smokeMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false,
-  uniforms: { uScale: { value: 600 }, uLife: { value: LIFE } },
-  vertexShader: `attribute float age; uniform float uScale, uLife; varying float vA;
+  uniforms: { uScale: { value: 600 }, uLife: { value: LIFE }, uPuff: { value: 1 } },
+  vertexShader: `attribute float age; uniform float uScale, uLife, uPuff; varying float vA;
     #include <common>
     #include <logdepthbuf_pars_vertex>
     void main() {
@@ -211,7 +218,7 @@ const smokeMat = new THREE.ShaderMaterial({
       #include <logdepthbuf_vertex>
       float a = age < 0.0 ? 0.0 : clamp(1.0 - age / uLife, 0.0, 1.0);
       vA = a * a * min(1.0, age * 4.0 + 0.2);
-      gl_PointSize = age < 0.0 ? 0.0 : clamp((1.6 + 0.22 * age) * uScale / -mv.z, 1.5, 120.0);
+      gl_PointSize = age < 0.0 ? 0.0 : clamp(uPuff * (1.6 + 0.22 * age) * uScale / -mv.z, 1.5, 120.0);
     }`,
   fragmentShader: `varying float vA;
     #include <common>
@@ -228,7 +235,7 @@ scene.add(smoke);
 let lastTips = null;
 function emitSmoke(simDt, tipsNow) {
   if (!lastTips) { lastTips = tipsNow; return; }
-  const n = RATE * simDt;
+  const n = Q.rate * simDt;
   for (let side = 0; side < 2; ++side) {
     const a = lastTips[side], b = tipsNow[side];
     let count = Math.floor(n) + (Math.random() < n - Math.floor(n) ? 1 : 0);
@@ -240,19 +247,74 @@ function emitSmoke(simDt, tipsNow) {
   }
   lastTips = tipsNow;
 }
-const pts = new Float64Array(3 * 4096), ptIdx = new Int32Array(4096);
+// The puffs' air velocity: the wind at the 172 plus the jet's wake, from the
+// wake's own vortex segments (the ones drawn as vortex lines) binned along the
+// approach course, each puff summing those within two bins of it with the
+// engine's segment formula (Katz & Plotkin, Lamb-Oseen core). That is the
+// engine's field to a few percent and about 60 times cheaper per puff than
+// asking the engine point by point.
+const BIN = 30, REACH = 2, K_LO = 1.25643;
+let segs = new Float64Array(0), segN = 0, binStart = new Int32Array(1), binList = new Int32Array(0), bin0 = 0, nBins = 0;
+let segLo = new Int32Array(0), segHi = new Int32Array(0), seen = new Int32Array(0), stampN = 0;
+const alongOf = (e, n) => (e - RW[0]) * fwd[0] + (n - RW[1]) * fwd[1];
+function binWake() {
+  const w = A.trafficWake(), sg = w.seg, thr = 0.005 * Math.max(w.gmax, 1);
+  if (segs.length < 8 * w.n) { segs = new Float64Array(8 * w.n); segLo = new Int32Array(w.n); segHi = new Int32Array(w.n); seen = new Int32Array(w.n); }
+  let m = 0, lo = 1e9, hi = -1e9;
+  for (let i = 0; i < w.n; ++i) {
+    const o = 9 * i;
+    if (Math.abs(sg[o + 6]) < thr) continue;
+    for (let c = 0; c < 6; ++c) segs[8 * m + c] = sg[o + c];
+    segs[8 * m + 6] = sg[o + 6]; segs[8 * m + 7] = Math.max(sg[o + 7] * sg[o + 7], 1e-12);
+    const a = alongOf(sg[o], sg[o + 1]), b = alongOf(sg[o + 3], sg[o + 4]);
+    segLo[m] = Math.floor(Math.min(a, b) / BIN); segHi[m] = Math.floor(Math.max(a, b) / BIN);
+    lo = Math.min(lo, segLo[m]); hi = Math.max(hi, segHi[m]);
+    ++m;
+  }
+  segN = m; bin0 = lo; nBins = m ? hi - lo + 1 : 0;
+  if (binStart.length < nBins + 1) binStart = new Int32Array(nBins + 1); else binStart.fill(0, 0, nBins + 1);
+  for (let i = 0; i < m; ++i) for (let b = segLo[i]; b <= segHi[i]; ++b) binStart[b - bin0 + 1]++;
+  for (let b = 0; b < nBins; ++b) binStart[b + 1] += binStart[b];
+  if (binList.length < binStart[nBins]) binList = new Int32Array(2 * binStart[nBins]);
+  const fill = binStart.slice(0, nBins);
+  for (let i = 0; i < m; ++i) for (let b = segLo[i]; b <= segHi[i]; ++b) binList[fill[b - bin0]++] = i;
+  seen.fill(0); stampN = 0;
+}
+function wakeVelocity(px, py, pz, k) {
+  let ux = 0, uy = 0, uz = 0;
+  const stamp = ++stampN;
+  const b = Math.floor(alongOf(px, py) / BIN) - bin0;
+  for (let bb = Math.max(b - REACH, 0); bb <= Math.min(b + REACH, nBins - 1); ++bb)
+    for (let q = binStart[bb]; q < binStart[bb + 1]; ++q) {
+      const i = binList[q];
+      if (seen[i] === stamp) continue;
+      seen[i] = stamp;
+      const o = 8 * i, ax = segs[o], ay = segs[o + 1], az = segs[o + 2], bx = segs[o + 3], by = segs[o + 4], bz = segs[o + 5];
+      const r0x = bx - ax, r0y = by - ay, r0z = bz - az, r1x = px - ax, r1y = py - ay, r1z = pz - az, r2x = px - bx, r2y = py - by, r2z = pz - bz;
+      const cx = r1y * r2z - r1z * r2y, cy = r1z * r2x - r1x * r2z, cz = r1x * r2y - r1y * r2x;
+      const c2 = cx * cx + cy * cy + cz * cz, l2 = r0x * r0x + r0y * r0y + r0z * r0z;
+      if (l2 < 1e-12 || c2 < 1e-18 * l2) continue;
+      const n1 = Math.sqrt(r1x * r1x + r1y * r1y + r1z * r1z), n2 = Math.sqrt(r2x * r2x + r2y * r2y + r2z * r2z);
+      if (n1 < 1e-9 || n2 < 1e-9) continue;
+      const f = segs[o + 6] / (4 * Math.PI * c2) * (r0x * (r1x / n1 - r2x / n2) + r0y * (r1y / n1 - r2y / n2) + r0z * (r1z / n1 - r2z / n2)) *
+        (1 - Math.exp(-K_LO * (c2 / l2) / segs[o + 7]));
+      ux += cx * f; uy += cy * f; uz += cz * f;
+    }
+  sVel[3 * k] = ux + windE; sVel[3 * k + 1] = uy + windN; sVel[3 * k + 2] = uz;
+}
+let windE = 0, windN = 0;
 function advectSmoke(simDt) {
-  // Refresh a share of the live puffs' velocities from the core.
-  const share = Math.min(A.layout.airPointsMax, MOBILE ? 500 : 1100);
-  let n = 0;
-  for (let tries = 0; tries < NS && n < share; ++tries) {
+  // The wind at the 172 (from, kt), uniform; then a share of the live puffs'
+  // velocities refreshed from the binned wake.
+  const from = s[59] * DEG, spd = s[60] * KT;
+  windE = -Math.sin(from) * spd; windN = -Math.cos(from) * spd;
+  binWake();
+  const share = Q.refresh;
+  for (let n = 0, tries = 0; tries < NS && n < share; ++tries) {
     const k = sRefresh; sRefresh = (sRefresh + 1) % NS;
     if (sAge[k] < 0) continue;
-    pts[3 * n] = sPos[3 * k]; pts[3 * n + 1] = sPos[3 * k + 1]; pts[3 * n + 2] = sPos[3 * k + 2]; ptIdx[n++] = k;
-  }
-  if (n) {
-    const v = A.airVelocity(pts, n);
-    for (let i = 0; i < n; ++i) { const k = ptIdx[i]; sVel[3 * k] = v[3 * i]; sVel[3 * k + 1] = v[3 * i + 1]; sVel[3 * k + 2] = v[3 * i + 2]; }
+    wakeVelocity(sPos[3 * k], sPos[3 * k + 1], sPos[3 * k + 2], k);
+    ++n;
   }
   for (let k = 0; k < NS; ++k) {
     if (sAge[k] < 0) continue;
@@ -267,6 +329,7 @@ function drawSmoke() {
   smokeGeo.attributes.position.needsUpdate = true;
   smokeGeo.attributes.age.needsUpdate = true;
   smokeMat.uniforms.uScale.value = innerHeight / (2 * Math.tan(camera.fov * DEG / 2));
+  smokeMat.uniforms.uPuff.value = Q.puff;
 }
 function clearSmoke() { sAge.fill(-1); lastTips = null; }
 
@@ -332,6 +395,7 @@ async function start() {
   A.avd_set_wind_detail(cfg.turb, 0, 0);
   A.avd_reset_final(START, KIAS172);
   A.linePilot(1, KIAS172, -3);
+  A.avd_set_wake(0);  // the 172's own wake: it never meets it here (no turns), and it costs a third of the step
   s = A.state().slice();
   // The jet: on its own 3 deg line, behind, above and to one side, timed to
   // overtake the 172 about 10 s in; it goes around `ga` m after passing it.
@@ -518,8 +582,26 @@ function frame(now) {
   placeCamera(ltPos, jetPos);
   const rt = run ? s[42] - run.t0 : 0;
   $('clock').innerHTML = `${rt.toFixed(1)} s<small>${Math.round(1 / scale) <= 1 ? '1× · real time' : `1/${Math.round(1 / scale)} · slow motion`}${ui.paused ? ' · paused' : ''}</small>`;
+  watchFrameRate(dt);
   if (Math.floor(now / 120) !== frame.k) { frame.k = Math.floor(now / 120); readouts(); }
   renderer.render(scene, camera);
+}
+function setQuality(name, chosen) {
+  Q = QUALITY[name];
+  if (chosen) store.set('quality', name);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixels));
+  resize();
+  syncButtons();
+}
+// A device that cannot keep up on full quality (an average frame over 36 ms
+// for 3 s of flying) goes lite by itself, once, unless the viewer chose.
+const perf = { t: 0, sum: 0, n: 0, done: store.get('quality', null) !== null };
+function watchFrameRate(dt) {
+  if (perf.done || !run || ui.paused || Q === QUALITY.lite) return;
+  perf.t += dt; perf.sum += dt; perf.n++;
+  if (perf.t < 3) return;
+  if (perf.sum / perf.n > 0.036) { setQuality('lite', false); toast('Running lighter for this device (Lite, top right).'); }
+  perf.done = true;
 }
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
@@ -527,6 +609,7 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize);
+renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixels));
 resize();
 
 // ---------- Controls ----------
@@ -537,6 +620,7 @@ function syncButtons() {
   $('bSmoke').setAttribute('aria-pressed', String(ui.smoke));
   $('bCores').setAttribute('aria-pressed', String(ui.cores));
   $('bCam').textContent = `Camera: ${CAMS[ui.cam]}`;
+  $('bLite').setAttribute('aria-pressed', String(Q === QUALITY.lite));
   for (const b of $('scale').children) b.setAttribute('aria-pressed', String(+b.dataset.i === ui.speed));
   for (const b of $('scenes').children) b.setAttribute('aria-pressed', String(b.dataset.id === sceneId));
   $('vDh').textContent = `${cfg.dh} m`; $('dh').value = cfg.dh;
@@ -572,6 +656,7 @@ $('bAuto').onclick = () => { ui.auto = !ui.auto; store.set('auto', ui.auto); syn
 $('bSmoke').onclick = () => { ui.smoke = !ui.smoke; store.set('smoke', ui.smoke); if (!ui.smoke) clearSmoke(); syncButtons(); };
 $('bCores').onclick = () => { ui.cores = !ui.cores; store.set('cores', ui.cores); syncButtons(); };
 $('bCam').onclick = () => { ui.cam = (ui.cam + 1) % CAMS.length; store.set('cam', ui.cam); Object.assign(orbit, { yaw: 0, pitch: 0, zoom: 1 }); syncButtons(); toast(CAMS[ui.cam]); };
+$('bLite').onclick = () => setQuality(Q === QUALITY.lite ? 'full' : 'lite', true);
 $('bHelp').onclick = () => $('help').classList.add('on');
 $('bHelpClose').onclick = () => $('help').classList.remove('on');
 $('help').onclick = (e) => { if (e.target === $('help')) $('help').classList.remove('on'); };
