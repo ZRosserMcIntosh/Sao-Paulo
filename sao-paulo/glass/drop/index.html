@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Prince Rupert's drop · Glass Lab</title>
+<meta name="description" content="A Prince Rupert's drop under a high-speed camera: its head shrugs off a lead bullet, but snap its tail and a front of cracks runs back at 1.5 km/s and the whole drop bursts into powder. Real fracture physics in your browser.">
+<meta property="og:title" content="Prince Rupert's drop · São Paulo World">
+<meta property="og:description" content="Shoot its head and the bullet splashes. Snap its tail and the whole drop explodes at 1.5 km/s. Watch it at a million frames a second.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/glass/drop/og.jpg?v=1">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A Prince Rupert's drop bursting into glass powder">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/glass/drop/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://zrossermcintosh.com/sao-paulo/glass/drop/og.jpg?v=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"../../driving/vendor/three.module.min.js"}}</script>
+<style>
+:root{
+  --bg:#05070b; --panel:rgba(10,17,28,.84); --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --plate-ink:#fff; --masp:#ec4a3c; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b; --ice:#9fd6ff;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+button{font:600 12px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer;white-space:nowrap}
+button:hover{background:rgba(255,255,255,.13)}
+button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+button:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+input[type=range]{width:100%;accent-color:var(--hot)}
+.panel{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:12px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
+.top>*{pointer-events:auto}
+.top button,.top a.how{background:rgba(10,17,28,.75)}
+.top button[aria-pressed="true"]{background:#fff;color:#0a1830}
+.top a.how{font:600 12px var(--body);color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+#lab{position:fixed;left:12px;top:66px;width:300px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#res{position:fixed;right:12px;top:66px;width:300px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+h2:first-child{margin-top:0}
+h2 small{font:500 10.5px var(--mono);color:var(--mute);text-transform:none;letter-spacing:0}
+.desc{font-size:12.5px;color:#cfd8e3;margin:6px 0 0}
+.note{color:var(--mute);font-size:12px;margin:6px 0 0}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chips button small{color:var(--mute);font-weight:500;margin-left:4px}
+.chips button[aria-pressed="true"] small{color:#3a4a60}
+.slider{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-top:8px;font-size:12px;color:var(--mute)}
+.slider b{font:600 12px var(--mono);color:var(--ink);text-align:right}
+.slider input{grid-column:1/-1}
+.act{width:100%;margin-top:8px;padding:9px;font:800 15px var(--display);letter-spacing:.06em;text-transform:uppercase;background:var(--masp);border-color:var(--masp);color:#fff}
+.act.alt{background:rgba(255,255,255,.08);border-color:var(--line)}
+#outcome{font:700 14px/1.35 var(--body);margin:0}
+#outcome.ok{color:var(--good)}#outcome.bad{color:var(--bad)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;margin-top:8px}
+.kv span{color:var(--mute)}.kv b{font:600 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+#time{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:3;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100% - 24px);padding:8px 10px}
+#clock{font:600 13px var(--mono);min-width:170px;text-align:center;font-variant-numeric:tabular-nums}
+#clock small{display:block;font:500 10px var(--mono);color:var(--mute);letter-spacing:.06em}
+#hud{position:fixed;left:50%;top:70px;transform:translateX(-50%);font:600 11px var(--mono);color:#ff5a4f;letter-spacing:.12em;text-transform:uppercase;z-index:2;pointer-events:none;text-shadow:0 0 6px rgba(255,60,40,.6)}
+#hud i{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff3b30;margin-right:6px;vertical-align:middle;animation:rec 1s steps(2) infinite}
+@keyframes rec{50%{opacity:.2}}
+#banner{position:fixed;left:50%;top:96px;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:2;opacity:0;transition:opacity .35s;text-shadow:0 2px 10px rgba(0,0,0,.9);width:max-content;max-width:calc(100% - 24px)}
+#banner.on{opacity:1}
+#banner b{display:block;font:900 italic clamp(24px,4vw,42px)/1 var(--display);text-transform:uppercase}
+#banner small{display:block;font:600 12px var(--mono);color:#dfe6ef;margin-top:5px}
+#toast{position:fixed;left:50%;top:150px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
+#toast.on{opacity:1}
+#loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg)}
+#loading .panel{max-width:440px;text-align:center}
+#loading h1{font:900 34px/1 var(--display);text-transform:uppercase;margin:0 0 8px}
+.legend{display:none;position:fixed;right:12px;bottom:64px;z-index:2;font:500 10.5px var(--mono);color:var(--mute);padding:8px 10px;max-width:300px}
+.legend.on{display:block}
+.legend .bar{height:10px;border-radius:3px;margin:5px 0 3px}
+@media (max-width:860px){
+  #lab,#res{left:8px;right:8px;width:auto;top:auto;bottom:calc(58px + env(safe-area-inset-bottom));max-height:40vh;padding:10px}
+  #lab[hidden],#res[hidden]{display:none}
+  #tabs{display:flex!important}
+  #time{left:8px;right:8px;transform:none;width:auto;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;bottom:calc(6px + env(safe-area-inset-bottom))}
+  #time button{padding:6px 7px;font-size:11.5px}
+  #scale{flex-wrap:nowrap}
+  #clock{min-width:110px;font-size:11px}
+  .top .hide-sm{display:none}
+  .top .plate b{font-size:16px}.top .plate span{font-size:8px}
+  .top button,.top a.how{padding:5px 7px;font-size:11.5px}
+  #hud{top:122px;font-size:10px}
+  #banner{top:146px}
+}
+#tabs{display:none;position:fixed;left:8px;right:8px;bottom:calc(58px + 40vh + 6px + env(safe-area-inset-bottom));gap:5px;z-index:3;justify-content:center}
+#tabs.closed{bottom:calc(58px + env(safe-area-inset-bottom))}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="A Prince Rupert's drop held by its tail in a padded clamp, under a high-speed camera"></canvas>
+
+<div class="top">
+  <a class="plate" href="../" title="Back to the Glass Lab"><b>São Paulo World</b><span>Glass lab</span></a>
+  <div class="row">
+    <button id="bSound" aria-pressed="true" title="Sound on / off (M)">Sound</button>
+    <button id="bPol" aria-pressed="false" title="Between crossed polarisers: the stress frozen into the drop shows as colour (S)">Polariscope</button>
+    <button id="bCam" class="hide-sm" title="Camera: side, head-on, along the tail (C)">Camera</button>
+    <button id="bNew" class="hide-sm" title="A new drop (R)">New drop</button>
+    <button id="bShare" title="Copy a link to exactly this drop and this test">Share</button>
+    <a class="how" href="../how/#rupert" title="How the drop is calculated">How it works</a>
+  </div>
+</div>
+
+<div id="tabs" class="row" role="tablist">
+  <button id="tLab" aria-pressed="true">Tests</button>
+  <button id="tRes" aria-pressed="false">Results</button>
+  <button id="tHide" aria-pressed="false">Hide</button>
+</div>
+
+<aside id="lab" class="panel" aria-label="The drop and the tests">
+  <h2>Prince Rupert's drop <small id="dropDims"></small></h2>
+  <p class="desc">Molten glass dripped into cold water. Its skin froze first and was squeezed by the hot core as it shrank, so the head is wrapped in glass under enormous compression around a core in tension.</p>
+  <div class="slider"><span>Head radius</span><b id="vHead"></b><input id="head" type="range" min="3" max="8" step="0.1" value="5" aria-label="Head radius"></div>
+  <div class="slider"><span>Skin compression</span><b id="vComp"></b><input id="comp" type="range" min="200" max="800" step="10" value="500" aria-label="Skin compression"></div>
+
+  <h2>Shoot the head</h2>
+  <div class="chips" id="guns"></div>
+  <div class="slider"><span>Speed</span><b id="vSpeed"></b><input id="speed" type="range" min="0" max="1000" step="1" aria-label="Bullet speed"></div>
+  <button id="bFire" class="act" title="Fire at the head (Space)">Fire</button>
+
+  <h2>Or</h2>
+  <div class="slider"><span>Snap the tail at</span><b id="vSnip"></b><input id="snip" type="range" min="20" max="70" step="1" value="50" aria-label="Where to snap the tail"></div>
+  <button id="bSnip" class="act alt" title="Snap the tail with pliers (T)">Snap the tail</button>
+  <div class="row" style="margin-top:8px">
+    <button id="bTap" title="A hammer tap on the head, 1 m/s">Hammer tap</button>
+    <button id="bSwing" title="A full hammer swing on the head, 8 m/s">Hammer swing</button>
+  </div>
+  <p class="note">Everything is solved by the same fracture engine as the lab: the shape, the stress frozen into it, what a strike does to its skin, and every fragment of the burst.</p>
+</aside>
+
+<aside id="res" class="panel" aria-label="Results">
+  <h2>Result</h2>
+  <p id="outcome">Fire at the head, or snap the tail.</p>
+  <div class="kv" id="kv"></div>
+  <h2>The drop</h2>
+  <div class="kv" id="dropKv"></div>
+</aside>
+
+<div id="time" class="panel">
+  <button id="bPlay" aria-pressed="false" title="Pause / play (P)">Pause</button>
+  <button id="bReplay" title="Replay (Z)">Replay</button>
+  <div class="row" id="scale"></div>
+  <button id="bAuto" aria-pressed="true" title="High-speed camera: slows down by itself around the break (A)">Auto</button>
+  <div id="clock">0 µs<small>1×</small></div>
+</div>
+
+<div id="hud"><i></i><span id="hudText">High-speed camera</span></div>
+<div id="banner"><b id="bTitle"></b><small id="bSub"></small></div>
+<div id="toast" role="status"></div>
+<div class="legend panel" id="legend"><div>Crossed polarisers: retardation of the frozen stress, white light</div><div class="bar" id="legendBar"></div><div style="display:flex;justify-content:space-between"><span>0</span><span>3 orders</span></div></div>
+<div id="loading"><div class="panel"><h1>Rupert's drop</h1><p id="loadMsg">Loading the fracture engine…</p></div></div>
+<script type="module" src="drop.js"></script>
+</body>
+</html>
