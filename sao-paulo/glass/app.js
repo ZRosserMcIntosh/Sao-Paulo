@@ -4,7 +4,7 @@
 // This file only draws what the core returns and reads input: every crack,
 // fragment and force comes from the core.
 import * as THREE from 'three';
-import createGlassModule from './glass.mjs';
+import { createEngine, wasmFile } from './engine_rpc.js';
 import { createGTScene } from './scene_gt.js';
 import { createHouseScene } from './scene_house.js';
 import { paneLoad, fragmentsThrough, mulberry32, createBlastFX } from './blast.js';
@@ -29,7 +29,7 @@ let G, cat;
 try {
   // The engine and its library must match: revalidate both on every load, so a
   // browser never pairs a cached engine with a newer library after a deploy.
-  G = await createGlassModule(await (await fetch('glass.wasm', { cache: 'no-cache' })).arrayBuffer());
+  G = await createEngine();
   const errs = G.load(await (await fetch('library.json', { cache: 'no-cache' })).text());
   if (errs.length) throw new Error(errs.join('; '));
   cat = G.catalog();
@@ -39,12 +39,21 @@ try {
 }
 
 // ---------- Device tier ----------
+// The tier is how the lab draws: resolution, shadows, materials, how many
+// real dice it shows. The physics is the same on every device (PHYS): a slow
+// one takes longer over it (the clock waits for it) rather than computing
+// something coarser, so a pane breaks the same way everywhere.
+const PHYS = 3;
 function benchmark() {
-  G.gls_bench(2);  // warm the JIT
-  const t0 = performance.now();
-  let n = 0;
-  while (performance.now() - t0 < 70 && n < 400) { G.gls_bench(2); n += 2; }
-  const ms = (performance.now() - t0) / Math.max(1, n);
+  let ms;
+  if (G.remote) ms = G.bench(70);
+  else {
+    G.gls_bench(2);  // warm the JIT
+    const t0 = performance.now();
+    let n = 0;
+    while (performance.now() - t0 < 70 && n < 400) { G.gls_bench(2); n += 2; }
+    ms = (performance.now() - t0) / Math.max(1, n);
+  }
   let t = ms <= 0.4 ? 3 : ms <= 0.8 ? 2 : ms <= 1.6 ? 1 : 0;
   const cores = navigator.hardwareConcurrency || 4, mem = navigator.deviceMemory || 4;
   if (cores <= 2 || mem <= 2) t = Math.min(t, 1);
@@ -57,22 +66,25 @@ let tier = tierChoice === 'auto' ? bench.tier : +tierChoice;
 
 // ---------- Renderer ----------
 const canvas = $('view'), canvas2d = $('view2d');
+// A software rasteriser (no GPU) costs the frame most of its time: go light.
+function probeSoftwareGL() {
+  try {
+    const c = document.createElement('canvas'), gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) return false;
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return /swiftshader|llvmpipe|software|basic render/i.test(name);
+  } catch { return false; }
+}
+const softwareGL = probeSoftwareGL();
 let R = null;
 try {
-  if (!new URLSearchParams(location.search).has('flat')) {
-    R = new THREE.WebGLRenderer({ canvas, antialias: tier >= 2, powerPreference: 'high-performance', alpha: false });
-  }
+  // Multisampling on every real GPU: phones resolve it on the chip, nearly free.
+  if (!new URLSearchParams(location.search).has('flat'))
+    R = new THREE.WebGLRenderer({ canvas, antialias: !softwareGL, powerPreference: 'high-performance', alpha: false });
 } catch { R = null; }
 const flat = !R;
-// A software rasteriser (no GPU) costs the frame most of its time: go light.
-let softwareGL = false;
-if (R) {
-  try {
-    const gl = R.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
-    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
-    softwareGL = /swiftshader|llvmpipe|software|basic render/i.test(name);
-  } catch { /* no renderer info */ }
-}
 if (softwareGL && tierChoice === 'auto') { bench.tier = Math.min(bench.tier, 1); tier = bench.tier; }
 if (flat) { canvas.style.display = 'none'; canvas2d.style.display = 'block'; }
 const ctx2d = flat ? canvas2d.getContext('2d') : null;
@@ -82,9 +94,14 @@ scene.background = new THREE.Color(0x0b111b);
 scene.fog = new THREE.Fog(0x0b111b, 9, 26);
 const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 60);
 
+// Resolution: every tier draws at least one pixel per screen pixel (a
+// software rasteriser less); resScale trades it down while frames are slow
+// and back up when they are quick again.
+let resScale = 1;
 function pixelRatio() {
   const dpr = window.devicePixelRatio || 1;
-  return [0.75, 1, Math.min(dpr, 1.5), Math.min(dpr, 2), Math.min(dpr, 2)][tier];
+  const base = [Math.min(dpr, 1), Math.min(dpr, 1.25), Math.min(dpr, 1.5), Math.min(dpr, 2), Math.min(dpr, 2)][tier];
+  return (softwareGL ? Math.min(base, 0.75) : base) * resScale;
 }
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -102,7 +119,7 @@ let glassMat, fragMat, frameMat;
 const labObjects = [];  // the test hall: hidden when a scene takes over
 let GT = null;          // the armoured-car scene (3D only)
 let HS = null;          // the grenade-house scene (3D only)
-let tierCap = null;     // a scene that must run in real time caps the automatic tier
+let physCap = null;     // a scene's own physics standard, where it must run many panes or shots at once
 // Sound, synthesized from what the engine reports; browsers start it on the first gesture.
 const sound = new GlassAudio();
 // On unless the visitor turned it off (a new key: the sound was reworked).
@@ -144,7 +161,10 @@ if (R) {
   rim.position.set(3, 2, -3);
   scene.add(rim);
 
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x272c33, roughness: 0.82, metalness: 0.05 });
+  // The floor fills most of the screen: below High it is flat-shaded (its
+  // light on a flat floor is even anyway), with the shadows baked in (buildSlab).
+  const floorMat = tier >= 3 ? new THREE.MeshStandardMaterial({ color: 0x272c33, roughness: 0.82, metalness: 0.05 })
+    : new THREE.MeshBasicMaterial({ color: 0x515e69 });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
@@ -156,11 +176,17 @@ if (R) {
   scene.add(grid);
   labObjects.push(hemi, key, rim, floor, grid);
 
+  // High and Ultra see the scene through the glass (a transmission pass).
+  // Below, one pass does what clear glass does to what is behind it: each
+  // face passes a share of it, tinted (the blend's constant colour), and adds
+  // its reflection and a faint sheen of the room.
   glassMat = tier >= 3
     ? new THREE.MeshPhysicalMaterial({ color: 0xeaf7f3, metalness: 0, roughness: 0.03, transmission: 1, thickness: 0.006, ior: 1.52,
       transparent: true, envMapIntensity: 1.3, side: THREE.DoubleSide, specularIntensity: 1, depthWrite: false })
-    : new THREE.MeshStandardMaterial({ color: 0xd4ecef, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.2,
-      envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false });
+    : new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(0.008, 0.013, 0.016), metalness: 0, roughness: 0.03,
+      envMapIntensity: 1.6, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.ConstantColorFactor,
+      blendColor: new THREE.Color(0.70, 0.78, 0.74) });
   fragMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.25,
     envMapIntensity: 1.7, side: THREE.DoubleSide, depthWrite: false });
   frameMat = new THREE.MeshStandardMaterial({ color: 0x8b939e, metalness: 0.85, roughness: 0.35 });
@@ -458,7 +484,7 @@ class FragmentView {
 // the engine reports each such spray. Every die then flies, bounces, slides
 // and tumbles on a closed-form path in engine time, evaluated on the GPU: no
 // per-frame work on the CPU, and slow motion or a replay shows the same pile.
-const DICE_CAP = [2000, 6000, 16000, 32000, 60000];
+const DICE_CAP = [8000, 12000, 20000, 32000, 60000];
 function hash01(i, k) {
   let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(k + 0x27d4eb2f, 0xc2b2ae35);
   h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
@@ -525,8 +551,9 @@ class DiceView {
     this.a = { aT: attr('aT', 4), aP: attr('aP', 3), aV: attr('aV', 3), aS: attr('aS', 3), aR: attr('aR', 4), aSl: attr('aSl', 3) };
     this.uTime = { value: 0 };
     const opts = { color: 0xd3ece4, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.45, envMapIntensity: 2.4 };
+    // Below High no clearcoat: a stronger, sharper reflection gives the dice the same glint.
     this.mat = tier >= 3 ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: 1, clearcoatRoughness: 0.05, ior: 1.52, specularIntensity: 1 })
-      : new THREE.MeshStandardMaterial(opts);
+      : new THREE.MeshStandardMaterial({ ...opts, metalness: 0.4, roughness: 0.02, opacity: 0.5, envMapIntensity: 4.5 });
     this.mat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = this.uTime;
       sh.vertexShader = sh.vertexShader
@@ -613,7 +640,7 @@ class DiceView {
 // paths. Everything moves in the vertex shader: piece poses and dice flights
 // live in two float textures, the geometry never changes after it is built.
 const DPR = 292, PPR = 680;   // dice / pieces per texture row (7 / 3 texels each)
-const CELL_CAP = [2500, 7000, 16000, 28000, 45000];
+const CELL_CAP = [12000, 16000, 24000, 32000, 45000];
 const PIECE_HEAD = `
 uniform highp sampler2D uDice;
 uniform highp sampler2D uPose;
@@ -779,8 +806,9 @@ class PieceView {
     // the light caught by the cut edges and seams.
     const opts = { color: 0xe4f2ef, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.18, envMapIntensity: 1.8,
       side: THREE.DoubleSide };
+    // Below High no clearcoat: a stronger, sharper reflection gives the pieces the same glint.
     this.mat = tier >= 3 ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: 1, clearcoatRoughness: 0.05, ior: 1.52 })
-      : new THREE.MeshStandardMaterial(opts);
+      : new THREE.MeshStandardMaterial({ ...opts, metalness: 0.4, roughness: 0.02, opacity: 0.26, envMapIntensity: 4.5 });
     this.mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, this.uniforms);
       sh.vertexShader = sh.vertexShader
@@ -818,10 +846,9 @@ class PieceView {
   }
   // One die (or a whole piece): its outline in the piece frame, extruded +-h.
   // Triangles wind inward: the pane-to-scene mirror (z -> -z) turns them out.
-  pushPrism(pts, h, dieIndex, holes = []) {
-    const loops = [pts, ...holes], all = [].concat(...loops);
-    const n = all.length;
-    const needV = this.nVerts + 6 * n, needI = this.nIdx + 6 * n + 6 * n;
+  // Room for needV vertices and needI indices: doubling, or straight to what
+  // the pane will need (reserve), so the GPU buffers are rebuilt rarely.
+  room(needV, needI) {
     if (needV > this.die.length || needI > this.idx.length) {
       const cv = Math.max(2 * this.die.length, needV), ci = Math.max(2 * this.idx.length, needI);
       const pos = new Float32Array(3 * cv), nor = new Float32Array(3 * cv), die = new Float32Array(cv), idx = new Uint32Array(ci);
@@ -830,6 +857,11 @@ class PieceView {
       this.attach();
       this.flushV = 0; this.flushI = 0;   // new buffers: upload them whole
     }
+  }
+  pushPrism(pts, h, dieIndex, holes = []) {
+    const loops = [pts, ...holes], all = [].concat(...loops);
+    const n = all.length;
+    this.room(this.nVerts + 6 * n, this.nIdx + 6 * n + 6 * n);
     let tris = [];
     let convex = !holes.length;
     for (let i = 0, m = pts.length; i < m && convex; ++i) {
@@ -869,6 +901,13 @@ class PieceView {
   // New pieces are drawn whole at once; tempered ones are queued to be cut
   // into their real dice a few at a time (tick), so shattering never stalls a frame.
   add(shapes) {
+    // The first pieces of a tempered pane: make room for its dice in one go
+    // (a die is about 36 vertices and 72 indices, a whole piece twice that).
+    if (!this.reserved && P.plies.some((pl) => pl.dicing)) {
+      this.reserved = true;
+      const dice = CELL_CAP[clamp(P.viewTier ?? tier, 0, 4)] + 2 * shapes.length;
+      this.room(this.nVerts + 36 * dice, this.nIdx + 72 * dice);
+    }
     for (const s of shapes) {
       const n = s.outline.length / 2;
       if (n < 3) continue;
@@ -1212,7 +1251,7 @@ const FRINGE_MPA = 20;  // stress per fringe order in the view
 function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false, opts = {}) {
   disposePane(P, groupPane);
   const gi = opts.glazing ?? gIdx;
-  const t = opts.tier ?? (tierCap === null ? tier : Math.min(tier, tierCap));
+  const t = opts.tier ?? (physCap === null ? PHYS : Math.min(PHYS, physCap));
   const sized = opts.width > 0 && opts.height > 0;
   if (!(sized ? G.gls_new_pane_sized(gi, t, seed, opts.width, opts.height) : G.gls_new_pane(gi, t, seed)))
     throw new Error('could not build the pane');
@@ -1298,7 +1337,9 @@ function buildSlab() {
   P.edges = edges;
   // Frame: an aluminium rebate around the pane, on two feet.
   const fw = 0.035, fd = Math.max(0.05, T + 0.03);
+  const boxes = [];
   const bar = (w, h, x, y) => {
+    boxes.push([w, h, fd, x, y, -T / 2]);
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, fd), frameMat);
     m.position.set(x, y, -T / 2);
     m.castShadow = m.receiveShadow = tier >= 3;
@@ -1311,12 +1352,20 @@ function buildSlab() {
   for (const sx of [-1, 1]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, FLOOR - fw, 0.05), frameMat);
     leg.position.set(sx * (W / 2 + fw / 2), (FLOOR - fw) / 2, -T / 2);
+    boxes.push([0.05, FLOOR - fw, 0.05, sx * (W / 2 + fw / 2), (FLOOR - fw) / 2, -T / 2], [0.08, 0.03, 0.6, sx * (W / 2 + fw / 2), 0.015, -T / 2]);
     leg.userData.lab = true;
     groupPane.add(leg); P.meshes.push(leg);
     const foot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.6), frameMat);
     foot.position.set(sx * (W / 2 + fw / 2), 0.015, -T / 2);
     foot.userData.lab = true;
     groupPane.add(foot); P.meshes.push(foot);
+  }
+  // Below High there is no shadow map: the frame's shadow is drawn on the floor once.
+  if (tier < 3) {
+    const sh = bakedShadow(boxes);
+    sh.userData.lab = true;
+    groupPane.add(sh);
+    P.meshes.push(sh);
   }
   // Stress view: the front sheet again, drawn with the fringe texture.
   const front = new THREE.BufferGeometry();
@@ -1334,6 +1383,61 @@ function buildSlab() {
   aimMarker.userData.lab = true;
   groupPane.add(aimMarker);
   P.meshes.push(aimMarker);
+}
+// Soft shadows for tiers without a shadow map: the frame's, baked once for
+// the pane, and a blob under each impactor that follows it.
+const KEY_DIR = new THREE.Vector3(-2.5, 4.5, 3.5).normalize();   // toward the key light
+function onFloor(x, y, z) { const k = y / KEY_DIR.y; return [x - KEY_DIR.x * k, z - KEY_DIR.z * k]; }
+function hull(pts) {
+  pts = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], hi = [];
+  for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (const p of pts.reverse()) { while (hi.length >= 2 && cross(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
+  return lo.slice(0, -1).concat(hi.slice(0, -1));
+}
+function bakedShadow(boxes) {
+  const N = 512, span = 6, c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d');
+  const px = ([x, z]) => [(x / span + 0.5) * N, (z / span + 0.5) * N];
+  const draw = (dx, dy, a) => {
+    g.globalAlpha = a;
+    for (const [w, h, d, x, y, z] of boxes) {
+      const pts = [];
+      for (const ax of [-0.5, 0.5]) for (const ay of [-0.5, 0.5]) for (const az of [-0.5, 0.5]) pts.push(px(onFloor(x + ax * w, y + ay * h, z + az * d)));
+      g.beginPath();
+      hull(pts).forEach(([u, v], i) => (i ? g.lineTo(u + dx, v + dy) : g.moveTo(u + dx, v + dy)));
+      g.closePath();
+      g.fill();
+    }
+  };
+  g.fillStyle = '#fff';
+  // A soft edge, as a shadow map's filtering gives (canvas blur where there is one).
+  if ('filter' in g) { g.filter = 'blur(5px)'; draw(0, 0, 1); }
+  else for (const [dx, dy] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) draw(dx, dy, 0.35);
+  const tex = new THREE.CanvasTexture(c);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(span, span),
+    new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: tex, transparent: true, opacity: 0.2, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = 0.002;
+  m.renderOrder = 0;
+  return m;
+}
+let blobTex = null;
+function impactorBlob() {
+  if (!blobTex) {
+    const n = 64, c = document.createElement('canvas');
+    c.width = c.height = n;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, n, n);
+    blobTex = new THREE.CanvasTexture(c);
+  }
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: blobTex, transparent: true, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.renderOrder = 0;
+  return m;
 }
 function placeAimMarker() {
   if (!aimMarker || !aim) return;
@@ -1461,6 +1565,12 @@ function fire(at = aim, record = true) {
       const m = impactorMesh(def);
       groupPane.add(m);
       P.impMeshes[k] = m;
+      if (tier < 3 && !rigs && !activeScene()) {
+        const b = impactorBlob();
+        m.userData.blob = b;
+        groupPane.add(b);
+        P.meshes.push(b);
+      }
     }
   }
   P.nImp = n;
@@ -1716,11 +1826,12 @@ function updateReadouts(final) {
     }
     const real = tp.dice > 0 ? Math.round(0.0025 / (tp.dice * tp.dice)) : 0;
     pv.push(['Dice (real glass)', `≈${(tp.dice * 1e3).toFixed(1)} mm · ≈${real} per 50 mm square`]);
-    if (tp.drawn > tp.dice * 1.05) pv.push(['Dice drawn', `${(tp.drawn * 1e3).toFixed(0)} mm (${TIER_NAMES[tier]} tier)`]);
+    if (tp.drawn > tp.dice * 1.05) pv.push(['Dice simulated', `${(tp.drawn * 1e3).toFixed(0)} mm, drawn as their real dice`]);
     pv.push(['ECE R43 window', real >= 40 && real <= 400 ? 'within 40–400 ✓' : 'outside 40–400']);
   }
   pv.push(['Plate', `${s[16].toFixed(1)} Hz fundamental · ${s[18]}×${s[19]} modes to ${(s[17] / 1e3).toFixed(1)} kHz`]);
-  pv.push(['Quality', `${TIER_NAMES[tier]} · ${(s[20] * 1e3).toFixed(1)} mm crack grid`]);
+  pv.push(['Physics', `${(s[20] * 1e3).toFixed(1)} mm crack grid · the same on every device`]);
+  pv.push(['Drawing', `${TIER_NAMES[tier]}${G.remote ? ' · physics on its own core' : ''}`]);
   $('pane').innerHTML = pv.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   // Events
   if (s[21] > P.eventsShown) {
@@ -2053,8 +2164,8 @@ async function startScene() {
   yaw = 0; pitch = 0; fromBack = false;
   $('bSide').setAttribute('aria-pressed', 'false');
   syncSpeed();
-  // ~190 rounds in ten seconds: keep the automatic tier where that runs in real time.
-  tierCap = tierChoice === 'auto' ? 2 : null;
+  // ~190 rounds in ten seconds: the scene's physics is a step coarser, on every device.
+  physCap = 2;
   newPane();
   GT.enter(P, P.seed, ii);
   P.shots = GT.schedule.shots.slice();
@@ -2092,7 +2203,7 @@ function leaveScene(rebuild) {
     $('res').hidden = false;
     rebuild = true;
   }
-  tierCap = null;
+  physCap = null;
   if (window.innerWidth > 860) $('lab').hidden = false;
   auto = store.get('auto', true); syncAuto(); buildScaleButtons();
   if (rebuild) rebuildLab();
@@ -2235,7 +2346,7 @@ function showTab(which) {
     resize();
     newPane();
     simClockReset();
-    toast(`${TIER_NAMES[tier]} quality: the same physics at ${['coarse', 'low', 'medium', 'fine', 'finest'][tier]} resolution`);
+    toast(`${TIER_NAMES[tier]} drawing: the physics is the same on every setting`);
   };
 }
 $('speed').oninput = () => { speed = sliderToSpeed(+$('speed').value, cat.impactors[iIdx]); syncSpeed(); };
@@ -2377,7 +2488,7 @@ function draw2d(tShow, poses) {
 }
 
 // ---------- Main loop ----------
-let last = performance.now(), uiTick = 0, slowFrames = 0;
+let last = performance.now(), uiTick = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.25, (now - last) / 1000);
@@ -2385,16 +2496,35 @@ function frame(now) {
   if (!P) return;
   let tEng, s, poses = null;
   if (rigs) {
+    if (G.remote) G.hold();   // several panes: the frame steps each in turn
     tEng = multiFrame(dt);
     if (stackOn) stackHandOff();
     s = G.state();
   } else {
+    // The engine in its worker: if it is in the middle of a few milliseconds
+    // of steps, wait for them briefly; otherwise draw this frame as it stands.
+    if (G.remote && G.hold()) {
+      const t0 = performance.now();
+      while (G.hold() && performance.now() - t0 < 4) { /* the worker stops at its next step */ }
+      if (G.hold()) {
+        if (R) R.render(scene, camera);
+        return;
+      }
+    }
     s = G.state();
     const plies0 = G.plies(P.nGlass);
     // Bullet time eases down fast and back up gently (in log space).
     easeScale(auto ? autoTarget(G.impactors(P.nImp), plies0) : scaleManual, dt);
     fireDueShots();
-    if (playing) {
+    if (playing && G.remote) {
+      // The worker stepped toward last frame's time while the page drew. If it
+      // has not got there, the clock waits for it: the physics is never cut short.
+      const eng = G.gls_time();
+      limited = eng < P.goal - 1e-12;
+      P.simClock = (limited ? eng : Math.max(P.simClock, eng)) + dt * scaleNow;
+      if (P.pendingShots.length) P.simClock = Math.min(P.simClock, P.pendingShots[0].t);
+      P.simClock = Math.min(P.simClock, grenadeDue());
+    } else if (playing) {
       P.simClock = Math.max(P.simClock, G.gls_time()) + dt * scaleNow;
       if (P.pendingShots.length) P.simClock = Math.min(P.simClock, P.pendingShots[0].t);
       P.simClock = Math.min(P.simClock, grenadeDue());
@@ -2422,16 +2552,54 @@ function frame(now) {
     $('clock').innerHTML = `${fmtTime(tEng)}<small>${fmtScale(scaleNow)}${auto ? ' · auto' : ''}</small>`;
     $('limit').textContent = limited ? 'device-limited' : '';
   }
-  // Adaptive resolution if the GPU struggles.
+  // The worker steps on toward the clock while this frame draws (after the
+  // frame's last call, so none of them waits on its steps).
+  if (G.remote && !rigs && P) {
+    if (playing) { P.goal = P.simClock; G.go(P.goal); }
+    else { P.goal = 0; G.stop(); }
+  }
   if (R) {
-    slowFrames = dt > 0.045 ? slowFrames + 1 : Math.max(0, slowFrames - 1);
-    if (slowFrames > 90 && R.getPixelRatio() > 0.6) { R.setPixelRatio(R.getPixelRatio() * 0.8); slowFrames = 0; }
-    R.render(scene, camera);
+    adaptResolution(dt);
+    if (!idle(now, tEng, s)) R.render(scene, camera);
   } else {
     draw2d(tEng, poses);
   }
 }
 
+// Resolution follows the frame rate both ways: down a step while frames are
+// slow (a burst of thousands of pieces), back up once they are quick again.
+let frameAvg = 1 / 60, slowRun = 0, quickRun = 0;
+function adaptResolution(dt) {
+  frameAvg += (dt - frameAvg) * 0.1;
+  slowRun = frameAvg > 1 / 24 ? slowRun + 1 : 0;
+  quickRun = frameAvg < 1 / 45 ? quickRun + 1 : 0;
+  const before = resScale;
+  if (slowRun > 30) { resScale = Math.max(0.55, resScale * 0.85); slowRun = 0; }
+  else if (quickRun > 120 && resScale < 1) { resScale = Math.min(1, resScale * 1.12); quickRun = 0; }
+  if (resScale !== before) R.setPixelRatio(pixelRatio());
+}
+// Nothing on screen changes while the pane is settled, the camera still and
+// nobody touching anything: keep the last frame (phones stay cool). A frame
+// is still drawn every second.
+let lastInput = performance.now(), lastDrawn = 0, quietFrom = null;
+const lastCam = new Float32Array(16);
+for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'resize', 'input', 'change'])
+  window.addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true, capture: true });
+function idle(now, tEng, s) {
+  let still = true;
+  const e = camera.matrixWorld.elements;
+  for (let i = 0; i < 16; ++i) if (lastCam[i] !== e[i]) { still = false; lastCam[i] = e[i]; }
+  // Settled: the engine quiet, and three seconds of engine time for the dice
+  // to land (they fly on the GPU by the clock). Paused, nothing moves at all.
+  const lab = !!P && !rigs && !activeScene() && !TONE.on && !TONE.mic;
+  const quiet = lab && !!s && s[1] === 1;
+  if (!quiet) quietFrom = null;
+  else if (quietFrom === null) quietFrom = tEng;
+  const settled = lab && (!playing || (quiet && tEng - quietFrom > 3));
+  const skip = still && settled && now - lastInput > 1500 && now - lastDrawn < 1000;
+  if (!skip) lastDrawn = now;
+  return skip;
+}
 function easeScale(target, dt) {
   if (auto) {
     const lg = Math.log10(scaleNow), lt = Math.log10(target);
@@ -2568,6 +2736,14 @@ function paneFrame(dt, s, tEng) {
       if (imps[o + 15] === KIND.SOFT) {
         const sq = clamp(1 - imps[o + 11] / L, 0.08, 1);
         m.scale.set(1 / Math.sqrt(sq), 1 / Math.sqrt(sq), sq);
+      }
+      if (m.userData.blob) {
+        const b = m.userData.blob, y = Math.max(0, m.position.y), [bx, bz] = onFloor(m.position.x, y, m.position.z);
+        const size = 2.4 * imps[o + 13] + 0.12 * y;
+        b.position.set(bx, 0.003, bz);
+        b.scale.set(size, size, 1);
+        b.material.opacity = 0.45 * clamp(1 - y / 3, 0.15, 1);
+        b.visible = m.visible;
       }
       if (m.userData.glow) {
         const d = camera.position.distanceTo(m.getWorldPosition(_impW));
@@ -2720,10 +2896,9 @@ function buildStack(seeds) {
     scene.add(group);
     stackGroups.push(group);
     z += cat.glazings[gi].thickness;
-    // The panes behind share the work: a tier lower than the first.
-    const t = tierCap === null ? tier : Math.min(tier, tierCap);
+    // The panes behind share the work: their physics a step coarser than the first's.
     return { glazing: cat.glazings[gi].id, seed: seeds?.[k] ?? ((Math.random() * 1e9) | 0), group, w: g0.width, h: g0.height,
-      tier: k ? Math.max(0, t - 1) : t, viewTier: t, frame: true };
+      tier: k ? PHYS - 1 : PHYS, viewTier: tier, frame: true };
   });
   makeRigs(specs);
   stackOn = true;
@@ -2932,12 +3107,13 @@ function listen(poses, nFrag) {
 
 // Hook for automated browser tests.
 window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, get HS() { return HS; }, get rigs() { return rigs; },
-  get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound };
+  get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound, R, bench, get tier() { return tier; } };
 
 // ---------- Odds of breaking ----------
-// The same shot into a hundred panes, each with its own flaws, in a second
-// copy of the engine on a worker.
-let oddsWorker = null, oddsId = 0, oddsPts = [], oddsSpeeds = [];
+// The same shot into a hundred panes, each with its own flaws, at the lab's
+// physics, on copies of the engine in workers: each takes its share of the speeds.
+let oddsWorkers = [], oddsId = 0, oddsPts = [], oddsSpeeds = [], oddsTicks = 0, oddsLeft = 0;
+const ODDS_SEEDS = 10;
 function oddsRange() {
   const d = cat.impactors[iIdx];
   const lo = Math.max(d.minSpeed || 0.1, speed / 20), hi = Math.min(Math.max(d.maxSpeed || speed, speed) * 1.5, 4 * speed);
@@ -2951,38 +3127,49 @@ function openOdds() {
   $('oddsStatus').textContent = '';
   drawOdds();
 }
+function oddsDone() {
+  const half = (key) => {
+    for (let i = 1; i < oddsPts.length; ++i) {
+      const a = oddsPts[i - 1], b = oddsPts[i];
+      if (a[key] < 0.5 && b[key] >= 0.5) return a.v * Math.pow(b.v / a.v, (0.5 - a[key]) / Math.max(1e-9, b[key] - a[key]));
+    }
+    return oddsPts.length && oddsPts[0][key] >= 0.5 ? -1 : null;
+  };
+  const hb = half('broke'), ht = half('through');
+  const say = (h, what) => (h === null ? `never ${what} in this range` : h < 0 ? `${what} half the time or more even at the slowest` : `${what} half the time at ${fmtSpeed(h)}`);
+  $('oddsStatus').textContent = `${say(hb, 'breaks')} · ${say(ht, 'goes through')}`;
+  $('bOddsRun').disabled = false;
+}
 function runOdds() {
-  if (!oddsWorker) {
-    oddsWorker = new Worker('odds_worker.js', { type: 'module' });
-    oddsWorker.onmessage = (e) => {
+  const n = clamp((navigator.hardwareConcurrency || 2) - 1, 1, 6);
+  while (oddsWorkers.length < n) {
+    const w = new Worker('odds_worker.js', { type: 'module' });
+    w.onmessage = (e) => {
       const m = e.data;
       if (m.id !== oddsId) return;
-      if (m.error) { $('oddsStatus').textContent = 'Could not run: ' + m.error; return; }
-      if (m.progress !== undefined) $('oddsStatus').textContent = `${Math.round(100 * m.progress)} % · ${oddsPts.length} of ${oddsSpeeds.length} speeds`;
-      if (m.point) { oddsPts.push(m.point); drawOdds(); }
-      if (m.done) {
-        const half = (key) => {
-          for (let i = 1; i < oddsPts.length; ++i) {
-            const a = oddsPts[i - 1], b = oddsPts[i];
-            if (a[key] < 0.5 && b[key] >= 0.5) return a.v * Math.pow(b.v / a.v, (0.5 - a[key]) / Math.max(1e-9, b[key] - a[key]));
-          }
-          return oddsPts.length && oddsPts[0][key] >= 0.5 ? -1 : null;
-        };
-        const hb = half('broke'), ht = half('through');
-        const say = (h, what) => (h === null ? `never ${what} in this range` : h < 0 ? `${what} half the time or more even at the slowest` : `${what} half the time at ${fmtSpeed(h)}`);
-        $('oddsStatus').textContent = `${say(hb, 'breaks')} · ${say(ht, 'goes through')}`;
-        $('bOddsRun').disabled = false;
+      if (m.error) { $('oddsStatus').textContent = 'Could not run: ' + m.error; $('bOddsRun').disabled = false; return; }
+      if (m.tick !== undefined) {
+        ++oddsTicks;
+        $('oddsStatus').textContent = `${Math.round(100 * oddsTicks / (oddsSpeeds.length * ODDS_SEEDS))} % · ${oddsPts.length} of ${oddsSpeeds.length} speeds`;
       }
+      if (m.point) { oddsPts.push(m.point); oddsPts.sort((a, b) => a.v - b.v); drawOdds(); }
+      if (m.done && --oddsLeft === 0) oddsDone();
     };
+    oddsWorkers.push(w);
   }
   oddsId++;
   oddsPts = [];
+  oddsTicks = 0;
   oddsSpeeds = oddsRange();
-  const seeds = Array.from({ length: 10 }, () => (Math.random() * 1e9) >>> 0);
+  const seeds = Array.from({ length: ODDS_SEEDS }, () => (Math.random() * 1e9) >>> 0);
   $('bOddsRun').disabled = true;
-  $('oddsStatus').textContent = 'Starting the second engine…';
+  $('oddsStatus').textContent = `Starting ${n > 1 ? n + ' more engines' : 'a second engine'}…`;
   drawOdds();
-  oddsWorker.postMessage({ id: oddsId, glazing: gIdx, impactor: iIdx, speeds: oddsSpeeds, seeds, tier: 0, width: P ? P.W : 0, height: P ? P.H : 0 });
+  // Speeds dealt out in turn, so every worker gets slow and fast ones.
+  const used = oddsWorkers.slice(0, n).map((w, k) => ({ w, speeds: oddsSpeeds.filter((_, i) => i % n === k) })).filter((x) => x.speeds.length);
+  oddsLeft = used.length;
+  for (const { w, speeds } of used)
+    w.postMessage({ id: oddsId, glazing: gIdx, impactor: iIdx, speeds, seeds, tier: PHYS, width: P ? P.W : 0, height: P ? P.H : 0 });
 }
 function drawOdds() {
   const c = $('oddsChart'), g = c.getContext('2d'), W = c.width, H = c.height;
