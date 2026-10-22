@@ -167,12 +167,16 @@ export class StuntPark {
     }
     // loop runs: in the zone, track the height reached, the g at the bottom, the speed at the top
     if (this.inLoopZone(x, y)) {
-      const R = (this.loopRun ||= { maxZ: 0, maxG: 0, vTop: 0, done: false });
-      R.maxG = Math.max(R.maxG, S(13) / 9.81);
+      const R = (this.loopRun ||= { maxZ: 0, maxG: 0, win: [], vTop: 0, done: false });
+      // the g the driver holds on the loop: the median of the last ~150 ms, so the one- or
+      // two-step spike of the underbody touching the ribbon where the curve starts doesn't count,
+      // and only once the car is on the ribbon
+      R.win.push(S(13) / 9.81); if (R.win.length > 9) R.win.shift();
+      if (this.sPrev > 0 && R.win.length === 9) R.maxG = Math.max(R.maxG, [...R.win].sort((a, b) => a - b)[4]);
       if (z > R.maxZ) { R.maxZ = z; R.vTop = v; }
       if (!R.done && R.maxZ > this.loopTop - 3 && z < 1.2 && S(36) > 0.8 && this.sPrev > this.loopLen * 0.9) {
         R.done = true;
-        this.toast(`Looped it! ${R.maxG.toFixed(1)} g at the bottom, ${(R.vTop * 3.6).toFixed(0)} km/h over the top`);
+        this.toast(`Looped it! ${R.maxG.toFixed(1)} g peak, ${(R.vTop * 3.6).toFixed(0)} km/h over the top`);
       }
     } else if (this.loopRun) {
       const R = this.loopRun;

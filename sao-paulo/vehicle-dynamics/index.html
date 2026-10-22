@@ -1018,7 +1018,7 @@ $$P_{\text{life-threatening}}=1-(1-P_h)(1-P_c),\qquad P_{\text{fatal}}^{\text{Jo
 <li><b>Explicit couplings.</b> The body acceleration seen by the wheels lags one step. The anti-roll bar partner, limited-slip capacity and contact geometry are lagged, and the gyroscopic term is explicit. Convergence studies show these are small at 240–360 Hz, but they bound the usable step.</li>
 <li><b>Driver aids are game controllers</b> reading ground truth, with hand-set gains, not models of production ECUs.</li>
 <li><b>Aero</b> acts through ride-height factors only. There is no pitch or yaw sensitivity, wake or slipstream.</li>
-<li><b>Damage.</b> Rollover and crashes treat the body as rigid, and crash survivability is an estimate. The browser demo draws dents from the crush model (§18.4); nothing breaks off and no part's function changes.</li>
+<li><b>Damage.</b> Rollover and crashes treat the body as rigid, and crash survivability is an estimate. The browser demo draws dents from the crush model (§18.4), shallow by default; nothing breaks off and no part's function changes.</li>
 </ol>
 </section>
 
@@ -1042,6 +1042,7 @@ $$P_{\text{life-threatening}}=1-(1-P_h)(1-P_c),\qquad P_{\text{fatal}}^{\text{Jo
 <p>Tests put the car on a sled (full-width rigid barrier at 50, 56, 64 and 80 km/h; a pole at 32 km/h and 75°), record every 1/360 s step, and replay the impact at a tenth of real speed with the crush growing as the half-sine pulse's displacement \(d(t)=\tfrac12 d_{\max}(1-\cos\omega t)\), \(d_{\max}=0.85\min(\Delta v/\omega,\ \text{crush limit})\). The dent is drawn on the mesh: vertices behind the impact surface within the crush zone \(z=\max(0.35,2.2d)\) move in by</p>
 <div class="eq">$$\Delta=d_{\max}\,e^{-r^2/R^2}\Big(1-\frac{s}{z}\Big)\quad(R=1.15\ \text{m wall},\ 0.8\ \text{side},\ 0.22\ \text{pole}),$$</div>
 <p>plus buckling folds. It is a drawing of the crush model, not a soft-body simulation.</p>
+<p>That depth is the <b>Realistic</b> damage setting. The default, <b>Cosmetic</b>, is the game setting: a dent is \(d_c=0.08\,(1-e^{-d_{\max}/0.25})\) m over three quarters of the patch, the drawn displacement of any point is capped smoothly at \(0.08\tanh(|\Delta|/0.08)\) m so stacked hits flatten instead of folding the body in, there is no injury report, and a car left on its side or roof is set back on its wheels. The stored offsets stay exact, so switching modes redraws the same hits at the other depth. In every mode the car drives the same afterwards (no mechanical damage), and the crash lab is always Realistic.</p>
 <h3>18.5 Glass</h3>
 <p>Whether a storefront pane gives way is decided here (its fracture energy against the hit, §3); how it breaks is the Glass Dynamics engine's: the same engine and glazing library as the Glass Lab, run in a worker as the car approaches, firing a 1.5 t blunt impactor at the bumper's height and speed.</p>
 </section>

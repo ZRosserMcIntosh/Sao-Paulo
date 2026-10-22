@@ -103,6 +103,7 @@ const settings = {
   lock: store.get('driftLock', false),            // drift steering lock (0.9 rad) on the cars
   diff: store.get('diff', -1),                    // rear diff: -1 stock, 0 open, 1 locked, 2 tight LSD
   dummies: store.get('dummies', true), belted: store.get('belted', true), airbags: store.get('airbags', true), xray: store.get('xray', false),
+  damage: store.get('damage', 'cosmetic'),
 };
 function presetAids(p) {
   if (p === 0) return { abs: true, tcs: 2, esc: 2, auto: true, drift: 0 };
@@ -936,6 +937,13 @@ function skipCrumple(o) {
   return false;
 }
 const crumple = new Crumple(THREE, carRoot, skipCrumple);
+// Damage modes. Cosmetic (the default, game-like): shallow dents and scuffs, no injury report, a
+// car that ends up on its side or roof is put back on its wheels by itself. Realistic: dents as
+// deep as the crush model says and the dummies' crash report. Off: no dents. None of them change
+// how the car drives: the physics has no mechanical damage. The crash lab is always realistic.
+const COSMETIC_CAP = 0.08;
+const labOn = () => !!(lab && lab.mode !== 'off');
+crumple.cap = () => (settings.damage === 'cosmetic' && !labOn() ? COSMETIC_CAP : Infinity);
 const crumpleLog = [];   // { frame, point, dir, depth, radius } for rewinding through crashes
 const rewind = new Rewind(M);
 const ghostCar = new GhostCar(THREE, scene, '#8fd3ff');
@@ -985,6 +993,8 @@ function runLabTest(test) {
 function crumpleFromEvent(h, deferred = false) {
   const [px, py, pz, nx, ny, speed, kind] = h;
   if (speed < 2.5 || isBike()) return null;
+  const mode = deferred ? 'realistic' : settings.damage;   // deferred = the crash lab's replay
+  if (mode === 'off') return null;
   const qw = S(3), qx = S(4), qy = S(5), qz = S(6);
   const q = new THREE.Quaternion(qx, qy, qz, qw).invert();   // ISO world -> ISO body
   const rel = new THREE.Vector3(px - S(0), py - S(1), pz - S(2)).applyQuaternion(q);
@@ -994,13 +1004,37 @@ function crumpleFromEvent(h, deferred = false) {
   const omega = st[zone], limit = st[3 + zone];
   let depth = Crumple.depth(speed, omega, limit);
   if (kind === 2) depth *= 0.35;   // a wall that gave way took most of it
-  const radius = kind === 1 ? 0.22 : zone === 2 ? 0.8 : 1.15;
+  let radius = kind === 1 ? 0.22 : zone === 2 ? 0.8 : 1.15;
+  // cosmetic: a few centimetres that grow gently with the hit, over a smaller patch
+  if (mode === 'cosmetic') { depth = COSMETIC_CAP * (1 - Math.exp(-depth / 0.25)); radius *= 0.75; }
   const args = { point: new THREE.Vector3(rel.x, rel.z, -rel.y), dir: new THREE.Vector3(n.x, n.z, -n.y), depth, radius };
   const hit = crumple.addHit(args.point, args.dir, args.depth, args.radius);
   crumpleLog.push({ frame: frameNo, ...args });
   if (!deferred) crumple.setAmount(hit, 1);
   return hit;
 }
+
+// ---------- Damage mode and repair ----------
+function repairBody(say) {
+  if (isBike() || labOn()) return;
+  const had = crumpleLog.length;
+  crumple.restore(); crumpleLog.length = 0;
+  if (say) toast(had ? 'Body repaired' : 'Not a scratch on it');
+}
+function applyDamageUi() {
+  document.querySelectorAll('[data-damage]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.damage === settings.damage));
+}
+function setDamage(mode) {
+  settings.damage = mode; store.set('damage', mode); applyDamageUi();
+  // redraw what is already there at the new depth (the hits are kept exactly)
+  const keep = crumpleLog.slice();
+  crumple.restore(); crumpleLog.length = 0;
+  if (mode !== 'off') for (const c of keep) { crumple.setAmount(crumple.addHit(c.point, c.dir, c.depth, c.radius), 1); crumpleLog.push(c); }
+  toast({ cosmetic: 'Cosmetic damage: dents and scuffs, the car always drives on', realistic: 'Realistic damage: full crush depth and the crash report', off: 'Damage off' }[mode]);
+}
+document.querySelectorAll('[data-damage]').forEach((b) => (b.onclick = () => { setDamage(b.dataset.damage); b.blur(); }));
+$('bRepair').onclick = (e) => { repairBody(true); e.currentTarget.blur(); };
+applyDamageUi();
 
 $('bGarage2').onclick = (e) => { garage.toggle(true); e.currentTarget.blur(); };
 function createCar() {
@@ -1194,6 +1228,7 @@ addEventListener('keydown', (e) => {
   if (k === 'j') $('bShadow').click();
   if (k === 'n') $('bGhost').click();
   if (k === 'i') setRain((rainIdx + 1) % RAIN_LEVELS.length, true);
+  if (k === 'f') repairBody(true);
   if (k === 'backspace') { e.preventDefault(); if (!isBike() && !lab?.active) rewindHold = true; }
 });
 addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); keys.delete(k); if (k === 'backspace') rewindHold = false; });
@@ -1450,6 +1485,7 @@ function updateCrash(now) {
     }
     lastCrash = { dv: r[2], verdict: r[15] };
     if (lab && lab.mode !== 'off') continue;   // the crash lab's own report has it all
+    if (settings.damage !== 'realistic' && seat !== 2) continue;   // game modes: no injury report
     $('crash').innerHTML = html; $('crash').classList.add('on'); crashHide = now + 12000;
   }
   if (crashHide && now > crashHide) { $('crash').classList.remove('on'); crashHide = 0; }
@@ -1974,6 +2010,7 @@ if (WORLD === 'track') {
 } else for (const id of ['bMooseRun', 'bMooseLadder', 'bMooseStop', 'bLabRun', 'bLoopAssist', 'labTest', 'mooseSpeed']) $(id).disabled = true;
 window.__spwShow = () => ({ overlay: overlay.on, rain: weather.rain, puddles: weather.puddles.count, ghost: ghost.on, ghostRuns: Object.keys(ghost.runs), shadow: shadow.on, rewindFrames: rewind.frames.length, dents: crumpleLog.length,
   lab: lab?.mode, moose: moose ? { run: moose.run, robot: moose.robot, last: moose.last, results: moose.results } : null, glassViews: glassfx?.views.length ?? 0, glassJobs: glassfx ? [...glassfx.jobs.values()].map((j) => ({ seg: j.seg, ready: !!j.result, error: j.error, started: j.started, ms: j.result?.ms, pieces: j.result?.shapes.length })) : [] });
+window.__spwDamage = (m) => { if (m) setDamage(m); let mx = 0; for (const mm of crumple.meshes) for (let i = 0; i < mm.offset.length; i += 3) mx = Math.max(mx, Math.hypot(mm.offset[i], mm.offset[i + 1], mm.offset[i + 2])); return { mode: settings.damage, dents: crumpleLog.length, rawMax: mx, cap: crumple.cap(), card: $('crash').classList.contains('on') }; };
 window.__spwRewind = () => ({ hold: rewindHold, active: rewind.active, cursor: rewind.cursor, frames: rewind.frames.length, snaps: M._ord_snap_count() });
 window.__spwLab = (id) => runLabTest(LAB_TESTS.find((t) => t.id === id));
 window.__spwZone = (name) => { const z = ZONES.find((q) => q.name.startsWith(name)); if (z) placeAt(z); return !!z; };
@@ -2189,7 +2226,8 @@ function frameOnce(now, draw) {
   if (tipped.contacts === 0 && S(37) > 0 && S(38) > 15000) { try { audio.impact(Math.min(1, S(38) / 120000)); } catch { /* audio not ready */ } }
   tipped.contacts = S(37);
   tipped.t = S(36) < 0.5 && Math.hypot(S(7), S(8)) < 2 ? tipped.t + dt : 0;
-  if (tipped.t > 1.5 && !tipped.hinted) { toast(S(36) < -0.5 ? 'On its roof. Press R to put it back on its wheels' : 'On its side. Press R to put it back on its wheels'); tipped.hinted = true; }
+  if (tipped.t > 1.5 && settings.damage === 'cosmetic' && !isBike() && !labOn() && !rewindHold) { resetCar(); toast('Back on your wheels'); }
+  else if (tipped.t > 1.5 && !tipped.hinted) { toast(S(36) < -0.5 ? 'On its roof. Press R to put it back on its wheels' : 'On its side. Press R to put it back on its wheels'); tipped.hinted = true; }
   if (S(36) > 0.9) tipped.hinted = false;
   drawPose(pose, dt);
   // ghost: this run is recorded; the last run from the same start plays beside it

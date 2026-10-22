@@ -19,6 +19,9 @@ export class Crumple {
     this.meshes = [];
     this.hits = [];
     this.dirty = false;
+    // the most any point of the body is drawn pushed in (m); Infinity = as deep as the hits say.
+    // A function so the page can switch it (cosmetic damage vs the crash lab) without re-denting.
+    this.cap = () => Infinity;
   }
 
   // Find the deformable meshes (the body, not wheels or overlays) and remember their shape.
@@ -118,11 +121,16 @@ export class Crumple {
       }
       touched.add(part.k);
     }
+    const cap = this.cap();
     for (const k of touched) {
       const m = this.meshes[k], p = m.mesh.geometry.attributes.position;
       for (let i = 0; i < p.count; ++i) {
-        if (m.offset[3 * i] === 0 && m.offset[3 * i + 1] === 0 && m.offset[3 * i + 2] === 0) continue;
-        v.set(m.body[3 * i] + m.offset[3 * i], m.body[3 * i + 1] + m.offset[3 * i + 1], m.body[3 * i + 2] + m.offset[3 * i + 2]).applyMatrix4(m.fromRoot);
+        let ox = m.offset[3 * i], oy = m.offset[3 * i + 1], oz = m.offset[3 * i + 2];
+        if (ox === 0 && oy === 0 && oz === 0) continue;
+        // the stored offsets stay exact (so a replay can take them back out); only the drawing is
+        // capped, smoothly, so stacked hits flatten out instead of folding the body in
+        if (cap < Infinity) { const l = Math.hypot(ox, oy, oz), c = cap * Math.tanh(l / cap) / l; ox *= c; oy *= c; oz *= c; }
+        v.set(m.body[3 * i] + ox, m.body[3 * i + 1] + oy, m.body[3 * i + 2] + oz).applyMatrix4(m.fromRoot);
         p.setXYZ(i, v.x, v.y, v.z);
       }
       p.needsUpdate = true;
