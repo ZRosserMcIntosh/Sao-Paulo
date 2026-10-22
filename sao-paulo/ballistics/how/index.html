@@ -116,6 +116,7 @@ footer{color:var(--mute);font-size:13px;border-top:1px solid var(--line);margin-
     <li><a href="#earth">Coriolis and Eötvös</a></li>
     <li><a href="#dope">Zero, dope and the call</a></li>
     <li><a href="#time">Bullet time</a></li>
+    <li><a href="#dummy">The dummy and the glass</a></li>
     <li><a href="#determinism">Same shot, every machine</a></li>
     <li><a href="#validation">Validation</a></li>
     <li><a href="#limits">What is estimated</a></li>
@@ -149,6 +150,8 @@ footer{color:var(--mute);font-size:13px;border-top:1px solid var(--line);margin-
 <tr><td>.308 Win 175 gr Sierra MatchKing</td><td class="num">2600 fps</td><td class="num">G7 0.243 (G1 .505/.496/.485)</td><td>Federal GM308M2; Litz; Sierra</td></tr>
 <tr><td>6.5 Creedmoor 140 gr ELD Match</td><td class="num">2710 fps</td><td class="num">G7 0.326</td><td>Hornady 81500</td></tr>
 <tr><td>.338 Lapua Magnum 250 gr Scenar</td><td class="num">2920 fps</td><td class="num">G7 0.320</td><td>Lapua; Applied Ballistics</td></tr>
+<tr><td>6.5 Creedmoor 147 gr ELD Match</td><td class="num">2695 fps</td><td class="num">G7 0.351</td><td>Hornady 81501 (via GAP Precision)</td></tr>
+<tr><td>.408 CheyTac 419 gr solid</td><td class="num">2752 fps</td><td class="num">G1 0.949</td><td>CheyTac (M200, 1:13 in)</td></tr>
 <tr><td>.50 BMG 750 gr A-MAX</td><td class="num">2820 fps</td><td class="num">G1 1.050</td><td>Hornady</td></tr>
 <tr><td>5.56 mm M855</td><td class="num">3020 fps</td><td class="num">G1 0.304</td><td>Federal XM855</td></tr>
 <tr><td>9 mm 124 gr Gold Dot</td><td class="num">1150 fps</td><td class="num">G1 0.134</td><td>Speer 23618GD</td></tr></table>
@@ -198,10 +201,17 @@ footer{color:var(--mute);font-size:13px;border-top:1px solid var(--line);margin-
 <h2 id="time"><span class="n">11</span>Bullet time</h2>
 <p>Slow motion never changes the physics. The engine flies the whole shot first, in its fixed 1 ms steps; the page then shows it at any speed. Between steps the round's state comes from a cubic Hermite interpolation of the step states (positions and velocities at both ends), within 20 µm of a run with steps twenty times finer, so a camera at 1/1,000 speed sees the round glide, never jump. In <b>Bullet time</b> the speed follows the round: slow out of the muzzle, faster down the range so a 6-second flight takes a few seconds, then down to about 1/2,500 for the last metres.</p>
 
-<h2 id="determinism"><span class="n">12</span>Same shot, every machine</h2>
+<h2 id="dummy"><span class="n">12</span>The dummy and the glass</h2>
+<p>Choose <b>Crash dummy behind glass</b> as the target (or the <b>Through a windscreen</b> scenario) and a hit opens the impact in the <a href="../../liquids/">Liquids Lab</a>, where three engines take over from each other:</p>
+<ol><li><b>Ballistic Dynamics</b> (this range) flies the shot and hands over the round as it arrives: its speed, its mass and diameter, and the angle it comes in at (down by the descent angle, sideways by the drift).</li>
+<li><b>Glass Dynamics</b> (the <a href="../../glass/">Glass Lab</a>) breaks the pane: the round crushes its way through each ply, tears the interlayer of a laminate, and loses speed doing it.</li>
+<li><b>Liquid Dynamics</b> takes the round through the crash dummy's simulant at what is left of that speed: the entry and exit wounds, the back spatter onto the broken glass and the forward spatter, in bullet time.</li></ol>
+<p>A .308 from 600 m, for example, arrives at 497 m/s, leaves the windscreen at 473 m/s and the dummy at 412 m/s. What does not cross over yet: the glass is broken by the Glass Lab's nearest bullet of the same class (its 7.62 mm or .50 ball, at the arriving speed), and the round's yaw and spin at arrival are not handed over. Moving the projectile side of the glass impact into Ballistic Dynamics is that engine's Milestone 8.</p>
+
+<h2 id="determinism"><span class="n">13</span>Same shot, every machine</h2>
 <p>The engine's maths uses only correctly rounded operations: its own exp, log, sin, cos and atan (fdlibm's algorithms), no fused multiply-adds. The same inputs give the same bits on Linux, macOS, Windows and in every browser; continuous integration checks three golden hashes on all of them. That is why a <b>Share</b> link fires exactly the same shot for whoever opens it: the same gust at the same instant, the same impact to the micrometre.</p>
 
-<h2 id="validation"><span class="n">13</span>Validation</h2>
+<h2 id="validation"><span class="n">14</span>Validation</h2>
 <table><tr><th>Check</th><th>Reference</th><th>Engine</th></tr>
 <tr><td>Six cartridges, drop/drift/speed/time out to 2,000 yd</td><td>An independent point-mass solver (py-ballisticcalc)</td><td class="num">within 0.06 % drop, 0.34 % wind</td></tr>
 <tr><td>6.5 CM 140 ELD-M, 200–400 yd</td><td>LoadDevelopment.com: −3.8 / −13.4 / −29.6 in</td><td class="num">−3.77 / −13.42 / −29.65</td></tr>
@@ -211,12 +221,12 @@ footer{color:var(--mute);font-size:13px;border-top:1px solid var(--line);margin-
 <tr><td>Coriolis and Eötvös</td><td>Closed forms; the exact lateral equation</td><td class="num">0.1 %; 0.3 %</td></tr>
 <tr><td>Standard air, moist air, station readings</td><td>USSA-1976, ideal gas, Buck</td><td class="num">exact to 1e-9 (density)</td></tr></table>
 
-<h2 id="limits"><span class="n">14</span>What is estimated</h2>
+<h2 id="limits"><span class="n">15</span>What is estimated</h2>
 <div class="card est"><span class="tag est">estimated</span> The lift slope, the inertia ratio and the roll damping behind spin drift are typical values for the bullet class, not measured for each bullet; the bullet lengths too. The spin drift lands within about 20 % of Litz.</div>
 <div class="card est"><span class="tag est">not yet</span> Every round of a load is the same round: muzzle-velocity spread, powder temperature (the temperature here changes the air, not the powder), ballistic-coefficient spread and group size are the engine's next milestone. Transonic dynamic instability (a stable round starting to wobble as it goes subsonic) is not modelled; gyroscopic instability (too slow a twist) is. The range is flat and the Earth's curvature is left out (0.8 m at 3.2 km).</div>
 <div class="card src"><span class="tag pub">published</span> Every number in the engine's data carries its source; manufacturers' figures came through the pages named in the validation table where the makers' own sites could not be reached from the build.</div>
 
-<h2 id="refs"><span class="n">15</span>References</h2>
+<h2 id="refs"><span class="n">16</span>References</h2>
 <ul>
 <li>R. L. McCoy, <i>Modern Exterior Ballistics</i>, Schiffer, 1999 (yaw of repose, epicyclic motion, Coriolis).</li>
 <li>B. Litz, <i>Applied Ballistics for Long Range Shooting</i> (spin drift and aerodynamic jump formulas, measured G7 BCs).</li>

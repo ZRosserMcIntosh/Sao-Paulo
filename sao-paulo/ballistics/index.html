@@ -48,6 +48,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
 #lab{position:fixed;left:12px;top:66px;width:318px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
 #res{position:fixed;right:12px;top:66px;width:310px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#watch[hidden]{display:none!important}
 #lab h2,#res h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 #lab h2:first-child,#res h2:first-child{margin-top:0}
 #lab h2 small,#res h2 small{font:500 10.5px var(--mono);color:var(--mute);text-transform:none;letter-spacing:0}
@@ -153,7 +154,10 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   <select id="cartridge" aria-label="Cartridge"></select>
   <p class="desc" id="loadDesc"></p>
   <div class="slider"><span>Distance</span><b id="vDist"></b><input id="dist" type="range" min="100" max="3600" step="10" aria-label="Distance"></div>
-  <div class="slider"><span>Target size</span><b id="vSize"></b><input id="size" type="range" min="0.2" max="2" step="0.05" aria-label="Target size"></div>
+  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Target <select id="tgt" aria-label="Target"><option value="plate">Steel plate</option><option value="dummy">Crash dummy behind glass</option></select></label>
+  <div id="glazeBox" hidden><label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Glass <select id="glazing" aria-label="Glazing in front of the dummy"></select></label>
+    <p class="note">A hit opens the impact in the Liquids Lab: the round arrives at its real speed and angle, the Glass engine breaks the pane and the fluid engine throws the spatter.</p></div>
+  <div class="slider" id="sizeBox"><span>Target size</span><b id="vSize"></b><input id="size" type="range" min="0.2" max="2" step="0.05" aria-label="Target size"></div>
 
   <h2>Air <small id="daInfo"></small></h2>
   <div class="slider"><span>Temperature</span><b id="vTemp"></b><input id="temp" type="range" min="-25" max="48" step="1" aria-label="Temperature"></div>
@@ -186,6 +190,7 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
 <aside id="res" class="panel" aria-label="Results">
   <h2>Result <small id="rWhat"></small></h2>
   <p id="outcome">Pick a scenario and fire.</p>
+  <a id="watch" hidden class="how" href="#" style="display:block;margin-top:8px;text-align:center;font:800 15px var(--display);letter-spacing:.05em;text-transform:uppercase;color:#fff;background:#7a1430;border:1px solid #7a1430;border-radius:6px;padding:9px;text-decoration:none">Watch it hit the dummy ▸</a>
   <div class="kv" id="kv"></div>
   <h2>What moved it <small>at the target</small></h2>
   <div class="bars" id="bars"></div>
@@ -217,6 +222,7 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
       <li><b>Bullet time</b> (<kbd>B</kbd>) follows the round from the muzzle to the target, slowing right down on the way in. The slow motion is the same flight: the engine's steps never change, only how fast they are shown.</li>
       <li>Cameras (<kbd>C</kbd>): the <b>scope</b> with its MIL reticle and the mirage, the shooter's shoulder, the bullet, and the target.</li>
       <li><b>Share</b> copies a link that rebuilds exactly this shot: the same air, the same gusts at the same instant, the same impact.</li>
+      <li>Set the target to <b>Crash dummy behind glass</b> (or pick <b>Through a windscreen</b>): a hit opens the impact in the <b>Liquids Lab</b>, with the round arriving at the speed and angle this range computed; the Glass engine breaks the pane and the fluid engine does the rest, in bullet time.</li>
     </ul>
     <h3>What is solved</h3>
     <ul>

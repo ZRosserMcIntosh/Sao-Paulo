@@ -17,7 +17,8 @@ const ZERO = 100;          // m: every rifle is zeroed at 100 m
 const BENCH = 1.2;         // m: the muzzle over the ground (a bench)
 const SCALES = [[1, '1×'], [0.1, '1/10'], [0.01, '1/100'], [1e-3, '1/1k']];
 const RIFLE_FOR = { fgmm_308_175: 'm24_sws', hornady_65cm_140: 'bolt_65cm', lapua_338lm_250: 'bolt_338lm',
-  hornady_50bmg_750: 'm107_50bmg', federal_xm855: 'm16a2', speer_9mm_124gd: 'pistol_9mm' };
+  hornady_50bmg_750: 'm107_50bmg', federal_xm855: 'm16a2', speer_9mm_124gd: 'pistol_9mm',
+  cheytac_408_419: 'm200_408', hornady_65cm_147: 'bolt_65cm' };
 
 // ---------- Engine ----------
 let B, cat, raw;
@@ -33,6 +34,10 @@ try {
   $('loadMsg').textContent = 'Could not start the ballistics engine in this browser: ' + e.message;
   throw e;
 }
+// The Glass Lab's glazings, for the crash dummy behind glass (the impact itself
+// is played in the Liquids Lab, which breaks the glass with Glass Dynamics).
+let glazings = [];
+try { glazings = (await (await fetch('../glass/library.json')).json()).glazings.map((g) => ({ id: g.id, name: g.name, category: g.category, width: g.width, height: g.height })); } catch { glazings = []; }
 const cartIndex = (id) => cat.cartridges.findIndex((c) => c.id === id);
 const rifleRaw = (cid) => raw.rifles.find((r) => r.id === RIFLE_FOR[cid]);
 const projRaw = (cid) => raw.projectiles.find((p) => p.id === cat.cartridges[cartIndex(cid)].projectile);
@@ -52,6 +57,15 @@ const SCENARIOS = [
   { id: '2mi', name: '2 miles', sub: '.50 BMG · thin desert air', feature: true,
     s: { c: 'hornady_50bmg_750', dist: 3219, size: 1.5, temp: 32, alt: 1500, rh: 15, lat: 35, az: 90,
       same: false, layers: [layer(6, 4, 2), layer(9, 3, 3), layer(7, 4, 3)], callTrue: true, call: layer(8, 3) } },
+  { id: '65cm', name: '1 km', sub: '6.5 Creedmoor 147 ELD-M', feature: true,
+    s: { c: 'hornady_65cm_147', dist: 1000, size: 0.5, temp: 20, alt: 0, rh: 50, lat: -23.55, az: 0,
+      same: true, layers: [layer(10, 3, 1), layer(10, 3, 1), layer(10, 3, 1)], callTrue: true, call: layer(10, 3) } },
+  { id: '408', name: '2.5 km', sub: '.408 CheyTac · M200', feature: true,
+    s: { c: 'cheytac_408_419', dist: 2500, size: 1.2, temp: 25, alt: 800, rh: 30, lat: 40, az: 0,
+      same: true, layers: [layer(8, 3, 1.5), layer(8, 3, 1.5), layer(8, 3, 1.5)], callTrue: true, call: layer(8, 3) } },
+  { id: 'dummy', name: 'Through a windscreen', sub: '.308 at 600 m · the dummy behind it', feature: true,
+    s: { c: 'fgmm_308_175', dist: 600, size: 0.5, temp: 22, alt: 760, rh: 60, lat: -23.55, az: 0, tgt: 'dummy', glazing: 'windscreen',
+      same: true, layers: [layer(8, 3, 1), layer(8, 3, 1), layer(8, 3, 1)], callTrue: true, call: layer(8, 3) } },
   { id: 'wrongcall', name: 'Wrong call', sub: '.308 · called 10, true 15 km/h',
     s: { c: 'fgmm_308_175', dist: 1000, size: 0.5, temp: 20, alt: 0, rh: 50, lat: -23.55, az: 0,
       same: true, layers: [layer(15, 3, 0), layer(15, 3, 0), layer(15, 3, 0)], callTrue: false, call: layer(10, 3) } },
@@ -75,7 +89,7 @@ const SCENARIOS = [
       same: true, layers: [layer(8, 3, 2), layer(8, 3, 2), layer(8, 3, 2)], callTrue: true, call: layer(8, 3) } },
 ];
 const S = structuredClone(SCENARIOS[0].s);
-Object.assign(S, { spin: true, earth: true, solver: true, t0: 10 });
+Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen' });
 let metric = store.get('metric', true);
 let dopeMil = store.get('dopeMil', true);
 
@@ -100,6 +114,7 @@ let autoFire = false;
     if (v.length === 2 && v.every(Number.isFinite)) { S.callTrue = false; S.call = layer(v[0], v[1]); } else S.callTrue = true;
   }
   if (Q.has('f')) { const f = Q.get('f'); S.spin = f.includes('s'); S.earth = f.includes('e'); S.solver = f.includes('k'); }
+  if (Q.get('tg') === 'dummy') { S.tgt = 'dummy'; S.glazing = (Q.get('gz') || 'windscreen').replace(/[^a-z0-9_]/g, ''); }
   autoFire = Q.has('fire');
 })();
 
@@ -183,6 +198,26 @@ function breakdown() {
   return out;
 }
 
+// The crash dummy: its chest at the aim point. Which part a shot meets
+// (torso 0.42 x 0.62 m, head, upper legs), in the Liquids Lab's names.
+function dummyPart(o) {
+  if (Math.abs(o.right) <= 0.21 && o.up <= 0.22 && o.up >= -0.4) return Math.abs(o.right) > 0.15 && o.up > 0.05 ? 'shoulder' : o.up < -0.14 ? 'abdomen' : 'chest';
+  if (Math.hypot(o.right, o.up - 0.38) <= 0.11) return 'chest';  // the head: the lab aims the chest
+  if (Math.abs(o.right) <= 0.2 && o.up < -0.4 && o.up >= -0.85) return 'thigh';
+  return null;
+}
+// The glass impactor nearest in calibre (Glass Dynamics' own bullets).
+const glassImpactor = (p) => (p.diameter_in >= 0.4 ? 'bmg_50' : p.diameter_in >= 0.3 && p.mass_gr < 140 ? 'pistol_9mm' : 'rifle_762');
+function liquidsUrl(sh) {
+  const p = projRaw(sh.S.c), at = sh.atTarget;
+  const v = lof(at.velocity), speed = Math.hypot(...at.velocity);
+  const q = new URLSearchParams({ from: 'ballistics', name: cat.cartridges[cartIndex(sh.S.c)].name.replace(/\s*\(.*\)$/, ''),
+    range: Math.round(sh.S.dist), mass_g: (p.mass_gr * 0.06479891).toFixed(2), dia_mm: (p.diameter_in * 25.4).toFixed(2), v: speed.toFixed(1),
+    desc: (Math.atan2(-v.u, v.d) / DEG).toFixed(2), drift: (Math.atan2(v.r, v.d) / DEG).toFixed(2), gi: glassImpactor(p),
+    glazing: sh.S.glazing, pane: sh.S.glazing === 'none' ? 'none' : 'front', target: dummyPart(sh.impact) || 'chest', back: shareUrl(sh, false) });
+  return `/sao-paulo/liquids/?${q}`;
+}
+
 // The flight: holds applied, fired through the true wind, flown to the end
 // first ("fly first, then show": docs/bullet-time.md in the engine).
 let shot = null;
@@ -217,7 +252,7 @@ function fire() {
     impact = { right: p.r, up: p.u - sh };
     // Hit only if it reached the plane above the ground.
     const above = p.u > -BENCH;
-    hit = above && Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2;
+    hit = above && (S.tgt === 'dummy' ? dummyPart(impact) !== null : Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2);
     if (!above) tTarget = null;
   }
   // Where it lands if it misses: the ground.
@@ -371,6 +406,30 @@ function buildRange() {
   target = new THREE.Group();
   target.position.set(0, sightHeight(), -D);
   const sz = S.size;
+  if (S.tgt === 'dummy') {
+    // A crash dummy (chest at the aim point) behind a pane of the chosen glass.
+    const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.55 });
+    const cap = (r, len, x, y, z = 0) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 12), yellow); m.position.set(x, y, z); target.add(m); return m; };
+    cap(0.17, 0.42, 0, -0.08);                        // torso
+    cap(0.1, 0.06, 0, 0.38);                          // head
+    cap(0.055, 0.5, -0.27, -0.06); cap(0.055, 0.5, 0.27, -0.06);  // arms
+    cap(0.075, 0.75, -0.1, -0.85); cap(0.075, 0.75, 0.1, -0.85);  // legs
+    const g = glazings.find((x) => x.id === S.glazing);
+    if (S.glazing !== 'none' && g) {
+      const pane = new THREE.Mesh(new THREE.PlaneGeometry(g.width, g.height), new THREE.MeshPhysicalMaterial({ color: 0xcfe8f5, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, side: THREE.DoubleSide }));
+      pane.position.set(0, 0, 0.6);
+      target.add(pane);
+    }
+    plate = new THREE.Group();  // nothing swings
+    plate.add(new THREE.Group());
+    target.add(plate);
+    range.add(target);
+    const bermD = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9a8a68 }));
+    bermD.scale.set(30 + D / 50, 3 + D / 1000, 12);
+    bermD.position.set(0, -BENCH, -D - 30);
+    range.add(bermD);
+    return;
+  }
   plate = new THREE.Group();
   plate.position.y = sz / 2;
   const slab = new THREE.Mesh(new THREE.BoxGeometry(sz, sz, 0.02), steel);
@@ -672,6 +731,7 @@ function syncUI() {
   if (!sel.options.length)
     for (const c of cat.cartridges) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; sel.appendChild(o); }
   sel.value = S.c;
+  $('tgt').value = S.tgt; $('glazing').value = S.glazing; $('glazeBox').hidden = S.tgt !== 'dummy'; $('sizeBox').hidden = S.tgt === 'dummy';
   $('dist').value = S.dist; $('size').value = S.size; $('temp').value = S.temp; $('alt').value = S.alt; $('rh').value = S.rh;
   $('lat').value = S.lat; $('az').value = S.az;
   $('sameWind').checked = S.same; $('callTrue').checked = S.callTrue; $('callBox').hidden = S.callTrue;
@@ -744,7 +804,12 @@ function resultsUI() {
   const o = $('outcome');
   const sh = shot;
   const mil = (m) => ((m / S.dist) * 1e3).toFixed(2);
-  if (sh.hit) {
+  $('watch').hidden = !(sh.hit && S.tgt === 'dummy');
+  if (sh.hit && S.tgt === 'dummy') {
+    o.className = 'ok';
+    o.textContent = `Hit the dummy (${dummyPart(sh.impact)}) through ${sh.S.glazing === 'none' ? 'the open air' : 'the glass'}: watch it in the Liquids Lab.`;
+    $('watch').href = liquidsUrl(sh);
+  } else if (sh.hit) {
     o.className = 'ok';
     o.textContent = `Hit: ${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'}.`;
   } else if (sh.impact) {
@@ -820,6 +885,18 @@ function fireNow() {
 }
 
 $('cartridge').onchange = (e) => { S.c = e.target.value; changed(true); };
+{
+  const gsel = $('glazing');
+  const none = document.createElement('option'); none.value = 'none'; none.textContent = 'No glass'; gsel.appendChild(none);
+  const groups = {};
+  for (const g of glazings) {
+    if (!['automotive', 'architectural', 'security'].includes(g.category)) continue;
+    if (!groups[g.category]) { groups[g.category] = document.createElement('optgroup'); groups[g.category].label = { automotive: 'Cars', architectural: 'Buildings', security: 'Bullet-resistant' }[g.category]; gsel.appendChild(groups[g.category]); }
+    const o = document.createElement('option'); o.value = g.id; o.textContent = g.name; groups[g.category].appendChild(o);
+  }
+}
+$('tgt').onchange = (e) => { S.tgt = e.target.value; syncUI(); changed(true); };
+$('glazing').onchange = (e) => { S.glazing = e.target.value; changed(true); };
 for (const [id, k, rebuild] of [['dist', 'dist', true], ['size', 'size', true], ['temp', 'temp'], ['alt', 'alt'], ['rh', 'rh'], ['lat', 'lat'], ['az', 'az']])
   $(id).oninput = (e) => { S[k] = +e.target.value; changed(!!rebuild); };
 $('sameWind').onchange = (e) => { S.same = e.target.checked; if (S.same) for (const l of S.layers) Object.assign(l, S.layers[0]); layersUI(); changed(); };
@@ -839,12 +916,17 @@ $('bDopeUnit').onclick = () => { dopeMil = !dopeMil; store.set('dopeMil', dopeMi
 $('bHelp').onclick = () => $('help').classList.add('on');
 $('bHelpClose').onclick = () => $('help').classList.remove('on');
 $('help').onclick = (e) => { if (e.target.id === 'help') $('help').classList.remove('on'); };
+function shareUrl(sh, absolute = true) {
+  const X = sh ? sh.S : S;
+  const q = new URLSearchParams({ c: X.c, d: X.dist, sz: X.size, t: X.temp, a: X.alt, h: X.rh, lat: X.lat, az: X.az,
+    w: (X.same ? X.layers.slice(0, 1) : X.layers).map((l) => [l.spd, l.clock, l.gust].join(',')).join(';'),
+    cw: X.callTrue ? 'true' : [X.call.spd, X.call.clock].join(','),
+    f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : ''), ts: sh ? sh.t0 : X.t0, fire: 1 });
+  if (X.tgt === 'dummy') { q.set('tg', 'dummy'); q.set('gz', X.glazing); }
+  return `${absolute ? location.origin : ''}/sao-paulo/ballistics/?${q}`;
+}
 $('bShare').onclick = async () => {
-  const q = new URLSearchParams({ c: S.c, d: S.dist, sz: S.size, t: S.temp, a: S.alt, h: S.rh, lat: S.lat, az: S.az,
-    w: (S.same ? S.layers.slice(0, 1) : S.layers).map((l) => [l.spd, l.clock, l.gust].join(',')).join(';'),
-    cw: S.callTrue ? 'true' : [S.call.spd, S.call.clock].join(','),
-    f: (S.spin ? 's' : '') + (S.earth ? 'e' : '') + (S.solver ? 'k' : ''), ts: shot ? shot.t0 : S.t0, fire: 1 });
-  const url = `${location.origin}/sao-paulo/ballistics/?${q}`;
+  const url = shareUrl(shot);
   try { await navigator.clipboard.writeText(url); toast('Link copied: it fires exactly this shot.'); } catch { prompt('Copy this link:', url); }
 };
 for (const [s, n] of SCALES) {
@@ -934,7 +1016,9 @@ function frame(now) {
       te = shot.tStop - shot.t0;
       phase = 'after';
       afterWall = 0;
-      if (shot.hit) {
+      if (shot.hit && S.tgt === 'dummy') {
+        banner('Hit', `the dummy's ${dummyPart(shot.impact)} at ${fmtDist(S.dist)}: watch it in the Liquids Lab`);
+      } else if (shot.hit) {
         ping();
         plate.userData.swing = Math.min(0.9, 0.2 + (shot.atTarget ? Math.hypot(...shot.atTarget.velocity) / 2000 : 0.3));
         const mark = new THREE.Mesh(new THREE.CircleGeometry(Math.max(0.012, S.size * 0.02), 16), new THREE.MeshBasicMaterial({ color: 0xd9d4c8 }));

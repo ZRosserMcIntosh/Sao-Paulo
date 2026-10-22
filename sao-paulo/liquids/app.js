@@ -16,11 +16,47 @@ const SCALES = [[1, '1×'], [0.25, '1/4'], [0.1, '1/10'], [0.01, '1/100'], [1e-3
 const TIER_NAMES = ['Potato', 'Low', 'Medium', 'High', 'Ultra'];
 const STATE = { WAITING: 0, FLYING: 1, AT_PANE: 2, STOPPED: 3 };
 
+// ---------- A round from the Ballistics Range ----------
+// /sao-paulo/liquids/?from=ballistics&...: the range flew the long shot; this
+// lab takes the round as it arrives (its speed, mass, diameter, and the angle
+// it comes in at) and plays the impact on the dummy and the glass.
+const ARRIVAL = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.get('from') !== 'ballistics') return null;
+  const n = (k, d, lo, hi) => { const v = +q.get(k); return Number.isFinite(v) && q.has(k) ? Math.min(hi, Math.max(lo, v)) : d; };
+  const pane = ['none', 'front', 'behind', 'both'].includes(q.get('pane')) ? q.get('pane') : 'front';
+  const target = ['chest', 'abdomen', 'shoulder', 'thigh'].includes(q.get('target')) ? q.get('target') : 'chest';
+  return {
+    name: (q.get('name') || 'Long-range round').slice(0, 80), range: n('range', 1000, 1, 10000),
+    mass_g: n('mass_g', 11.3, 0.5, 200), diameter_mm: n('dia_mm', 7.8, 2, 20), speed: n('v', 400, 20, 1500),
+    descent: n('desc', 0, -30, 60), drift: n('drift', 0, -20, 20), glassImpactor: (q.get('gi') || 'rifle_762').replace(/[^a-z0-9_]/g, ''),
+    glazing: (q.get('glazing') || 'windscreen').replace(/[^a-z0-9_]/g, ''), pane, target,
+    back: (q.get('back') || '').startsWith('/sao-paulo/ballistics/') ? q.get('back') : '/sao-paulo/ballistics/',
+  };
+})();
+
 // ---------- Engines ----------
 let L, cat, G = null, gcat = null;
 try {
   L = await createLiquidModule();
-  const errs = L.load(await (await fetch('library.json')).text());
+  let libText = await (await fetch('library.json')).text();
+  if (ARRIVAL) {
+    const lib = JSON.parse(libText);
+    const from = `the Ballistics Range: ${ARRIVAL.name} after ${Math.round(ARRIVAL.range)} m`;
+    lib.projectiles.push({
+      id: 'ballistics_arrival', name: `${ARRIVAL.name} at ${Math.round(ARRIVAL.range)} m`,
+      description: `Arriving from ${from}, flown by Ballistic Dynamics.`,
+      mass_g: ARRIVAL.mass_g, diameter_mm: ARRIVAL.diameter_mm, speed_ms: ARRIVAL.speed, cd_tissue: 0.27,
+      glass_impactor: ARRIVAL.glassImpactor,
+      provenance: {
+        mass_g: 'published: the bullet weight in the Ballistic Dynamics library', diameter_mm: 'published: the bullet diameter in the Ballistic Dynamics library',
+        speed_ms: `published: the speed at the target computed by Ballistic Dynamics (${from})`,
+        cd_tissue: 'estimated: a spitzer before it yaws, as for the 7.62 mm ball', glass_impactor: 'gameplay: the Glass Dynamics id nearest in calibre',
+      },
+    });
+    libText = JSON.stringify(lib);
+  }
+  const errs = L.load(libText);
   if (errs.length) throw new Error(errs.join('; '));
   cat = L.catalog();
 } catch (e) {
@@ -535,6 +571,7 @@ function go() {
     P.aimMark = new THREE.Mesh(new THREE.RingGeometry(0.012, 0.018, 24), new THREE.MeshBasicMaterial({ color: 0xff4b3e, depthTest: false, transparent: true }));
     P.aimMark.renderOrder = 10; P.aimMark.position.copy(b); P.aimMark.lookAt(a); world.add(P.aimMark);
     P.shots = 1;
+    if (ARRIVAL) applyArrival();
   }
   L.lqd_record(P.recordFps, 900);
   L.lqd_capture();
@@ -1033,6 +1070,23 @@ function drawStrings() {
   if (r.truth) P.truth.position.set(...r.trueOrigin);
 }
 
+// The round comes in along its flight path: turn the muzzle to the angle it
+// arrives at (down by the descent angle, sideways by the drift), at the same
+// distance, aimed at the same point.
+function applyArrival() {
+  const up = new THREE.Vector3(0, 1, 0);
+  const base = P.aim.clone().sub(P.muzzle);
+  const dist = base.length();
+  base.normalize();
+  const right = new THREE.Vector3().crossVectors(base, up).normalize();
+  const d = base.clone().multiplyScalar(Math.cos(ARRIVAL.descent * Math.PI / 180)).addScaledVector(up, -Math.sin(ARRIVAL.descent * Math.PI / 180));
+  d.addScaledVector(right, Math.tan(ARRIVAL.drift * Math.PI / 180)).normalize();
+  P.muzzle = P.aim.clone().addScaledVector(d, -dist);
+  P.muzzleMesh.position.copy(P.muzzle).addScaledVector(d, -0.09);
+  P.muzzleMesh.lookAt(P.aim);
+  P.aimMark.lookAt(P.muzzle);
+}
+
 // ---------- Aim, fire, follow ----------
 let follow = store.get('follow', false), followCam = null;
 function setFollow(on) {
@@ -1402,6 +1456,21 @@ function frame(now) {
 }
 
 // ---------- Start ----------
+if (ARRIVAL) {
+  sceneId = 'gunshot';
+  const g = settings.gunshot;
+  g.projectile = 'ballistics_arrival';
+  g.pane = ARRIVAL.pane;
+  g.target = ARRIVAL.target;
+  if (gcat && gcat.glazings.some((x) => x.id === ARRIVAL.glazing)) g.glazing = ARRIVAL.glazing;
+  const back = document.createElement('a');
+  back.className = 'how';
+  back.href = ARRIVAL.back;
+  back.textContent = '◀ Back to the range';
+  back.title = 'Back to the Ballistics Range, the same shot';
+  back.style.cssText = 'font:600 12px var(--body);color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:rgba(10,17,28,.75)';
+  document.querySelector('.top .row').prepend(back);
+}
 $('sTier').textContent = `${TIER_NAMES[tier]} · ${bench.ms.toFixed(1)} ms/step`;
 setupUi();
 buildScaleButtons();
@@ -1412,5 +1481,14 @@ resize();
 go();
 $('loading').remove();
 requestAnimationFrame(frame);
+if (ARRIVAL) {
+  // Ride in with the round, in bullet time, and fire it once.
+  if (!auto) { auto = true; syncAuto(); buildScaleButtons(); }
+  setFollow(true);
+  setTimeout(() => {
+    fireShot();
+    banner(`From ${Math.round(ARRIVAL.range).toLocaleString('en')} m`, `${ARRIVAL.name} · ${ARRIVAL.speed.toFixed(0)} m/s · ${ARRIVAL.descent.toFixed(1)}° down`);
+  }, 900);
+}
 // For the browser console: the engines and the current run.
 window.liquidsLab = { L, G, get run() { return P; }, get msPerStep() { return msPerStep; } };
