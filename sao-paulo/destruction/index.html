@@ -24,7 +24,7 @@ h1{font-family:var(--display);font-weight:800;font-size:26px;letter-spacing:.01e
 button.primary{color:#fff}
 .back{color:var(--muted);text-decoration:none;font-size:12px}
 .back:hover{color:var(--fg)}
-#panel{top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+@media (min-width:721px){#panel{top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px))}}
 </style>
 <script type="module" crossorigin src="./assets/app.js"></script>
 </head>
