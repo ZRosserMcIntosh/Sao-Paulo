@@ -716,6 +716,7 @@ addEventListener('keydown', (e) => {
     case 'KeyR': restart(); break;
     case 'KeyH': togglePanel(); break;
     case 'KeyL': setLevel(!ui.level, true); break;
+    case 'KeyU': setAutoland(!autoland); break;
     case 'KeyM': toggleSound(); break;
     case 'Space': togglePause(); e.preventDefault(); break;
     default:
@@ -850,8 +851,34 @@ function setLevel(on, announce) {
   if (announce) toast(on ? 'Auto-trim on: let go of the stick and it holds straight and level.' : 'Auto-trim off.', 2.5);
 }
 $('bLevel').addEventListener('click', (e) => { setLevel(!ui.level, true); e.currentTarget.blur(); });
+
+// Autoland: the flight core's instrument approach pilot down the GPS route to
+// the destination (the runway in use if none is picked), to a stop.
+const AL_PHASES = ['INTERCEPT', 'FINAL', 'FLARE', 'ROLLOUT', 'STOPPED'];
+let autoland = false, alStatus = { phase: 0 };
+function setAutoland(on, why) {
+  if (on && !A.autoland) { toast('This flight core has no autoland.'); return; }
+  if (on) {
+    if (!DEST) {
+      const ap = A.airport(), ri = regionIndex(ap.icao);
+      if (ri >= 0) setDestination(ri, Math.max(0, DESTS[ri].ends.findIndex((e) => e.runway === ap.runway)), false);
+    }
+    const r = A.autoland(true);
+    if (r === -2) { toast('Autoland works in the air: take off first.', 3); return; }
+    if (r !== 1) { toast('Autoland: no approach to fly here (pick a destination).', 3.5); return; }
+    autoland = true; alStatus = A.autolandStatus();
+    const rt = A.route();
+    toast(`Autoland: ${DEST ? `${DEST.icao} ${DEST.runway}` : ''}, ${rt.wp.slice(A.gps()[1]).map((w) => w.ident).join(' → ')}; ${Math.round(alStatus.kias)} kt on the approach. Move the stick, or U, to take over.`, 6);
+  } else {
+    if (autoland) toast(why || 'Autoland off: you have the controls.', 2.5);
+    A.autoland(false); autoland = false;
+  }
+  $('bAutoland').setAttribute('aria-pressed', String(autoland));
+}
+$('bAutoland').addEventListener('click', (e) => { setAutoland(!autoland); e.currentTarget.blur(); });
 // Status after the assist mode: auto-trim state, and Q/E on the tiller.
 function assistStatus() {
+  if (autoland) return `AUTOLAND · ${AL_PHASES[alStatus.phase] || ''}`;
   const lvl = !ui.level ? '' : s[58] ? ' · TOO SLOW' : s[55] ? ' · HOLDING LEVEL' : ' · AUTO-TRIM';
   return ASSIST[ui.assist] + lvl + (s[56] ? ' · TILLER' : '');
 }
@@ -1507,9 +1534,19 @@ function frame() {
       if (ui.assist === 0) { setControl('brakes.parking', 0); toast('Parking brake released.', 2); }
       else if (!parkHint) { parkHint = true; toast('The parking brake is set: P releases it.'); }
     }
+    // The stick takes over from the autoland.
+    if (autoland && (Math.abs(input.pitch) > 0.5 || Math.abs(input.roll) > 0.5)) setAutoland(false, 'Autoland disconnected: you have the controls.');
     A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, input.starter);
     if (input.levers) { A.setThrottle(0, input.levers[0]); A.setThrottle(1, input.levers[1]); }  // set_input rejoined them
     A.avd_advance(simDt);
+    if (autoland) {
+      const st = A.autolandStatus();
+      if (!st.on) { autoland = false; $('bAutoland').setAttribute('aria-pressed', 'false'); }
+      else {
+        if (st.phase !== alStatus.phase && st.phase === 4) toast('Autoland: stopped on the runway. You have the controls when you want them (U).', 4);
+        alStatus = st;
+      }
+    }
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
   if (P.jet) landingRollCallouts();
@@ -1581,6 +1618,12 @@ function frame() {
   }
   if (P.jet) audio.update(ui.paused || S > 1 ? [0, 0] : [j[8], j[16]], ui.paused || S > 1 ? [0, 0] : [j[9], j[17]], (j[12] + j[20]) / 150, j[26], c[K.stall] > 0.5, ui.cam === 1);
   else audio.update(ui.paused || S > 1 ? 0 : s[19], s[20], s[11], c[K.stall] > 0.5, ui.cam === 1);
+  audio.extras({
+    tas: s[11], gs: s[12], vs: s[15], nz: s[18], flapDeg: s[26], flapMax: P.jet ? j[50] : 30,
+    gear: P.jet ? j[1] : 1, retractable: !!P.jet, spoiler: P.jet ? Math.max(j[3], j[56] ? 1 : 0) : 0,
+    onGround: !!s[28], stalled: s[43], rev: P.jet ? (j[52] + j[54]) / 2 : 0, crashed: !!ui.crashed,
+    cabin: ui.cam === 1, paused: ui.paused || S > 1,
+  });
   if (toastT > 0 && (toastT -= dt) <= 0) toastEl.classList.remove('on');
 }
 requestAnimationFrame(frame);
