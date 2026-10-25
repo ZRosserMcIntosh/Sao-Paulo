@@ -228,7 +228,7 @@ function averageWind() {
   }
   let clock = Math.atan2(x, y) / DEG / 30;
   if (clock <= 0) clock += 12;
-  return layer(Math.hypot(x, y), Math.round(clock * 2) / 2);
+  return layer(Math.hypot(x, y), clock);  // exact; shown to a tenth of an hour
 }
 const call = () => (S.callTrue ? averageWind() : S.call);
 const callLayers = () => { const c = call(); return [{ fromRange: 0, speed: c.spd * KMH, fromBearing: (S.az + c.clock * 30) * DEG, gust: 0 }]; };
@@ -259,12 +259,14 @@ function solveDope() {
 }
 
 // What each effect does at the target, from separate flights in the true air.
-function breakdown() {
+// Each flown at the shot's own moment (t0), so the wind bars meet the same
+// gusts the round did.
+function breakdown(t0) {
   const at = (flags, wind) => {
     station();
     B.bd_setup(twist(), S.lat * DEG, flags);
     B.wind(S.az * DEG, wind ? trueLayers() : []);
-    return B.table(ci(), ZERO, sightHeight(), S.dist, S.dist, S.az * DEG).at(-1) ?? { drop: 0, windage: 0 };
+    return B.table(ci(), ZERO, sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1) ?? { drop: 0, windage: 0 };
   };
   const base = at(0, false), wind = at(0, true);
   const out = [{ k: 'Gravity & drag', up: base.drop, right: 0 }, { k: 'Wind', up: wind.drop - base.drop, right: wind.windage }];
@@ -281,12 +283,16 @@ function breakdown() {
   return out;
 }
 
-// The crash dummy: its chest at the aim point. Which part a shot meets
-// (torso 0.42 x 0.62 m, head, upper legs), in the Liquids Lab's names.
+// The crash dummy: its chest at the aim point. Which part a shot meets, from
+// the same capsules that are drawn (radius, straight length, centre), in the
+// Liquids Lab's names.
+const DUMMY = { torso: [0.17, 0.42, 0, -0.08], head: [0.1, 0.06, 0, 0.38], arms: [0.055, 0.5, 0.27, -0.06], legs: [0.075, 0.75, 0.1, -0.85] };
 function dummyPart(o) {
-  if (Math.abs(o.right) <= 0.21 && o.up <= 0.22 && o.up >= -0.4) return Math.abs(o.right) > 0.15 && o.up > 0.05 ? 'shoulder' : o.up < -0.14 ? 'abdomen' : 'chest';
-  if (Math.hypot(o.right, o.up - 0.38) <= 0.11) return 'chest';  // the head: the lab aims the chest
-  if (Math.abs(o.right) <= 0.2 && o.up < -0.4 && o.up >= -0.85) return 'thigh';
+  const inCap = ([r, len, x, y], mirror) => [x, mirror ? -x : x].some((cx) => Math.hypot(o.right - cx, Math.max(0, Math.abs(o.up - y) - len / 2)) <= r);
+  if (inCap(DUMMY.head)) return 'chest';  // the head: the lab aims the chest
+  if (inCap(DUMMY.torso)) return Math.abs(o.right) > 0.11 && o.up > 0.05 ? 'shoulder' : o.up < -0.14 ? 'abdomen' : 'chest';
+  if (inCap(DUMMY.arms, true)) return 'shoulder';  // an arm: the lab's nearest part
+  if (inCap(DUMMY.legs, true)) return 'thigh';
   return null;
 }
 // The glass impactor nearest in calibre (Glass Dynamics' own bullets).
@@ -407,6 +413,8 @@ function fire(tFire) {
   const tStop = hit ? tTarget : tGround ?? tEnd;
   const air = B.air(0, 0, 0, t0);
   const sg = S.spin ? B.bd_stability(ci()) : 0;
+  // Sg where the round meets the target (the flight goes on past it).
+  const sgTarget = S.spin && tTarget !== null ? B.table(ci(), ZERO, sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1)?.stability ?? 0 : 0;
   const atT = tTarget !== null ? B.stateAt(tTarget) : null;
   // The V8: where the round meets the raked windscreen, and what the glass does to it.
   let glass = null;
@@ -418,12 +426,12 @@ function fire(tFire) {
   mesh.visible = true;
   scene.add(mesh);
   shot = {
-    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg,
+    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget,
     round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
     mesh, body: mesh.getObjectByName('body'), len: bullet.userData.length, done: false, doneWall: 0, left: false,
     // The engine keeps the round in the air it was fired into, so the
     // breakdown's flights (new air, new wind) leave it alone.
-    bars: breakdown(),
+    bars: breakdown(t0),
   };
   shots.push(shot);
   if (shots.length > 24) retire(shots[0]);
@@ -609,10 +617,10 @@ function buildRange() {
     // A crash dummy (chest at the aim point) behind a pane of the chosen glass.
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.55 });
     const cap = (r, len, x, y, z = 0) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 12), yellow); m.position.set(x, y, z); target.add(m); return m; };
-    cap(0.17, 0.42, 0, -0.08);                        // torso
-    cap(0.1, 0.06, 0, 0.38);                          // head
-    cap(0.055, 0.5, -0.27, -0.06); cap(0.055, 0.5, 0.27, -0.06);  // arms
-    cap(0.075, 0.75, -0.1, -0.85); cap(0.075, 0.75, 0.1, -0.85);  // legs
+    cap(...DUMMY.torso);                              // torso
+    cap(...DUMMY.head);                               // head
+    { const [r, l, x, y] = DUMMY.arms; cap(r, l, -x, y); cap(r, l, x, y); }  // arms
+    { const [r, l, x, y] = DUMMY.legs; cap(r, l, -x, y); cap(r, l, x, y); }  // legs
     const g = glazings.find((x) => x.id === S.glazing);
     if (S.glazing !== 'none' && g) {
       const pane = new THREE.Mesh(new THREE.PlaneGeometry(g.width, g.height), new THREE.MeshPhysicalMaterial({ color: 0xcfe8f5, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, side: THREE.DoubleSide }));
@@ -851,6 +859,10 @@ const magFor = (d) => { const sc = scopeOf(); return sc.fov ? sc.mag : Math.max(
 const zoomBy = (k) => { if (!scopeOf().fov) magnification = Math.max(3, Math.min(32, magnification + k)); };
 // Degrees, vertical: a Soviet scope's own field, else a typical riflescope's.
 const scopeFov = () => { const sc = scopeOf(); return sc.fov ? sc.fov : 35 / magnification; };
+// The tube shows a circle 0.91 of the screen's height across, so the camera
+// sees a little more: the circle then spans the scope's stated field.
+const TUBE = 0.455;
+const scopeCamFov = () => scopeFov() / (2 * TUBE);
 
 // The Soviet drum: the elevation (from the 100 m zero) each mark gives, worked
 // out by the engine for this load in the tables' normal conditions (15 C,
@@ -919,8 +931,8 @@ function drawReticle(dope) {
   const w = ret.width, h = ret.height, dpr = window.devicePixelRatio || 1;
   rg.clearRect(0, 0, w, h);
   const cx = w / 2, cy = h / 2;
-  const px = h / (scopeFov() * DEG);  // pixels per radian
-  const R0 = Math.min(w, h) * 0.455;
+  const px = h / (scopeCamFov() * DEG);  // pixels per radian
+  const R0 = h * TUBE;  // the same circle as the tube in the final pass
   const sc = scopeOf(), sh = sightHold();
   // The target's centre on the screen (the crosshair is on the screen's centre).
   const tx = cx - sh.right * px, ty = cy + sh.up * px;
@@ -1195,7 +1207,7 @@ const fmtV = (ms) => (metric ? `${ms.toFixed(0)} m/s` : `${(ms / FT).toFixed(0)}
 const fmtLen = (m) => (metric ? `${(m * 100).toFixed(1)} cm` : `${(m / IN).toFixed(1)} in`);
 const fmtT = (c) => (metric ? `${c.toFixed(0)} °C` : `${(c * 1.8 + 32).toFixed(0)} °F`);
 const fmtAlt = (m) => (metric ? `${m.toFixed(0)} m` : `${(m / FT).toFixed(0)} ft`);
-const clockName = (c) => `${c % 1 ? c.toFixed(1) : c} o'clock`;
+const clockName = (c) => `${Math.abs(c - Math.round(c)) < 0.05 ? Math.round(c) : c.toFixed(1)} o'clock`;
 
 function presetsUI() {
   const box = $('presets');
@@ -1352,7 +1364,9 @@ function resultsUI() {
     const v = Math.hypot(...at.velocity), m = projRaw(S.c).mass_gr * 6.479891e-5;
     const a = B.air(at.position[0], at.position[1], at.position[2], at.time);
     kv.push(['Time of flight', `${(sh.tTarget - sh.t0).toFixed(3)} s`]);
-    kv.push(['Speed at the target', `${fmtV(v)} · Mach ${(v / a.speedOfSound).toFixed(2)}`]);
+    // Mach from the speed through the air (the wind counts), energy from the ground speed.
+    const u = Math.hypot(at.velocity[0] - a.wind[0], at.velocity[1] - a.wind[1], at.velocity[2] - a.wind[2]);
+    kv.push(['Speed at the target', `${fmtV(v)} · Mach ${(u / a.speedOfSound).toFixed(2)}`]);
     kv.push(['Energy', metric ? `${(0.5 * m * v * v).toFixed(0)} J` : `${(0.5 * m * v * v / 1.3558).toFixed(0)} ft·lbf`]);
     kv.push(['Spin at the target', `${(at.spin / (2 * Math.PI)).toFixed(0)} turns/s`]);
     const lag = (sh.tTarget - sh.t0) - S.dist / a.speedOfSound;
@@ -1360,8 +1374,13 @@ function resultsUI() {
   }
   if (sh.glass && sh.glass.onGlass) kv.push(['Glass Dynamics', `${sh.glass.outcome} · struck at ${(90 - Math.abs(sh.glass.pitch) / DEG).toFixed(0)}° to the glass`]);
   kv.push(['Muzzle', `${fmtV(sh.muzzleSpeed)} · Mach ${(sh.muzzleSpeed / sh.air.speedOfSound).toFixed(2)}`]);
-  if (S.spin) kv.push(['Stability Sg', `${sh.sg.toFixed(2)} → ${sh.round.stability.toFixed(2)}${sh.round.tumbling ? ' · TUMBLED' : ''}`]);
-  if (sh.round.subsonicTime > 0) {
+  // Muzzle to target (not the flight on past it).
+  const tUntil = (sh.tTarget ?? sh.tStop) - sh.t0;
+  if (S.spin) {
+    const unstable = sh.sg < 1 || (sh.sgTarget > 0 && sh.sgTarget < 1);
+    kv.push(['Stability Sg', `${sh.sg.toFixed(2)}${sh.sgTarget > 0 ? ' → ' + sh.sgTarget.toFixed(2) : ''}${unstable ? ' · TUMBLED' : ''}`]);
+  }
+  if (sh.round.subsonicTime > 0 && sh.round.subsonicTime <= tUntil) {
     const st = stateOf(sh, sh.t0 + sh.round.subsonicTime);
     kv.push(['Went subsonic at', fmtDist(lof(st.position).d)]);
   }
@@ -1622,7 +1641,7 @@ canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clie
 canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
   if (cam === 'scope' && S.aim === 'manual') {
-    const k = (scopeFov() * DEG) / canvas.clientHeight / 3;  // a third of the screen's motion: a steady hand
+    const k = (scopeCamFov() * DEG) / canvas.clientHeight / 3;  // a third of the screen's motion: a steady hand
     S.hold = { up: drag.hold.up - (e.clientY - drag.y) * k, right: drag.hold.right + (e.clientX - drag.x) * k };
     return;
   }
@@ -1751,7 +1770,7 @@ function frame(now) {
   // Cameras.
   const D = S.dist;
   if (cam === 'scope') {
-    scopeCam.fov = scopeFov();
+    scopeCam.fov = scopeCamFov();
     scopeCam.position.set(0, sightHeight(), 0);
     const ah = sightHold();
     scopeCam.lookAt(ah.right * D, sightHeight() + ah.up * D, -D);
@@ -1849,4 +1868,4 @@ if (autoFire) setTimeout(fireNow, 300);
 // The Glass engine (for the V8's windscreen) loads in the background.
 setTimeout(() => ensureGlass().catch(() => {}), 1500);
 // For the browser console: the engine and the current shot.
-window.ballisticsRange = { B, R, wakeRT, wakeGeo, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; } };
+window.ballisticsRange = { B, R, wakeRT, wakeGeo, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
