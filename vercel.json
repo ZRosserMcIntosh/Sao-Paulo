@@ -72,6 +72,11 @@
       "permanent": true
     },
     {
+      "source": "/sao-paulo/minefuck/",
+      "destination": "/sao-paulo/bloco/",
+      "permanent": true
+    },
+    {
       "source": "/sao-paulo/minefuck/:path*",
       "destination": "/sao-paulo/bloco/",
       "permanent": true
