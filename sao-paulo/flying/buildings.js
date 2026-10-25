@@ -1,9 +1,11 @@
 // São Paulo World · flight test bed: the city's buildings, extruded from
 // OpenStreetMap footprints and heights (via the Overture Maps buildings
-// theme; data © OpenStreetMap contributors, ODbL). Built by
-// tools/osm_buildings in the Aviation-Dynamics repository into 1 km tiles
-// (buildings/b_<i>_<j>.bin, in the site frame) and a skyline overview of the
-// buildings 35 m and taller (buildings/tall.bin).
+// theme; data © OpenStreetMap contributors, ODbL), and where OSM has none the
+// Google Open Buildings and Microsoft ML Buildings footprints (Overture,
+// ODbL), their heights estimated. Built by tools/osm_buildings in the
+// Aviation-Dynamics repository into 1 km tiles (buildings/b_<i>_<j>.bin.gz,
+// in the site frame) and a skyline overview of the buildings 35 m and taller
+// (buildings/tall.bin.gz).
 //
 // Around the aircraft every building is drawn; beyond it, the overview. Each
 // tile is one mesh (walls and roofs), its vertices relative to the tile so
@@ -63,6 +65,16 @@ function facadeTextures(maxAniso) {
       g.fillStyle = '#9fb0bf'; g.fillRect(31, 8, 2, 48);     // a mullion
     }),
   ];
+}
+
+// A tile file: gzipped at rest (inflated here), or already inflated by the server.
+async function fetchTile(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url}: ${r.status}`);
+  const buf = await r.arrayBuffer();
+  const b = new Uint8Array(buf, 0, 2);
+  if (b[0] !== 0x1f || b[1] !== 0x8b) return buf;
+  return new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
 }
 
 // Decode an AVB1 block: [{ h, mh, kind, rings: [Float32Array of x, y pairs (m from the tile's SW corner)] }].
@@ -284,7 +296,7 @@ export function buildCity({ base = './buildings/', groundAt, mobile = false, max
   const ready = fetch(base + 'index.json').then((r) => r.json()).then(async (ix) => {
     index = ix;
     // The skyline: every tall building, grouped by tile.
-    const buf = await (await fetch(base + 'tall.bin')).arrayBuffer();
+    const buf = await fetchTile(base + 'tall.bin.gz');
     const dv = new DataView(buf);
     if (dv.getUint32(0, true) !== 0x54425641) throw new Error('not an AVBT file');  // "AVBT"
     const n = dv.getUint32(4, true);
@@ -303,7 +315,7 @@ export function buildCity({ base = './buildings/', groundAt, mobile = false, max
     const k = key(i, j);
     detail.set(k, 'loading');
     try {
-      const buf = await (await fetch(`${base}b_${i}_${j}.bin`)).arrayBuffer();
+      const buf = await fetchTile(`${base}b_${i}_${j}.bin.gz`);
       const { list } = decode(buf);
       queue.push({ i, j, list, buf });
     } catch (e) {
