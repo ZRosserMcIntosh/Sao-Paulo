@@ -216,16 +216,22 @@ export function buildAircraft(def) {
     dg.rotateX(Math.PI / 2); dg.translate(0, 0.03, 0);
     add(new THREE.Mesh(dg, body));
   }
-  // Landing gear: legs from the attach points, wheels at the leg ends.
+  // Landing gear: legs from the attach points, wheels at the leg ends; each leg
+  // on a pivot at its attach point (a collapsed leg folds).
+  const legs = [];
   for (const g of def.gear) {
-    const a = flu(g.attach_m), end = a.clone().add(new THREE.Vector3(0, 0, -g.length_m + g.wheel_radius_m * 0.6));
+    const a = flu(g.attach_m), pivot = new THREE.Group();
+    pivot.position.copy(a); root.add(pivot);
+    const addL = (m) => { m.castShadow = true; m.receiveShadow = true; m.position.sub(a); pivot.add(m); return m; };
+    const end = a.clone().add(new THREE.Vector3(0, 0, -g.length_m + g.wheel_radius_m * 0.6));
     const isNose = /nose/.test(g.name);
     const top = isNose ? a : new THREE.Vector3(a.x + 0.05, Math.sign(a.y) * 0.45, a.z + 0.05);
-    add(cylinderBetween(top, end, isNose ? 0.04 : 0.03, body));  // spring-steel legs, painted
+    addL(cylinderBetween(top, end, isNose ? 0.04 : 0.03, body));  // spring-steel legs, painted
     const r = g.wheel_radius_m;
     const wheel = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.14, 16), tyre);
     wheel.position.copy(end); wheel.position.z -= r * 0.15;
-    add(wheel);  // cylinder axis = y (lateral)
+    const wheelAt = wheel.position.clone();
+    addL(wheel);  // cylinder axis = y (lateral)
     // Speed fairing: a teardrop round the wheel, open below it (the tyre shows).
     const prof = [];
     for (let k = 0; k <= 14; ++k) {
@@ -235,7 +241,8 @@ export function buildAircraft(def) {
     const pant = new THREE.Mesh(new THREE.LatheGeometry(prof.reverse(), 20), body);  // y increasing: normals outward
     pant.rotation.z = -Math.PI / 2;  // lathe axis (y) -> forward
     pant.scale.set(0.66, 1, 1);       // narrower than tall (local x turns lateral)
-    pant.position.copy(wheel.position); pant.position.z += r * 0.22; add(pant);
+    pant.position.copy(wheelAt); pant.position.z += r * 0.22; addL(pant);
+    legs.push({ pivot, nose: isNose, side: Math.sign(a.y) });
   }
   // Propeller: spinner, two blades, and a translucent disc at speed.
   const eng = def.engines[0], R = eng.propeller.diameter_m / 2;
@@ -284,6 +291,12 @@ export function buildAircraft(def) {
     blades.visible = !fast || seen < 900;
     blades.quaternion.copy(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), fast ? propAngle * 0.02 + Math.random() * 6.28 : propAngle));
     disc.material.opacity = Math.min(0.35, Math.max(0, (seen - 500) / 1500) * 0.35) * (st.disc ?? 1);
+    // A collapsed leg folds: a main outward under the wing, the nose leg aft.
+    legs.forEach((l, i) => {
+      const c = st.collapsed?.[i] ? 1 : 0;
+      if (l.nose) l.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -c * 70 * DEG);
+      else l.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), l.side * c * 65 * DEG);
+    });
   }
   return { root, update, glass: glassMat };
 }

@@ -17,6 +17,7 @@ import { buildFlow } from './flow.js';
 import { buildSmoke } from './smoke.js';
 import { mountLoadSheet } from './loadsheet.js';
 import { buildCity } from './buildings.js';
+import { buildCrash } from './crash.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -263,6 +264,14 @@ function buildTerrain() {
 const city = buildCity({ base: './buildings/', groundAt, mobile: MOBILE, maxAniso: renderer.capabilities.getMaxAnisotropy(),
   physics: { add: (i, j, bytes) => A.buildingsTile(i, j, bytes), drop: (i, j) => A.avd_buildings_drop(i, j) } });
 scene.add(city.group);
+// What an impact throws up: dust, smoke and pieces (crash.js).
+const crashFx = buildCrash({ groundAt: (x, z) => groundAt(x, -z) });
+scene.add(crashFx.group);
+function impact() {
+  const tr = s[61] * DEG, gs = s[12] * 0.514444;
+  // Dust off the ground; aloft (a structural failure), smoke.
+  crashFx.burst(enu(s[0], s[1], s[2]), new THREE.Vector3(gs * Math.sin(tr), s[15] * 0.00508, -gs * Math.cos(tr)), s[14] > 60 ? '#6b6763' : '#a39886');
+}
 let showCity = store.get('city', true);
 city.group.visible = showCity;
 new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/mosaic_world.jpg', (t) => {
@@ -643,6 +652,7 @@ A.avd_set_wind_hazard(+$('hazard').value);
 function restart(i = ui.start) {
   ui.start = i;
   smoke.reset();
+  crashFx.clear();
   if (!STARTS[i]) ui.start = i = 0;
   const st = STARTS[i];
   applyWeather();
@@ -1419,8 +1429,10 @@ function handleEvents() {
       toast(fpm > 600 ? `Hard landing: ${fpm} fpm` : fpm > 300 ? `Touchdown: ${fpm} fpm, firm` : `Touchdown: ${fpm} fpm, smooth`);
     } else if (/tail/.test(e)) {
       toast('Tail strike! Rotate less steeply.', 3);
-    } else if (e.startsWith('PROPELLER STRIKE') || e.startsWith('Airframe ground contact') || e.startsWith('Building strike')) {
-      ui.crashed = true; toast(`${e}. Press R to restart.`, 1e9);
+    } else if (e.startsWith('GEAR COLLAPSE')) {
+      toast(`${e.replace('GEAR COLLAPSE', 'Landing gear collapsed')}: the airframe is on its belly.`, 4);
+    } else if (e.startsWith('PROPELLER STRIKE') || e.startsWith('Airframe ground contact') || e.startsWith('Building strike') || e.startsWith('STRUCTURAL FAILURE')) {
+      ui.crashed = true; impact(); toast(crashReport(e.startsWith('STRUCTURAL FAILURE') ? `${e}: past the ultimate load` : e), 1e9);
     } else if (/^(Generator \d|Alternator) online$/.test(e)) {
       // Expected while the Quick Start brings the engines up; worth a word otherwise.
       if (A.procedure().status !== 1) plain.push(e);
@@ -1429,7 +1441,17 @@ function handleEvents() {
     } else if (!e.includes(' -> ')) plain.push(e);
   }
   if (plain.length) toast(plain.join(' · '), 3.5 + plain.length);
-  if (s[48] && !ui.crashed) { ui.crashed = true; toast('The airplane is damaged beyond flight. Press R to restart.', 1e9); }
+  if (s[48] && !ui.crashed) { ui.crashed = true; impact(); toast(crashReport('The airplane is damaged beyond flight'), 1e9); }
+}
+// The crash dummy in the pilot's seat: its readings against the seat test
+// limits (14 CFR 23.562 / 25.562: HIC 1,000, lumbar load 1,500 lbf) and a
+// spinal DRI of 18 (about a 5 % risk of spinal injury).
+function crashReport(cause) {
+  if (!A.occupant) return `${cause}. Press R to restart.`;
+  const o = A.occupant(), lbf = o.lumbarN / 4.448;
+  const over = [o.hic > 1000 && 'head', lbf > 1500 && 'lumbar spine', o.dri > 18 && 'spine'].filter(Boolean);
+  const verdict = over.length ? `beyond the limits (${over.join(', ')})` : 'within the seat test limits';
+  return `${cause}. Crash dummy, pilot's seat: ${o.peakG.toFixed(1)} g peak · spine DRI ${o.dri.toFixed(1)} (limit 18) · lumbar ≈ ${Math.round(lbf).toLocaleString('en-US')} lbf (limit 1,500) · HIC ${Math.round(o.hic)} (limit 1,000): ${verdict}. Press R to restart.`;
 }
 
 // ---------- Airflow view ----------
@@ -1525,6 +1547,7 @@ function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.1);
   if (!document.hidden) adaptRes(dt);
+  crashFx.update(dt);
   const S = SLOWS[ui.slow], running = !ui.paused && !ui.crashed;
   const simDt = running ? dt / S : 0;
   if (running) {
@@ -1575,8 +1598,9 @@ function frame() {
   if (lag < 0 || lag > 0.02) simClock = s[42];
   else if (S > 1) acGroup.position.addScaledVector(stepVel, lag);
   acGroup.quaternion.copy(qM).multiply(qBody.set(s[4], s[5], s[6], s[3]));
-  if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]), reverser: [j[52], j[54]], slow: S }, simDt);
-  else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1, phase: propPhase, slow: S }, simDt);
+  const collapsed = A.occupant ? A.occupant().collapsed : null;
+  if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]), reverser: [j[52], j[54]], collapsed, slow: S }, simDt);
+  else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1, phase: propPhase, collapsed, slow: S }, simDt);
   if (ui.flow) {
     acGroup.updateMatrixWorld(true);
     const wk = A.wake();
