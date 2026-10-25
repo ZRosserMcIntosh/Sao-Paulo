@@ -60,6 +60,11 @@
       "source": "/sao-paulo/destruction",
       "destination": "/sao-paulo/destruction/",
       "permanent": true
+    },
+    {
+      "source": "/sao-paulo/minefuck",
+      "destination": "/sao-paulo/minefuck/",
+      "permanent": true
     }
   ],
   "headers": [
