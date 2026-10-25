@@ -83,8 +83,8 @@ export default async function createBallisticModule(wasmBytes) {
     return { time: a[0], position: [a[1], a[2], a[3]], velocity: [a[4], a[5], a[6]], spin: a[7], roll: a[8] };
   };
   // [{range, drop, windage, time, speed, energy, mach, stability}] (SI)
-  B.table = (cartridge, zeroRange, sightHeight, maxRange, step, azimuth = 0) =>
-    JSON.parse(B.text(ex.bd_table(cartridge, zeroRange, sightHeight, maxRange, step, azimuth)))
+  B.table = (cartridge, zeroRange, sightHeight, maxRange, step, azimuth = 0, t0 = 0) =>
+    JSON.parse(B.text(ex.bd_table(cartridge, zeroRange, sightHeight, maxRange, step, azimuth, t0)))
       .map(([range, drop, windage, time, speed, energy, mach, stability]) =>
         ({ range, drop, windage, time, speed, energy, mach, stability }));
   return B;
