@@ -1,4 +1,4 @@
-// MineFuck in the browser: the game loop, input, vehicles and HUD (a port of Game.java).
+// Bloco in the browser: the game loop, input, vehicles and HUD (a port of Game.java).
 import { Atlas } from './atlas.js';
 import * as Blk from './blocks.js';
 import { B } from './blocks.js';

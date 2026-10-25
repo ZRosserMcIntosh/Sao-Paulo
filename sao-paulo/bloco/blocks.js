@@ -1,4 +1,4 @@
-// Block types, a port of src/main/java/com/minefuck/world/Block.java. The ids are what the
+// Block types, a port of src/main/java/com/bloco/world/Block.java. The ids are what the
 // world files store (tools/sao-paulo/blocks.mjs mirrors them), so keep all three in step.
 import { T } from './atlas.js';
 
