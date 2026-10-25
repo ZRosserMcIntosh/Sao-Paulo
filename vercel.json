@@ -50,6 +50,11 @@
       "source": "/sao-paulo/wake",
       "destination": "/sao-paulo/wake/",
       "permanent": true
+    },
+    {
+      "source": "/sao-paulo/destruction",
+      "destination": "/sao-paulo/destruction/",
+      "permanent": true
     }
   ],
   "headers": [
@@ -130,6 +135,15 @@
         {
           "key": "Cross-Origin-Embedder-Policy",
           "value": "credentialless"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/destruction/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
         }
       ]
     }
