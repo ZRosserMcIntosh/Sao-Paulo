@@ -192,6 +192,8 @@ body.jet #hud .levers{display:none}
   #toast{top:calc(64px + env(safe-area-inset-top))}
   #side{z-index:6;left:8px;right:8px;width:auto;top:calc(8px + env(safe-area-inset-top));max-height:calc(100% - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
 }
+#osmCredit{position:fixed;right:6px;bottom:4px;z-index:2;font:500 10px var(--body);color:rgba(255,255,255,.75);text-decoration:none;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+#osmCredit:hover{color:#fff;text-decoration:underline}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -345,6 +347,8 @@ body.jet #hud .levers{display:none}
     <button data-units="mph" aria-pressed="false">+ mph</button>
   </div>
   <p class="note">The instruments stay in knots, as in the airplane; the readouts add km/h or mph.</p>
+  <div class="row" style="margin-top:8px"><button id="bCity" aria-pressed="true">Buildings on</button></div>
+  <p class="note">The city's buildings from OpenStreetMap, at their mapped heights: every building within a few kilometres, the skyline (35 m and taller) beyond. Building data © <a href="https://www.openstreetmap.org/copyright" style="color:var(--ink)">OpenStreetMap contributors</a> (ODbL), via the Overture Maps buildings theme.</p>
 
   <h2>Sound</h2>
   <div class="row"><button id="bSound" aria-pressed="false" title="M">Sound off</button>
@@ -387,6 +391,7 @@ body.jet #hud .levers{display:none}
   </div>
 </div>
 <div id="warn">STALL</div>
+<a id="osmCredit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Buildings © OpenStreetMap contributors</a>
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>
   <div class="lg slow"><span class="ends"><span>Slow motion <kbd>T</kbd></span><b id="slowO">real time</b></span><input id="slowR" type="range" min="0" max="4" step="1" value="0" aria-label="Slow motion: real time, 1/10, 1/100, 1/1000 or 1/5000"><span class="sm">At 1/1000× and slower the propeller is resolved: its blades, tip vortices and the slipstream they drive.</span></div>

@@ -16,6 +16,7 @@ import { buildIndex, searchAirports } from './airportsearch.js';
 import { buildFlow } from './flow.js';
 import { buildSmoke } from './smoke.js';
 import { mountLoadSheet } from './loadsheet.js';
+import { buildCity } from './buildings.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -256,6 +257,14 @@ function buildTerrain() {
     terrain.add(heightMesh(x0, y0, nx, ny, step, nearField, farMat, 2, (x0 + x1) / 2, (y0 + y1) / 2));
   }
 }
+// The city's buildings from OpenStreetMap (buildings.js): every building
+// around the aircraft, the skyline (35 m and up) beyond. Data © OpenStreetMap
+// contributors, ODbL.
+const city = buildCity({ base: './buildings/', groundAt, mobile: MOBILE, maxAniso: renderer.capabilities.getMaxAnisotropy(),
+  physics: { add: (i, j, bytes) => A.buildingsTile(i, j, bytes), drop: (i, j) => A.avd_buildings_drop(i, j) } });
+scene.add(city.group);
+let showCity = store.get('city', true);
+city.group.visible = showCity;
 new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/mosaic_world.jpg', (t) => {
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
@@ -816,6 +825,15 @@ function setUnits(u) {
   document.querySelectorAll('[data-units]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.units === ui.units)));
 }
 document.querySelectorAll('[data-units]').forEach((b) => b.addEventListener('click', () => { setUnits(b.dataset.units); b.blur(); }));
+function setCity(on) {
+  showCity = on; store.set('city', on);
+  if (!on) city.clearPhysics();
+  city.group.visible = on && ui.flow !== 2;
+  $('bCity').setAttribute('aria-pressed', String(on));
+  $('bCity').textContent = on ? 'Buildings on' : 'Buildings off';
+}
+$('bCity').addEventListener('click', (e) => { setCity(!showCity); e.currentTarget.blur(); });
+setCity(showCity);
 setUnits(ui.units);
 // A speed in knots, with the chosen extra unit.
 const spd = (kt) => (UNIT[ui.units] ? `${fmt(kt)} kt · ${fmt(kt * UNIT[ui.units][0])} ${UNIT[ui.units][1]}` : `${fmt(kt)} kt`);
@@ -1374,7 +1392,7 @@ function handleEvents() {
       toast(fpm > 600 ? `Hard landing: ${fpm} fpm` : fpm > 300 ? `Touchdown: ${fpm} fpm, firm` : `Touchdown: ${fpm} fpm, smooth`);
     } else if (/tail/.test(e)) {
       toast('Tail strike! Rotate less steeply.', 3);
-    } else if (e.startsWith('PROPELLER STRIKE') || e.startsWith('Airframe ground contact')) {
+    } else if (e.startsWith('PROPELLER STRIKE') || e.startsWith('Airframe ground contact') || e.startsWith('Building strike')) {
       ui.crashed = true; toast(`${e}. Press R to restart.`, 1e9);
     } else if (/^(Generator \d|Alternator) online$/.test(e)) {
       // Expected while the Quick Start brings the engines up; worth a word otherwise.
@@ -1406,6 +1424,7 @@ function cycleFlow() {
   scene.background = tunnel ? STUDIO : SKY;
   scene.fog.color.copy(tunnel ? STUDIO : SKY);
   skyDome.visible = !tunnel;
+  city.group.visible = showCity && !tunnel;
   if (ui.flow === 1) toast('Airflow: streamlines through the field the physics is making, coloured by local speed (grey: undisturbed). Orbit camera recommended (C).', 5);
   if (tunnel) toast('Wind tunnel: the world fades so the flow stands out. V again for smoke.', 4);
   if (ui.flow === 3) toast('Smoke: from the wingtips, the trailing edge and the engines. It stays in the air, winds into the tip vortices, sinks with them and drifts with the wind. Orbit camera (C).', 6);
@@ -1432,6 +1451,7 @@ async function selectAircraft(id) {
   const next = PROFILES[id];
   try {
     loadInto(await fetchDef(next));
+    city.resyncPhysics();  // the core was rebuilt without its buildings
     applyVisual(next, def);
     A.avd_set_wind_hazard(+$('hazard').value);  // a new aircraft starts a fresh sim
   } catch (e) { toast('Could not load the aircraft: ' + e.message, 6); return; }
@@ -1539,6 +1559,7 @@ function frame() {
   }
   acGroup.updateMatrixWorld(true);
   updateCamera(dt);
+  if (showCity && ui.flow !== 2) city.update(s[0], s[1], Math.max(0, s[14] * 0.3048));
   renderer.render(scene, camera);
   drawLabels();
   $('warn').classList.toggle('on', c[K.stall] > 0.5 && !ui.crashed);
