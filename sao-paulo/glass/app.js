@@ -227,7 +227,7 @@ function banner(title, sub) {
 
 // ---------- Selection state ----------
 // Every visit opens on a storefront panel (fully tempered 10 mm) with three
-// 10 mm annealed plates behind it, and the cannonball (until another object
+// 10 mm annealed plates behind it, a metre apart, and the cannonball (until another object
 // is picked: a new key, so earlier picks give way to the new default).
 let gIdx = Math.max(0, cat.glazings.findIndex((g) => g.id === 'storefront_tempered_10'));
 let iIdx = Math.max(0, cat.impactors.findIndex((g) => g.id === store.get('impactor:v2', 'cannonball_9lb')));
@@ -3783,7 +3783,7 @@ syncPlay();
   const q = new URLSearchParams(location.search);
   if (!q.has('g') && !q.has('shot')) {
     const plate = cat.glazings.findIndex((g) => g.id === 'annealed_10');
-    if (plate >= 0) stack = [0, 1, 2].map(() => ({ gid: plate, gap: 0.1 }));
+    if (plate >= 0) stack = [0, 1, 2].map(() => ({ gid: plate, gap: 1.0 }));
   }
 }
 rebuildLab();
