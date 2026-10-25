@@ -226,9 +226,11 @@ function banner(title, sub) {
 }
 
 // ---------- Selection state ----------
-// Every visit opens on 6 mm fully tempered glass.
-let gIdx = Math.max(0, cat.glazings.findIndex((g) => g.id === 'tempered_6'));
-let iIdx = Math.max(0, cat.impactors.findIndex((g) => g.id === store.get('impactor', 'steel_ball_2260')));
+// Every visit opens on a storefront panel (fully tempered 10 mm) with three
+// 10 mm annealed plates behind it, and the cannonball (until another object
+// is picked: a new key, so earlier picks give way to the new default).
+let gIdx = Math.max(0, cat.glazings.findIndex((g) => g.id === 'storefront_tempered_10'));
+let iIdx = Math.max(0, cat.impactors.findIndex((g) => g.id === store.get('impactor:v2', 'cannonball_9lb')));
 let speed = cat.impactors[iIdx].speed;
 let yaw = 0, pitch = 0, fromBack = false;
 let aim = null;  // pane point {x, y}
@@ -1849,6 +1851,8 @@ function announce() {
   if (P.puzzle) { for (let k = 0; k < P.nImp; ++k) P.announced.add(k); return; }   // no spoilers
   for (let k = 0; k < P.nImp; ++k) {
     if (P.announced.has(k)) continue;
+    // Shards from another pane of a stack are not the shot: no banner for them.
+    if (P.shotDefs[k] === shardIdx) { P.announced.add(k); continue; }
     const r = G.report(k), v = r.v;
     if (!r.outcome) continue;
     P.announced.add(k);
@@ -2107,7 +2111,7 @@ function pickGlazing(i) {
 }
 function pickImpactor(i, keepSpeed = false) {
   iIdx = i;
-  store.set('impactor', cat.impactors[i].id);
+  store.set('impactor:v2', cat.impactors[i].id);
   if (!keepSpeed) speed = cat.impactors[i].speed;
   chipGroup($('impactors'), cat.impactors, iIdx, (k) => pickImpactor(k));
   $('iDesc').textContent = cat.impactors[i].description;
@@ -3775,9 +3779,15 @@ $('bUnit').textContent = UNITS[unit][0];
 buildScaleButtons();
 syncAuto();
 syncPlay();
-newPane();
+{
+  const q = new URLSearchParams(location.search);
+  if (!q.has('g') && !q.has('shot')) {
+    const plate = cat.glazings.findIndex((g) => g.id === 'annealed_10');
+    if (plate >= 0) stack = [0, 1, 2].map(() => ({ gid: plate, gap: 0.1 }));
+  }
+}
+rebuildLab();
 simClockReset();
-renderLayers();
 const shared = applyShareLink();
 if (window.innerWidth <= 860 && !shared) showTab('lab');
 $('loading').remove();
