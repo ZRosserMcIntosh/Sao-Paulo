@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>How the Ballistics Range works</title>
+<meta name="description" content="How the Ballistics Range calculates every shot: the air, drag against Mach number, wind along the range, Miller stability, spin drift, aerodynamic jump, Coriolis and Eötvös, zeroing and dope, and bullet time, with the equations, sources and what is estimated.">
+<meta property="og:title" content="São Paulo World · How the Ballistics Range works">
+<meta property="og:description" content="Every equation behind a two-mile shot.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/ballistics/how/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b111b; --panel:#0f1826; --panel2:#121d2e; --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --hot:#ffd36b; --ice:#9fd6ff; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:16px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 var(--body)}
+a{color:var(--ice)}
+a:hover{color:#fff}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:40px}
+header.top{max-width:1180px;margin:0 auto;padding:16px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:#fff;border:2px solid #fff;outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+.btn{display:inline-block;font:600 13px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:7px 12px;text-decoration:none}
+.btn:hover{background:rgba(255,255,255,.13);color:#fff}
+.btn.primary{background:#fff;color:#0a1830;border-color:#fff}
+nav.toc{position:sticky;top:16px;align-self:start;max-height:calc(100vh - 32px);overflow:auto;padding:14px 0;font-size:14px;scrollbar-width:thin}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav.toc li{margin:0}
+nav.toc a{display:block;padding:4px 10px;border-left:2px solid transparent;color:var(--mute);text-decoration:none}
+nav.toc a:hover{color:var(--ink)}
+nav.toc a.on{color:#fff;border-left-color:var(--hot)}
+.eyebrow{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+main{min-width:0;padding-bottom:80px}
+h1{font:900 clamp(40px,7vw,72px)/.92 var(--display);text-transform:uppercase;margin:18px 0 14px;letter-spacing:.01em}
+.lede{font-size:19px;color:#cfd8e3;max-width:760px}
+h2{font:800 34px/1 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:64px 0 10px;padding-top:8px;border-top:1px solid var(--line)}
+h2 .n{color:var(--hot);margin-right:10px}
+h3{font:700 18px/1.3 var(--body);margin:28px 0 6px}
+p{margin:10px 0;max-width:780px}
+ul,ol{max-width:780px;padding-left:22px}
+li{margin:4px 0}
+.eq{font:15px/1.6 var(--mono);background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--ice);border-radius:8px;padding:12px 16px;margin:14px 0;overflow-x:auto;white-space:nowrap;max-width:780px}
+.eq .c{color:var(--mute);font-family:var(--body);font-size:13px;white-space:normal;display:block;margin-top:4px}
+.v{font-style:italic;font-family:Georgia,"Times New Roman",serif;font-size:1.05em}
+code{font:14px var(--mono);background:rgba(255,255,255,.06);border-radius:4px;padding:1px 5px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:16px 0;max-width:780px}
+.card.est{border-left:3px solid var(--warn)}
+.card.src{border-left:3px solid var(--good)}
+.tag{display:inline-block;font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:4px 7px;border-radius:999px;border:1px solid var(--line);margin-right:6px;vertical-align:2px}
+.tag.pub{color:var(--good);border-color:rgba(54,196,131,.4)}
+.tag.est{color:var(--warn);border-color:rgba(240,180,58,.4)}
+.tag.fit{color:var(--ice);border-color:rgba(159,214,255,.4)}
+table{border-collapse:collapse;width:100%;max-width:780px;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 11px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+td.num{font-family:var(--mono);white-space:nowrap}
+figure{margin:18px 0;max-width:780px}
+figure svg{width:100%;height:auto;display:block;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+figcaption{color:var(--mute);font-size:13.5px;margin-top:8px}
+.calc{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:18px 0;max-width:780px}
+.calc h4{font:800 18px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:0 0 12px}
+.calc .inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.calc label{display:block;font-size:13px;color:var(--mute)}
+.calc label b{color:var(--ink);font-family:var(--mono);font-weight:600}
+.calc input[type=range]{width:100%;accent-color:var(--hot)}
+.calc select{font:600 13px var(--body);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+.out{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.out div{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.out span{display:block;font-size:12px;color:var(--mute)}
+.out b{font:600 17px var(--mono)}
+.verdict{margin-top:12px;font-size:14px;color:#cfd8e3}
+.pipeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;max-width:780px;margin:18px 0;counter-reset:p}
+.pipeline div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13.5px;position:relative}
+.pipeline div::before{counter-increment:p;content:counter(p);font:800 22px/1 var(--display);color:var(--hot);display:block;margin-bottom:4px}
+.pipeline b{display:block;font-size:14px}
+footer{color:var(--mute);font-size:13px;border-top:1px solid var(--line);margin-top:60px;padding-top:16px}
+@media (max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{position:static;max-height:none;border:1px solid var(--line);border-radius:10px;background:var(--panel);margin-top:8px}
+  nav.toc ol{columns:2;column-gap:10px}
+  h2{font-size:28px;margin-top:48px}
+  .lede{font-size:17px}
+}
+@media (max-width:520px){ nav.toc ol{columns:1} }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="plate" href="/sao-paulo/"><b>São Paulo World</b><span>Ballistics Range</span></a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn primary" href="../">Open the range</a>
+    <a class="btn" href="../?c=hornady_50bmg_750&d=3219&sz=1.5&t=32&a=1500&h=15&lat=35&az=90&w=6,4,2;9,3,3;7,4,3&cw=true&f=sek&ts=10&fire=1">Fire the 2-mile shot</a>
+  </div>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#air">The air</a></li>
+    <li><a href="#drag">Drag</a></li>
+    <li><a href="#wind">Wind along the range</a></li>
+    <li><a href="#stability">Spin and stability</a></li>
+    <li><a href="#drift">Spin drift</a></li>
+    <li><a href="#jump">Aerodynamic jump</a></li>
+    <li><a href="#wobble">The wobble</a></li>
+    <li><a href="#earth">Coriolis and Eötvös</a></li>
+    <li><a href="#dope">Zero, dope and the call</a></li>
+    <li><a href="#time">Bullet time</a></li>
+    <li><a href="#trace">The trace</a></li>
+    <li><a href="#dummy">The dummy and the glass</a></li>
+    <li><a href="#determinism">Same shot, every machine</a></li>
+    <li><a href="#validation">Validation</a></li>
+    <li><a href="#limits">What is estimated</a></li>
+    <li><a href="#refs">References</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="eyebrow">Ballistic Dynamics · exterior ballistics</div>
+<h1>How the range works</h1>
+<p class="lede">Every round on the range is flown by <b>Ballistic Dynamics</b>, a C++ exterior-ballistics engine compiled to WebAssembly. The page only draws what it returns. This is the full working: the equations, where the numbers come from, how far each model has been checked, and what is still an estimate.</p>
+
+<h2 id="overview"><span class="n">1</span>Overview</h2>
+<p>A round is a state: its position and velocity in the world, its spin rate and roll angle. Every millisecond the engine advances that state with a fourth-order Runge-Kutta step through the forces on it: drag against the air it is in, gravity, the lift from its spin, and the rotating Earth. Nothing is looked up from a table of drops: a 2-mile shot is about 6,400 steps of the same equations.</p>
+<div class="eq">dp/dt = v<br>dv/dt = −K(M) ρ |u| u + g + a<sub>lift</sub> − 2 Ω × v,&nbsp;&nbsp;&nbsp; u = v − w(p, t)<br>dspin/dt = ½ ρ |u| S d² C<sub>lp</sub> spin / I<sub>x</sub>
+<span class="c">p position, v velocity, u velocity through the air (w the wind where the round is), ρ air density, M Mach number, g gravity, Ω the Earth's rotation. The step is fixed at 1 ms whatever your frame rate.</span></div>
+<p>The source is open: <a href="https://github.com/ZRosserMcIntosh/ballistic-dynamics">github.com/ZRosserMcIntosh/ballistic-dynamics</a> (MIT). The engine's own <code>docs/physics.md</code> and <code>docs/validation.md</code> carry everything below in more detail.</p>
+
+<h2 id="air"><span class="n">2</span>The air</h2>
+<p>The air is not the ballistics engine's own: it is <b>Aviation Dynamics</b>' U.S. Standard Atmosphere 1976, the same model that flies the aircraft on this site, compiled into the same WebAssembly module. Your temperature, altitude and humidity become a temperature offset from the standard day and a sea-level pressure whose profile passes through the station; the air then changes along the path as the round climbs and falls.</p>
+<div class="eq">ρ = (p − e) / (R<sub>d</sub> T) + e / (R<sub>v</sub> T),&nbsp;&nbsp; e = RH · e<sub>s</sub>(T)&nbsp;&nbsp; (Buck 1996)<br>a = √(γ R<sub>d</sub> T<sub>v</sub>),&nbsp;&nbsp; T<sub>v</sub> = p / (ρ R<sub>d</sub>)
+<span class="c">Moist air is lighter than dry air at the same pressure and temperature (water vapour is lighter than nitrogen), so humidity lowers drag a little and raises the speed of sound. Density altitude is the standard-day altitude with the same density.</span></div>
+<p>Why it matters: drag is proportional to density. A hot, high, thin day (the 2-mile scenario: 32 °C at 1,500 m, a density altitude near 2,450 m) lets the round keep its speed; a cold morning at sea level does the opposite. Compare <b>Cold morning</b> and <b>Hot afternoon</b>: the same rifle drops about a metre more at 1 km in the cold.</p>
+
+<h2 id="drag"><span class="n">3</span>Drag</h2>
+<p>Each bullet's drag comes from a published ballistic coefficient scaling a standard drag curve: G7 (a long boat-tail, the shape of modern match bullets) where the maker or Bryan Litz publishes one, G1 otherwise. Both curves are the U.S. Army Ballistic Research Laboratory's, drag coefficient against Mach number from 0 to 5.</p>
+<div class="eq">BC = m / (i d²)&nbsp;&nbsp;&nbsp;&nbsp; a<sub>drag</sub> = ρ u² C<sub>D,ref</sub>(M) π / (8 BC)
+<span class="c">i is the form factor: how much draggier the bullet is than the reference shape. Published BCs in lb/in² are multiplied by 703.07 for kg/m². Sierra's stepped BCs (a different value per speed band) are applied as published.</span></div>
+<p>The curve's tall hump is the transonic zone: drag about triples between Mach 0.8 and 1.2. Rounds that go subsonic before the target (the result panel says where) slow less afterwards but drift more in the wind.</p>
+<table><tr><th>Load</th><th>Muzzle</th><th>Model and BC</th><th>Source</th></tr>
+<tr><td>.308 Win 175 gr Sierra MatchKing</td><td class="num">2600 fps</td><td class="num">G7 0.243 (G1 .505/.496/.485)</td><td>Federal GM308M2; Litz; Sierra</td></tr>
+<tr><td>6.5 Creedmoor 140 gr ELD Match</td><td class="num">2710 fps</td><td class="num">G7 0.326</td><td>Hornady 81500</td></tr>
+<tr><td>.338 Lapua Magnum 250 gr Scenar</td><td class="num">2920 fps</td><td class="num">G7 0.320</td><td>Lapua; Applied Ballistics</td></tr>
+<tr><td>6.5 Creedmoor 147 gr ELD Match</td><td class="num">2695 fps</td><td class="num">G7 0.351</td><td>Hornady 81501 (via GAP Precision)</td></tr>
+<tr><td>.408 CheyTac 419 gr solid</td><td class="num">2752 fps</td><td class="num">G1 0.949</td><td>CheyTac (M200, 1:13 in)</td></tr>
+<tr><td>.50 BMG 750 gr A-MAX</td><td class="num">2820 fps</td><td class="num">G1 1.050</td><td>Hornady</td></tr>
+<tr><td>5.56 mm M855</td><td class="num">3020 fps</td><td class="num">G1 0.304</td><td>Federal XM855</td></tr>
+<tr><td>9 mm 124 gr Gold Dot</td><td class="num">1150 fps</td><td class="num">G1 0.134</td><td>Speer 23618GD</td></tr></table>
+
+<h2 id="wind"><span class="n">4</span>Wind along the range</h2>
+<p>The true wind is laid along the range in up to three stretches (near, middle, far third), each with a speed, a direction and gusts: a smooth, seeded variation of the speed and a wander of the direction around them, blended over 20 m at each join so the round never sees a step. The flags show it live: their angle is about 4° per mph from the pole.</p>
+<p>The drift a wind gives is not proportional to where it blows: a crosswind near the muzzle turns the round when it has the whole flight ahead of it, so <b>the near wind counts most</b>. That is why calling the average wind misses in <b>Three winds</b>.</p>
+<p>The mirage in the scope is drawn from the same air: it boils harder in heat and still air, and leans and runs with the crosswind, the way shooters read it.</p>
+
+<h2 id="stability"><span class="n">5</span>Spin and stability</h2>
+<p>The rifling spins the round at 2π V / twist: a .308 at 2,600 fps from the M24's 1:11.25 in barrel turns 2,773 times a second. Spin keeps a long bullet pointed forward. How well is the gyroscopic stability factor Sg, from Don Miller's rule with its velocity, temperature and pressure corrections:</p>
+<div class="eq">Sg = 30 m / (t² d³ l (1 + l²)) · (V / 2800)<sup>1/3</sup> · (T<sub>F</sub> + 460) / 519 · 29.92 / P
+<span class="c">m grains, t twist in calibres per turn, d diameter in inches, l length in calibres, V fps, T °F, P inHg. Below 1 the round is unstable and tumbles; 1 to 1.4 is marginal; above 1.5 is safe. Downrange Sg follows Sg ∝ spin² / (ρ V² C<sub>mα</sub>): it grows as the round slows.</span></div>
+<div class="calc"><h4>Miller stability calculator</h4>
+<div class="inputs">
+<label>Mass <b id="mM"></b><input id="m" type="range" min="40" max="800" step="1" value="175"></label>
+<label>Diameter <b id="dM"></b><input id="d" type="range" min="0.172" max="0.510" step="0.001" value="0.308"></label>
+<label>Length <b id="lM"></b><input id="l" type="range" min="0.4" max="2.6" step="0.005" value="1.24"></label>
+<label>Twist, 1 in <b id="tM"></b><input id="t" type="range" min="5" max="20" step="0.25" value="11.25"></label>
+<label>Velocity <b id="vM"></b><input id="v" type="range" min="900" max="3500" step="10" value="2600"></label>
+<label>Temperature <b id="TM"></b><input id="T" type="range" min="-20" max="45" step="1" value="15"></label>
+</div>
+<p style="margin-top:12px">Sg = <b id="sg" style="font-family:var(--mono);font-size:20px"></b> <span id="sgv" style="color:var(--mute)"></span></p></div>
+
+<h2 id="drift"><span class="n">6</span>Spin drift</h2>
+<p>A spinning round whose path curves under gravity does not point straight along it: like a gyroscope it settles with its nose slightly to one side, the <b>yaw of repose</b> (McCoy, <i>Modern Exterior Ballistics</i>, ch. 10). The air pushes on that yaw, and the round drifts: to the right for a right-hand twist. The engine computes it from the physics, not a formula:</p>
+<div class="eq">α<sub>R</sub> = −(4 (I<sub>y</sub>/I<sub>x</sub>) Sg / spin) · (u × a) / |u|²&nbsp;&nbsp;&nbsp;&nbsp; a<sub>lift</sub> = ½ ρ |u|² S C<sub>Lα</sub> α<sub>R</sub> / m
+<span class="c">The overturning moment is taken from Sg itself, so only the inertia ratio I<sub>y</sub>/I<sub>x</sub> (from the bullet's length) and the lift slope C<sub>Lα</sub> are needed. Both are estimated for the bullet class.</span></div>
+<p>Checked against Bryan Litz's formula from measured data, 1.25 (Sg + 1.2) TOF<sup>1.83</sup> inches: the engine lands at 0.79 to 0.98 of it for the five rifle loads, without tuning (at 1,000 yd the .308 drifts 9.4 in against Litz's 11.2).</p>
+
+<h2 id="jump"><span class="n">7</span>Aerodynamic jump</h2>
+<p>A crosswind at the muzzle meets a round that is pointing along the bore: it starts out yawed into the wind, and its first swing turns the crosswind into a vertical kick. For a right-hand twist a wind from the left lifts the shot and a wind from the right drops it. The engine applies Litz's published regression:</p>
+<div class="eq">Y = 0.01 Sg − 0.0024 l + 0.032&nbsp;&nbsp; MOA per mph of crosswind</div>
+
+<h2 id="wobble"><span class="n">8</span>The wobble</h2>
+<p>Leaving the muzzle, the nose circles the path in two superposed motions, a fast nutation and a slow precession, at frequencies set by the spin and Sg, ω<sub>f,s</sub> = (I<sub>x</sub> spin / 2 I<sub>y</sub>)(1 ± √(1 − 1/Sg)), starting from the crosswind yaw and damping out within a fraction of a second. In bullet time the round is drawn with it, together with the yaw of repose and its real spin (the rifling's engraving turns with it).</p>
+
+<h2 id="earth"><span class="n">9</span>Coriolis and Eötvös</h2>
+<p>The range turns with the Earth while the round is in the air. In the range's frame that is an acceleration −2 Ω × v, with the Earth's rotation Ω = ω (0, cos φ, sin φ) at latitude φ:</p>
+<ul><li><b>Coriolis</b>: to the right in the northern hemisphere, to the left in the southern (São Paulo, 23.55° S), more toward the poles.</li>
+<li><b>Eötvös</b>: firing east the round is lifted, firing west it is pressed down, most at the equator. Try the <b>Coriolis</b> scenario and turn "Firing toward" from 90° to 270°.</li></ul>
+<p>With drag the sideways Coriolis drift is less than the textbook ω sin φ · X · T: drag damps the sideways velocity too, and the slow end of the flight weighs most. The engine's 3-D result matches the exact lateral equation to 0.3 % (a .50 BMG at 2,000 yd, 45° N: 10.2 in, not 11.5).</p>
+
+<h2 id="dope"><span class="n">10</span>Zero, dope and the call</h2>
+<p>Every rifle is zeroed at 100 m: the engine finds the bore angle that crosses the line of sight there. Your <b>dope</b> is the elevation and wind hold for the target, solved by flying the round through the wind you <b>call</b> (and, if ticked, with spin and Coriolis). The elevation is dialled; the wind is held on the reticle (the red ring shows where to put the target). The shot is then fired through the <b>true</b> wind, with its gusts at that instant. The difference between the call and the truth is your miss.</p>
+<p><b>Scope and aim are yours.</b> Any scope goes on any rifle:
+<ul>
+<li>a mil-dot scope (3–32×, 0.1 mil clicks);</li>
+<li>an MOA scope (¼ MOA clicks);</li>
+<li>the <b>ACOG</b> 4×32 (TA31 class, 7° field);</li>
+<li>the PSO-1;</li>
+<li>the PU.</li>
+</ul>
+By default each rifle wears its own: the Mosin the PU, the SVD the PSO-1, the 5.56 rifle the ACOG, the rest a mil scope. The dope card speaks the scope's language: mils or MOA to dial, a drum mark and a hold, or an ACOG mark and a hold.</p>
+<p>In <b>Assisted</b> aim, the dope for your wind call is set and held for you: dialled, or drummed, or held on the marks. The view shows the sight picture: the crosshair where the shooter puts it, and the red ring on the target's centre.</p>
+<p>In <b>Manual</b> aim you do it:
+<ul>
+<li>turn the elevation turret (or the drum) and the windage turret, click by click;</li>
+<li>put the crosshair where you think it should go, by dragging in the scope or with the arrow keys.</li>
+</ul>
+<b>Dial the dope</b> sets the elevation from your card and leaves the wind to you. A dashed ring can show where the call says to aim. The shot leaves at the zero plus the turrets plus where the crosshair is.</p>
+<p><b>The ACOG</b> is not dialled for range. Its illuminated chevron's tip is the 100 m zero, and the bars below it are for 400 to 800 m. Each bar is as wide as a man's shoulders (19 in) at its range, so it also tells you the range. The engine places the bars from this load's trajectory in standard air; the real reticle is engraved for M855 from a 20 in barrel. The 7° field is published. The chevron's size and the ¼ MOA clicks are estimated.</p>
+<p><b>The Soviet scopes.</b> The Mosin M91/30 wears the 3.5× <b>PU</b> (1940) and the SVD the 4× <b>PSO-1</b> (1964). Neither dials in mils. The elevation drum is engraved in hundreds of metres (PU 1 to 13, PSO-1 1 to 10), and holds are read in <b>thousandths</b>, 1/6000 of a circle (1.047 mrad). The engine engraves each drum for its own load in the firing tables' normal conditions: 15 °C, 750 mmHg and still air. Your dope is the nearest drum mark, plus what the day's air and wind leave over, held on the reticle. The PU has no scales: it shows a pointed post, whose tip is the aim point, between two heavy bars, and everything beyond the drum is held by eye. The PSO-1 has the aiming chevron; three chevrons below it for 1,100, 1,200 and 1,300 m with the drum on 10, which the engine places from the 7N1's own trajectory; a wind and lead scale with a mark every thousandth out to 10 each side; and, bottom left, a rangefinder that fits a 1.7 m man between its base line and the curve at 200 to 1,000 m. The PSO-1's 6° field is published. The PU's 4.5° field and both reticles' line widths are estimated from photographs.</p>
+
+<h2 id="time"><span class="n">11</span>Bullet time</h2>
+<p>Slow motion never changes the physics. The engine flies the whole shot first, in its fixed 1 ms steps; the page then shows it at any speed. Between steps the round's state comes from a cubic Hermite interpolation of the step states (positions and velocities at both ends), within 20 µm of a run with steps twenty times finer, so a camera at 1/1,000 speed sees the round glide, never jump. In <b>Bullet time</b> the speed follows the round: slow out of the muzzle, faster down the range so a 6-second flight takes a few seconds, then down to about 1/2,500 for the last metres.</p>
+<p><b>Many rounds at once.</b> Fire again while a round is still in the air, and the next one goes too. The engine keeps every round as its own flight, in the air and wind it was fired into, and each flies exactly as it would alone: the engine's tests check this to the last bit. One clock runs the whole range. Bullet time follows the latest round, and the cameras ride with it.
+
+A rifle can only fire so fast. A bolt has to be worked (about 1.2 to 1.6 s), while a semi-automatic is ready again in 0.12 to 0.25 s; both figures are estimated. A shot asked for sooner waits its turn, so in bullet time you can press the trigger quickly and the rounds still leave the muzzle at the rifle's real cadence, one after another.</p>
+
+<h2 id="trace"><span class="n">12</span>The trace</h2>
+<p>A spotter behind the rifle watches the round go downrange: not the bullet, too small and too fast, but its <b>trace</b>, the turbulent wake it leaves, a thin tube of stirred, slower, slightly warmer air that bends the light behind it. The engine sheds that wake along the path every fraction of a metre, where the round was and with its speed and drag then, ages it as the round flies on, and lets the wind carry it. Each stretch spreads as the self-similar far wake of an axisymmetric body (Pope, <i>Turbulent Flows</i>):</p>
+<div class="eq">θ = √(C<sub>D</sub>A / 2π)&nbsp;&nbsp;&nbsp; r<sub>½</sub> = a θ (x/θ)<sup>1/3</sup>&nbsp;&nbsp;&nbsp; u₀/U = b (x/θ)<sup>−2/3</sup>,&nbsp;&nbsp; x = U · age
+<span class="c">The wake widens as the cube root of its age and fades as its two-thirds power: a .308's trace is a few centimetres wide after 50 m. a and b are estimated at the order of measured values. The page draws it as a refractive tube bending the scene behind it, with a contrast curve (the square root of the strength) so the eye can pick it out, as a spotting scope does; that curve is presentation, not physics.</span></div>
+<p><b>Tracers</b> are optional, in red (NATO M62 and M856), green (seen on Russian 7.62×54R), orange, yellow or white. The trace lights about 30 m out (the M62 datasheet gives 13 to 140 m). By default it stays lit all the way to the impact, so you can follow any shot to the target. Untick that option to make it burn out by range for each calibre, as real tracers do. The 7.62 NATO figure of at least 775 m is published (RWS M62 datasheet); the others are estimated: 5.56 mm 800 m, 6.5 mm 900 m, 7.62×54R and .338 1,000 m, .408 1,200 m, .50 1,600 m and 9 mm 250 m. Behind the glowing base the page draws the streak the eye keeps, the last 0.07 s of flight. The round flies as the ball load does: tracers are built to match ball out to burnout, and the mass the composition burns off is not modelled.</p>
+<p><b>Hit markers</b> are optional: an X flash on a hit (red when the round reached the dummy), and on the reticle a mark where each of your last six shots went, so you can walk your next shot in. Set them to every impact to see the misses too.</p>
+
+<h2 id="dummy"><span class="n">13</span>The dummy and the glass</h2>
+<p>Choose <b>Crash dummy behind glass</b> as the target (or the <b>Through a windscreen</b> scenario) and a hit opens the impact in the <a href="../../liquids/">Liquids Lab</a>, where three engines take over from each other:</p>
+<ol><li><b>Ballistic Dynamics</b> (this range) flies the shot and hands over the round as it arrives: its speed, its mass and diameter, and the angle it comes in at (down by the descent angle, sideways by the drift).</li>
+<li><b>Glass Dynamics</b> (the <a href="../../glass/">Glass Lab</a>) breaks the pane: the round crushes its way through each ply, tears the interlayer of a laminate, and loses speed doing it.</li>
+<li><b>Liquid Dynamics</b> takes the round through the crash dummy's simulant at what is left of that speed: the entry and exit wounds, the back spatter onto the broken glass and the forward spatter, in bullet time.</li></ol>
+<p><b>The armoured V8.</b> The Rosser V8 from the driving sim, with a crash dummy at the wheel behind its armoured windscreen (32 mm of glass-clad polycarbonate, raked 69.5°, the Glass Lab's layup). The range follows the round from the target plane on to the raked pane and fires it into Glass Dynamics here, at its real angle and with its own mass and radius: the pane stops it, it glances off, or it gets through and the Liquids Lab takes it into the driver. At that rake a round from the front strikes at about 21° to the glass and sees nearly three times the thickness.</p>
+<p>A .308 from 600 m, for example, arrives at 497 m/s, leaves the windscreen at 473 m/s and the dummy at 412 m/s. What does not cross over yet: the glass is broken by the Glass Lab's nearest bullet of the same class (its 7.62 mm or .50 ball, at the arriving speed), and the round's yaw and spin at arrival are not handed over. Moving the projectile side of the glass impact into Ballistic Dynamics is that engine's Milestone 8.</p>
+
+<h2 id="determinism"><span class="n">14</span>Same shot, every machine</h2>
+<p>The engine's maths uses only correctly rounded operations: its own exp, log, sin, cos and atan (fdlibm's algorithms), no fused multiply-adds. The same inputs give the same bits on Linux, macOS, Windows and in every browser; continuous integration checks three golden hashes on all of them. That is why a <b>Share</b> link fires exactly the same shot for whoever opens it: the same gust at the same instant, the same impact to the micrometre.</p>
+
+<h2 id="validation"><span class="n">15</span>Validation</h2>
+<table><tr><th>Check</th><th>Reference</th><th>Engine</th></tr>
+<tr><td>Six cartridges, drop/drift/speed/time out to 2,000 yd</td><td>An independent point-mass solver (py-ballisticcalc)</td><td class="num">within 0.06 % drop, 0.34 % wind</td></tr>
+<tr><td>6.5 CM 140 ELD-M, 200–400 yd</td><td>LoadDevelopment.com: −3.8 / −13.4 / −29.6 in</td><td class="num">−3.77 / −13.42 / −29.65</td></tr>
+<tr><td>.308 175 SMK at 1,000 yd</td><td>Long Range Science: 11.67 mil, 2.99 mil in 10 mph</td><td class="num">12.00, 3.12 mil (+3–4 %, the chart's atmosphere is unstated)</td></tr>
+<tr><td>.50 BMG A-MAX drift at 1,000 yd, 10 mph</td><td>Field Ethos: 34 in</td><td class="num">35.3 in</td></tr>
+<tr><td>Spin drift, five rifle loads</td><td>Litz's measured-data formula</td><td class="num">0.79–0.98 of it</td></tr>
+<tr><td>Coriolis and Eötvös</td><td>Closed forms; the exact lateral equation</td><td class="num">0.1 %; 0.3 %</td></tr>
+<tr><td>Standard air, moist air, station readings</td><td>USSA-1976, ideal gas, Buck</td><td class="num">exact to 1e-9 (density)</td></tr></table>
+
+<h2 id="limits"><span class="n">16</span>What is estimated</h2>
+<div class="card est"><span class="tag est">estimated</span> The lift slope, the inertia ratio and the roll damping behind spin drift are typical values for the bullet class, not measured for each bullet; the bullet lengths too. The spin drift lands within about 20 % of Litz.</div>
+<div class="card est"><span class="tag est">not yet</span> Every round of a load is the same round: muzzle-velocity spread, powder temperature (the temperature here changes the air, not the powder), ballistic-coefficient spread and group size are the engine's next milestone. Transonic dynamic instability (a stable round starting to wobble as it goes subsonic) is not modelled; gyroscopic instability (too slow a twist) is. The range is flat and the Earth's curvature is left out (0.8 m at 3.2 km).</div>
+<div class="card est"><span class="tag est">estimated</span> The 7.62×54R loads use secondary-source BCs: Type L light ball G1 0.338, 7N1 G1 0.411 and G7 0.206, marked "citation needed" where they were found. The Mosin's 865 m/s is the figure usually quoted. The SVD's 830 m/s may belong to the later 7N14. Both rifles' sight heights are estimated, and the PSO-1's offset to the left of the bore is not modelled. Checking against the Soviet firing tables is an open item.</div>
+<div class="card src"><span class="tag pub">published</span> Every number in the engine's data carries its source; manufacturers' figures came through the pages named in the validation table where the makers' own sites could not be reached from the build.</div>
+
+<h2 id="refs"><span class="n">17</span>References</h2>
+<ul>
+<li>S. B. Pope, <i>Turbulent Flows</i>, Cambridge, 2000 (self-similar axisymmetric wakes).</li>
+<li>R. L. McCoy, <i>Modern Exterior Ballistics</i>, Schiffer, 1999 (yaw of repose, epicyclic motion, Coriolis).</li>
+<li>B. Litz, <i>Applied Ballistics for Long Range Shooting</i> (spin drift and aerodynamic jump formulas, measured G7 BCs).</li>
+<li>D. Miller, "A New Rule for Estimating Rifling Twist", <i>Precision Shooting</i>, 2005; M. Courtney &amp; A. Courtney, arXiv:1410.5340 (the corrected form).</li>
+<li>U.S. Standard Atmosphere, 1976 (NOAA/NASA/USAF); A. L. Buck, 1981/1996 (saturation vapour pressure).</li>
+<li>U.S. Army Ballistic Research Laboratory standard drag functions G1 and G7.</li>
+<li>fdlibm 5.3 (Sun Microsystems) for the deterministic elementary functions.</li>
+</ul>
+</main>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  function upd() {
+    const m = +$('m').value, d = +$('d').value, L = +$('l').value, tw = +$('t').value, v = +$('v').value, T = +$('T').value;
+    const t = tw / d, l = L / d, F = T * 1.8 + 32;
+    const sg = 30 * m / (t * t * d ** 3 * l * (1 + l * l)) * Math.cbrt(v / 2800) * (F + 460) / 519;
+    $('mM').textContent = m + ' gr'; $('dM').textContent = d.toFixed(3) + ' in'; $('lM').textContent = L.toFixed(3) + ' in';
+    $('tM').textContent = tw + ' in'; $('vM').textContent = v + ' fps'; $('TM').textContent = T + ' °C';
+    $('sg').textContent = sg.toFixed(2);
+    $('sgv').textContent = sg < 1 ? 'unstable: it tumbles' : sg < 1.4 ? 'marginal' : sg < 2.5 ? 'stable' : 'very stable';
+  }
+  for (const k of ['m', 'd', 'l', 't', 'v', 'T']) $(k).oninput = upd;
+  upd();
+  // Contents: mark the section in view.
+  const links = [...document.querySelectorAll('nav.toc a')];
+  const io = new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting) for (const a of links) a.classList.toggle('on', a.getAttribute('href') === '#' + e.target.id); }, { rootMargin: '-20% 0px -70% 0px' });
+  for (const a of links) { const h = document.querySelector(a.getAttribute('href')); if (h) io.observe(h); }
+})();
+</script>
+</body>
+</html>
