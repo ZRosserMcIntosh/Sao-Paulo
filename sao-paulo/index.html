@@ -194,6 +194,12 @@ footer .row{display:flex;flex-wrap:wrap;gap:16px 40px;justify-content:space-betw
 kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 6px;background:var(--bg);white-space:nowrap}
 </style>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}</style>
+<style>.dirbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--mute)}
+.dirbar button{font:inherit;font-size:13px;padding:5px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:transparent;color:inherit;cursor:pointer}
+.dirbar button[aria-pressed="true"]{background:#7fe0ff;color:#06131c;border-color:#7fe0ff;font-weight:600}
+.dirbar .lg{display:inline-flex;gap:4px;align-items:center}.dirbar i{display:inline-block;width:14px;height:4px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.45)}
+/* LANES_LAYER_V1 */
+</style>
 </head>
 <body>
 
@@ -228,7 +234,8 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
     <h2 id="ex_h">Pick any square</h2>
     <div class="eyebrow tp_area" id="ex_area"></div>
     <div><div class="tileimg"><img id="ex_img" src="tiles/T_p0_p0.jpg" alt="Top-down render of the selected tile"><div class="ph" id="ex_ph" hidden></div><canvas class="sx" id="ex_sx" aria-label="Hover a street to see its name and CEP"></canvas><div class="tag" id="ex_tag">T_p0_p0</div><div class="stip" id="ex_stip" role="status"></div></div>
-      <div class="sxhint">Hover a street on the render to light it up. CEPs come from Correios via ViaCEP and are still being filled in.</div></div>
+      <div class="sxhint">Hover a street on the render to light it up. CEPs come from Correios via ViaCEP and are still being filled in.</div>
+      <div class="dirbar" id="dirbar"><button id="dir_t" aria-pressed="false">Traffic direction</button><span class="lg" hidden id="dir_lg"><span class="lg"><i style="background:#7fe0ff"></i>one-way</span><span class="lg"><i style="background:#e9eef2"></i>two-way</span><span class="lg"><i style="background:#ff5a4f;width:8px;height:8px;border-radius:50%"></i>signal</span><span class="lg"><i style="background:#fff;width:8px;height:8px;border-radius:50%"></i>PARE</span></span><span id="dir_k"></span></div></div>
     <div class="kv" id="ex_kv"></div>
     <div class="slist" id="ex_sl"></div>
   </aside>
@@ -348,6 +355,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
       </div>
       <div class="facts" id="sfacts" style="margin-top:20px"></div>
       <p style="margin-top:18px;color:var(--mute)">Each plate shows its block's real number range from GeoSampa. Plates turn away from walls automatically, and every sign is a breakaway object in the physics manifest.</p>
+      <p style="margin-top:14px;color:var(--mute)" id="dirpara"><b style="color:var(--ink,#fff)">Which way the traffic goes.</b> Every road piece also carries its direction and lanes: 35,263 one-way pieces and 159,063 travel lanes, with turn rules through each junction, 4,187 signalised crossings, PARE signs on the minor road and priority from the right where the CTB says so. Bus lanes, speed bumps and 534 speed cameras (there to look at, they don't fine you) come from the same data. Switch on <i>Traffic direction</i> under any tile render to see it.</p>
     </div>
   </div>
 </div></section>
@@ -515,10 +523,25 @@ function showTile(t){selTile=t;
   $("ex_sl").innerHTML=t.sl.map(n=>`<div>${n}</div>`).join("")||"<div>No named streets</div>";loadStreets(t);draw()}
 // ---------------- street overlay on the tile render: hover -> name, bairro, numbers, CEP; the street lights up
 const SX=$("ex_sx"),sxc=SX.getContext("2d"),STIP=$("ex_stip");let SD=null,SDt=null,hov=null;
-async function loadStreets(t){SD=null;hov=null;SDt=t&&t.t;STIP.style.opacity=0;drawSX();if(!t)return;
+let LD=null,DIRON=false;try{DIRON=localStorage.getItem("sp_dir")==="1"}catch(e){}
+async function loadLanes(t){LD=null;$("dir_k").textContent="";if(!t)return;try{const r=await fetch("lanes/"+t.t+".json");if(!r.ok)return;const d=await r.json();if(SDt!==t.t)return;LD=d;
+  const k=d.k;$("dir_k").textContent=`${k.oneway} one-way of ${k.pieces} road pieces · ${k.signals} signals`+(k.bus_lanes?` · ${k.bus_lanes} bus lanes`:"")+(k.cameras?` · ${k.cameras} speed cameras`:"");drawSX()}catch(e){}}
+function setDir(on){DIRON=on;$("dir_t").setAttribute("aria-pressed",on?"true":"false");$("dir_lg").hidden=!on;try{localStorage.setItem("sp_dir",on?"1":"0")}catch(e){}drawSX()}
+$("dir_t").onclick=()=>setDir(!DIRON);setDir(DIRON);
+function drawLanes(c,w,h){if(!LD)return;const sx=w/1000,sy=h/1000,U=w/760;c.save();c.lineCap="round";c.lineJoin="round";
+  for(const e of LD.e){const o=e[0],n=e[1]+e[2],P=e.slice(5);c.beginPath();for(let k=0;k<P.length;k+=2){const x=P[k]*sx,y=P[k+1]*sy;k?c.lineTo(x,y):c.moveTo(x,y)}
+    c.lineWidth=(1.4+Math.min(n,6)*0.55)*U;c.strokeStyle=o?"rgba(127,224,255,.9)":"rgba(255,255,255,.55)";c.stroke();
+    if(!o)continue;let acc=0;for(let k=2;k<P.length;k+=2){const ax=P[k-2],ay=P[k-1],dx=P[k]-ax,dy=P[k+1]-ay,l=Math.hypot(dx,dy);if(!l)continue;
+      let s0=60-acc;while(s0<l){const ux=dx/l,uy=dy/l,x=(ax+ux*s0)*sx,y=(ay+uy*s0)*sy,a=7*U;c.beginPath();c.moveTo(x+ux*a,y+uy*a);c.lineTo(x-ux*a-uy*a*0.75,y-uy*a+ux*a*0.75);c.lineTo(x-ux*a+uy*a*0.75,y-uy*a-ux*a*0.75);c.closePath();c.fillStyle="#7fe0ff";c.fill();c.strokeStyle="rgba(6,19,28,.9)";c.lineWidth=1*U;c.stroke();s0+=110}
+      acc=(acc+l)%110}}
+  for(const [x,y,t] of LD.n){if(t==="r")continue;c.beginPath();c.arc(x*sx,y*sy,(t==="s"?5:3.6)*U,0,7);c.fillStyle=t==="s"?"#ff5a4f":"#ffffff";c.fill();c.lineWidth=1.2*U;c.strokeStyle="rgba(0,0,0,.8)";c.stroke()}
+  c.restore()}
+function laneAt(u,v){if(!LD)return null;let best=null,bd=26;for(const e of LD.e){const P=e.slice(5);for(let k=2;k<P.length;k+=2){const ax=P[k-2],ay=P[k-1],dx=P[k]-ax,dy=P[k+1]-ay,l2=dx*dx+dy*dy||1;
+  let q=((u-ax)*dx+(v-ay)*dy)/l2;q=Math.max(0,Math.min(1,q));const d=Math.hypot(ax+dx*q-u,ay+dy*q-v);if(d<bd){bd=d;best=e}}}return best}
+async function loadStreets(t){SD=null;hov=null;SDt=t&&t.t;STIP.style.opacity=0;loadLanes(t);drawSX();if(!t)return;
   try{const r=await fetch("streets/"+t.t+".json");if(!r.ok)return;const d=await r.json();if(SDt!==t.t)return;SD=d;linkList()}catch(e){}}
 function sizeSX(){const r=SX.getBoundingClientRect(),k=Math.min(2,window.devicePixelRatio||1);SX.width=Math.max(1,Math.round(r.width*k));SX.height=Math.max(1,Math.round(r.height*k));drawSX()}
-function drawSX(){const c=sxc,w=SX.width,h=SX.height;c.clearRect(0,0,w,h);if(!SD||hov==null)return;const s=SD.s[hov];c.save();c.lineCap="round";c.lineJoin="round";
+function drawSX(){const c=sxc,w=SX.width,h=SX.height;c.clearRect(0,0,w,h);if(DIRON)drawLanes(c,w,h);if(!SD||hov==null)return;const s=SD.s[hov];c.save();c.lineCap="round";c.lineJoin="round";
   c.fillStyle="rgba(5,10,20,.28)";c.fillRect(0,0,w,h);
   for(const [lw,col] of [[16,"rgba(255,211,107,.28)"],[8,"rgba(255,211,107,.95)"],[2.6,"#ffffff"]]){c.lineWidth=lw*w/760;c.strokeStyle=col;
     for(const L of s.L){c.beginPath();for(let k=0;k<L.length;k+=2){const x=L[k]/1000*w,y=L[k+1]/1000*h;k?c.lineTo(x,y):c.moveTo(x,y)}c.stroke()}}
@@ -527,6 +550,8 @@ function nearestStreet(u,v,maxd){let best=-1,bi=-1,bd=maxd;SD.s.forEach((s,si)=>
     let q=((u-ax)*dx+(v-ay)*dy)/l2;q=Math.max(0,Math.min(1,q));const d=Math.hypot(ax+dx*q-u,ay+dy*q-v)+s.k*0.6;if(d<bd){bd=d;best=si;bi=li}}}));return [best,bi]}
 function showStip(si,li,px,py){const s=SD.s[si],n=s.N&&s.N[li],cp=s.C&&s.C[li];STIP.innerHTML="";const b=document.createElement("b");b.textContent=s.n;const a=document.createElement("div");a.className="a";a.textContent=s.b||"";
   const m=document.createElement("div");m.className="m";m.textContent=[n?`Nº ${n[0]}–${n[1]}`:"",cp?(cp==="várias"?"several CEPs along this street":"CEP "+cp):"CEP not indexed yet"].filter(Boolean).join("  ·  ");STIP.append(b,a,m);
+  const box0=SX.getBoundingClientRect(),le=laneAt(px/box0.width*1000,py/box0.height*1000);if(le){const g=document.createElement("div");g.className="m";
+    g.textContent=(le[0]?`One-way · ${le[1]} lane${le[1]>1?"s":""}`:`Two-way · ${le[1]}+${le[2]} lanes`)+` · ${le[3]} km/h`;STIP.append(g)}
   const box=SX.getBoundingClientRect();STIP.style.left=Math.max(8,Math.min(px+16,box.width-STIP.offsetWidth-8))+"px";STIP.style.top=(py-STIP.offsetHeight-14<8?py+18:py-STIP.offsetHeight-14)+"px";STIP.style.opacity=1}
 function sxMove(e){if(!SD)return;const r=SX.getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top;const [si,li]=nearestStreet(px/r.width*1000,py/r.height*1000,e.pointerType==="touch"?40:24);
   if((si>=0?si:null)!==hov){hov=si>=0?si:null;drawSX()}if(si>=0)showStip(si,li,px,py);else STIP.style.opacity=0}
