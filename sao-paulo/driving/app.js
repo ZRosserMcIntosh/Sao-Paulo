@@ -602,6 +602,7 @@ const placeholder = new THREE.Group();
 carRoot.add(placeholder);
 const wheelRigs = []; // placeholder wheels: {steer, spin}
 let restWheelZ = [0, 0, 0, 0];
+let restWheelXY = [];
 let groundZBody = -0.45;
 let model = null; // { wrapper, rigs:[{steer,spin}|null x4], hasWheels }
 let spinAngle = [0, 0, 0, 0];
@@ -938,13 +939,113 @@ function skipCrumple(o) {
 }
 const crumple = new Crumple(THREE, carRoot, skipCrumple);
 // Damage modes. Cosmetic (the default, game-like): shallow dents and scuffs, no injury report, a
-// car that ends up on its side or roof is put back on its wheels by itself. Realistic: dents as
-// deep as the crush model says and the dummies' crash report. Off: no dents. None of them change
-// how the car drives: the physics has no mechanical damage. The crash lab is always realistic.
+// car that ends up on its side or roof is put back on its wheels by itself; the car always drives
+// the same. Realistic: the physics' node/beam crash structure takes every hit (the body crushes as
+// it absorbs the energy, the mesh is skinned to it) and breaks parts: alignment, wheels, tyres,
+// steering, radiator and engine, aero; plus the dummies' crash report. Off: no dents. The crash
+// lab always runs on the crash structure.
 const COSMETIC_CAP = 0.08;
 const labOn = () => !!(lab && lab.mode !== 'off');
 crumple.cap = () => (settings.damage === 'cosmetic' && !labOn() ? COSMETIC_CAP : Infinity);
 const crumpleLog = [];   // { frame, point, dir, depth, radius } for rewinding through crashes
+// ---------- Realistic damage: the crash structure, its skin and the parts ----------
+const DMG = { version: -1, normalsAt: 0, dirtyNormals: false, detached: [false, false, false, false], debris: [], labPrev: null, shown: false };
+const DMG_SIZE = 22 + 6 * 8;
+const realisticOn = () => !!M._ord_damage_mode && M._ord_damage_mode() === 1;
+const damageState = () => new Float64Array(M.HEAPF64.buffer, M._ord_damage_state(), DMG_SIZE);
+const cageNodes = () => { const n = M._ord_cage_count(); return { n, nodes: new Float64Array(M.HEAPF64.buffer, M._ord_cage_nodes(), 8 * Math.max(n, 1)) }; };
+function physicsDamage(on) {
+  if (!M._ord_set_damage) return;
+  M._ord_set_damage(on ? 1 : 0);
+  DMG.version = -1;
+  crumple.restore();
+  for (let w = 0; w < 4; ++w) showWheel(w, true);
+  DMG.detached.fill(false);
+}
+function wheelRig(w) { const rigs = model?.hasWheels ? model.rigs : model ? null : wheelRigs; return rigs?.[w] || null; }
+function showWheel(w, on) { const r = wheelRig(w); if (r) r.steer.visible = on; }
+// A wheel torn off flies on from where it was, bounces and rolls to a stop.
+function spawnWheelDebris(w, worldVel) {
+  const r = wheelRig(w);
+  if (!r) return;
+  carRoot.updateMatrixWorld(true);
+  const obj = r.steer.clone(true);
+  r.steer.getWorldPosition(obj.position);
+  r.steer.getWorldQuaternion(obj.quaternion);
+  scene.add(obj);
+  const side = W(w, 1) >= 0 ? 1 : -1;
+  const out = v3(0, side * 3, 0).applyQuaternion(carRoot.quaternion);
+  DMG.debris.push({ obj, vel: worldVel.clone().add(out).add(new THREE.Vector3(0, 2.5, 0)), spin: new THREE.Vector3(Math.random() * 6 - 3, 0, Math.random() * 20 - 10), r: W(w, 3) || 0.33, t: 0 });
+  if (DMG.debris.length > 6) { const d = DMG.debris.shift(); scene.remove(d.obj); }
+}
+function updateDebris(dt) {
+  for (let i = DMG.debris.length - 1; i >= 0; --i) {
+    const d = DMG.debris[i];
+    d.t += dt;
+    d.vel.y -= 9.81 * dt;
+    d.obj.position.addScaledVector(d.vel, dt);
+    const gy = M._ord_ground_height(d.obj.position.x, -d.obj.position.z) + d.r * 0.6;
+    if (d.obj.position.y < gy) {
+      d.obj.position.y = gy;
+      if (d.vel.y < 0) d.vel.y *= -0.35;
+      d.vel.x *= 0.97; d.vel.z *= 0.97; d.spin.multiplyScalar(0.97);
+    }
+    d.obj.rotation.x += d.spin.x * dt; d.obj.rotation.z += d.spin.z * dt;
+    if (d.t > 15) { scene.remove(d.obj); DMG.debris.splice(i, 1); }
+  }
+}
+function clearDebris() { for (const d of DMG.debris) scene.remove(d.obj); DMG.debris.length = 0; }
+// Each frame: redraw the body when the structure's shape changed, tear off wheels, the panel.
+function syncDamage(now, worldVel) {
+  if (!realisticOn() || isBike() || labOn()) { if (DMG.shown) { $('dmgPanel').hidden = true; DMG.shown = false; } if (!labOn()) return; }
+  const d = damageState();
+  if (!d[0]) return;
+  if (d[2] !== DMG.version) {
+    DMG.version = d[2];
+    const { n, nodes } = cageNodes();
+    const normals = !d[1] || now - DMG.normalsAt > 250;   // normals are costly: not every frame of a crash
+    if (normals) DMG.normalsAt = now;
+    crumple.applyCage(nodes, n, normals);
+    DMG.dirtyNormals = !normals;
+    for (let w = 0; w < 4; ++w) {
+      const gone = d[22 + 6 * w + 3] === 1;
+      if (gone && !DMG.detached[w]) { spawnWheelDebris(w, worldVel || new THREE.Vector3()); showWheel(w, false); toast(`${['Front-left', 'Front-right', 'Rear-left', 'Rear-right'][w]} wheel torn off`); }
+      if (!gone && DMG.detached[w]) showWheel(w, true);
+      DMG.detached[w] = gone;
+    }
+    updateDamagePanel(d);
+  } else if (DMG.dirtyNormals && now - DMG.normalsAt > 250) {
+    const { n, nodes } = cageNodes();
+    crumple.applyCage(nodes, n, true);
+    DMG.normalsAt = now; DMG.dirtyNormals = false;
+  }
+  if (DMG.shown && now - (DMG.panelAt || 0) > 500) { DMG.panelAt = now; updateDamagePanel(d); }   // temperatures, coolant
+}
+function updateDamagePanel(d) {
+  if (labOn()) { $('dmgPanel').hidden = true; DMG.shown = false; return; }
+  const any = d[9] > 300 || d[11] > 0 || d[15] || [0, 1, 2, 3].some((w) => d[22 + 6 * w + 3] || d[22 + 6 * w + 4] || Math.abs(d[22 + 6 * w]) > 0.005 || d[22 + 6 * w + 2] > 0.005);
+  const el = $('dmgPanel');
+  el.hidden = !any; DMG.shown = any;
+  if (!any) return;
+  const cm = (m) => `${Math.round(m * 100)} cm`;
+  const deg = (r) => `${(r * 180 / Math.PI).toFixed(1)}°`;
+  const wheel = (w) => {
+    const q = 22 + 6 * w;
+    if (d[q + 3]) return '<b class="bad">gone</b>';
+    if (d[q + 4]) return d[q + 5] >= 1 ? '<b class="bad">flat</b>' : `<b class="warn">puncture ${Math.round(d[q + 5] * 100)}%</b>`;
+    const toe = d[q] + d[q + 2];
+    return Math.abs(toe) > 0.005 || Math.abs(d[q + 1]) > 0.005 ? `<b class="warn">bent ${deg(Math.abs(toe))}</b>` : '<b class="ok">ok</b>';
+  };
+  const crush = [['front', d[3]], ['rear', d[4]], ['left', d[5]], ['right', d[6]], ['roof', d[7]]].filter(([, v]) => v > 0.01).map(([k, v]) => `${k} ${cm(v)}`).join(', ') || 'scuffs';
+  const steer = Math.abs(d[17]) > 0.003 ? `pulls ${d[17] > 0 ? 'left' : 'right'} ${deg(Math.abs(d[17]))}` : 'straight';
+  const eng = d[15] ? '<b class="bad">seized</b>' : `${Math.round(d[13])} °C, ${Math.round(d[16] * 100)}% power`;
+  el.innerHTML = `<div class="lhead"><b>Damage</b><small>F repairs</small></div>` +
+    `<span>Body</span> ${crush}${d[8] > 0.01 ? ` · <b class="bad">cabin intrusion ${cm(d[8])}</b>` : ''}<br>` +
+    `<span>Wheels</span> FL ${wheel(0)} FR ${wheel(1)} RL ${wheel(2)} RR ${wheel(3)}<br>` +
+    `<span>Steering</span> ${steer}${d[18] < 0.98 ? `, ${Math.round(d[18] * 100)}% lock` : ''}<br>` +
+    `<span>Cooling</span> radiator ${d[11] >= 1 ? '<b class="bad">destroyed</b>' : d[11] > 0 ? `<b class="warn">${Math.round(d[11] * 100)}% damaged</b>` : 'ok'}${d[11] > 0 ? `, coolant ${Math.round(d[12] * 100)}%` : ''}<br>` +
+    `<span>Engine</span> ${eng}${d[14] > 0.01 ? ` · bay crushed ${Math.round(d[14] * 100)}%` : ''}`;
+}
 const rewind = new Rewind(M);
 const ghostCar = new GhostCar(THREE, scene, '#8fd3ff');
 const shadowCar = new GhostCar(THREE, scene, '#ffb347');
@@ -977,15 +1078,36 @@ const lab = WORLD === 'track' ? new CrashLab({
   M, S, W, occState: (seat) => occState(seat), launch, structure: crashStructure, toast,
   lane: { y: CRASH.y, bx: CRASH.bx, px: CRASH.px, py: CRASH.y + 16 },
   crumpleHit: (h, kind) => { const hit = crumpleFromEvent(h, true); return hit ? { set: (a) => crumple.setAmount(hit, a) } : null; },
+  // the structure's shape each recorded step (a copy only when it changed) and its crush for the report
+  cageSnap: () => {
+    if (!realisticOn()) return null;
+    const d = damageState();
+    if (d[2] === DMG.labVersion) return undefined;   // unchanged: the recording reuses the last one
+    DMG.labVersion = d[2];
+    const { nodes } = cageNodes();
+    return nodes.slice();
+  },
+  cageApply: (nodes, normals) => { if (nodes) crumple.applyCage(nodes, nodes.length / 8, normals); },
+  damage: () => (realisticOn() ? damageState().slice() : null),
 }) : null;
-if (lab) lab.onAgain = (t) => runLabTest(t);
+if (lab) { lab.onAgain = (t) => runLabTest(t); lab.onClose = () => endLabDamage(); }
 function carGeo() {
   const wh = geometryFromState();
   const xf = Math.max(...wh.map((w) => w.x)), xr = Math.min(...wh.map((w) => w.x)), half = Math.max(...wh.map((w) => Math.abs(w.y)));
   return { wheels: wh, xf, xr, half, groundZ: groundZBody, seatX: xr + 0.42 * (xf - xr) };
 }
+// The crash lab runs on the crash structure whatever the damage setting; the setting comes back
+// when you leave the lab.
+function endLabDamage() {
+  if (DMG.labPrev === null) return;
+  if (DMG.labPrev !== 'realistic') physicsDamage(false);
+  DMG.labPrev = null;
+}
 function runLabTest(test) {
   if (!lab || isBike()) return;
+  if (DMG.labPrev === null) DMG.labPrev = settings.damage;
+  physicsDamage(true);
+  clearDebris();
   lab.start(test, carGeo());
   crashSeen[0] = occState(0)[6]; crashSeen[1] = occState(1)[6];
 }
@@ -993,6 +1115,7 @@ function runLabTest(test) {
 function crumpleFromEvent(h, deferred = false) {
   const [px, py, pz, nx, ny, speed, kind] = h;
   if (speed < 2.5 || isBike()) return null;
+  if (realisticOn()) return null;   // the crash structure deforms the body itself
   const mode = deferred ? 'realistic' : settings.damage;   // deferred = the crash lab's replay
   if (mode === 'off') return null;
   const qw = S(3), qx = S(4), qy = S(5), qz = S(6);
@@ -1017,7 +1140,8 @@ function crumpleFromEvent(h, deferred = false) {
 // ---------- Damage mode and repair ----------
 function repairBody(say) {
   if (isBike() || labOn()) return;
-  const had = crumpleLog.length;
+  let had = crumpleLog.length;
+  if (realisticOn()) { had = damageState()[9] > 0 ? 1 : had; M._ord_repair(); DMG.version = -1; clearDebris(); for (let w = 0; w < 4; ++w) showWheel(w, true); DMG.detached.fill(false); }
   crumple.restore(); crumpleLog.length = 0;
   if (say) toast(had ? 'Body repaired' : 'Not a scratch on it');
 }
@@ -1026,11 +1150,12 @@ function applyDamageUi() {
 }
 function setDamage(mode) {
   settings.damage = mode; store.set('damage', mode); applyDamageUi();
+  if (!labOn()) physicsDamage(mode === 'realistic');
   // redraw what is already there at the new depth (the hits are kept exactly)
   const keep = crumpleLog.slice();
   crumple.restore(); crumpleLog.length = 0;
   if (mode !== 'off') for (const c of keep) { crumple.setAmount(crumple.addHit(c.point, c.dir, c.depth, c.radius), 1); crumpleLog.push(c); }
-  toast({ cosmetic: 'Cosmetic damage: dents and scuffs, the car always drives on', realistic: 'Realistic damage: full crush depth and the crash report', off: 'Damage off' }[mode]);
+  toast({ cosmetic: 'Cosmetic damage: dents and scuffs, the car always drives on', realistic: 'Realistic damage: the crash structure crushes and parts break', off: 'Damage off' }[mode]);
 }
 document.querySelectorAll('[data-damage]').forEach((b) => (b.onclick = () => { setDamage(b.dataset.damage); b.blur(); }));
 $('bRepair').onclick = (e) => { repairBody(true); e.currentTarget.blur(); };
@@ -1050,6 +1175,7 @@ function createCar() {
   // Settle on the brakes so the rest pose is the loaded suspension.
   for (let i = 0; i < 90; ++i) { M._ord_set_input(0, 0, 1, 0, 0, 0); M._ord_advance(1 / 60); }
   restWheelZ = [0, 1, 2, 3].map((w) => W(w, 2));
+  restWheelXY = [0, 1, 2, 3].map((w) => [W(w, 0), W(w, 1)]);
   groundZBody = Math.min(...[0, 1, 2, 3].map((w) => W(w, 2) - W(w, 3)));
   const ph = buildPlaceholder();
   // hip points: ~42% of the wheelbase ahead of the rear axle, low sports-car seating
@@ -1067,6 +1193,8 @@ function createCar() {
   ghostCar.build(geo);
   ghost.runs = {}; ghost.rec = []; ghost.t = 0;
   crumple.capture(); crumpleLog.length = 0;
+  physicsDamage(settings.damage === 'realistic');
+  clearDebris();
   rewind.clear();
   if (shadow.on) startShadow(); else shadowCar.draw(null);
 }
@@ -1090,8 +1218,10 @@ function placeAt(z) {
   else if (z.v) M._ord_launch(z.x, z.y, z.yaw, z.v, 0);
   else M._ord_reset(z.x, z.y, z.yaw);
   if (lab) { lab.mode = 'off'; lab.panel.hidden = true; }
+  endLabDamage();
   moose?.stopRobot?.();
   crumple.restore(); crumpleLog.length = 0;
+  if (realisticOn()) { M._ord_repair(); DMG.version = -1; clearDebris(); for (let w = 0; w < 4; ++w) showWheel(w, true); DMG.detached.fill(false); }
   rewind.clear();
   if (shadow.on && !isBike()) startShadow();
   resetSkidTrail?.();
@@ -2010,7 +2140,8 @@ if (WORLD === 'track') {
 } else for (const id of ['bMooseRun', 'bMooseLadder', 'bMooseStop', 'bLabRun', 'bLoopAssist', 'labTest', 'mooseSpeed']) $(id).disabled = true;
 window.__spwShow = () => ({ overlay: overlay.on, rain: weather.rain, puddles: weather.puddles.count, ghost: ghost.on, ghostRuns: Object.keys(ghost.runs), shadow: shadow.on, rewindFrames: rewind.frames.length, dents: crumpleLog.length,
   lab: lab?.mode, moose: moose ? { run: moose.run, robot: moose.robot, last: moose.last, results: moose.results } : null, glassViews: glassfx?.views.length ?? 0, glassJobs: glassfx ? [...glassfx.jobs.values()].map((j) => ({ seg: j.seg, ready: !!j.result, error: j.error, started: j.started, ms: j.result?.ms, pieces: j.result?.shapes.length })) : [] });
-window.__spwDamage = (m) => { if (m) setDamage(m); let mx = 0; for (const mm of crumple.meshes) for (let i = 0; i < mm.offset.length; i += 3) mx = Math.max(mx, Math.hypot(mm.offset[i], mm.offset[i + 1], mm.offset[i + 2])); return { mode: settings.damage, dents: crumpleLog.length, rawMax: mx, cap: crumple.cap(), card: $('crash').classList.contains('on') }; };
+window.__spwCam = (cam, yaw, pitch, dist) => { settings.cam = cam; if (yaw !== undefined) { orbit.yaw = yaw; orbit.pitch = pitch; orbit.dist = dist; } camInit = true; };
+window.__spwDamage = (m) => { if (m) setDamage(m); let mx = 0; for (const mm of crumple.meshes) for (let i = 0; i < mm.offset.length; i += 3) mx = Math.max(mx, Math.hypot(mm.offset[i], mm.offset[i + 1], mm.offset[i + 2])); return { mode: settings.damage, dents: crumpleLog.length, rawMax: mx, cap: crumple.cap(), card: $('crash').classList.contains('on'), phys: realisticOn() ? Array.from(damageState().slice(0, 46)) : null, panel: !$('dmgPanel').hidden, panelText: $('dmgPanel').innerText, debris: DMG.debris.length, ...(() => { let f0 = -1e9, f = -1e9; for (const mm of crumple.meshes) for (let i = 0; i < mm.body.length; i += 3) { f0 = Math.max(f0, mm.body[i]); f = Math.max(f, mm.body[i] + mm.offset[i]); } return { meshFront0: f0, meshFront: f }; })() }; };
 window.__spwRewind = () => ({ hold: rewindHold, active: rewind.active, cursor: rewind.cursor, frames: rewind.frames.length, snaps: M._ord_snap_count() });
 window.__spwLab = (id) => runLabTest(LAB_TESTS.find((t) => t.id === id));
 window.__spwZone = (name) => { const z = ZONES.find((q) => q.name.startsWith(name)); if (z) placeAt(z); return !!z; };
@@ -2085,6 +2216,7 @@ function frameBike(dt, now) {
 let frameNo = 0;
 function poseNow() {
   return { id: frameNo, x: S(0), y: S(1), z: S(2), qw: S(3), qx: S(4), qy: S(5), qz: S(6),
+    wx: [W(0, 0), W(1, 0), W(2, 0), W(3, 0)], wy: [W(0, 1), W(1, 1), W(2, 1), W(3, 1)],
     wz: [W(0, 2), W(1, 2), W(2, 2), W(3, 2)], steer: [W(0, 4), W(1, 4), W(2, 4), W(3, 4)], omega: [W(0, 5), W(1, 5), W(2, 5), W(3, 5)] };
 }
 function drawPose(p, dt) {
@@ -2097,6 +2229,8 @@ function drawPose(p, dt) {
     const r = rigs?.[w];
     if (!r) continue;
     r.steer.position.copy(r.base); r.steer.position.y += p.wz[w] - restWheelZ[w];
+    // a crushed corner moves the wheel's mount (realistic damage)
+    if (p.wx && restWheelXY[w]) { r.steer.position.x += p.wx[w] - restWheelXY[w][0]; r.steer.position.z -= p.wy[w] - restWheelXY[w][1]; }
     r.steer.rotation.y = p.steer[w];
     r.spin.rotation.z = -spinAngle[w];
   }
@@ -2195,6 +2329,7 @@ function frameOnce(now, draw) {
     const keep = crumpleLog.filter((c) => c.frame <= target);
     crumple.restore(); crumpleLog.length = 0;
     for (const c of keep) { crumple.setAmount(crumple.addHit(c.point, c.dir, c.depth, c.radius), 1); crumpleLog.push(c); }
+    DMG.version = -1;   // the structure was rewound with the car: redraw it
     ghost.rec = ghost.rec.filter((g) => g.id <= target);
     ghost.t = ghost.rec.length ? ghost.rec[ghost.rec.length - 1].t : 0;
     if (shadow.on) startShadow();
@@ -2243,6 +2378,8 @@ function frameOnce(now, draw) {
   const sp = shadow.on ? shadowPose() : null;
   shadowCar.draw(sp);
   const worldVel = new THREE.Vector3(S(7), 0, -S(8)).applyQuaternion(carRoot.quaternion);
+  syncDamage(now, worldVel);
+  updateDebris(dt);
   // after a crash-lab test the camera stays on the wreck until you drive
   if (lab?.mode === 'report' && !(inp.throttle > 0.05 || inp.brake > 0.05 || Math.abs(inp.steer) > 0.05)) lab.camera(camera, carRoot.position);
   else updateCamera(dt, carRoot.position, carRoot.quaternion, worldVel);

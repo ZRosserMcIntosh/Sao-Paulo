@@ -19,8 +19,8 @@ export const TESTS = [
 const SLOWMO = 0.1, PRE = 0.25, POST = 0.6;
 
 export class CrashLab {
-  constructor({ M, S, W, occState, launch, structure, crumpleHit, dummyPose, toast, lane }) {
-    Object.assign(this, { M, S, W, occState, launch, structure, crumpleHit, dummyPose, toast, lane });
+  constructor({ M, S, W, occState, launch, structure, crumpleHit, dummyPose, toast, lane, cageSnap, cageApply, damage }) {
+    Object.assign(this, { M, S, W, occState, launch, structure, crumpleHit, dummyPose, toast, lane, cageSnap, cageApply, damage });
     this.mode = 'off';
     this.rec = [];
     this.panel = document.createElement('div');
@@ -47,6 +47,7 @@ export class CrashLab {
       this.launch(L.px - seatX - fwd * t, L.py - side - gap, 0, fwd, lat);
     }
     this.rec = [];
+    this.lastCage = null; this.applied = null;
     this.t = 0; this.tImpact = null; this.vImpact = 0; this.hit = null;
     this.events0 = this.occState(0)[6];
     this.mode = 'run';
@@ -68,7 +69,11 @@ export class CrashLab {
         if (h[5] > 2) { this.tImpact = this.t; this.vImpact = h[5]; this.hit = h; this.crumple = this.crumpleHit(h, this.test.kind); }
       }
       const o0 = this.occState(0), o1 = this.occState(1);
+      // the crash structure's shape this step (realistic damage): a copy only when it changed
+      const snap = this.cageSnap?.();
+      if (snap !== undefined) this.lastCage = snap;
       this.rec.push({
+        cage: this.lastCage, ax: S(11), ay: S(12),
         t: this.t, x: S(0), y: S(1), z: S(2), qw: S(3), qx: S(4), qy: S(5), qz: S(6),
         wz: [0, 1, 2, 3].map((w) => W(w, 2)), steer: [0, 1, 2, 3].map((w) => W(w, 4)), omega: [0, 1, 2, 3].map((w) => W(w, 5)),
         occ: [[o0[0], o0[1], o0[2], o0[3], o0[22]], [o1[0], o1[1], o1[2], o1[3], o1[22]]], g: o0[4],
@@ -79,6 +84,7 @@ export class CrashLab {
       this.mode = 'replay';
       this.replayT = this.tImpact - PRE;
       if (this.crumple) this.crumple.set(0);
+      this.showCage(this.rec.find((r) => r.t >= this.replayT), false);
     }
     return this.rec[this.rec.length - 1];
   }
@@ -96,12 +102,21 @@ export class CrashLab {
     }
     let i = this.rec.findIndex((r) => r.t >= this.replayT);
     if (i < 0) i = this.rec.length - 1;
+    this.showCage(this.rec[i], false);
     return this.rec[i];
+  }
+
+  // The structure as recorded at that step, on the mesh (realistic damage).
+  showCage(r, normals) {
+    if (!r || !r.cage || !this.cageApply || (r.cage === this.applied && !normals)) return;
+    this.applied = r.cage;
+    this.cageApply(r.cage, normals);
   }
 
   finishReplay() {
     this.mode = 'report';
     if (this.crumple) this.crumple.set(1);
+    this.showCage(this.rec[this.rec.length - 1], true);
     this.report();
   }
 
@@ -123,17 +138,27 @@ export class CrashLab {
     const VERD = ['walks away', 'bruised', 'injured', 'seriously injured', 'critical'], CSS = ['#2fbf71', '#9bd14b', '#f0c419', '#ff8a2a', '#e5383b'];
     const s = this.structure(), om = this.test.kind === 'front' ? s[0] : s[2], lim = this.test.kind === 'front' ? s[3] : s[5];
     const dv = r[0] ? r[2] : this.vImpact;
-    // the chart: car pulse (half sine) and the driver's chest from the recording, -20..200 ms
-    const t0 = this.tImpact, T = Math.PI / om, peak = dv * om / 2 / 9.81;
-    const W = 300, H = 120, x = (t) => 30 + (t + 0.02) / 0.22 * (W - 40), y = (g) => H - 18 - g / Math.max(10, peak * 1.6, ...this.rec.map((rr) => rr.g)) * (H - 30);
+    // The chart: the car's pulse and the driver's chest, -20..200 ms. With the crash structure
+    // the car's pulse is measured (the body's own deceleration each step); otherwise it is the
+    // crush model's half sine.
+    const dmg = this.damage?.();
+    const front = this.test.kind === 'front';
+    const carG = (rr) => (front ? -rr.ax : Math.abs(rr.ay)) / 9.81;
+    const t0 = this.tImpact, T = Math.PI / om;
+    let peak = dv * om / 2 / 9.81;
+    if (dmg) peak = Math.max(...this.rec.filter((rr) => rr.t >= t0 - 0.01 && rr.t <= t0 + 0.25).map(carG), 0);
+    const gmax = Math.max(10, peak * 1.25, ...this.rec.map((rr) => rr.g));
+    const W = 300, H = 120, x = (t) => 30 + (t + 0.02) / 0.22 * (W - 40), y = (g) => H - 18 - Math.max(0, g) / gmax * (H - 30);
     let pulse = '', chest = '';
-    for (let i = 0; i <= 60; ++i) { const t = -0.02 + i * 0.22 / 60; const g = t < 0 || t > T ? 0 : peak * Math.sin(om * t); pulse += `${x(t).toFixed(1)},${y(g).toFixed(1)} `; }
+    if (dmg) for (const rr of this.rec) { const t = rr.t - t0; if (t < -0.02 || t > 0.2) continue; pulse += `${x(t).toFixed(1)},${y(carG(rr)).toFixed(1)} `; }
+    else for (let i = 0; i <= 60; ++i) { const t = -0.02 + i * 0.22 / 60; const g = t < 0 || t > T ? 0 : peak * Math.sin(om * t); pulse += `${x(t).toFixed(1)},${y(g).toFixed(1)} `; }
     for (const rr of this.rec) { const t = rr.t - t0; if (t < -0.02 || t > 0.2) continue; chest += `${x(t).toFixed(1)},${y(rr.g).toFixed(1)} `; }
-    const gmax = Math.max(10, peak * 1.6, ...this.rec.map((rr) => rr.g));
-    const crush = Math.min(lim, dv / om);
+    const crush = dmg ? (front ? dmg[3] : dmg[5]) : Math.min(lim, dv / om);
+    let pulseMs = T * 1000;
+    if (dmg) { let tEnd = t0; for (const rr of this.rec) if (rr.t > t0 && carG(rr) > 2) tEnd = rr.t; pulseMs = (tEnd - t0) * 1000; }
     const seat = (name, v) => `<tr><td>${name}</td><td style="color:${CSS[v[15]] || '#fff'}"><b>${VERD[v[15]] || '—'}</b></td><td>${v[6].toFixed(0)} g</td><td>${v[7].toFixed(0)}</td><td>${v[5].toFixed(0)} g</td><td>${(100 * v[8]).toFixed(0)} cm</td><td>${pct(v[13])} %</td></tr>`;
     this.panel.innerHTML = `<div class="lhead"><b>Crash lab · ${this.test.name}</b><button id="labClose" aria-label="Close">✕</button></div>
-      <small>${this.test.note}. Impact at ${(this.vImpact * 3.6).toFixed(0)} km/h, speed change ${(dv * 3.6).toFixed(0)} km/h, car pulse peak ${peak.toFixed(0)} g over ${(T * 1000).toFixed(0)} ms, crush ${(crush * 100).toFixed(0)} cm of ${(lim * 100).toFixed(0)}.</small>
+      <small>${this.test.note}. Impact at ${(this.vImpact * 3.6).toFixed(0)} km/h, speed change ${(dv * 3.6).toFixed(0)} km/h, car pulse peak ${peak.toFixed(0)} g over ${pulseMs.toFixed(0)} ms, crush ${(crush * 100).toFixed(0)} cm${dmg ? (dmg[8] > 0.01 ? `, cabin intrusion ${(dmg[8] * 100).toFixed(0)} cm` : '') : ` of ${(lim * 100).toFixed(0)}`}.</small>
       <table><tr><th></th><th></th><th>Chest 3 ms</th><th>HIC15</th><th>Head</th><th>Travel</th><th title="Risk of a life-threatening (AIS 4+) injury">Risk</th></tr>${seat('Driver', r)}${seat('Passenger', q)}</table>
       <svg viewBox="0 0 ${W} ${H}" class="pulse" aria-label="Crash pulse">
         <line x1="30" x2="${W - 10}" y1="${H - 18}" y2="${H - 18}" stroke="rgba(255,255,255,.3)"/>
@@ -145,9 +170,9 @@ export class CrashLab {
         <text x="${W - 120}" y="16" fill="#ef5d4f" font-size="9">car pulse</text><text x="${W - 120}" y="28" fill="#ffd36b" font-size="9">driver chest</text>
       </svg>
       <div class="row"><button id="labAgain">Run again</button><button id="labReplay">Replay</button></div>
-      <small>Rigid wall, lumped crush zone (${(lim * 100).toFixed(0)} cm, ${(om / (2 * Math.PI)).toFixed(1)} Hz); dummies from NHTSA's published risk curves. A game estimate that ranks crashes sensibly, not a rating.</small>`;
-    this.panel.querySelector('#labClose').onclick = () => { this.panel.hidden = true; this.mode = 'off'; };
+      <small>${dmg ? `Rigid wall, the car's node/beam crash structure (it crushes as it absorbs the energy: the pulse above is measured, not assumed)` : `Rigid wall, lumped crush zone (${(lim * 100).toFixed(0)} cm, ${(om / (2 * Math.PI)).toFixed(1)} Hz)`}; dummies from NHTSA's published risk curves. A game estimate that ranks crashes sensibly, not a rating.</small>`;
+    this.panel.querySelector('#labClose').onclick = () => { this.panel.hidden = true; this.mode = 'off'; this.onClose?.(); };
     this.panel.querySelector('#labAgain').onclick = () => this.onAgain?.(this.test);
-    this.panel.querySelector('#labReplay').onclick = () => { this.mode = 'replay'; this.replayT = this.tImpact - PRE; if (this.crumple) this.crumple.set(0); };
+    this.panel.querySelector('#labReplay').onclick = () => { this.mode = 'replay'; this.replayT = this.tImpact - PRE; if (this.crumple) this.crumple.set(0); this.applied = null; this.showCage(this.rec.find((r) => r.t >= this.replayT), false); };
   }
 }

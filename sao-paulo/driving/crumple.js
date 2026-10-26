@@ -1,5 +1,7 @@
 // São Paulo World · driving test track: visible crush damage.
-// Not a soft-body simulation: the physics treats the body as rigid and models the crush zone as
+// Two sources. "Realistic" damage: the physics' node/beam crash structure deforms, and applyCage
+// skins the mesh to it. Otherwise (cosmetic, and the older path below): the physics treats the
+// body as rigid and models the crush zone as
 // the pulse the occupants feel (crash.hpp: per-zone stiffness and crush limit). This module draws
 // that crush on the car's mesh: every vertex within the crush zone behind the point of impact is
 // pushed in along the impact direction, most at the surface and nothing past the zone's depth,
@@ -30,6 +32,7 @@ export class Crumple {
     this.restore();
     this.meshes = [];
     this.hits = [];
+    this.cageKey = null;
     this.root.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(this.root.matrixWorld).invert();
     this.root.traverse((o) => {
@@ -137,6 +140,74 @@ export class Crumple {
       if (m.normal) m.mesh.geometry.computeVertexNormals();
       m.mesh.geometry.computeBoundingSphere();
     }
+  }
+
+  // ---- The physics' own crash structure (damage mode "realistic") ----
+  // `nodes`: the node/beam structure's nodes from ord_cage_nodes(), 8 doubles each (rest x, y, z,
+  // deformed x, y, z in the body's ISO frame, zone, free). Each vertex is bound once to its four
+  // nearest rest nodes (Gaussian weights, sigma 0.35 m; the cell's anchored nodes count, so the
+  // cabin stays put) and follows their displacement. `normals` false skips the (costly) normal
+  // recompute while a crash is still moving the shape.
+  applyCage(nodes, count, normals = true) {
+    if (!this.meshes.length || !count) return;
+    const key = `${count}:${nodes[0].toFixed(4)}:${nodes[8 * (count - 1) + 2].toFixed(4)}`;
+    if (this.cageKey !== key) this.bindCage(nodes, count, key);
+    const disp = new Float32Array(3 * count);
+    for (let i = 0; i < count; ++i) {   // ISO (x fwd, y left, z up) -> the car's frame (x, z, -y)
+      const o = 8 * i;
+      disp[3 * i] = nodes[o + 3] - nodes[o];
+      disp[3 * i + 1] = nodes[o + 5] - nodes[o + 2];
+      disp[3 * i + 2] = -(nodes[o + 4] - nodes[o + 1]);
+    }
+    const { THREE } = this;
+    const v = new THREE.Vector3();
+    for (const m of this.meshes) {
+      const b = m.cage, p = m.mesh.geometry.attributes.position;
+      if (!b) continue;
+      for (let i = 0; i < p.count; ++i) {
+        let ox = 0, oy = 0, oz = 0;
+        for (let k = 0; k < 4; ++k) {
+          const w = b.w[4 * i + k];
+          if (w === 0) continue;
+          const n = 3 * b.idx[4 * i + k];
+          ox += w * disp[n]; oy += w * disp[n + 1]; oz += w * disp[n + 2];
+        }
+        m.offset[3 * i] = ox; m.offset[3 * i + 1] = oy; m.offset[3 * i + 2] = oz;
+        v.set(m.body[3 * i] + ox, m.body[3 * i + 1] + oy, m.body[3 * i + 2] + oz).applyMatrix4(m.fromRoot);
+        p.setXYZ(i, v.x, v.y, v.z);
+      }
+      p.needsUpdate = true;
+      if (normals && m.normal) m.mesh.geometry.computeVertexNormals();
+      m.mesh.geometry.computeBoundingSphere();
+    }
+  }
+
+  bindCage(nodes, count, key) {
+    const rest = new Float32Array(3 * count);
+    for (let i = 0; i < count; ++i) { const o = 8 * i; rest[3 * i] = nodes[o]; rest[3 * i + 1] = nodes[o + 2]; rest[3 * i + 2] = -nodes[o + 1]; }
+    const s2 = 0.35 * 0.35;
+    for (const m of this.meshes) {
+      const n = m.body.length / 3, idx = new Uint16Array(4 * n), w = new Float32Array(4 * n);
+      const bd = [1e9, 1e9, 1e9, 1e9], bi = [0, 0, 0, 0];
+      for (let i = 0; i < n; ++i) {
+        const x = m.body[3 * i], y = m.body[3 * i + 1], z = m.body[3 * i + 2];
+        bd.fill(1e9);
+        for (let j = 0; j < count; ++j) {
+          const dx = rest[3 * j] - x, dy = rest[3 * j + 1] - y, dz = rest[3 * j + 2] - z, d = dx * dx + dy * dy + dz * dz;
+          if (d >= bd[3]) continue;
+          let k = 3;
+          while (k > 0 && bd[k - 1] > d) { bd[k] = bd[k - 1]; bi[k] = bi[k - 1]; --k; }
+          bd[k] = d; bi[k] = j;
+        }
+        let sum = 0;
+        for (let k = 0; k < 4; ++k) { const e = Math.exp(-bd[k] / s2); w[4 * i + k] = e; idx[4 * i + k] = bi[k]; sum += e; }
+        // far from every node (a spoiler tip, a mirror): follow the nearest one alone
+        if (sum < 1e-6) { w.fill(0, 4 * i, 4 * i + 4); w[4 * i] = 1; }
+        else for (let k = 0; k < 4; ++k) w[4 * i + k] /= sum;
+      }
+      m.cage = { idx, w };
+    }
+    this.cageKey = key;
   }
 
   // Crush depth of a hit at closing speed `v` (m/s) in a zone of natural frequency `omega`
