@@ -57,6 +57,11 @@
       "permanent": true
     },
     {
+      "source": "/sao-paulo/challenges",
+      "destination": "/sao-paulo/challenges/",
+      "permanent": true
+    },
+    {
       "source": "/sao-paulo/destruction",
       "destination": "/sao-paulo/destruction/",
       "permanent": true
