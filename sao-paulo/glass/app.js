@@ -1564,6 +1564,7 @@ function fire(at = aim, record = true) {
   const n = Math.max(h + 1, G.state()[3]);
   for (let k = h; k < n; ++k) {
     P.shotDefs[k] = iIdx;
+    (P.shotSpeed ||= [])[k] = speed;
     P.announced.delete(k);
     if (R) {
       const m = impactorMesh(def);
@@ -1706,11 +1707,22 @@ function grenadeTarget(tEng) {
 function autoTarget(imps, plies) {
   return Math.min(autoTargetBase(imps, plies), grenadeTarget(G.gls_time()));
 }
+// Roughly how long impactor k stays on the glass (Hertz, against rigid glass
+// of E = 72 GPa): microseconds for a bullet, tens of milliseconds for a soft
+// bag. 0 when unknown (what the stacks fire on, say).
+function contactTime(k) {
+  const v = P.shotSpeed?.[k], def = cat.impactors[P.shotDefs?.[k] ?? -1];
+  const lib = def && LIB.impactors.find((d) => d.id === def.id);
+  if (!(v > 0) || !lib) return 0;
+  const E = 1 / ((1 - lib.poisson ** 2) / (lib.youngs_GPa * 1e9) + (1 - 0.22 ** 2) / 72e9);
+  return 2.87 * Math.pow(def.mass ** 2 / (def.radius * E * E * v), 0.2);
+}
 function autoTargetBase(imps, plies) {
-  let approach = Infinity, contact = false, membrane = false;
+  let approach = Infinity, contact = 0, membrane = false;
   for (let k = 0; k < P.nImp; ++k) {
     const o = 20 * k, phase = imps[o + 9];
-    if (phase === PH.CONTACT || phase === PH.BALLISTIC) contact = true;
+    // A contact shows over about four seconds, never faster than 1/100.
+    if (phase === PH.CONTACT || phase === PH.BALLISTIC) contact = Math.min(contact || 1, clamp(contactTime(k) / 4, 1 / 5000, 1 / 100));
     if (phase === PH.MEMBRANE) membrane = true;
     if (phase === PH.FLIGHT) {
       const side = imps[o + 16], vz = imps[o + 5];
@@ -1725,7 +1737,8 @@ function autoTargetBase(imps, plies) {
   }
   let tips = 0;
   for (let k = 0; k < P.nGlass; ++k) tips += plies[12 * k + 11];
-  if (contact || tips > 0) return 1 / 5000;
+  if (tips > 0) return 1 / 5000;
+  if (contact) return contact;
   // A note building up to break the glass: slow enough to watch it swing.
   if (TONE.on) return TONE_SLOW;
   if (membrane) return 1 / 400;
