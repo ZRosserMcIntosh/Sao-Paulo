@@ -1252,12 +1252,13 @@ const FRINGE_MPA = 20;  // stress per fringe order in the view
 // opts: glazing (index, else the picked one), tier, quiet (a scene's window:
 // no aim marker, readouts or camera move), width and height (m: the glazing
 // cut to another size).
+let labSize = null;   // a test's specimen [width, height] (m) for the lab's pane; else the glazing's own size
 function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false, opts = {}) {
   disposePane(P, groupPane);
   const gi = opts.glazing ?? gIdx;
   const t = opts.tier ?? (physCap === null ? PHYS : Math.min(PHYS, physCap));
-  const sized = opts.width > 0 && opts.height > 0;
-  if (!(sized ? G.gls_new_pane_sized(gi, t, seed, opts.width, opts.height) : G.gls_new_pane(gi, t, seed)))
+  const size = opts.width > 0 && opts.height > 0 ? [opts.width, opts.height] : opts.glazing === undefined ? labSize : null;
+  if (!(size ? G.gls_new_pane_sized(gi, t, seed, size[0], size[1]) : G.gls_new_pane(gi, t, seed)))
     throw new Error('could not build the pane');
   const floor = opts.floor ?? -FLOOR;   // pane frame: the ground below the pane's bottom edge
   G.gls_set_floor(floor);
@@ -1608,7 +1609,7 @@ function replay() {
   const shots = P.shots.slice(), test = P.test, testDef = P.testDef;
   newPane(P.seed, true);
   if (GT && GT.active) GT.attach(P, P.seed, shots[0].iIdx);
-  if (test) { P.test = test; P.testDef = testDef; P.testHits = []; }
+  if (test) { P.test = test; P.testDef = testDef; P.testHits = []; P.testQueue = []; }
   P.shots = shots;
   P.pendingShots = shots.slice();
   simClockReset();
@@ -1809,14 +1810,13 @@ function updateReadouts(final) {
     if (r.outcome && v[1] > 0) kv.push(['Leaves at', fmtSpeed(v[1])]);
     if (v[8] > 0) kv.push(['Depth reached', `${(v[8] * 1e3).toFixed(1)} mm of ${(P.T * 1e3).toFixed(1)}`]);
     if (v[9] > 0.0005) kv.push(['Bulge', `${(v[9] * 1e3).toFixed(0)} mm`]);
-    const rounds = P.testDef?.shots?.length || 1;
-    const verdict = !P.test ? null : rounds > 1 ? roundsVerdict(rounds)
-      : r.outcome || (P.test === 'z97' && s[6]) ? testVerdict(P.test, v, s) : null;
-    if (verdict && !verdict.pending && P.testDef) verdict.name = P.testDef.std;
+    const verdict = P.test ? testResult(s) : null;
     if (verdict?.pending) kv.unshift(['Test', verdict.pending]);
     else if (verdict) {
-      kv.unshift(['Test', `<span style="color:var(--${verdict.pass ? 'good' : 'bad'})">${verdict.pass ? 'PASS' : 'FAIL'}</span> · ${verdict.name}`]);
-      kv.push(['Why', verdict.why]);
+      const mark = verdict.grade ?? (verdict.pass ? 'PASS' : 'FAIL');
+      kv.unshift(['Test', `<span style="color:var(--${verdict.pass ? 'good' : 'bad'})">${mark}</span> · ${P.testDef.std}`]);
+      kv.push(...(verdict.rows || []), ['Why', verdict.why]);
+      if (P.testDef.note) kv.push(['Model note', P.testDef.note]);
     }
     if (verdict && P.testDef) kv.splice(1, 0, ['Criterion', P.testDef.criterion]);
   } else if (P.nis && P.nis.text) {
@@ -2144,6 +2144,7 @@ function chipGroup(box, list, current, onPick) {
 function pickGlazing(i) {
   if (activeScene()) leaveScene(false);
   gIdx = i;
+  labSize = null;
   chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
   rebuildLab();
 }
@@ -2343,6 +2344,7 @@ function buildPresets() {
       fromBack = !!opt.back;
       $('bSide').setAttribute('aria-pressed', String(fromBack));
       syncSpeed();
+      labSize = null;
       if (opt.stack) {
         // Panes behind, [glazing id, gap in m] each, cut to the first one's size.
         stack = opt.stack.map(([id, gap]) => ({ gid: cat.glazings.findIndex((g) => g.id === id), gap })).filter((l) => l.gid >= 0);
@@ -2587,7 +2589,7 @@ function frame(now) {
   // Readouts.
   if ((uiTick += dt) > 0.12) {
     uiTick = 0;
-    if (!rigs) { updateReadouts(); announce(); toneReadout(); }
+    if (!rigs) { testStep(); updateReadouts(); announce(); toneReadout(); }
     else if (stackOn) { useRig(rigs[0]); updateReadouts(); announce(); stackReadout(); }
     $('clock').innerHTML = `${fmtTime(tEng)}<small>${fmtScale(scaleNow)}${auto ? ' · auto' : ''}</small>`;
     $('limit').textContent = limited ? 'device-limited' : '';
@@ -3558,35 +3560,103 @@ function puzzleTap(p) {
 }
 
 // ---------- Certification tests ----------
-// Each scenario that reproduces a published test says whether the glass would
-// pass it, by that test's own criterion, and what of the test is not simulated.
-// v: the shot's report; s: the pane's state.
-// What each standard fires, how, and what it takes to pass. shots: the
-// rounds of a multi-shot test as offsets (m) from the aim point, fired 50 ms
-// apart (each is over long before the next).
+// Each test sets up what its standard tests (the glazing, at the specimen's
+// size), fires what the standard fires, the way it says to, and says whether
+// the glass would pass by the standard's own criterion, and what of the test
+// is not simulated.
+//   size: the specimen [width, height] (m); else the glazing's own size.
+//   rounds(W, H): where each round lands and how fast, [[x, y, speed?], ...];
+//     else one round at the centre at `speed` (else the object's own speed).
+//   at(k): engine time from the first round to round k, for rounds fired on
+//     a timer (default 50 ms apart).
+//   seq: rounds go one after another instead, each once the last is over and
+//     the glass has settled: 'break' stops at the first break, 'through' once
+//     one goes through.
+//   unit: what a round is called; how: the card's line for how it is fired.
+//   note: where the model is known to part from real glazing of this build.
+const dropSpeed = (h) => Math.sqrt(2 * 9.80665 * h);
+const around = (pts, v) => (W, H) => pts.map(([dx, dy]) => [W / 2 + dx, H / 2 + dy, v]);
 const UL_TRIANGLE = [[0, 0.059], [-0.051, -0.0295], [0.051, -0.0295]];   // 4 in (102 mm) between hits
 const UL_FIVE = [[0, 0], [-0.051, 0.051], [0.051, 0.051], [-0.051, -0.051], [0.051, -0.051]];
+const EN356_TRIANGLE = [[0, 0.075], [-0.065, -0.0375], [0.065, -0.0375]];   // 130 mm between drops
+const en356 = (drops, h) => around(Array.from({ length: drops }, (_, k) => EN356_TRIANGLE[k % 3]), dropSpeed(h));
+// Missile A: thirty balls, ten each spread over a patch at the centre, near
+// an edge and near a corner. Each ten land 2 ms apart, so they share one
+// stretch of slow motion (the real test fires them one at a time at a pane at
+// rest; the knock of a 2 g ball is slight).
+function missileA(W, H) {
+  const out = [];
+  for (const [cx, cy] of [[W / 2, H / 2], [W / 2, 0.25], [0.25, 0.25]])
+    for (let i = 0; i < 10; ++i) {
+      const r = 0.1 * Math.sqrt((i + 0.5) / 10), a = 2.39996 * i;
+      out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  return out;
+}
+// Large missiles: one at the centre, one within 150 mm of a corner.
+const centreAndCorner = (W, H) => [[W / 2, H / 2], [0.15, 0.15]];
+const EN12600_DROPS = (W, H) => [0.19, 0.45, 1.2].map((h) => [W / 2, H / 2, dropSpeed(h)]);
+// Toughened glass is broken with a centre punch 13 mm in from the middle of its long edge.
+const PUNCH = (W, H) => [[W / 2, 0.013]];
 const TESTS = [
   { id: 'r43', group: 'Vehicles', std: 'ECE R43 · 2.26 kg ball', title: 'Windscreen ball test', glazing: 'windscreen', impactor: 'steel_ball_2260',
     speed: 8.86, kind: 'r43', criterion: 'A 2.26 kg steel ball dropped from 4 m must not go through: the interlayer has to hold it.' },
+  { id: 'r43-frag', group: 'Vehicles', std: 'ECE R43 · fragmentation', title: 'Side window, broken on purpose', glazing: 'car_side_tempered',
+    impactor: 'window_punch', rounds: PUNCH, kind: 'en12150', unit: 'blow', how: ' · broken with a punch at its edge',
+    criterion: 'Broken with a punch, it must craze into at least 40 pieces in every 50 × 50 mm square: no long blades.' },
   { id: 'z97-t', group: 'Building safety', std: 'ANSI Z97.1 · 100 lb bag from 48 in', title: 'Shower door, tempered', glazing: 'tempered_6',
-    impactor: 'body_bag', speed: 4.89, kind: 'z97', criterion: 'A 45 kg bag swung into it: it must not break, or break into small, harmless dice.' },
+    impactor: 'body_bag', speed: 4.89, size: [0.864, 1.93], kind: 'z97', criterion: 'A 45 kg bag swung into it: it must not break, or break into small, harmless dice.' },
   { id: 'z97-a', group: 'Building safety', std: 'ANSI Z97.1 · 100 lb bag from 48 in', title: 'Old door, annealed', glazing: 'annealed_6',
-    impactor: 'body_bag', speed: 4.89, kind: 'z97', criterion: 'The same swing into ordinary annealed glass, which breaks into long blades.' },
+    impactor: 'body_bag', speed: 4.89, size: [0.864, 1.93], kind: 'z97', criterion: 'The same swing into ordinary annealed glass, which breaks into long blades.' },
+  ...[['t', 'Tempered', 'tempered_6'], ['l', 'Laminated', 'laminated_6_38'], ['a', 'Annealed', 'annealed_6']].map(([k, name, glazing]) => (
+    { id: 'en12600-' + k, group: 'Building safety', std: 'EN 12600 · 50 kg pendulum', title: `${name} glass, graded`, glazing, impactor: 'twin_tyre_50',
+      size: [0.876, 1.938], rounds: EN12600_DROPS, seq: 'break', unit: 'drop', kind: 'en12600', how: ' from 190, 450 then 1,200 mm',
+      criterion: 'A 50 kg pendulum swung from 190, 450, then 1,200 mm until the pane breaks. Its class is the highest drop it survives, or breaks safely at: into dice, or held together by its interlayer.' })),
+  { id: 'en12150-6', group: 'Toughened glass', std: 'EN 12150 · fragmentation', title: 'Toughened 6 mm', glazing: 'tempered_6', impactor: 'window_punch',
+    size: [1.1, 0.36], rounds: PUNCH, kind: 'en12150', unit: 'blow', how: ' · broken with a punch at its edge',
+    criterion: 'Broken with a punch, it must craze into at least 40 pieces in a 50 × 50 mm square.' },
+  { id: 'en12150-10', group: 'Toughened glass', std: 'EN 12150 · fragmentation', title: 'Toughened 10 mm door', glazing: 'glass_door_10', impactor: 'window_punch',
+    size: [1.1, 0.36], rounds: PUNCH, kind: 'en12150', unit: 'blow', how: ' · broken with a punch at its edge',
+    criterion: 'The same count for a 10 mm glass door.' },
+  { id: 'en12150-hs', group: 'Toughened glass', std: 'EN 12150 · fragmentation', title: 'Heat-strengthened 6 mm', glazing: 'heat_strengthened_6',
+    impactor: 'window_punch', size: [1.1, 0.36], rounds: PUNCH, kind: 'en12150', unit: 'blow', how: ' · broken with a punch at its edge',
+    criterion: 'Heat-strengthened glass is twice as strong as annealed, but is it safety glass? The same count says.' },
+  ...[['p1a', 'P1A', 3, 1.5, 'laminated_6_38', 'Laminated 6.4 mm'], ['p2a', 'P2A', 3, 3, 'laminated_10_76', 'Laminated 10.8 mm'],
+    ['p4a', 'P4A', 3, 9, 'laminated_10_76', 'Laminated 10.8 mm'], ['p5a', 'P5A', 9, 9, 'hurricane', 'Ionoplast laminate'],
+    ['plain', 'P1A', 3, 1.5, 'annealed_6', 'Plain 6 mm glass']].map(([k, cls, n, h, glazing, title]) => (
+    { id: 'en356-' + k, group: 'Burglar resistance', std: `EN 356 ${cls} · ${n} drops from ${h} m`, title: `${title} at ${cls}`, glazing,
+      impactor: 'steel_ball_4110', size: [0.9, 1.1], rounds: en356(n, h), seq: 'through', unit: 'drop', kind: 'en356',
+      how: ` · ${n} drops from ${h} m`, criterion: `A 4.11 kg steel ball dropped ${n === 3 ? 'three' : 'nine'} times from ${h} m onto a 130 mm triangle: it must not go through.`,
+      note: k === 'p4a' ? 'Real 0.76 mm PVB laminates rate P2A, not P4A. The model is too kind: each drop meets fresh interlayer, where in real glass the earlier drops have already torn and loosened it.' : undefined })),
+  { id: 'e1996-A', group: 'Storms', std: 'ASTM E1996 · small missile A', title: 'Roof gravel, 30 balls', glazing: 'hurricane', impactor: 'steel_ball_2g',
+    rounds: missileA, at: (k) => 0.1 * Math.floor(k / 10) + 0.002 * (k % 10), unit: 'ball', kind: 'e1996', how: ' · 30 of them',
+    criterion: 'Thirty 2 g steel balls at 40 m/s, ten each at the centre, near an edge and near a corner: none may go through.' },
+  { id: 'e1996-B', group: 'Storms', std: 'ASTM E1996 · large missile B', title: 'A short 2x4 into laminated glass', glazing: 'laminated_6_38',
+    impactor: 'timber_2x4_b', rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996',
+    criterion: 'A 2 lb 2x4 at 50 ft/s (15.2 m/s), at the centre and near a corner: neither may go through.' },
+  { id: 'e1996-C', group: 'Storms', std: 'ASTM E1996 · large missile C', title: 'Hurricane glass, missile C', glazing: 'hurricane',
+    impactor: 'timber_2x4_c', rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996',
+    criterion: 'A 4.5 lb 2x4 at 40 ft/s (12.2 m/s), at the centre and near a corner: neither may go through.' },
   { id: 'e1996-h', group: 'Storms', std: 'ASTM E1996 · large missile D', title: 'Hurricane glass', glazing: 'hurricane', impactor: 'timber_2x4',
-    speed: 15.2, kind: 'e1996', criterion: 'A 9 lb 2x4 end-on at 50 ft/s (15.2 m/s) must not go through.' },
+    speed: 15.25, rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996',
+    criterion: 'A 9 lb 2x4 end-on at 50 ft/s (15.2 m/s), at the centre and near a corner: neither may go through.',
+    note: 'Real windows of this build are rated for missile D. The model is too harsh on the frame near a corner: the shot there pulls the laminate out.' },
   { id: 'e1996-a', group: 'Storms', std: 'ASTM E1996 · large missile D', title: 'An ordinary window', glazing: 'annealed_6', impactor: 'timber_2x4',
-    speed: 15.2, kind: 'e1996', criterion: 'The same 2x4 into plain 6 mm glass.' },
+    speed: 15.25, rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996', criterion: 'The same 2x4 into plain 6 mm glass.' },
+  { id: 'e1996-E', group: 'Storms', std: 'ASTM E1996 · large missile E', title: 'Hurricane glass, missile E', glazing: 'hurricane', impactor: 'timber_2x4',
+    speed: 24.38, rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996',
+    criterion: 'The 9 lb 2x4 at 80 ft/s (24.4 m/s), for hospitals and shelters in the strongest wind zone: neither may go through.',
+    note: 'Ionoplast glazing of this build is sold for missile E. The model does not yet give the broken laminate its full span, so the interlayer tears too soon.' },
   { id: 'far25-250', group: 'Aircraft', std: '14 CFR 25.775(b) · 4 lb bird', title: 'Bird strike at 250 kt', glazing: 'aircraft_windshield',
     impactor: 'bird_4lb', speed: 128.6, kind: 'far25', criterion: 'A 4 lb bird at design cruise speed: the windshield must keep the cabin sealed.' },
   { id: 'far25-350', group: 'Aircraft', std: '14 CFR 25.775(b) · 4 lb bird', title: 'Bird strike at 350 kt', glazing: 'aircraft_windshield',
     impactor: 'bird_4lb', speed: 180, kind: 'far25', criterion: 'The same bird at a faster airliner\'s design cruise speed.' },
   { id: 'ul752-1', group: 'Bullet resistance', std: 'UL 752 Level 1 · 9 mm, 3 rounds', title: '9 mm vs Level 1', glazing: 'ul752_l1',
-    impactor: 'pistol_9mm', speed: 380, kind: 'ul752', shots: UL_TRIANGLE, criterion: 'Three 9 mm rounds 4 in apart: none may go through.' },
+    impactor: 'pistol_9mm', speed: 380, kind: 'ul752', rounds: around(UL_TRIANGLE), criterion: 'Three 9 mm rounds 4 in apart: none may go through.' },
   { id: 'ul752-3', group: 'Bullet resistance', std: 'UL 752 Level 3 · .44 Magnum, 3 rounds', title: '.44 Magnum vs Level 3', glazing: 'ul752_l3',
-    impactor: 'magnum_44', speed: 430, kind: 'ul752', shots: UL_TRIANGLE, criterion: 'Three .44 Magnum rounds 4 in apart: none may go through.' },
+    impactor: 'magnum_44', speed: 430, kind: 'ul752', rounds: around(UL_TRIANGLE), criterion: 'Three .44 Magnum rounds 4 in apart: none may go through.' },
   { id: 'ul752-8', group: 'Bullet resistance', std: 'UL 752 Level 8 · 7.62 mm, 5 rounds', title: 'Rifle vs Level 8', glazing: 'ul752_l8',
-    impactor: 'rifle_762', speed: 850, kind: 'ul752', shots: UL_FIVE, criterion: 'Five 7.62 mm rifle rounds close together: none may go through.' },
+    impactor: 'rifle_762', speed: 850, kind: 'ul752', rounds: around(UL_FIVE), criterion: 'Five 7.62 mm rifle rounds close together: none may go through.' },
   { id: 'ul752-10', group: 'Bullet resistance', std: 'UL 752 Level 10 · .50 cal, 1 round', title: '.50 BMG vs Level 10', glazing: 'ul752_l10',
     impactor: 'bmg_50', speed: 900, kind: 'ul752', criterion: 'One .50 calibre round: it must not go through.' },
   { id: 'ul752-3r', group: 'Beyond the rating', std: 'Level 3 glazing · a Level 8 round', title: 'Rifle vs a handgun rating', glazing: 'ul752_l3',
@@ -3595,13 +3665,16 @@ const TESTS = [
     impactor: 'bmg_50', speed: 900, kind: 'ul752', criterion: 'A heavy machine-gun round has five times a rifle\'s energy.' },
 ];
 const TEST_NOTES = {
-  'Vehicles': 'Windscreens are laminated so that what hits them stays outside, and what is inside stays in.',
+  'Vehicles': 'Windscreens are laminated so that what hits them stays outside, and what is inside stays in; side windows are toughened to crumble.',
   'Building safety': 'Glass in doors and low windows must survive a person falling into it, or break harmlessly.',
+  'Toughened glass': 'Every batch of toughened glass is broken on purpose: it must craze into many small dice, counted in a 50 mm square.',
+  'Burglar resistance': 'Shop fronts and ground-floor windows are graded by how many blows of a falling steel ball they take without letting it through.',
   'Storms': 'Windows in hurricane zones must keep wind-borne debris out, so the house keeps its envelope.',
   'Aircraft': 'An airliner windshield has to take a bird at cruise speed and still hold cabin pressure.',
   'Bullet resistance': 'The rounds of a rating, in the standard\'s pattern: every one must be stopped.',
   'Beyond the rating': 'What a rating does not promise.',
 };
+const testRounds = (t, W, H) => (t.rounds ? t.rounds(W, H) : [[W / 2, H / 2]]);
 function openTests() {
   const box = $('testList');
   box.textContent = '';
@@ -3614,16 +3687,17 @@ function openTests() {
       if (!g || !d) continue;
       const b = document.createElement('button');
       b.className = 'tcard';
-      const n = t.shots?.length || 1;
+      const n = testRounds(t, 1, 1).length;
       b.innerHTML = `<span class="std">${t.std}</span><b>${t.title}</b><span class="crit">${t.criterion}</span>` +
-        `<span class="spec">${g.name} · ${d.name} at ${fmtSpeed(t.speed)}${n > 1 ? ` · ${n} rounds` : ''}</span>`;
+        `<span class="spec">${g.name} · ${d.name}${t.how ?? ` at ${fmtSpeed(t.speed ?? d.speed)}${n > 1 ? ` · ${n} ${t.unit || 'round'}s` : ''}`}</span>` +
+        (t.note ? `<span class="mnote">Model note: ${t.note}</span>` : '');
       b.onclick = () => runTest(t);
       cards.appendChild(b);
     }
   }
   $('tests').classList.add('on');
 }
-// Sets the test's glazing up and fires its rounds.
+// Sets the test's specimen up and fires its rounds.
 function runTest(t) {
   const gi = cat.glazings.findIndex((g) => g.id === t.glazing), ii = cat.impactors.findIndex((g) => g.id === t.impactor);
   if (gi < 0 || ii < 0) return;
@@ -3634,55 +3708,109 @@ function runTest(t) {
   gIdx = gi;
   chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
   pickImpactor(ii);
-  speed = t.speed;
   yaw = 0; pitch = 0; $('yaw').value = '0'; $('pitch').value = '0'; $('vAngle').textContent = '0° / 0°';
   fromBack = false;
   $('bSide').setAttribute('aria-pressed', 'false');
-  syncSpeed();
+  labSize = t.size || null;
   newPane();
   simClockReset();
   updatePaneInfo();
   auto = true; syncAuto(); buildScaleButtons();
-  P.test = t.kind; P.testDef = t; P.testHits = [];
-  const offs = t.shots || [[0, 0]], cx = P.W / 2, cy = P.H / 2;
-  aim = { x: cx + offs[0][0], y: cy + offs[0][1] };
+  P.test = t.kind; P.testDef = t; P.testHits = []; P.testQueue = [];
+  const v0 = t.speed ?? cat.impactors[ii].speed, rs = testRounds(t, P.W, P.H);
+  speed = rs[0][2] ?? v0;
+  syncSpeed();
+  aim = { x: rs[0][0], y: rs[0][1] };
   placeAimMarker();
   fire(aim);
-  const t0 = P.shots[P.shots.length - 1].t;
-  for (let k = 1; k < offs.length; ++k) {
-    const sh = { t: t0 + 0.05 * k, iIdx: ii, x: cx + offs[k][0], y: cy + offs[k][1], speed: t.speed, yaw: 0, pitch: 0, fromBack: false };
-    P.shots.push(sh);
-    P.pendingShots.push(sh);
+  if (t.seq) P.testQueue = rs.slice(1);
+  else {
+    const t0 = P.shots[P.shots.length - 1].t;
+    for (let k = 1; k < rs.length; ++k) {
+      const sh = { t: t0 + (t.at ? t.at(k) : 0.05 * k), iIdx: ii, x: rs[k][0], y: rs[k][1], speed: rs[k][2] ?? v0, yaw: 0, pitch: 0, fromBack: false };
+      P.shots.push(sh);
+      P.pendingShots.push(sh);
+    }
   }
   if (window.innerWidth <= 860) showTab('res');
 }
-// A test of several rounds: its verdict once every round is over.
-function roundsVerdict(n) {
-  const hits = P.testHits || [];
-  if (hits.length < n) return { pending: `round ${hits.length} of ${n} fired…` };
-  const reps = hits.slice(0, n).map((h) => G.report(h));
-  const done = reps.filter((r) => r.outcome).length;
-  if (done < n) return { pending: `${done} of ${n} rounds over…` };
-  const through = reps.findIndex((r) => r.v[11]);
-  return { name: `${P.testDef.std}`, pass: through < 0,
-    why: through < 0 ? `all ${n} rounds were stopped in the layup` : `round ${through + 1} of ${n} went through` };
+// Tests whose rounds go one after another: the next once the last is over and
+// the glass has had 0.4 s to settle (the real tests wait far longer, for a
+// pane at rest).
+function testStep() {
+  const q = P?.testQueue, t = P?.testDef;
+  if (!q?.length || !P.testHits.length) return;
+  const r = G.report(P.testHits[P.testHits.length - 1]), now = G.gls_time();
+  if (!r.outcome) { P.testNextAt = null; return; }
+  if ((t.seq === 'break' && G.state()[6]) || (t.seq === 'through' && r.v[11])) { q.length = 0; return; }
+  if (P.testNextAt == null) { P.testNextAt = now + 0.4; return; }
+  if (now < P.testNextAt) return;
+  P.testNextAt = null;
+  const [x, y, v] = q.shift();
+  speed = v ?? t.speed ?? speed;
+  syncSpeed();
+  aim = { x, y };
+  placeAimMarker();
+  fire(aim);
 }
+// The test's verdict: { pending } while rounds are still to come or still in
+// the glass, then { pass, grade?, rows?, why }; null before there is any.
+function testResult(s) {
+  const t = P.testDef;
+  if (!t) return null;
+  const hits = P.testHits || [], unit = t.unit || 'round';
+  const left = (P.testQueue?.length || 0) + P.pendingShots.length;
+  const planned = testRounds(t, 1, 1).length, n = t.seq ? hits.length + left : planned;
+  if (planned > 1 && (left || hits.length < n)) return { pending: `${unit} ${Math.max(1, hits.length)} of ${n}…` };
+  if (!hits.length) return null;
+  const reps = hits.map((h) => G.report(h));
+  if (planned === 1) return reps[0].outcome || ((t.kind === 'z97' || t.kind === 'en12150') && s[6]) ? testVerdict(t.kind, reps[0].v, s) : null;
+  const over = reps.filter((r) => r.outcome).length;
+  if (over < reps.length) return { pending: `${unit} ${over + 1} of ${n} in the glass…` };
+  if (t.kind === 'en12600') return en12600Verdict(reps, s);
+  const through = reps.findIndex((r) => r.v[11]);
+  const why = through < 0 ? `none of the ${n} ${unit}s went through` : `${unit} ${through + 1} of ${planned} went through`;
+  return { pass: through < 0,
+    why: t.kind === 'e1996' ? why + '; the 9,000 pressure cycles that follow in the real test are not simulated' : why };
+}
+// EN 12600: drops from 190, 450 and 1,200 mm until the pane breaks. A break
+// into dice (mode C) or held together by the interlayer (mode B) is safe and
+// the pane is classed at that drop; a break into shards (mode A) leaves the
+// class of the drop before.
+function en12600Verdict(reps, s) {
+  const k = reps.length - 1, heights = ['190', '450', '1,200'], classes = [3, 2, 1];
+  if (!s[6]) return { pass: true, grade: 'Class 1', why: 'it did not break, even from 1,200 mm' };
+  const mode = P.plies.some((p) => p.dicing) ? 'C' : !P.monolithic && s[8] && !reps[k].v[11] ? 'B' : 'A';
+  const cls = mode !== 'A' ? classes[k] : k > 0 ? classes[k - 1] : 0;
+  const how = { C: 'into small dice (mode C)', B: 'and its interlayer held the pieces together (mode B)', A: 'into sharp shards (mode A)' }[mode];
+  return { pass: cls > 0, grade: cls ? `Class ${cls}` : 'No class',
+    why: `it broke at ${heights[k]} mm ${how}` + (mode === 'A' ? (k > 0 ? `, after surviving ${heights[k - 1]} mm` : ', on the first drop') : '') };
+}
+// v: the round's report; s: the pane's state.
 function testVerdict(kind, v, s) {
   const through = !!v[11], stopped = !!v[13], broke = !!s[6], intact = !!s[8];
   switch (kind) {
-    case 'r43': return { name: 'ECE R43 2.26 kg ball', pass: !through,
-      why: through ? 'the ball went through the windscreen' : 'the interlayer held the ball' };
-    case 'e1996': return { name: 'ASTM E1996 missile D', pass: !through,
+    case 'r43': return { pass: !through, why: through ? 'the ball went through the windscreen' : 'the interlayer held the ball' };
+    case 'e1996': return { pass: !through,
       why: (through ? 'the 2x4 went through' : 'no penetration on impact') + '; the 9,000 pressure cycles that follow in the real test are not simulated' };
-    case 'far25': return { name: '14 CFR 25.775 bird strike', pass: intact && !through,
+    case 'far25': return { pass: intact && !through,
       why: intact ? 'the windshield kept the cabin sealed' : 'the windshield was breached: the cabin would depressurise' };
     case 'z97': {
       const tempered = P.plies.some((p) => p.dicing);
-      return { name: 'ANSI Z97.1 impact', pass: !broke || tempered,
+      return { pass: !broke || tempered,
         why: !broke ? 'it did not break' : tempered ? 'it broke into small dice, as safety glass must' : 'it broke into long sharp shards: annealed glass cannot pass' };
     }
-    case 'ul752': return { name: 'UL 752 (one shot)', pass: stopped && !through,
-      why: stopped ? 'the round was stopped in the layup' : 'the round went through' };
+    case 'ul752': return { pass: stopped && !through, why: stopped ? 'the round was stopped in the layup' : 'the round went through' };
+    case 'en12150': {
+      // The count from the dice size the energy balance gives (the pieces the
+      // engine flies are coarser than the real dice).
+      if (!broke) return { pass: false, why: 'the punch did not break it' };
+      const pl = P.plies.find((p) => p.dicing);
+      if (!pl) return { pass: false, why: 'it broke into a few large pieces with long sharp edges: it is not toughened glass, which must dice' };
+      const n = Math.floor((0.05 / pl.dice) ** 2);
+      return { pass: n >= 40, rows: [['Pieces in 50 × 50 mm', `${n} (dice about ${(pl.dice * 1e3).toFixed(1)} mm)`]],
+        why: `${n} pieces in the count square, at least 40 needed; counted from the dice size its stored stress gives` };
+    }
     default: return null;
   }
 }
@@ -4021,6 +4149,8 @@ function applyShareLink() {
   if (!q.has('g') && !q.has('shot')) return false;
   const gi = cat.glazings.findIndex((g) => g.id === q.get('g'));
   if (gi >= 0) gIdx = gi;
+  const td = TESTS.find((x) => x.id === q.get('test'));
+  labSize = td?.size || null;
   stack = q.getAll('L').map((v) => {
     const [id, cm] = v.split(':');
     return { gid: cat.glazings.findIndex((g) => g.id === id), gap: clamp((Number(cm) || 10) / 100, 0.002, 1.5) };
@@ -4053,8 +4183,7 @@ function applyShareLink() {
     const pts = c.slice(1).split(';').map((v) => v.split(',').map(Number)).filter((v) => v.length === 2 && v.every(Number.isFinite)).slice(0, 400).map(([x, y]) => ({ x, y }));
     if (!stackOn) addScore(pts, c[0] === 'c');
   }
-  const td = TESTS.find((x) => x.id === q.get('test'));
-  if (td && !stackOn) { P.test = td.kind; P.testDef = td; P.testHits = []; }
+  if (td && !stackOn) { P.test = td.kind; P.testDef = td; P.testHits = []; P.testQueue = []; }
   const ns = (q.get('nis') || '').split(',').map(Number);
   if (ns.length === 3 && ns[2] > 0 && !stackOn) plantStone({ x: clamp(ns[0], 0, P.W), y: clamp(ns[1], 0, P.H), d: clamp(ns[2], 0.01, 2) });
   const tn = (q.get('tone') || '').split(',').map(Number);
