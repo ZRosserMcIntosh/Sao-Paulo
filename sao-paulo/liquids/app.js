@@ -16,11 +16,48 @@ const SCALES = [[1, '1×'], [0.25, '1/4'], [0.1, '1/10'], [0.01, '1/100'], [1e-3
 const TIER_NAMES = ['Potato', 'Low', 'Medium', 'High', 'Ultra'];
 const STATE = { WAITING: 0, FLYING: 1, AT_PANE: 2, STOPPED: 3 };
 
+// ---------- A round from the Ballistics Range ----------
+// /sao-paulo/liquids/?from=ballistics&...: the range flew the long shot; this
+// lab takes the round as it arrives (its speed, mass, diameter, and the angle
+// it comes in at) and plays the impact on the dummy and the glass.
+const ARRIVAL = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.get('from') !== 'ballistics') return null;
+  const n = (k, d, lo, hi) => { const v = +q.get(k); return Number.isFinite(v) && q.has(k) ? Math.min(hi, Math.max(lo, v)) : d; };
+  const pane = ['none', 'front', 'behind', 'both'].includes(q.get('pane')) ? q.get('pane') : 'front';
+  const target = ['chest', 'abdomen', 'shoulder', 'thigh'].includes(q.get('target')) ? q.get('target') : 'chest';
+  return {
+    name: (q.get('name') || 'Long-range round').slice(0, 80), range: n('range', 1000, 1, 10000),
+    mass_g: n('mass_g', 11.3, 0.5, 200), diameter_mm: n('dia_mm', 7.8, 2, 20), speed: n('v', 400, 20, 1500),
+    descent: n('desc', 0, -30, 60), drift: n('drift', 0, -20, 20), glassImpactor: (q.get('gi') || 'rifle_762').replace(/[^a-z0-9_]/g, ''),
+    glazing: (q.get('glazing') || 'windscreen').replace(/[^a-z0-9_]/g, ''), pane, target,
+    back: (q.get('back') || '').startsWith('/sao-paulo/ballistics/') ? q.get('back') : '/sao-paulo/ballistics/',
+    via: (q.get('via') || '').replace(/[<>]/g, '').slice(0, 120),
+  };
+})();
+
 // ---------- Engines ----------
 let L, cat, G = null, gcat = null;
 try {
   L = await createLiquidModule();
-  const errs = L.load(await (await fetch('library.json')).text());
+  let libText = await (await fetch('library.json')).text();
+  if (ARRIVAL) {
+    const lib = JSON.parse(libText);
+    const from = `the Ballistics Range: ${ARRIVAL.name} after ${Math.round(ARRIVAL.range)} m`;
+    lib.projectiles.push({
+      id: 'ballistics_arrival', name: `${ARRIVAL.name} at ${Math.round(ARRIVAL.range)} m`,
+      description: `Arriving from ${from}, flown by Ballistic Dynamics${ARRIVAL.via ? `, ${ARRIVAL.via}` : ''}.`,
+      mass_g: ARRIVAL.mass_g, diameter_mm: ARRIVAL.diameter_mm, speed_ms: ARRIVAL.speed, cd_tissue: 0.27,
+      glass_impactor: ARRIVAL.glassImpactor,
+      provenance: {
+        mass_g: 'published: the bullet weight in the Ballistic Dynamics library', diameter_mm: 'published: the bullet diameter in the Ballistic Dynamics library',
+        speed_ms: `published: the speed at the target computed by Ballistic Dynamics (${from})`,
+        cd_tissue: 'estimated: a spitzer before it yaws, as for the 7.62 mm ball', glass_impactor: 'gameplay: the Glass Dynamics id nearest in calibre',
+      },
+    });
+    libText = JSON.stringify(lib);
+  }
+  const errs = L.load(libText);
   if (errs.length) throw new Error(errs.join('; '));
   cat = L.catalog();
 } catch (e) {
@@ -152,25 +189,53 @@ function minPixelSize(mat) {
 }
 // Stains are seen from both sides: through a pane of glass from behind, too.
 let stainMat = minPixelSize(new THREE.MeshStandardMaterial({ color: 0x300410, roughness: 0.4, transparent: true, opacity: 0.92, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide }));
+// The liquid's colour: its own, or one the viewer picked for it (kept per
+// liquid). Only the look: the physics is the liquid's. A picked colour's
+// stain is the same colour darkened, as the liquid's own stain is.
+const tints = store.get('tints', {});
+const SWATCHES = [
+  ['#7a0a12', 'Blood red'], ['#2f9e3a', 'Green'], ['#1e4fd6', 'Blue'], ['#6b1fa0', 'Purple'], ['#ff4fa3', 'Pink'],
+  ['#e8710a', 'Orange'], ['#d8b31a', 'Gold'], ['#111111', 'Ink black'], ['#f2efe6', 'Milk white'],
+];
+function liquidColours(d) {
+  const t = tints[d.id];
+  if (!t) return { color: lin(d.color), stain: lin(d.stainColor) };
+  const color = new THREE.Color(t);
+  return { color, stain: color.clone().multiplyScalar(0.55) };
+}
+const woundMat = new THREE.MeshBasicMaterial({ color: 0x300410 });
+// Recolour what is on screen now, without running the scene again.
+function applyColours() {
+  if (!liquid) return;
+  const c = liquidColours(liquid);
+  liquidMat.color.copy(c.color);
+  stainMat.color.copy(c.stain);
+  woundMat.color.copy(c.stain);
+}
+// The liquid a scene's colour applies to: the one picked, or the one it holds.
+function sceneLiquidId() {
+  return settings[sceneId].liquid || (liquid && liquid.id) || (sceneId === 'gunshot' ? 'stage_blood_green' : 'water');
+}
 function liquidMaterials(id) {
   const d = cat.liquids.find((x) => x.id === id) || cat.liquids[0];
-  const col = lin(d.color);
+  const { color: col, stain } = liquidColours(d);
   liquidMat = new THREE.MeshPhysicalMaterial({ color: col, roughness: 0.05, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03,
     transparent: d.opacity < 0.9, opacity: Math.max(0.35, d.opacity), envMapIntensity: 1.3, sheen: 0 });
   dropMat = liquidMat;
-  stainMat = minPixelSize(new THREE.MeshStandardMaterial({ color: lin(d.stainColor), roughness: 0.45, transparent: true, opacity: 0.9,
+  woundMat.color.copy(stain);
+  stainMat = minPixelSize(new THREE.MeshStandardMaterial({ color: stain, roughness: 0.45, transparent: true, opacity: 0.9,
     depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide }));
   return d;
 }
 
 // ---------- Scenes and their settings ----------
 const SCENES = [
-  { id: 'wine_glass', name: 'Wine glass off the table', sub: 'Knocked off the edge, onto the floor', opts: ['liquid', 'floor', 'knock', 'fill'] },
-  { id: 'bottle_drop', name: 'Wine bottle on the floor', sub: 'An open bottle let go from a height', opts: ['liquid', 'floor', 'height', 'tilt', 'fill'] },
-  { id: 'gunshot', name: 'Crash dummy: the shot', sub: 'Click to aim, fire as often as you like', opts: ['projectile', 'target', 'tness', 'pane', 'glazing', 'gap', 'distance', 'ragdoll', 'floor'], feature: true },
-  { id: 'drip', name: 'Drip test', sub: 'Passive drops from seven heights', opts: ['liquid', 'floor', 'height'] },
-  { id: 'angles', name: 'Impact-angle card', sub: 'Drops thrown at a wall from 10° to 90°', opts: ['liquid', 'wall'] },
-  { id: 'dam_break', name: 'Dam break', sub: 'Martin & Moyce’s water column: the validation case', opts: [] },
+  { id: 'wine_glass', name: 'Wine glass off the table', sub: 'Knocked off the edge, onto the floor', opts: ['liquid', 'colour', 'floor', 'knock', 'fill'] },
+  { id: 'bottle_drop', name: 'Wine bottle on the floor', sub: 'An open bottle let go from a height', opts: ['liquid', 'colour', 'floor', 'height', 'tilt', 'fill'] },
+  { id: 'gunshot', name: 'Crash dummy: the shot', sub: 'Click to aim, fire as often as you like', opts: ['projectile', 'target', 'tness', 'colour', 'pane', 'glazing', 'gap', 'distance', 'ragdoll', 'floor'], feature: true },
+  { id: 'drip', name: 'Drip test', sub: 'Passive drops from seven heights', opts: ['liquid', 'colour', 'floor', 'height'] },
+  { id: 'angles', name: 'Impact-angle card', sub: 'Drops thrown at a wall from 10° to 90°', opts: ['liquid', 'colour', 'wall'] },
+  { id: 'dam_break', name: 'Dam break', sub: 'Martin & Moyce’s water column: the validation case', opts: ['colour'] },
 ];
 // Every glazing of the Glass lab, in its groups.
 const GLAZING_GROUPS = { architectural: 'Buildings', automotive: 'Cars', security: 'Bullet-resistant', aviation: 'Aircraft' };
@@ -204,6 +269,7 @@ const OPT = {
   // wounds spurt like cut arteries; 11 is Kill Bill.
   tness: { label: 'tarantinoness', type: 'range', min: 1, max: 11, step: 0.5, head: true,
     fmt: (v) => (v <= 1 ? '1 · realistic' : v >= 11 ? '11 · Kill Bill' : `${v % 1 ? v.toFixed(1) : v} · ${v}× the spatter${v > 5 ? ', spurting' : ''}`) },
+  colour: { label: 'Colour', type: 'colour' },
   ragdoll: { label: 'The dummy', type: 'select', items: () => [['off', 'Stays standing (fixed)'], ['on', 'Falls when hit (ragdoll)']] },
   target: { label: 'Aim', type: 'select', items: () => [['chest', 'Chest'], ['abdomen', 'Abdomen'], ['shoulder', 'Shoulder'], ['thigh', 'Thigh']] },
   pane: { label: 'Glass', type: 'select', items: () => [['none', 'No glass'], ['front', 'In front: shot through it, spatter back onto it'], ['behind', 'Behind: it catches the forward spatter'], ['both', 'Both sides (a car: windscreen and rear window)']] },
@@ -236,7 +302,51 @@ function buildOptions() {
   for (const k of S.opts) {
     const o = OPT[k];
     if (o.show && !o.show()) continue;
-    if (o.type === 'select') {
+    if (o.type === 'colour') {
+      // Swatches, the liquid's own colour, and any colour at all.
+      const id = sceneLiquidId(), d = cat.liquids.find((x) => x.id === id) || cat.liquids[0];
+      const f = document.createElement('div');
+      f.className = 'field';
+      f.innerHTML = `<span>${o.label} <small class="mute">${tints[id] ? 'picked' : 'its own'} · the look only</small></span>`;
+      const row = document.createElement('div');
+      row.className = 'swatches';
+      const pick = (hex) => {
+        if (hex) tints[id] = hex; else delete tints[id];
+        store.set('tints', tints);
+        applyColours();
+        buildOptions();
+      };
+      const own = new THREE.Color().setRGB(d.color[0], d.color[1], d.color[2], THREE.LinearSRGBColorSpace).getHexString();
+      const sw = (hex, title, on, cls = '') => {
+        const b = document.createElement('button');
+        b.className = 'swatch ' + cls;
+        b.style.background = hex;
+        b.title = title;
+        b.setAttribute('aria-label', title);
+        b.setAttribute('aria-pressed', String(on));
+        return b;
+      };
+      const ownB = sw('#' + own, `${d.name}'s own colour`, !tints[id], 'own');
+      ownB.onclick = () => pick(null);
+      row.appendChild(ownB);
+      for (const [hex, name] of SWATCHES) {
+        if (hex.slice(1) === own) continue;
+        const b = sw(hex, name, tints[id] === hex);
+        b.onclick = () => pick(hex);
+        row.appendChild(b);
+      }
+      const inp = document.createElement('input');
+      inp.type = 'color';
+      inp.className = 'swatch custom';
+      inp.title = 'Any colour';
+      inp.setAttribute('aria-label', 'Any colour');
+      inp.value = tints[id] || '#' + own;
+      inp.oninput = () => { tints[id] = inp.value; store.set('tints', tints); applyColours(); };
+      inp.onchange = () => pick(inp.value);
+      row.appendChild(inp);
+      f.appendChild(row);
+      box.appendChild(f);
+    } else if (o.type === 'select') {
       const f = document.createElement('label');
       f.className = 'field';
       f.textContent = o.label;
@@ -249,7 +359,7 @@ function buildOptions() {
       }
       if (![...sel.options].some((op) => op.value === cfg[k])) cfg[k] = sel.options[0]?.value;
       sel.value = cfg[k];
-      sel.onchange = () => { cfg[k] = sel.value; store.set('settings', settings); if (k === 'pane') buildOptions(); if (sceneId === 'gunshot' && k !== 'projectile') go(); };
+      sel.onchange = () => { cfg[k] = sel.value; store.set('settings', settings); if (k === 'pane' || k === 'liquid') buildOptions(); if (sceneId === 'gunshot' && k !== 'projectile') go(); };
       f.appendChild(sel);
       box.appendChild(f);
     } else {
@@ -535,6 +645,7 @@ function go() {
     P.aimMark = new THREE.Mesh(new THREE.RingGeometry(0.012, 0.018, 24), new THREE.MeshBasicMaterial({ color: 0xff4b3e, depthTest: false, transparent: true }));
     P.aimMark.renderOrder = 10; P.aimMark.position.copy(b); P.aimMark.lookAt(a); world.add(P.aimMark);
     P.shots = 1;
+    if (ARRIVAL) applyArrival();
   }
   L.lqd_record(P.recordFps, 900);
   L.lqd_capture();
@@ -703,7 +814,7 @@ function drawRounds(t) {
   }
   for (let k = P.wounds; k < nw; ++k) {
     const o = 8 * k;
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(w[o + 6] ? 0.012 : 0.006, 16), new THREE.MeshBasicMaterial({ color: lin(liquid.stainColor) }));
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(w[o + 6] ? 0.012 : 0.006, 16), woundMat);
     Z.set(w[o + 3], w[o + 4], w[o + 5]);
     disc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), Z);
     disc.position.set(w[o], w[o + 1], w[o + 2]).addScaledVector(Z, 0.001);
@@ -1033,6 +1144,23 @@ function drawStrings() {
   if (r.truth) P.truth.position.set(...r.trueOrigin);
 }
 
+// The round comes in along its flight path: turn the muzzle to the angle it
+// arrives at (down by the descent angle, sideways by the drift), at the same
+// distance, aimed at the same point.
+function applyArrival() {
+  const up = new THREE.Vector3(0, 1, 0);
+  const base = P.aim.clone().sub(P.muzzle);
+  const dist = base.length();
+  base.normalize();
+  const right = new THREE.Vector3().crossVectors(base, up).normalize();
+  const d = base.clone().multiplyScalar(Math.cos(ARRIVAL.descent * Math.PI / 180)).addScaledVector(up, -Math.sin(ARRIVAL.descent * Math.PI / 180));
+  d.addScaledVector(right, Math.tan(ARRIVAL.drift * Math.PI / 180)).normalize();
+  P.muzzle = P.aim.clone().addScaledVector(d, -dist);
+  P.muzzleMesh.position.copy(P.muzzle).addScaledVector(d, -0.09);
+  P.muzzleMesh.lookAt(P.aim);
+  P.aimMark.lookAt(P.muzzle);
+}
+
 // ---------- Aim, fire, follow ----------
 let follow = store.get('follow', false), followCam = null;
 function setFollow(on) {
@@ -1176,7 +1304,7 @@ function updateReadouts() {
   $('kv').innerHTML = kv.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
   // Where the liquid is.
   const total = Math.max(s[11], 1e-12);
-  const parts = [[s[12], '#3a7bd5', 'puddle'], [s[13], '#9fd6ff', 'air'], [s[14], lin(liquid.stainColor).getStyle(), 'stains'], [s[15], '#93a0b2', 'absorbed'], [s[16], '#ef5d4f', 'lost']];
+  const parts = [[s[12], '#3a7bd5', 'puddle'], [s[13], '#9fd6ff', 'air'], [s[14], liquidColours(liquid).stain.getStyle(), 'stains'], [s[15], '#93a0b2', 'absorbed'], [s[16], '#ef5d4f', 'lost']];
   $('vbar').innerHTML = parts.map(([v, c]) => `<i style="width:${(100 * v / total).toFixed(2)}%;background:${c}"></i>`).join('');
   $('vlegend').innerHTML = parts.filter(([v]) => v > 0).map(([v, c, n]) => `<span class="swatch" style="background:${c}"></span>${n} ${(100 * v / total).toFixed(1)}%`).join(' &nbsp; ');
   // Events.
@@ -1402,6 +1530,21 @@ function frame(now) {
 }
 
 // ---------- Start ----------
+if (ARRIVAL) {
+  sceneId = 'gunshot';
+  const g = settings.gunshot;
+  g.projectile = 'ballistics_arrival';
+  g.pane = ARRIVAL.pane;
+  g.target = ARRIVAL.target;
+  if (gcat && gcat.glazings.some((x) => x.id === ARRIVAL.glazing)) g.glazing = ARRIVAL.glazing;
+  const back = document.createElement('a');
+  back.className = 'how';
+  back.href = ARRIVAL.back;
+  back.textContent = '◀ Back to the range';
+  back.title = 'Back to the Ballistics Range, the same shot';
+  back.style.cssText = 'font:600 12px var(--body);color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:rgba(10,17,28,.75)';
+  document.querySelector('.top .row').prepend(back);
+}
 $('sTier').textContent = `${TIER_NAMES[tier]} · ${bench.ms.toFixed(1)} ms/step`;
 setupUi();
 buildScaleButtons();
@@ -1412,5 +1555,14 @@ resize();
 go();
 $('loading').remove();
 requestAnimationFrame(frame);
+if (ARRIVAL) {
+  // Ride in with the round, in bullet time, and fire it once.
+  if (!auto) { auto = true; syncAuto(); buildScaleButtons(); }
+  setFollow(true);
+  setTimeout(() => {
+    fireShot();
+    banner(`From ${Math.round(ARRIVAL.range).toLocaleString('en')} m`, ARRIVAL.via ? `${ARRIVAL.name}, ${ARRIVAL.via}` : `${ARRIVAL.name} · ${ARRIVAL.speed.toFixed(0)} m/s · ${ARRIVAL.descent.toFixed(1)}° down`);
+  }, 900);
+}
 // For the browser console: the engines and the current run.
 window.liquidsLab = { L, G, get run() { return P; }, get msPerStep() { return msPerStep; } };

@@ -482,12 +482,19 @@ export function buildJet(def) {
     const rv = st.reverser || [];
     sleeves.forEach((s, i) => { s.sleeve.position.x = -s.travel * (rv[i] || 0); });
     fans.forEach((f, i) => { f.rotation.x = fanAngle * ((n1[i] || 0) / Math.max(n1[0] || 1, 1)); });
-    for (const g of gears) {
+    gears.forEach((g, i) => {
+      // A collapsed leg (st.collapsed[i]) folds part-way the other way, broken.
+      if (st.collapsed?.[i]) {
+        if (g.nose) g.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 70 * DEG);
+        else g.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), g.side * 60 * DEG);
+        g.pivot.visible = true;
+        return;
+      }
       const up = 1 - st.gear;
       if (g.nose) g.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -up * 96 * DEG);
       else g.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -g.side * up * 86 * DEG);
       g.pivot.visible = st.gear > 0.03;
-    }
+    });
     const lit = st.lights !== false;
     const flash = (period, on) => lit && (clockT % period) < on;
     beacons.forEach((b) => { b.visible = flash(1.1, 0.12); });

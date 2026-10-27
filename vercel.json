@@ -45,6 +45,46 @@
       "source": "/sao-paulo/liquids",
       "destination": "/sao-paulo/liquids/",
       "permanent": true
+    },
+    {
+      "source": "/sao-paulo/ballistics",
+      "destination": "/sao-paulo/ballistics/",
+      "permanent": true
+    },
+    {
+      "source": "/sao-paulo/wake",
+      "destination": "/sao-paulo/wake/",
+      "permanent": true
+    },
+    {
+      "source": "/sao-paulo/challenges",
+      "destination": "/sao-paulo/challenges/",
+      "permanent": true
+    },
+    {
+      "source": "/sao-paulo/destruction",
+      "destination": "/sao-paulo/destruction/",
+      "permanent": true
+    },
+    {
+      "source": "/sao-paulo/bloco",
+      "destination": "/sao-paulo/bloco/",
+      "permanent": true
+    },
+    {
+      "source": "/sao-paulo/minefuck",
+      "destination": "/sao-paulo/bloco/",
+      "permanent": true
+    },
+    {
+      "source": "/sao-paulo/minefuck/",
+      "destination": "/sao-paulo/bloco/",
+      "permanent": true
+    },
+    {
+      "source": "/sao-paulo/minefuck/:path*",
+      "destination": "/sao-paulo/bloco/",
+      "permanent": true
     }
   ],
   "headers": [
@@ -76,6 +116,15 @@
       ]
     },
     {
+      "source": "/sao-paulo/flying/buildings/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    },
+    {
       "source": "/sao-paulo/video/(.*)",
       "headers": [
         {
@@ -95,6 +144,50 @@
     },
     {
       "source": "/sao-paulo/liquids/(.*\\.wasm)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/ballistics/(.*\\.wasm)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/glass/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "credentialless"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/glass",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "credentialless"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/destruction/assets/(.*)",
       "headers": [
         {
           "key": "Cache-Control",

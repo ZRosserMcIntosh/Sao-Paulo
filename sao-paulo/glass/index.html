@@ -71,6 +71,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .layer select{min-width:0}
 .layer .gap{grid-column:1/-1;display:flex;gap:8px;align-items:center;color:var(--mute)}
 .layer .gap input{flex:1}
+.slider[hidden]{display:none}
 .meter{height:8px;border-radius:4px;background:rgba(255,255,255,.08);margin-top:10px;overflow:hidden}
 .meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--good),var(--warn) 70%,var(--bad));transition:width .12s}
 .chips button small{color:var(--mute);font-weight:500;margin-left:4px}
@@ -115,7 +116,22 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg)}
 #loading .panel{max-width:440px;text-align:center}
 #loading h1{font:900 34px/1 var(--display);text-transform:uppercase;margin:0 0 8px}
-#help{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
+#help,#odds,#tests{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
+#odds.on,#tests.on{display:grid}
+#tests .panel{max-width:min(900px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:16px 18px}
+#tests h2{font:900 24px/1 var(--display);text-transform:uppercase;margin:0}
+#tests h3{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 4px;color:var(--hot)}
+#tests .gnote{color:var(--mute);font-size:12px;margin:0 0 8px}
+.tcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.tcard{display:flex;flex-direction:column;gap:4px;text-align:left;white-space:normal;padding:10px 11px;border-radius:8px;background:rgba(255,255,255,.04)}
+.tcard b{font:700 13px/1.25 var(--body)}
+.tcard .std{font:600 10.5px var(--mono);color:var(--mute);letter-spacing:.02em}
+.tcard .crit{font-size:12px;color:#cfd8e3}
+.tcard .spec{font-size:11.5px;color:var(--mute)}
+.tcard .mnote{font-size:11.5px;color:var(--warn,#e0b25a)}
+#odds .panel{max-width:min(720px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:16px 18px}
+#odds h2{font:900 24px/1 var(--display);text-transform:uppercase;margin:0}
+#oddsChart{width:100%;height:auto;display:block;background:#0b1320;border:1px solid var(--line);border-radius:8px;margin-top:8px}
 #help.on{display:grid}
 #help .panel{max-width:min(720px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:18px 20px}
 #help h2{font:900 26px/1 var(--display);text-transform:uppercase;margin:0 0 10px}
@@ -156,11 +172,12 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 <div class="top">
   <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span>Glass lab</span></a>
   <div class="row">
-    <select id="tier" title="Simulation quality (Auto picks one for this device)" aria-label="Quality"></select>
+    <select id="tier" title="Drawing quality (Auto picks one for this device). The physics is the same on every setting" aria-label="Drawing quality"></select>
     <button id="bSound" aria-pressed="true" title="Sound on / off (M)">Sound</button>
     <button id="bStress" aria-pressed="false" title="Stress seen through crossed polarisers (S)">Stress</button>
     <button id="bCam" class="hide-sm" title="Camera: front, three-quarter, side (C)">Camera</button>
     <button id="bReset" title="New pane (R)">New pane</button>
+    <button id="bTests" title="Certification tests: put glazing through the standards it is made to pass">Tests</button>
     <button id="bShare" title="Copy a link to exactly this setup and shot">Share</button>
     <a class="how" href="how/" title="How every number is calculated: the equations, the data and their sources">How it works</a>
     <button id="bHelp" title="Help (H)">?</button>
@@ -194,8 +211,14 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <button id="bSide" aria-pressed="false" title="Strike the back (inner) face">From inside</button>
     <button id="bCentre" title="Aim at the centre">Aim centre</button>
   </div>
+  <div class="row" style="margin-top:8px">
+    <button id="bCutter" aria-pressed="false" title="Glass cutter: drag across the glass to score a line">Glass cutter</button>
+    <button id="bCircle" aria-pressed="false" title="Circle cutter: tap the glass to score a 20 cm circle">Circle cutter</button>
+    <button id="bKnock" title="Knock it from behind with a rubber mallet, beside the last score" disabled>Knock it out</button>
+  </div>
   <button id="fire" title="Fire at the aim point (Space)">Fire</button>
   <p class="note">Or tap / click anywhere on the glass. Shots add up: hit the same pane again.</p>
+  <button id="bOdds" class="addlayer" title="Fire this object into a hundred panes of this glass, each with its own flaws, at a range of speeds">Odds of breaking at every speed…</button>
 
   <h2>Sound <small id="toneInfo"></small></h2>
   <div class="row">
@@ -245,6 +268,22 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 <div id="toast" role="status"></div>
 <div class="legend panel" id="legend"><div>Principal stress, back face (crossed polarisers)</div><div class="bar" id="legendBar"></div><div style="display:flex;justify-content:space-between"><span>0</span><span id="legendMax">200 MPa</span></div></div>
 
+<div id="odds" role="dialog" aria-modal="true" aria-labelledby="oddsTitle">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><h2 id="oddsTitle">Odds of breaking</h2><button id="bOddsClose">Close</button></div>
+    <p class="note" id="oddsWhat"></p>
+    <canvas id="oddsChart" width="660" height="330" aria-label="Chance of breaking and of going through against speed"></canvas>
+    <div class="row" style="margin-top:8px"><button id="bOddsRun">Run 100 panes</button><span class="note" id="oddsStatus" style="margin:0"></span></div>
+    <p class="note">No two panes are alike: each has its own scattering of microscopic flaws (a Weibull population, the same model the lab uses for every shot). So the same shot breaks one pane and not the next. This fires it into ten panes at each of ten speeds, every pane with fresh flaws, at the lab's physics, on copies of the engine running in the background.</p>
+  </div>
+</div>
+<div id="tests" role="dialog" aria-modal="true" aria-labelledby="testsTitle">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><h2 id="testsTitle">Certification tests</h2><button id="bTestsClose">Close</button></div>
+    <p class="note">Each test sets up the glazing and fires what its standard fires, the way it says to, then gives the verdict against the standard's criterion. The panes are representative builds, so a pass means the model behaves the way glazing built to that standard does, not a certificate.</p>
+    <div id="testList"></div>
+  </div>
+</div>
 <div id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
   <div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><h2 id="helpTitle">Glass Lab</h2><button id="bHelpClose">Close</button></div>
@@ -257,6 +296,11 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <li><b>Sound</b> (<kbd>M</kbd>) is synthesized from what the engine reports: each glass has its own voice (annealed cracks and crashes, tempered bursts into a hiss and rains dice, laminate crunches, armour thumps), and in bullet time everything drops in pitch and stretches out.</li>
       <li><b>+ Add a pane behind</b> (under the glass list) stacks up to four panes of any glass with the gap you choose; the object and the flying shards of each pane hit the next one for real.</li>
       <li><b>Sound</b> plays a steady note at the glass. Every pane has natural notes (its plate modes); on one of them the swing builds up cycle after cycle until it breaks. <b>Sing</b> lets your voice drive it, boosted to what a loudspeaker could do. <kbd>T</kbd> plays or stops the note.</li>
+      <li><b>Prince Rupert's drop</b> (in Scenarios) opens its own page: shoot its head, snap its tail, or see its frozen stress through crossed polarisers.</li>
+      <li><b>Glass cutter</b> and <b>Circle cutter</b> score the glass (drag a line, or tap for a circle); <b>Knock it out</b> taps it from behind with a rubber mallet, and the crack follows the score.</li>
+      <li><b>Odds of breaking at every speed</b> (under Fire) fires the object into a hundred panes, each with its own flaws, and plots how often they break.</li>
+      <li><b>Tests</b> (top bar) puts glazing through the standards it is made for (ECE R43, ANSI Z97.1, EN 12600, EN 12150, EN 356, ASTM E1996, the FAA bird strike, UL 752), on the standard's specimen size, and gives the verdict against each standard's criterion. Tests of several blows fire them the way the standard does: UL 752's rounds close together, EN 356's drops onto a triangle, E1996's missiles at the centre and a corner, and EN 12600's pendulum from rising heights until the pane breaks, which grades it class 3, 2 or 1.</li>
+      <li><b>Read the cracks</b> is a forensics puzzle: which of three stones hit first? <b>A window that explodes on its own</b> breaks a tempered panel with a nickel-sulfide stone.</li>
       <li><b>Share</b> copies a link to exactly this setup and shot: whoever opens it sees the same glass, the same shot and the same cracks.</li>
       <li><kbd>S</kbd> shows the bending stress as a photoelastic fringe pattern, <kbd>R</kbd> fits a new pane, <kbd>Z</kbd> replays the last shot exactly (the fracture is deterministic).</li>
     </ul>
@@ -276,9 +320,9 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <h3>The full working</h3>
     <p>Every equation, constant and source is on the <a href="how/" style="color:var(--ice)">How it works</a> page, with calculators for the impact energy and the blast.</p>
     <h3>Runs on anything</h3>
-    <p>The <b>Auto</b> quality setting benchmarks this device and picks a tier: fewer plate modes, a coarser crack grid and fewer pieces on a weak chip, the same physics. If the device can't keep up, the clock slows down instead of skipping physics (the bar shows "device-limited"). Without WebGL the lab draws a flat front view.</p>
+    <p>The physics is the same on every device: the same pane breaks the same way on a phone and on a desktop. The <b>Auto</b> quality setting benchmarks this device and picks how to draw it: resolution, shadows, materials and how many of the real dice are shown. Where the browser allows, the physics runs on a core of its own. If the device can't keep up, the clock slows down instead of skipping physics (the bar shows "device-limited"). Without WebGL the lab draws a flat front view.</p>
     <h3>Honest limits</h3>
-    <p>Panes are flat and simply supported. Layups for bullet-resistant and aircraft glazing are representative builds, not certified products, and the ballistic constants are fitted to UL 752 ratings. Tempered glass is drawn with fewer, larger dice than reality on lower tiers; the result panel gives the real fragment size from the energy balance.</p>
+    <p>Panes are flat and simply supported. Layups for bullet-resistant and aircraft glazing are representative builds, not certified products, and the ballistic constants are fitted to UL 752 ratings. The engine flies tempered glass as pieces somewhat larger than its real dice, and the page cuts each into dice of the real size as it comes apart (fewer of them on lower drawing settings); the result panel gives the real fragment size from the energy balance.</p>
   </div>
 </div>
 

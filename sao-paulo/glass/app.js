@@ -4,7 +4,7 @@
 // This file only draws what the core returns and reads input: every crack,
 // fragment and force comes from the core.
 import * as THREE from 'three';
-import createGlassModule from './glass.mjs';
+import { createEngine, wasmFile } from './engine_rpc.js';
 import { createGTScene } from './scene_gt.js';
 import { createHouseScene } from './scene_house.js';
 import { paneLoad, fragmentsThrough, mulberry32, createBlastFX } from './blast.js';
@@ -25,12 +25,14 @@ const CAT_LABEL = { architectural: 'Buildings', automotive: 'Cars', aviation: 'A
   test: 'Test standards', everyday: 'Everyday', tool: 'Tools', weather: 'Weather', ballistic: 'Firearms', explosive: 'Explosives', artillery: 'Artillery', debris: 'Debris' };
 
 // ---------- Engine ----------
-let G, cat;
+let G, cat, LIB;
 try {
   // The engine and its library must match: revalidate both on every load, so a
   // browser never pairs a cached engine with a newer library after a deploy.
-  G = await createGlassModule(await (await fetch('glass.wasm', { cache: 'no-cache' })).arrayBuffer());
-  const errs = G.load(await (await fetch('library.json', { cache: 'no-cache' })).text());
+  G = await createEngine();
+  const libText = await (await fetch('library.json', { cache: 'no-cache' })).text();
+  const errs = G.load(libText);
+  LIB = JSON.parse(libText);   // the materials' constants, for what the page fires itself
   if (errs.length) throw new Error(errs.join('; '));
   cat = G.catalog();
 } catch (e) {
@@ -39,12 +41,21 @@ try {
 }
 
 // ---------- Device tier ----------
+// The tier is how the lab draws: resolution, shadows, materials, how many
+// real dice it shows. The physics is the same on every device (PHYS): a slow
+// one takes longer over it (the clock waits for it) rather than computing
+// something coarser, so a pane breaks the same way everywhere.
+const PHYS = 3;
 function benchmark() {
-  G.gls_bench(2);  // warm the JIT
-  const t0 = performance.now();
-  let n = 0;
-  while (performance.now() - t0 < 70 && n < 400) { G.gls_bench(2); n += 2; }
-  const ms = (performance.now() - t0) / Math.max(1, n);
+  let ms;
+  if (G.remote) ms = G.bench(70);
+  else {
+    G.gls_bench(2);  // warm the JIT
+    const t0 = performance.now();
+    let n = 0;
+    while (performance.now() - t0 < 70 && n < 400) { G.gls_bench(2); n += 2; }
+    ms = (performance.now() - t0) / Math.max(1, n);
+  }
   let t = ms <= 0.4 ? 3 : ms <= 0.8 ? 2 : ms <= 1.6 ? 1 : 0;
   const cores = navigator.hardwareConcurrency || 4, mem = navigator.deviceMemory || 4;
   if (cores <= 2 || mem <= 2) t = Math.min(t, 1);
@@ -57,22 +68,25 @@ let tier = tierChoice === 'auto' ? bench.tier : +tierChoice;
 
 // ---------- Renderer ----------
 const canvas = $('view'), canvas2d = $('view2d');
+// A software rasteriser (no GPU) costs the frame most of its time: go light.
+function probeSoftwareGL() {
+  try {
+    const c = document.createElement('canvas'), gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) return false;
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return /swiftshader|llvmpipe|software|basic render/i.test(name);
+  } catch { return false; }
+}
+const softwareGL = probeSoftwareGL();
 let R = null;
 try {
-  if (!new URLSearchParams(location.search).has('flat')) {
-    R = new THREE.WebGLRenderer({ canvas, antialias: tier >= 2, powerPreference: 'high-performance', alpha: false });
-  }
+  // Multisampling on every real GPU: phones resolve it on the chip, nearly free.
+  if (!new URLSearchParams(location.search).has('flat'))
+    R = new THREE.WebGLRenderer({ canvas, antialias: !softwareGL, powerPreference: 'high-performance', alpha: false });
 } catch { R = null; }
 const flat = !R;
-// A software rasteriser (no GPU) costs the frame most of its time: go light.
-let softwareGL = false;
-if (R) {
-  try {
-    const gl = R.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
-    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
-    softwareGL = /swiftshader|llvmpipe|software|basic render/i.test(name);
-  } catch { /* no renderer info */ }
-}
 if (softwareGL && tierChoice === 'auto') { bench.tier = Math.min(bench.tier, 1); tier = bench.tier; }
 if (flat) { canvas.style.display = 'none'; canvas2d.style.display = 'block'; }
 const ctx2d = flat ? canvas2d.getContext('2d') : null;
@@ -82,9 +96,14 @@ scene.background = new THREE.Color(0x0b111b);
 scene.fog = new THREE.Fog(0x0b111b, 9, 26);
 const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 60);
 
+// Resolution: every tier draws at least one pixel per screen pixel (a
+// software rasteriser less); resScale trades it down while frames are slow
+// and back up when they are quick again.
+let resScale = 1;
 function pixelRatio() {
   const dpr = window.devicePixelRatio || 1;
-  return [0.75, 1, Math.min(dpr, 1.5), Math.min(dpr, 2), Math.min(dpr, 2)][tier];
+  const base = [Math.min(dpr, 1), Math.min(dpr, 1.25), Math.min(dpr, 1.5), Math.min(dpr, 2), Math.min(dpr, 2)][tier];
+  return (softwareGL ? Math.min(base, 0.75) : base) * resScale;
 }
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -102,7 +121,7 @@ let glassMat, fragMat, frameMat;
 const labObjects = [];  // the test hall: hidden when a scene takes over
 let GT = null;          // the armoured-car scene (3D only)
 let HS = null;          // the grenade-house scene (3D only)
-let tierCap = null;     // a scene that must run in real time caps the automatic tier
+let physCap = null;     // a scene's own physics standard, where it must run many panes or shots at once
 // Sound, synthesized from what the engine reports; browsers start it on the first gesture.
 const sound = new GlassAudio();
 // On unless the visitor turned it off (a new key: the sound was reworked).
@@ -144,7 +163,10 @@ if (R) {
   rim.position.set(3, 2, -3);
   scene.add(rim);
 
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x272c33, roughness: 0.82, metalness: 0.05 });
+  // The floor fills most of the screen: below High it is flat-shaded (its
+  // light on a flat floor is even anyway), with the shadows baked in (buildSlab).
+  const floorMat = tier >= 3 ? new THREE.MeshStandardMaterial({ color: 0x272c33, roughness: 0.82, metalness: 0.05 })
+    : new THREE.MeshBasicMaterial({ color: 0x515e69 });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
@@ -156,11 +178,17 @@ if (R) {
   scene.add(grid);
   labObjects.push(hemi, key, rim, floor, grid);
 
+  // High and Ultra see the scene through the glass (a transmission pass).
+  // Below, one pass does what clear glass does to what is behind it: each
+  // face passes a share of it, tinted (the blend's constant colour), and adds
+  // its reflection and a faint sheen of the room.
   glassMat = tier >= 3
     ? new THREE.MeshPhysicalMaterial({ color: 0xeaf7f3, metalness: 0, roughness: 0.03, transmission: 1, thickness: 0.006, ior: 1.52,
       transparent: true, envMapIntensity: 1.3, side: THREE.DoubleSide, specularIntensity: 1, depthWrite: false })
-    : new THREE.MeshStandardMaterial({ color: 0xd4ecef, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.2,
-      envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false });
+    : new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(0.008, 0.013, 0.016), metalness: 0, roughness: 0.03,
+      envMapIntensity: 1.6, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.ConstantColorFactor,
+      blendColor: new THREE.Color(0.70, 0.78, 0.74) });
   fragMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.25,
     envMapIntensity: 1.7, side: THREE.DoubleSide, depthWrite: false });
   frameMat = new THREE.MeshStandardMaterial({ color: 0x8b939e, metalness: 0.85, roughness: 0.35 });
@@ -200,9 +228,11 @@ function banner(title, sub) {
 }
 
 // ---------- Selection state ----------
-// Every visit opens on 6 mm fully tempered glass.
-let gIdx = Math.max(0, cat.glazings.findIndex((g) => g.id === 'tempered_6'));
-let iIdx = Math.max(0, cat.impactors.findIndex((g) => g.id === store.get('impactor', 'steel_ball_2260')));
+// Every visit opens on four 10 mm annealed shopfront plates, a metre apart,
+// and the cannonball (until another object is picked: a new key, so earlier
+// picks give way to the new default).
+let gIdx = Math.max(0, cat.glazings.findIndex((g) => g.id === 'annealed_10'));
+let iIdx = Math.max(0, cat.impactors.findIndex((g) => g.id === store.get('impactor:v2', 'cannonball_9lb')));
 let speed = cat.impactors[iIdx].speed;
 let yaw = 0, pitch = 0, fromBack = false;
 let aim = null;  // pane point {x, y}
@@ -458,7 +488,7 @@ class FragmentView {
 // the engine reports each such spray. Every die then flies, bounces, slides
 // and tumbles on a closed-form path in engine time, evaluated on the GPU: no
 // per-frame work on the CPU, and slow motion or a replay shows the same pile.
-const DICE_CAP = [2000, 6000, 16000, 32000, 60000];
+const DICE_CAP = [8000, 12000, 20000, 32000, 60000];
 function hash01(i, k) {
   let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(k + 0x27d4eb2f, 0xc2b2ae35);
   h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
@@ -525,8 +555,9 @@ class DiceView {
     this.a = { aT: attr('aT', 4), aP: attr('aP', 3), aV: attr('aV', 3), aS: attr('aS', 3), aR: attr('aR', 4), aSl: attr('aSl', 3) };
     this.uTime = { value: 0 };
     const opts = { color: 0xd3ece4, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.45, envMapIntensity: 2.4 };
+    // Below High no clearcoat: a stronger, sharper reflection gives the dice the same glint.
     this.mat = tier >= 3 ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: 1, clearcoatRoughness: 0.05, ior: 1.52, specularIntensity: 1 })
-      : new THREE.MeshStandardMaterial(opts);
+      : new THREE.MeshStandardMaterial({ ...opts, metalness: 0.4, roughness: 0.02, opacity: 0.5, envMapIntensity: 4.5 });
     this.mat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = this.uTime;
       sh.vertexShader = sh.vertexShader
@@ -613,7 +644,7 @@ class DiceView {
 // paths. Everything moves in the vertex shader: piece poses and dice flights
 // live in two float textures, the geometry never changes after it is built.
 const DPR = 292, PPR = 680;   // dice / pieces per texture row (7 / 3 texels each)
-const CELL_CAP = [2500, 7000, 16000, 28000, 45000];
+const CELL_CAP = [12000, 16000, 24000, 32000, 45000];
 const PIECE_HEAD = `
 uniform highp sampler2D uDice;
 uniform highp sampler2D uPose;
@@ -779,8 +810,9 @@ class PieceView {
     // the light caught by the cut edges and seams.
     const opts = { color: 0xe4f2ef, metalness: 0.15, roughness: 0.04, transparent: true, opacity: 0.18, envMapIntensity: 1.8,
       side: THREE.DoubleSide };
+    // Below High no clearcoat: a stronger, sharper reflection gives the pieces the same glint.
     this.mat = tier >= 3 ? new THREE.MeshPhysicalMaterial({ ...opts, clearcoat: 1, clearcoatRoughness: 0.05, ior: 1.52 })
-      : new THREE.MeshStandardMaterial(opts);
+      : new THREE.MeshStandardMaterial({ ...opts, metalness: 0.4, roughness: 0.02, opacity: 0.26, envMapIntensity: 4.5 });
     this.mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, this.uniforms);
       sh.vertexShader = sh.vertexShader
@@ -818,10 +850,9 @@ class PieceView {
   }
   // One die (or a whole piece): its outline in the piece frame, extruded +-h.
   // Triangles wind inward: the pane-to-scene mirror (z -> -z) turns them out.
-  pushPrism(pts, h, dieIndex, holes = []) {
-    const loops = [pts, ...holes], all = [].concat(...loops);
-    const n = all.length;
-    const needV = this.nVerts + 6 * n, needI = this.nIdx + 6 * n + 6 * n;
+  // Room for needV vertices and needI indices: doubling, or straight to what
+  // the pane will need (reserve), so the GPU buffers are rebuilt rarely.
+  room(needV, needI) {
     if (needV > this.die.length || needI > this.idx.length) {
       const cv = Math.max(2 * this.die.length, needV), ci = Math.max(2 * this.idx.length, needI);
       const pos = new Float32Array(3 * cv), nor = new Float32Array(3 * cv), die = new Float32Array(cv), idx = new Uint32Array(ci);
@@ -830,6 +861,11 @@ class PieceView {
       this.attach();
       this.flushV = 0; this.flushI = 0;   // new buffers: upload them whole
     }
+  }
+  pushPrism(pts, h, dieIndex, holes = []) {
+    const loops = [pts, ...holes], all = [].concat(...loops);
+    const n = all.length;
+    this.room(this.nVerts + 6 * n, this.nIdx + 6 * n + 6 * n);
     let tris = [];
     let convex = !holes.length;
     for (let i = 0, m = pts.length; i < m && convex; ++i) {
@@ -869,6 +905,13 @@ class PieceView {
   // New pieces are drawn whole at once; tempered ones are queued to be cut
   // into their real dice a few at a time (tick), so shattering never stalls a frame.
   add(shapes) {
+    // The first pieces of a tempered pane: make room for its dice in one go
+    // (a die is about 36 vertices and 72 indices, a whole piece twice that).
+    if (!this.reserved && P.plies.some((pl) => pl.dicing)) {
+      this.reserved = true;
+      const dice = CELL_CAP[clamp(P.viewTier ?? tier, 0, 4)] + 2 * shapes.length;
+      this.room(this.nVerts + 36 * dice, this.nIdx + 72 * dice);
+    }
     for (const s of shapes) {
       const n = s.outline.length / 2;
       if (n < 3) continue;
@@ -1209,12 +1252,13 @@ const FRINGE_MPA = 20;  // stress per fringe order in the view
 // opts: glazing (index, else the picked one), tier, quiet (a scene's window:
 // no aim marker, readouts or camera move), width and height (m: the glazing
 // cut to another size).
+let labSize = null;   // a test's specimen [width, height] (m) for the lab's pane; else the glazing's own size
 function newPane(seed = (Math.random() * 1e9) | 0, keepShots = false, opts = {}) {
   disposePane(P, groupPane);
   const gi = opts.glazing ?? gIdx;
-  const t = opts.tier ?? (tierCap === null ? tier : Math.min(tier, tierCap));
-  const sized = opts.width > 0 && opts.height > 0;
-  if (!(sized ? G.gls_new_pane_sized(gi, t, seed, opts.width, opts.height) : G.gls_new_pane(gi, t, seed)))
+  const t = opts.tier ?? (physCap === null ? PHYS : Math.min(PHYS, physCap));
+  const size = opts.width > 0 && opts.height > 0 ? [opts.width, opts.height] : opts.glazing === undefined ? labSize : null;
+  if (!(size ? G.gls_new_pane_sized(gi, t, seed, size[0], size[1]) : G.gls_new_pane(gi, t, seed)))
     throw new Error('could not build the pane');
   const floor = opts.floor ?? -FLOOR;   // pane frame: the ground below the pane's bottom edge
   G.gls_set_floor(floor);
@@ -1298,7 +1342,9 @@ function buildSlab() {
   P.edges = edges;
   // Frame: an aluminium rebate around the pane, on two feet.
   const fw = 0.035, fd = Math.max(0.05, T + 0.03);
+  const boxes = [];
   const bar = (w, h, x, y) => {
+    boxes.push([w, h, fd, x, y, -T / 2]);
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, fd), frameMat);
     m.position.set(x, y, -T / 2);
     m.castShadow = m.receiveShadow = tier >= 3;
@@ -1311,12 +1357,20 @@ function buildSlab() {
   for (const sx of [-1, 1]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, FLOOR - fw, 0.05), frameMat);
     leg.position.set(sx * (W / 2 + fw / 2), (FLOOR - fw) / 2, -T / 2);
+    boxes.push([0.05, FLOOR - fw, 0.05, sx * (W / 2 + fw / 2), (FLOOR - fw) / 2, -T / 2], [0.08, 0.03, 0.6, sx * (W / 2 + fw / 2), 0.015, -T / 2]);
     leg.userData.lab = true;
     groupPane.add(leg); P.meshes.push(leg);
     const foot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.6), frameMat);
     foot.position.set(sx * (W / 2 + fw / 2), 0.015, -T / 2);
     foot.userData.lab = true;
     groupPane.add(foot); P.meshes.push(foot);
+  }
+  // Below High there is no shadow map: the frame's shadow is drawn on the floor once.
+  if (tier < 3) {
+    const sh = bakedShadow(boxes);
+    sh.userData.lab = true;
+    groupPane.add(sh);
+    P.meshes.push(sh);
   }
   // Stress view: the front sheet again, drawn with the fringe texture.
   const front = new THREE.BufferGeometry();
@@ -1334,6 +1388,61 @@ function buildSlab() {
   aimMarker.userData.lab = true;
   groupPane.add(aimMarker);
   P.meshes.push(aimMarker);
+}
+// Soft shadows for tiers without a shadow map: the frame's, baked once for
+// the pane, and a blob under each impactor that follows it.
+const KEY_DIR = new THREE.Vector3(-2.5, 4.5, 3.5).normalize();   // toward the key light
+function onFloor(x, y, z) { const k = y / KEY_DIR.y; return [x - KEY_DIR.x * k, z - KEY_DIR.z * k]; }
+function hull(pts) {
+  pts = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], hi = [];
+  for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (const p of pts.reverse()) { while (hi.length >= 2 && cross(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
+  return lo.slice(0, -1).concat(hi.slice(0, -1));
+}
+function bakedShadow(boxes) {
+  const N = 512, span = 6, c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d');
+  const px = ([x, z]) => [(x / span + 0.5) * N, (z / span + 0.5) * N];
+  const draw = (dx, dy, a) => {
+    g.globalAlpha = a;
+    for (const [w, h, d, x, y, z] of boxes) {
+      const pts = [];
+      for (const ax of [-0.5, 0.5]) for (const ay of [-0.5, 0.5]) for (const az of [-0.5, 0.5]) pts.push(px(onFloor(x + ax * w, y + ay * h, z + az * d)));
+      g.beginPath();
+      hull(pts).forEach(([u, v], i) => (i ? g.lineTo(u + dx, v + dy) : g.moveTo(u + dx, v + dy)));
+      g.closePath();
+      g.fill();
+    }
+  };
+  g.fillStyle = '#fff';
+  // A soft edge, as a shadow map's filtering gives (canvas blur where there is one).
+  if ('filter' in g) { g.filter = 'blur(5px)'; draw(0, 0, 1); }
+  else for (const [dx, dy] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) draw(dx, dy, 0.35);
+  const tex = new THREE.CanvasTexture(c);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(span, span),
+    new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: tex, transparent: true, opacity: 0.2, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = 0.002;
+  m.renderOrder = 0;
+  return m;
+}
+let blobTex = null;
+function impactorBlob() {
+  if (!blobTex) {
+    const n = 64, c = document.createElement('canvas');
+    c.width = c.height = n;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, n, n);
+    blobTex = new THREE.CanvasTexture(c);
+  }
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: blobTex, transparent: true, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.renderOrder = 0;
+  return m;
 }
 function placeAimMarker() {
   if (!aimMarker || !aim) return;
@@ -1452,15 +1561,23 @@ function fire(at = aim, record = true) {
   const h = G.gls_fire(iIdx, at.x, at.y, speed, yaw * Math.PI / 180, pitch * Math.PI / 180, fromBack ? 1 : 0, lead);
   if (h < 0) return;
   if (record) P.shots.push({ t, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack });
+  if (P.test) (P.testHits ||= []).push(h);
   // A shot load fires several pellets; they follow the first one's index.
   const n = Math.max(h + 1, G.state()[3]);
   for (let k = h; k < n; ++k) {
     P.shotDefs[k] = iIdx;
+    (P.shotSpeed ||= [])[k] = speed;
     P.announced.delete(k);
     if (R) {
       const m = impactorMesh(def);
       groupPane.add(m);
       P.impMeshes[k] = m;
+      if (tier < 3 && !rigs && !activeScene()) {
+        const b = impactorBlob();
+        m.userData.blob = b;
+        groupPane.add(b);
+        P.meshes.push(b);
+      }
     }
   }
   P.nImp = n;
@@ -1487,10 +1604,12 @@ function replay() {
     simClockReset();
     return;
   }
+  if (P && P.nis && !P.shots.length) { const n = P.nis; newPane(P.seed); simClockReset(); plantStone(n, 0.4); return; }
   if (!P || !P.shots.length) { toast('Nothing to replay yet'); return; }
-  const shots = P.shots.slice();
+  const shots = P.shots.slice(), test = P.test, testDef = P.testDef;
   newPane(P.seed, true);
   if (GT && GT.active) GT.attach(P, P.seed, shots[0].iIdx);
+  if (test) { P.test = test; P.testDef = testDef; P.testHits = []; P.testQueue = []; }
   P.shots = shots;
   P.pendingShots = shots.slice();
   simClockReset();
@@ -1591,11 +1710,30 @@ function grenadeTarget(tEng) {
 function autoTarget(imps, plies) {
   return Math.min(autoTargetBase(imps, plies), grenadeTarget(G.gls_time()));
 }
+// Roughly how long impactor k stays on the glass (Hertz, against rigid glass
+// of E = 72 GPa): microseconds for a bullet, tens of milliseconds for a soft
+// bag. 0 when unknown (what the stacks fire on, say).
+function contactTime(k) {
+  const v = P.shotSpeed?.[k], def = cat.impactors[P.shotDefs?.[k] ?? -1];
+  const lib = def && LIB.impactors.find((d) => d.id === def.id);
+  if (!(v > 0) || !lib) return 0;
+  const E = 1 / ((1 - lib.poisson ** 2) / (lib.youngs_GPa * 1e9) + (1 - 0.22 ** 2) / 72e9);
+  return 2.87 * Math.pow(def.mass ** 2 / (def.radius * E * E * v), 0.2);
+}
 function autoTargetBase(imps, plies) {
-  let approach = Infinity, contact = false, membrane = false;
+  let approach = Infinity, contact = 0, membrane = false;
+  const now = G.gls_time(), since = (P.contactSince ||= []);
   for (let k = 0; k < P.nImp; ++k) {
     const o = 20 * k, phase = imps[o + 9];
-    if (phase === PH.CONTACT || phase === PH.BALLISTIC) contact = true;
+    // A contact shows over about four seconds, never faster than 1/100; one
+    // that lasts longer than that (a pane flexing under a heavy ball holds it
+    // far longer than rigid glass would) eases up as it goes on.
+    if (phase === PH.CONTACT || phase === PH.BALLISTIC) {
+      since[k] ??= now;
+      // Something lying against the glass is no impact to slow down for.
+      if (now - since[k] > 3e-3 && Math.hypot(imps[o + 3], imps[o + 4], imps[o + 5]) < 0.3) continue;
+      contact = Math.min(contact || 1, clamp(Math.max(contactTime(k), now - since[k]) / 4, 1 / 5000, 1 / 100));
+    } else since[k] = null;
     if (phase === PH.MEMBRANE) membrane = true;
     if (phase === PH.FLIGHT) {
       const side = imps[o + 16], vz = imps[o + 5];
@@ -1608,9 +1746,18 @@ function autoTargetBase(imps, plies) {
       }
     }
   }
-  let tips = 0;
-  for (let k = 0; k < P.nGlass; ++k) tips += plies[12 * k + 11];
-  if (contact || tips > 0) return 1 / 5000;
+  let tips = 0, crack = 0;
+  for (let k = 0; k < P.nGlass; ++k) { tips += plies[12 * k + 11]; crack += plies[12 * k + 2] * plies[12 * k + 3]; }
+  // Running cracks (hundreds of m/s) need 1/5000; cracks creeping on under a
+  // slow push (a ball sinking into a laminate) follow the contact instead.
+  const cr = P.crackRun ||= { t: now, len: crack, speed: 0 };
+  if (now < cr.t || crack < cr.len) Object.assign(cr, { t: now, len: crack, speed: 0 });
+  else if (now - cr.t > 2e-5) {
+    cr.speed = (crack - cr.len) / (now - cr.t) / Math.max(1, tips);
+    cr.t = now; cr.len = crack;
+  }
+  if (tips > 0 && (cr.speed > 50 || !contact)) return 1 / 5000;
+  if (contact) return contact;
   // A note building up to break the glass: slow enough to watch it swing.
   if (TONE.on) return TONE_SLOW;
   if (membrane) return 1 / 400;
@@ -1648,6 +1795,12 @@ function updateReadouts(final) {
     const out = $('outcome');
     out.textContent = (r.outcome || (v[5] >= 0 ? 'In contact…' : 'On its way…')).replace(/(\d+(?:\.\d+)?) m\/s/g, (m, x) => fmtSpeed(+x));
     out.className = v[11] ? 'bad' : v[10] ? 'warn' : r.outcome ? 'ok' : '';
+    if (P.scores && P.scores.length && s[6] && r.outcome) {
+      // The score let go (often as the pane rang down, after the knock).
+      const loop = P.scores.some((sc) => sc.closed);
+      out.textContent = loop ? 'The score gave way: the crack ran round it and the disc dropped out' : 'The score gave way: the glass snapped along it';
+      out.className = 'warn';
+    }
     kv.push(['Impact speed', fmtSpeed2(v[0])]);
     kv.push(['Kinetic energy', v[2] < 10 ? `${v[2].toFixed(2)} J` : `${v[2].toFixed(0)} J`]);
     if (v[4] > 0) kv.push(['Peak force', v[4] >= 1e3 ? `${(v[4] / 1e3).toFixed(2)} kN` : `${v[4].toFixed(0)} N`]);
@@ -1657,10 +1810,29 @@ function updateReadouts(final) {
     if (r.outcome && v[1] > 0) kv.push(['Leaves at', fmtSpeed(v[1])]);
     if (v[8] > 0) kv.push(['Depth reached', `${(v[8] * 1e3).toFixed(1)} mm of ${(P.T * 1e3).toFixed(1)}`]);
     if (v[9] > 0.0005) kv.push(['Bulge', `${(v[9] * 1e3).toFixed(0)} mm`]);
+    const verdict = P.test ? testResult(s) : null;
+    if (verdict?.pending) kv.unshift(['Test', verdict.pending]);
+    else if (verdict) {
+      const mark = verdict.grade ?? (verdict.pass ? 'PASS' : 'FAIL');
+      kv.unshift(['Test', `<span style="color:var(--${verdict.pass ? 'good' : 'bad'})">${mark}</span> · ${P.testDef.std}`]);
+      kv.push(...(verdict.rows || []), ['Why', verdict.why]);
+      if (P.testDef.note) kv.push(['Model note', P.testDef.note]);
+    }
+    if (verdict && P.testDef) kv.splice(1, 0, ['Criterion', P.testDef.criterion]);
+  } else if (P.nis && P.nis.text) {
+    const out = $('outcome');
+    out.textContent = P.nis.text;
+    out.className = P.nis.broke ? 'bad' : 'ok';
   } else if (TONE.on || TONE.broke) {
     const out = $('outcome');
     out.textContent = TONE.broke ? TONE.brokeText : `Playing ${fmtHz(TONE.freq)} at the glass…`;
     out.className = TONE.broke ? 'bad' : '';
+  }
+  if (P.puzzle) {
+    // The puzzle says what it needs; the shots' numbers would give it away.
+    $('outcome').textContent = P.puzzle.text;
+    $('outcome').className = P.puzzle.cls || '';
+    if (P.puzzle.phase !== 'done') kv.length = 0;
   }
   $('kv').innerHTML = kv.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   // Plies
@@ -1694,11 +1866,12 @@ function updateReadouts(final) {
     }
     const real = tp.dice > 0 ? Math.round(0.0025 / (tp.dice * tp.dice)) : 0;
     pv.push(['Dice (real glass)', `≈${(tp.dice * 1e3).toFixed(1)} mm · ≈${real} per 50 mm square`]);
-    if (tp.drawn > tp.dice * 1.05) pv.push(['Dice drawn', `${(tp.drawn * 1e3).toFixed(0)} mm (${TIER_NAMES[tier]} tier)`]);
+    if (tp.drawn > tp.dice * 1.05) pv.push(['Dice simulated', `${(tp.drawn * 1e3).toFixed(0)} mm, drawn as their real dice`]);
     pv.push(['ECE R43 window', real >= 40 && real <= 400 ? 'within 40–400 ✓' : 'outside 40–400']);
   }
   pv.push(['Plate', `${s[16].toFixed(1)} Hz fundamental · ${s[18]}×${s[19]} modes to ${(s[17] / 1e3).toFixed(1)} kHz`]);
-  pv.push(['Quality', `${TIER_NAMES[tier]} · ${(s[20] * 1e3).toFixed(1)} mm crack grid`]);
+  pv.push(['Physics', `${(s[20] * 1e3).toFixed(1)} mm crack grid · the same on every device`]);
+  pv.push(['Drawing', `${TIER_NAMES[tier]}${G.remote ? ' · physics on its own core' : ''}`]);
   $('pane').innerHTML = pv.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   // Events
   if (s[21] > P.eventsShown) {
@@ -1713,8 +1886,11 @@ function updateReadouts(final) {
 // Announce what happened to each shot once.
 function announce() {
   if (activeScene()) return;
+  if (P.puzzle) { for (let k = 0; k < P.nImp; ++k) P.announced.add(k); return; }   // no spoilers
   for (let k = 0; k < P.nImp; ++k) {
     if (P.announced.has(k)) continue;
+    // Shards from another pane of a stack are not the shot: no banner for them.
+    if (P.shotDefs[k] === shardIdx) { P.announced.add(k); continue; }
     const r = G.report(k), v = r.v;
     if (!r.outcome) continue;
     P.announced.add(k);
@@ -1823,12 +1999,26 @@ const pointers = new Map();
 let drag = null, pinch0 = 0;
 const surface = flat ? canvas2d : canvas;
 surface.addEventListener('pointerdown', (e) => {
+  if (cutMode && P && !rigs && !activeScene()) {
+    const p = panePointFromEvent(e);
+    if (p && p.x > 0 && p.y > 0 && p.x < P.W && p.y < P.H) {
+      surface.setPointerCapture(e.pointerId);
+      if (cutMode === 'circle') { addScore(circlePts(p, 0.1), true); setCutMode('circle'); }
+      else cutLine = { id: e.pointerId, pts: [p] };
+      return;
+    }
+  }
   surface.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 1) drag = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0, theta: cam.theta, phi: cam.phi };
   if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); drag = null; }
 });
 surface.addEventListener('pointermove', (e) => {
+  if (cutLine && e.pointerId === cutLine.id) {
+    const p = panePointFromEvent(e), last = cutLine.pts[cutLine.pts.length - 1];
+    if (p && p.x > 0 && p.y > 0 && p.x < P.W && p.y < P.H && Math.hypot(p.x - last.x, p.y - last.y) > 0.005) cutLine.pts.push(p);
+    return;
+  }
   if (!pointers.has(e.pointerId)) {
     if (e.pointerType === 'mouse' && P) {
       const p = panePointFromEvent(e);
@@ -1854,11 +2044,22 @@ surface.addEventListener('pointermove', (e) => {
   }
 });
 function endPointer(e) {
+  if (cutLine && e.pointerId === cutLine.id) {
+    const pts = cutLine.pts;
+    cutLine = null;
+    if (pts.length >= 2) { addScore(pts, false); setCutMode('line'); }
+    return;
+  }
   pointers.delete(e.pointerId);
   // A tap in the shop picks the pane to throw through.
   if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && HS && HS.active) {
     const rect = canvas.getBoundingClientRect();
     HS.pick(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  }
+  if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && P && P.puzzle && P.puzzle.phase !== 'done') {
+    puzzleTap(panePointFromEvent(e));
+    drag = null;
+    return;
   }
   if (drag && drag.moved <= 6 && performance.now() - drag.t < 450 && P && (!rigs || stackOn)) {
     if (stackOn) useRig(rigs[0]);
@@ -1889,7 +2090,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 't') $('bTone').click();
   else if (k === 'a') $('bAuto').click();
   else if (k === 'h' || k === '?') $('help').classList.toggle('on');
-  else if (k === 'escape') $('help').classList.remove('on');
+  else if (k === 'escape') { $('help').classList.remove('on'); $('tests').classList.remove('on'); }
   else if (k >= '1' && k <= '6') { auto = false; scaleManual = SCALES[+k - 1][0]; buildScaleButtons(); syncAuto(); }
 });
 
@@ -1943,12 +2144,13 @@ function chipGroup(box, list, current, onPick) {
 function pickGlazing(i) {
   if (activeScene()) leaveScene(false);
   gIdx = i;
+  labSize = null;
   chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
   rebuildLab();
 }
 function pickImpactor(i, keepSpeed = false) {
   iIdx = i;
-  store.set('impactor', cat.impactors[i].id);
+  store.set('impactor:v2', cat.impactors[i].id);
   if (!keepSpeed) speed = cat.impactors[i].speed;
   chipGroup($('impactors'), cat.impactors, iIdx, (k) => pickImpactor(k));
   $('iDesc').textContent = cat.impactors[i].description;
@@ -1958,21 +2160,10 @@ const PRESETS = [
   ['Ball through a window', 'annealed_6', 'steel_ball_2260', 8.86, 'A 2.26 kg steel ball dropped 4 m onto 6 mm plate glass'],
   ['Baseball through a house window', 'annealed_4', 'baseball', 40, '90 mph fastball, thin annealed glass'],
   ['Escape tool on a car door', 'car_side_tempered', 'window_punch', 5.5, 'Spring punch: tempered glass crumbles from a 0.3 J tap'],
-  ['ECE R43 windscreen ball test', 'windscreen', 'steel_ball_2260', 8.86, 'The PVB must catch a 2.26 kg ball from 4 m'],
   ['Pedestrian head on a windscreen', 'windscreen', 'headform', 11.1, 'Euro NCAP adult headform at 40 km/h', { y: 0.32 }],
   ['Occupant head from inside', 'windscreen', 'headform', 7, 'Unbelted head strike, 25 km/h, from the cabin', { back: true, y: 0.55 }],
   ['Stone chip at highway speed', 'windscreen', 'stone', 30, 'A granite chip stars the outer ply only'],
-  ['Bird strike at 250 kt', 'aircraft_windshield', 'bird_4lb', 128.6, '14 CFR 25.775: 4 lb bird, pressurised cabin'],
   ['Hail on a window', 'annealed_4', 'hail_50', 33, '50 mm hailstone at terminal velocity'],
-  ['Hurricane debris', 'hurricane', 'timber_2x4', 15.2, 'ASTM E1996 missile D: 2x4 stud at 15 m/s'],
-  ['Falling into a shower door', 'tempered_6', 'body_bag', 4.89, 'ANSI Z97.1 bag from 48 in: tempered glass'],
-  ['Falling into an old door', 'annealed_6', 'body_bag', 4.89, 'The same fall into annealed glass'],
-  ['9 mm vs Level 1', 'ul752_l1', 'pistol_9mm', 380, 'UL 752 Level 1 class all-glass laminate'],
-  ['.44 Magnum vs Level 3', 'ul752_l3', 'magnum_44', 430, 'Glass-clad polycarbonate catches it'],
-  ['Rifle vs Level 3', 'ul752_l3', 'rifle_762', 850, 'A handgun rating does not stop 7.62 mm'],
-  ['Rifle vs Level 8', 'ul752_l8', 'rifle_762', 850, 'Rifle-rated: stopped deep in the layup'],
-  ['.50 BMG vs Level 8', 'ul752_l8', 'bmg_50', 900, 'A heavy machine-gun round has five times a rifle\'s energy: straight through'],
-  ['.50 BMG vs Level 10', 'ul752_l10', 'bmg_50', 900, 'Nearly 4 in of glass-clad polycarbonate stops it'],
   ['BB gun vs plate glass', 'annealed_6', 'bb', 120, 'Hertzian cone: the classic conical hole'],
   ['Buckshot through a window', 'annealed_6', 'buckshot_00', 395, 'A 12-gauge 00 buck shell from 7 m: nine pellets, one after another'],
   ['Buckshot vs car door glass', 'car_side_tempered', 'buckshot_00', 395, 'Nine pellets into tempered side glass'],
@@ -1980,6 +2171,12 @@ const PRESETS = [
   ['Cannonball through a shop window', 'annealed_6', 'cannonball_9lb', 440, 'A Revolutionary War 9-pounder: 4 kg of iron at 1,450 ft/s'],
   ['Cannonball vs tempered', 'tempered_6', 'cannonball_9lb', 440, 'The same round shot into fully tempered glass'],
   ['Cannonball vs bulletproof glass', 'ul752_l3', 'cannonball_9lb', 440, 'The polycarbonate wraps round the ball and the whole window goes with it'],
+  ['Armour stops it, then becomes the missile', 'ul752_l10', 'cannonball_9lb', 440,
+    '95 mm of glass-clad polycarbonate stops the ball, but tears out of its frame round it: 80 kg of window flies into the shop window a metre behind',
+    { stack: [['annealed_10', 1]] }],
+  ['Through a stack of armour', 'ul752_l1', 'cannonball_9lb', 500,
+    'Three bullet-resistant panes a metre apart: every sheet the ball tears out goes on with it, and what it leaves behind flies on too',
+    { stack: [['ul752_l1', 1], ['ul752_l1', 1]] }],
 ];
 // ---------- The armoured car ----------
 let sceneLoading = false;
@@ -2003,8 +2200,8 @@ async function startScene() {
   yaw = 0; pitch = 0; fromBack = false;
   $('bSide').setAttribute('aria-pressed', 'false');
   syncSpeed();
-  // ~190 rounds in ten seconds: keep the automatic tier where that runs in real time.
-  tierCap = tierChoice === 'auto' ? 2 : null;
+  // ~190 rounds in ten seconds: the scene's physics is a step coarser, on every device.
+  physCap = 2;
   newPane();
   GT.enter(P, P.seed, ii);
   P.shots = GT.schedule.shots.slice();
@@ -2042,7 +2239,7 @@ function leaveScene(rebuild) {
     $('res').hidden = false;
     rebuild = true;
   }
-  tierCap = null;
+  physCap = null;
   if (window.innerWidth > 860) $('lab').hidden = false;
   auto = store.get('auto', true); syncAuto(); buildScaleButtons();
   if (rebuild) rebuildLab();
@@ -2063,6 +2260,47 @@ function buildPresets() {
     b.className = 'feature';
     b.innerHTML = 'Grenade in the shop<small>Pick a window of a glass shop at night: a crash dummy throws a grenade through it and the blast blows out the storefront and every window</small>';
     b.onclick = startHouse;
+    box.appendChild(b);
+  }
+  {
+    const b = document.createElement('button');
+    b.className = 'feature';
+    b.innerHTML = 'Cut a hole like a burglar<small>Score a circle in a window with a glass cutter, knock it from behind with a rubber mallet, and the disc drops out along the score</small>';
+    b.onclick = startBurglar;
+    box.appendChild(b);
+  }
+  {
+    const b = document.createElement('button');
+    b.className = 'feature';
+    b.innerHTML = 'Read the cracks<small>Three stones hit a windscreen while you look away. Can you tell which came first, the way a forensic examiner would?</small>';
+    b.onclick = startForensics;
+    box.appendChild(b);
+  }
+  {
+    const gi = cat.glazings.findIndex((g) => g.id === 'storefront_tempered_10');
+    if (gi >= 0) {
+      const b = document.createElement('button');
+      b.className = 'feature';
+      b.innerHTML = 'A window that explodes on its own<small>A storefront of tempered glass, years after it was fitted: a 0.4 mm nickel-sulfide stone in its core swells as it changes phase, and the whole panel dices with nothing touching it</small>';
+      b.onclick = () => {
+        if (activeScene()) leaveScene(false);
+        if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
+        if (TONE.on) setTone(false);
+        gIdx = gi;
+        chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+        newPane();
+        simClockReset();
+        const r = mulberry32(P.seed);
+        plantStone({ x: P.W * (0.3 + 0.4 * r()), y: P.H * (0.25 + 0.3 * r()), d: 0.4 });
+      };
+      box.appendChild(b);
+    }
+  }
+  {
+    const b = document.createElement('button');
+    b.className = 'feature';
+    b.innerHTML = "Prince Rupert's drop<small>Its head stops a bullet; snap its tail and the whole drop explodes at 1.5 km/s. Under a high-speed camera and between crossed polarisers</small>";
+    b.onclick = () => { location.href = 'drop/'; };
     box.appendChild(b);
   }
   {
@@ -2106,13 +2344,20 @@ function buildPresets() {
       fromBack = !!opt.back;
       $('bSide').setAttribute('aria-pressed', String(fromBack));
       syncSpeed();
-      newPane();
+      labSize = null;
+      if (opt.stack) {
+        // Panes behind, [glazing id, gap in m] each, cut to the first one's size.
+        stack = opt.stack.map(([id, gap]) => ({ gid: cat.glazings.findIndex((g) => g.id === id), gap })).filter((l) => l.gid >= 0);
+        rebuildLab();
+        if (stackOn) useRig(rigs[0]);
+      } else newPane();
       simClockReset();
       updatePaneInfo();
       auto = true; syncAuto(); buildScaleButtons();
       const at = { x: P.W / 2, y: P.H * (opt.y ?? 0.5) };
       aim = at;
       placeAimMarker();
+      P.test = opt.test || null;
       fire(at);
       if (window.innerWidth <= 860) showTab('res');
     };
@@ -2143,7 +2388,7 @@ function showTab(which) {
     resize();
     newPane();
     simClockReset();
-    toast(`${TIER_NAMES[tier]} quality: the same physics at ${['coarse', 'low', 'medium', 'fine', 'finest'][tier]} resolution`);
+    toast(`${TIER_NAMES[tier]} drawing: the physics is the same on every setting`);
   };
 }
 $('speed').oninput = () => { speed = sliderToSpeed(+$('speed').value, cat.impactors[iIdx]); syncSpeed(); };
@@ -2285,7 +2530,7 @@ function draw2d(tShow, poses) {
 }
 
 // ---------- Main loop ----------
-let last = performance.now(), uiTick = 0, slowFrames = 0;
+let last = performance.now(), uiTick = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.25, (now - last) / 1000);
@@ -2293,16 +2538,35 @@ function frame(now) {
   if (!P) return;
   let tEng, s, poses = null;
   if (rigs) {
+    if (G.remote) G.hold();   // several panes: the frame steps each in turn
     tEng = multiFrame(dt);
     if (stackOn) stackHandOff();
     s = G.state();
   } else {
+    // The engine in its worker: if it is in the middle of a few milliseconds
+    // of steps, wait for them briefly; otherwise draw this frame as it stands.
+    if (G.remote && G.hold()) {
+      const t0 = performance.now();
+      while (G.hold() && performance.now() - t0 < 4) { /* the worker stops at its next step */ }
+      if (G.hold()) {
+        if (R) R.render(scene, camera);
+        return;
+      }
+    }
     s = G.state();
     const plies0 = G.plies(P.nGlass);
     // Bullet time eases down fast and back up gently (in log space).
     easeScale(auto ? autoTarget(G.impactors(P.nImp), plies0) : scaleManual, dt);
     fireDueShots();
-    if (playing) {
+    if (playing && G.remote) {
+      // The worker stepped toward last frame's time while the page drew. If it
+      // has not got there, the clock waits for it: the physics is never cut short.
+      const eng = G.gls_time();
+      limited = eng < P.goal - 1e-12;
+      P.simClock = (limited ? eng : Math.max(P.simClock, eng)) + dt * scaleNow;
+      if (P.pendingShots.length) P.simClock = Math.min(P.simClock, P.pendingShots[0].t);
+      P.simClock = Math.min(P.simClock, grenadeDue());
+    } else if (playing) {
       P.simClock = Math.max(P.simClock, G.gls_time()) + dt * scaleNow;
       if (P.pendingShots.length) P.simClock = Math.min(P.simClock, P.pendingShots[0].t);
       P.simClock = Math.min(P.simClock, grenadeDue());
@@ -2325,21 +2589,59 @@ function frame(now) {
   // Readouts.
   if ((uiTick += dt) > 0.12) {
     uiTick = 0;
-    if (!rigs) { updateReadouts(); announce(); toneReadout(); }
+    if (!rigs) { testStep(); updateReadouts(); announce(); toneReadout(); }
     else if (stackOn) { useRig(rigs[0]); updateReadouts(); announce(); stackReadout(); }
     $('clock').innerHTML = `${fmtTime(tEng)}<small>${fmtScale(scaleNow)}${auto ? ' · auto' : ''}</small>`;
     $('limit').textContent = limited ? 'device-limited' : '';
   }
-  // Adaptive resolution if the GPU struggles.
+  // The worker steps on toward the clock while this frame draws (after the
+  // frame's last call, so none of them waits on its steps).
+  if (G.remote && !rigs && P) {
+    if (playing) { P.goal = P.simClock; G.go(P.goal); }
+    else { P.goal = 0; G.stop(); }
+  }
   if (R) {
-    slowFrames = dt > 0.045 ? slowFrames + 1 : Math.max(0, slowFrames - 1);
-    if (slowFrames > 90 && R.getPixelRatio() > 0.6) { R.setPixelRatio(R.getPixelRatio() * 0.8); slowFrames = 0; }
-    R.render(scene, camera);
+    adaptResolution(dt);
+    if (!idle(now, tEng, s)) R.render(scene, camera);
   } else {
     draw2d(tEng, poses);
   }
 }
 
+// Resolution follows the frame rate both ways: down a step while frames are
+// slow (a burst of thousands of pieces), back up once they are quick again.
+let frameAvg = 1 / 60, slowRun = 0, quickRun = 0;
+function adaptResolution(dt) {
+  frameAvg += (dt - frameAvg) * 0.1;
+  slowRun = frameAvg > 1 / 24 ? slowRun + 1 : 0;
+  quickRun = frameAvg < 1 / 45 ? quickRun + 1 : 0;
+  const before = resScale;
+  if (slowRun > 30) { resScale = Math.max(0.55, resScale * 0.85); slowRun = 0; }
+  else if (quickRun > 120 && resScale < 1) { resScale = Math.min(1, resScale * 1.12); quickRun = 0; }
+  if (resScale !== before) R.setPixelRatio(pixelRatio());
+}
+// Nothing on screen changes while the pane is settled, the camera still and
+// nobody touching anything: keep the last frame (phones stay cool). A frame
+// is still drawn every second.
+let lastInput = performance.now(), lastDrawn = 0, quietFrom = null;
+const lastCam = new Float32Array(16);
+for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'resize', 'input', 'change'])
+  window.addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true, capture: true });
+function idle(now, tEng, s) {
+  let still = true;
+  const e = camera.matrixWorld.elements;
+  for (let i = 0; i < 16; ++i) if (lastCam[i] !== e[i]) { still = false; lastCam[i] = e[i]; }
+  // Settled: the engine quiet, and three seconds of engine time for the dice
+  // to land (they fly on the GPU by the clock). Paused, nothing moves at all.
+  const lab = !!P && !rigs && !activeScene() && !TONE.on && !TONE.mic;
+  const quiet = lab && !!s && s[1] === 1;
+  if (!quiet) quietFrom = null;
+  else if (quietFrom === null) quietFrom = tEng;
+  const settled = lab && (!playing || (quiet && tEng - quietFrom > 3));
+  const skip = still && settled && now - lastInput > 1500 && now - lastDrawn < 1000;
+  if (!skip) lastDrawn = now;
+  return skip;
+}
 function easeScale(target, dt) {
   if (auto) {
     const lg = Math.log10(scaleNow), lt = Math.log10(target);
@@ -2420,6 +2722,7 @@ function paneFrame(dt, s, tEng) {
   let poses = null;
   if (nFrag > 0) {
     poses = G.fragmentPoses(nFrag).slice();
+    if (riders.length) rideAlong(poses);
     P.frags.update(poses, Math.max(0, tEng - s[23]), tEng);  // pieces step every 0.5 ms; extrapolate between
   }
   if (s[26] > P.crush.count) P.crush.add(G.crushes(P.crush.count).slice());
@@ -2477,6 +2780,14 @@ function paneFrame(dt, s, tEng) {
         const sq = clamp(1 - imps[o + 11] / L, 0.08, 1);
         m.scale.set(1 / Math.sqrt(sq), 1 / Math.sqrt(sq), sq);
       }
+      if (m.userData.blob) {
+        const b = m.userData.blob, y = Math.max(0, m.position.y), [bx, bz] = onFloor(m.position.x, y, m.position.z);
+        const size = 2.4 * imps[o + 13] + 0.12 * y;
+        b.position.set(bx, 0.003, bz);
+        b.scale.set(size, size, 1);
+        b.material.opacity = 0.45 * clamp(1 - y / 3, 0.15, 1);
+        b.visible = m.visible;
+      }
       if (m.userData.glow) {
         const d = camera.position.distanceTo(m.getWorldPosition(_impW));
         m.userData.glow.scale.setScalar(0.012 * d);
@@ -2519,6 +2830,7 @@ function disposePane(p, group) {
 // meanwhile.
 function makeRigs(specs) {
   dropRigs();
+  riders = [];
   disposePane(P, labGroup);
   P = null; slab = stressMesh = aimMarker = null;
   G.gls_select(0); G.gls_free_pane();
@@ -2541,6 +2853,7 @@ function makeRigs(specs) {
   return rigs;
 }
 function dropRigs() {
+  riders = [];
   if (!rigs) return;
   for (const r of rigs) {
     disposePane(r.P, r.group);
@@ -2572,6 +2885,7 @@ function multiFrame(dt) {
     limited = lim;
     if (lim) multiClock = tMin;
   }
+  if (riders.length) updateRiders();
   // What each pane shows, at the detail its scene gives it from where the
   // camera is (2 near, 1 small on the screen, 0 out of sight): a small pane
   // catches up every other frame, one out of sight every eighth and isn't
@@ -2628,10 +2942,9 @@ function buildStack(seeds) {
     scene.add(group);
     stackGroups.push(group);
     z += cat.glazings[gi].thickness;
-    // The panes behind share the work: a tier lower than the first.
-    const t = tierCap === null ? tier : Math.min(tier, tierCap);
+    // The panes behind share the work: their physics a step coarser than the first's.
     return { glazing: cat.glazings[gi].id, seed: seeds?.[k] ?? ((Math.random() * 1e9) | 0), group, w: g0.width, h: g0.height,
-      tier: k ? Math.max(0, t - 1) : t, viewTier: t, frame: true };
+      tier: k ? PHYS - 1 : PHYS, viewTier: tier, frame: true };
   });
   makeRigs(specs);
   stackOn = true;
@@ -2688,6 +3001,40 @@ function fireInto(r, di, x, y, sp, yawD, pitchD, back, lead, mass = 0, radius = 
   P.nImp = n;
   return h;
 }
+// What a ripped-out sheet hits the next pane with: its mass, a nose of the
+// given radius, and the elastic constants of its ply that leads (the back ply
+// of a sheet going on the way the shot came, else the front one). The nose
+// stays within the sizes the engine's push-through is made for (a ball to a
+// body bag): what leads is the wrapped object's bulge, or the sheet's edge.
+const NOSE_MAX = 0.15;
+function sheetBody(Pk, forward, mass, radius, ballR, mesh) {
+  const plies = LIB.glazings.find((g) => g.id === Pk.glazing.id)?.plies || [];
+  const ply = forward ? plies[plies.length - 1] : plies[0];
+  const mat = LIB.materials.find((m) => m.id === ply?.material) || { youngs_GPa: 72, poisson: 0.22 };
+  return { mass, radius, ballR, kind: 0, E: mat.youngs_GPa * 1e9, nu: mat.poisson, e: 0.3, mesh };
+}
+// Fires such a body into rig r's pane; drawn as impactor di (the object
+// inside it) at its own size, or not at all (a flying sheet draws itself).
+function fireBodyInto(r, di, x, y, sp, yawD, pitchD, back, lead, body) {
+  useRig(r);
+  const h = G.gls_fire_body(di, x, y, sp, yawD * Math.PI / 180, pitchD * Math.PI / 180, back ? 1 : 0, lead,
+    body.mass, body.radius, body.kind, body.E, body.nu, body.e);
+  if (h < 0) return -1;
+  const n = Math.max(h + 1, G.state()[3]);
+  P.shotMass ||= []; P.shotRadius ||= []; P.shotBody ||= [];
+  for (let k = h; k < n; ++k) {
+    P.shotDefs[k] = di;
+    P.shotMass[k] = body.mass; P.shotRadius[k] = body.radius; P.shotBody[k] = body;
+    if (R && body.mesh) {
+      const m = impactorMesh(cat.impactors[di]);
+      if (body.ballR > 0) m.scale.setScalar(body.ballR / cat.impactors[di].radius);
+      groupPane.add(m);
+      P.impMeshes[k] = m;
+    }
+  }
+  P.nImp = n;
+  return h;
+}
 // Everything flying off a pane toward another, about to reach it, goes into it.
 function stackHandOff() {
   const n = rigs.length, t = multiClock;
@@ -2706,18 +3053,54 @@ function stackHandOff() {
       const z = imps[o + 2], vz = imps[o + 5];
       if (vz > 0 ? z < Pk.T + 0.003 : z > -0.003) continue;   // not through or off this pane yet
       const it = { m, x: imps[o], y: imps[o + 1], z, vx: imps[o + 3], vy: imps[o + 4], vz, di: Pk.shotDefs[m] ?? iIdx,
-        mass: Pk.shotMass?.[m] || 0, radius: Pk.shotRadius?.[m] || 0 };
-      // Wrapped in the laminate it ripped out: the next pane is hit by the whole bundle.
+        mass: Pk.shotMass?.[m] || 0, radius: Pk.shotRadius?.[m] || 0, body: Pk.shotBody?.[m] };
+      // Wrapped in the laminate it ripped out: the next pane is hit by the
+      // whole bundle, nose first, the sheet's outer ply over the object.
       const sheet = G.gls_carried_sheet(m);
-      if (sheet >= 0) Object.assign(it, { sheet, mass: G.gls_sheet_mass(sheet), radius: 1.6 * imps[o + 13] });
+      if (sheet >= 0) {
+        const ballR = it.body?.ballR ?? imps[o + 13];
+        Object.assign(it, { sheet, body: sheetBody(Pk, vz > 0, G.gls_sheet_mass(sheet), Math.min(ballR + Pk.T, NOSE_MAX), ballR, true),
+          label: `${cat.impactors[it.di].name} wrapped in its window` });
+      }
       out.push(it);
     }
     const nf = G.state()[4];
+    const sheetOf = nf ? G.fragmentSheets(nf) : null;
+    if (nf) {
+      // Sheets flying on their own (a window ripped out round a stopped object,
+      // or what a tearing object left behind) hit the next pane as bodies of
+      // their own: their whole mass, bowed toward where they go.
+      const carried = new Set();
+      for (let m = 0; m < Pk.nImp; ++m) { const c = G.gls_carried_sheet(m); if (c >= 0) carried.add(c); }
+      Pk.sheetsHanded ||= new Set();
+      const poses = G.fragmentPoses(nf), groups = new Map();
+      for (let i = 0; i < nf; ++i) {
+        const c = sheetOf[i], q = 12 * i;
+        if (c < 0 || carried.has(c) || Pk.sheetsHanded.has(c) || poses[q + 10] < 0) continue;
+        let gr = groups.get(c);
+        if (!gr) groups.set(c, gr = { frags: [], sx: 0, sy: 0, sz: 0, vx: 0, vy: 0, vz: 0, zMin: Infinity, zMax: -Infinity });
+        gr.frags.push(i);
+        gr.sx += poses[q]; gr.sy += poses[q + 1]; gr.sz += poses[q + 2];
+        gr.vx += poses[q + 7]; gr.vy += poses[q + 8]; gr.vz += poses[q + 9];
+        gr.zMin = Math.min(gr.zMin, poses[q + 2]); gr.zMax = Math.max(gr.zMax, poses[q + 2]);
+      }
+      for (const [c, gr] of groups) {
+        const n = gr.frags.length, vx = gr.vx / n, vy = gr.vy / n, vz = gr.vz / n;
+        if (Math.abs(vz) < 0.5) continue;
+        const cx = gr.sx / n, cy = gr.sy / n;
+        let rMax = 0;
+        for (const i of gr.frags) rMax = Math.max(rMax, Math.hypot(poses[12 * i] - cx, poses[12 * i + 1] - cy));
+        out.push({ freeSheet: c, frags: gr.frags, x: cx, y: cy, z: vz > 0 ? gr.zMax : gr.zMin, vx, vy, vz, di: shardIdx >= 0 ? shardIdx : 0,
+          // What meets the glass first is the part of it that leads (its bulge or an edge as it tumbles).
+          body: sheetBody(Pk, vz > 0, G.gls_sheet_mass(c), clamp(rMax, 0.05, 0.12), 0, false),
+          label: `a flying sheet of ${Pk.glazing.name}` });
+      }
+    }
     if (nf && shardIdx >= 0) {
       const poses = G.fragmentPoses(nf), tPly = Pk.T / Math.max(1, Pk.nGlass);
       for (let i = 0; i < nf; ++i) {
         const q = 12 * i;
-        if (poses[q + 10] !== 2 || Pk.thrown.has(i) || G.gls_fragment_sheet(i) >= 0) continue;  // bonded glass goes as its sheet
+        if (poses[q + 10] !== 2 || Pk.thrown.has(i) || sheetOf[i] >= 0) continue;  // bonded glass goes as its sheet
         const vx = poses[q + 7], vy = poses[q + 8], vz = poses[q + 9];
         if (vx * vx + vy * vy + vz * vz < 4) continue;
         const rr = Math.max(0.002, Pk.pieceSize[i] || 0.01);
@@ -2728,7 +3111,7 @@ function stackHandOff() {
     }
     for (const it of out) {
       const j = it.vz > 0 ? k + 1 : k - 1;
-      const done = () => (it.frag === undefined ? Pk.handed.add(it.m) : Pk.thrown.add(it.frag));
+      const done = () => (it.freeSheet !== undefined ? Pk.sheetsHanded.add(it.freeSheet) : it.frag === undefined ? Pk.handed.add(it.m) : Pk.thrown.add(it.frag));
       if (j < 0 || j >= n) { done(); continue; }
       const rj = rigs[j];
       const zt = it.vz > 0 ? stackDepth[j] - stackDepth[k] : stackDepth[j] + rj.P.T - stackDepth[k];
@@ -2738,21 +3121,98 @@ function stackHandOff() {
       const tc = Math.max(0, ttc);
       const x = it.x + it.vx * tc, y = it.y + it.vy * tc - 4.905 * tc * tc;
       if (ttc < -0.05 || x <= 0.003 || y <= 0.003 || x >= rj.P.W - 0.003 || y >= rj.P.H - 0.003) continue;  // past it, or misses
-      const shard = it.di === shardIdx;
+      const shard = it.di === shardIdx && !it.body;   // a flying sheet is built on the shard, but it is no shard
       if (shard && (rj.shards >= SHARDS_PER_PANE || 0.5 * (it.mass || cat.impactors[it.di].mass) * (it.vx ** 2 + it.vy ** 2 + it.vz ** 2) < SHARD_MIN_ENERGY)) continue;
       const vy = it.vy - 9.81 * tc, sp = Math.hypot(it.vx, vy, it.vz);
       const yawD = Math.atan2(it.vx, Math.abs(it.vz)) * 180 / Math.PI, pitchD = Math.asin(clamp(vy / sp, -1, 1)) * 180 / Math.PI;
-      if (fireInto(rj, it.di, x, y, sp, yawD, pitchD, it.vz < 0, Math.max(0.004, sp * tc), it.mass, it.radius) < 0) continue;
+      const lead = Math.max(0.004, sp * tc);
+      if (it.body && it.label) it.body.label = it.label;   // it keeps its name pane after pane
+      const h = it.body ? fireBodyInto(rj, it.di, x, y, sp, yawD, pitchD, it.vz < 0, lead, it.body)
+        : fireInto(rj, it.di, x, y, sp, yawD, pitchD, it.vz < 0, lead, it.mass, it.radius);
+      if (h < 0) continue;
+      // Where the object starts out in pane j: what carried sheets ride on from.
+      const s0 = G.impactors(rj.P.nImp).slice(20 * h, 20 * h + 3);
       if (shard) { ++rj.shards; rj.shardMax = Math.max(rj.shardMax, sp); }
-      else rj.hits.push({ name: cat.impactors[it.di].name, speed: sp });
+      else rj.hits.push({ name: it.label || it.body?.label || cat.impactors[it.di].name, speed: sp });
       useRig(r);
+      if (it.freeSheet !== undefined) {
+        // The sheet goes on as the body just fired: drawn riding on it.
+        const poses = G.fragmentPoses(G.state()[4]), base = [];
+        for (const i of it.frags) { for (let q = 0; q < 12; ++q) base.push(poses[12 * i + q]); G.gls_drop_fragment(i); }
+        const rd = { rig: r, frags: it.frags, base: Float32Array.from(base), anchor: [0, 0, 0], delta: [0, 0, 0], on: null };
+        reattach(rd, rj, h, s0);
+        riders.push(rd);
+        continue;
+      }
       if (it.frag !== undefined) G.gls_drop_fragment(it.frag);
       else if (Pk.impMeshes[it.m]) Pk.impMeshes[it.m].visible = false;
-      if (it.sheet !== undefined)
-        for (let i = 0, nf = G.state()[4]; i < nf; ++i) if (G.gls_fragment_sheet(i) === it.sheet) G.gls_drop_fragment(i);
+      if (it.frag === undefined) {
+        // Sheets it already carried from panes before ride on with it.
+        for (const rd of riders)
+          if (rd.on.rig === r && rd.on.m === it.m) reattach(rd, rj, h, s0);
+        if (it.sheet !== undefined) {
+          // The sheet it ripped out of this pane goes on wrapped round it: this
+          // pane's engine lets go of it (its mass went with the object into the
+          // next pane), and it is drawn riding on the object from here on.
+          const nf = G.state()[4], poses = G.fragmentPoses(nf), ids = G.fragmentSheets(nf), frags = [], base = [];
+          for (let i = 0; i < nf; ++i) {
+            if (ids[i] !== it.sheet) continue;
+            frags.push(i);
+            for (let q = 0; q < 12; ++q) base.push(poses[12 * i + q]);
+            G.gls_drop_fragment(i);
+          }
+          if (frags.length) {
+            const rd = { rig: r, frags, base: Float32Array.from(base), anchor: [0, 0, 0], delta: [0, 0, 0], on: null };
+            reattach(rd, rj, h, s0);
+            riders.push(rd);
+          }
+        }
+      }
     }
   }
   useRig(rigs[0]);
+}
+// Sheets a projectile ripped out of one pane of a stack and carries on into
+// the next: the next pane's physics has their mass (the object it is hit by
+// is the whole bundle), and here they are drawn riding on that object, so a
+// cannonball through several armoured panes drags every sheet it has picked up.
+// { rig (whose pieces), frags, base (their poses when picked up, 12 floats
+// each), anchor (the carrier's position then, in that rig's pane frame),
+// delta (how far it has gone since), on: { rig, m } (the carrier) }.
+let riders = [];
+function rigDepth(r) { return stackDepth[rigs.indexOf(r)] || 0; }
+// Rides on impactor h of rig rj from start point s0 (rj's pane frame): what has
+// been travelled so far is folded into the base poses.
+function reattach(rd, rj, h, s0) {
+  for (let k = 0; k < rd.frags.length; ++k)
+    for (let a = 0; a < 3; ++a) rd.base[12 * k + a] += rd.delta[a];
+  rd.anchor = [s0[0], s0[1], s0[2] + rigDepth(rj) - rigDepth(rd.rig)];
+  rd.delta = [0, 0, 0];
+  rd.on = { rig: rj, m: h };
+}
+function updateRiders() {
+  for (const rd of riders) {
+    const c = rd.on.rig;
+    if (!c.P || rd.on.m >= c.P.nImp) continue;
+    useRig(c);
+    const o = 20 * rd.on.m, im = G.impactors(c.P.nImp);
+    const dz = rigDepth(c) - rigDepth(rd.rig);
+    rd.delta = [im[o] - rd.anchor[0], im[o + 1] - rd.anchor[1], im[o + 2] + dz - rd.anchor[2]];
+  }
+}
+// This pane's poses with its riding sheets moved to where their carrier is.
+function rideAlong(poses) {
+  for (const rd of riders) {
+    if (rd.rig.P !== P) continue;
+    for (let k = 0; k < rd.frags.length; ++k) {
+      const q = 12 * rd.frags[k];
+      if (q + 11 >= poses.length) continue;
+      for (let a = 0; a < 12; ++a) poses[q + a] = rd.base[12 * k + a];
+      poses[q] += rd.delta[0]; poses[q + 1] += rd.delta[1]; poses[q + 2] += rd.delta[2];
+      poses[q + 7] = poses[q + 8] = poses[q + 9] = 0;
+      poses[q + 10] = 1;   // moving with it, no extrapolation of its own
+    }
+  }
 }
 // What happened to each pane of the stack.
 function stackReadout() {
@@ -2840,7 +3300,539 @@ function listen(poses, nFrag) {
 
 // Hook for automated browser tests.
 window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, get HS() { return HS; }, get rigs() { return rigs; },
-  get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound };
+  get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound, R, bench, get tier() { return tier; }, get riders() { return riders; }, shareURL };
+
+// ---------- Odds of breaking ----------
+// The same shot into a hundred panes, each with its own flaws, at the lab's
+// physics, on copies of the engine in workers: each takes its share of the speeds.
+let oddsWorkers = [], oddsId = 0, oddsPts = [], oddsSpeeds = [], oddsTicks = 0, oddsLeft = 0;
+const ODDS_SEEDS = 10;
+function oddsRange() {
+  const d = cat.impactors[iIdx];
+  const lo = Math.max(d.minSpeed || 0.1, speed / 20), hi = Math.min(Math.max(d.maxSpeed || speed, speed) * 1.5, 4 * speed);
+  return Array.from({ length: 10 }, (_, i) => lo * Math.pow(hi / lo, i / 9));
+}
+function openOdds() {
+  $('odds').classList.add('on');
+  $('oddsWhat').textContent = `${cat.impactors[iIdx].name} into ${cat.glazings[gIdx].name}${P ? ` (${P.W.toFixed(2)} × ${P.H.toFixed(2)} m)` : ''}, square on at the centre.`;
+  oddsSpeeds = oddsRange();
+  oddsPts = [];
+  $('oddsStatus').textContent = '';
+  drawOdds();
+}
+function oddsDone() {
+  const half = (key) => {
+    for (let i = 1; i < oddsPts.length; ++i) {
+      const a = oddsPts[i - 1], b = oddsPts[i];
+      if (a[key] < 0.5 && b[key] >= 0.5) return a.v * Math.pow(b.v / a.v, (0.5 - a[key]) / Math.max(1e-9, b[key] - a[key]));
+    }
+    return oddsPts.length && oddsPts[0][key] >= 0.5 ? -1 : null;
+  };
+  const hb = half('broke'), ht = half('through');
+  const say = (h, what) => (h === null ? `never ${what} in this range` : h < 0 ? `${what} half the time or more even at the slowest` : `${what} half the time at ${fmtSpeed(h)}`);
+  $('oddsStatus').textContent = `${say(hb, 'breaks')} · ${say(ht, 'goes through')}`;
+  $('bOddsRun').disabled = false;
+}
+function runOdds() {
+  const n = clamp((navigator.hardwareConcurrency || 2) - 1, 1, 6);
+  while (oddsWorkers.length < n) {
+    const w = new Worker('odds_worker.js', { type: 'module' });
+    w.onmessage = (e) => {
+      const m = e.data;
+      if (m.id !== oddsId) return;
+      if (m.error) { $('oddsStatus').textContent = 'Could not run: ' + m.error; $('bOddsRun').disabled = false; return; }
+      if (m.tick !== undefined) {
+        ++oddsTicks;
+        $('oddsStatus').textContent = `${Math.round(100 * oddsTicks / (oddsSpeeds.length * ODDS_SEEDS))} % · ${oddsPts.length} of ${oddsSpeeds.length} speeds`;
+      }
+      if (m.point) { oddsPts.push(m.point); oddsPts.sort((a, b) => a.v - b.v); drawOdds(); }
+      if (m.done && --oddsLeft === 0) oddsDone();
+    };
+    oddsWorkers.push(w);
+  }
+  oddsId++;
+  oddsPts = [];
+  oddsTicks = 0;
+  oddsSpeeds = oddsRange();
+  const seeds = Array.from({ length: ODDS_SEEDS }, () => (Math.random() * 1e9) >>> 0);
+  $('bOddsRun').disabled = true;
+  $('oddsStatus').textContent = `Starting ${n > 1 ? n + ' more engines' : 'a second engine'}…`;
+  drawOdds();
+  // Speeds dealt out in turn, so every worker gets slow and fast ones.
+  const used = oddsWorkers.slice(0, n).map((w, k) => ({ w, speeds: oddsSpeeds.filter((_, i) => i % n === k) })).filter((x) => x.speeds.length);
+  oddsLeft = used.length;
+  for (const { w, speeds } of used)
+    w.postMessage({ id: oddsId, glazing: gIdx, impactor: iIdx, speeds, seeds, tier: PHYS, width: P ? P.W : 0, height: P ? P.H : 0 });
+}
+function drawOdds() {
+  const c = $('oddsChart'), g = c.getContext('2d'), W = c.width, H = c.height;
+  const L = 52, Rm = 14, T = 16, B = 40;
+  g.clearRect(0, 0, W, H);
+  g.font = '11px "JetBrains Mono", monospace';
+  g.fillStyle = '#93a0b2'; g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 1;
+  const v0 = oddsSpeeds[0] || 1, v1 = oddsSpeeds[oddsSpeeds.length - 1] || 2;
+  const X = (v) => L + (W - L - Rm) * Math.log(v / v0) / Math.log(v1 / v0), Y = (p) => T + (H - T - B) * (1 - p);
+  for (const p of [0, 0.25, 0.5, 0.75, 1]) {
+    g.beginPath(); g.moveTo(L, Y(p)); g.lineTo(W - Rm, Y(p)); g.stroke();
+    g.fillText(`${Math.round(100 * p)} %`, 8, Y(p) + 4);
+  }
+  for (let i = 0; i < oddsSpeeds.length; i += 3) {
+    const v = oddsSpeeds[i];
+    g.fillText(fmtSpeed(v), X(v) - 18, H - B + 18);
+  }
+  g.fillText('speed', W - Rm - 40, H - 6);
+  // The speed set in the lab.
+  if (speed >= v0 && speed <= v1) {
+    g.strokeStyle = 'rgba(255,211,107,0.6)'; g.setLineDash([4, 4]);
+    g.beginPath(); g.moveTo(X(speed), T); g.lineTo(X(speed), H - B); g.stroke(); g.setLineDash([]);
+  }
+  for (const [key, col, label] of [['broke', '#f0b43a', 'breaks'], ['through', '#ef5d4f', 'goes through']]) {
+    g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 2;
+    g.beginPath();
+    oddsPts.forEach((pt, i) => (i ? g.lineTo(X(pt.v), Y(pt[key])) : g.moveTo(X(pt.v), Y(pt[key]))));
+    g.stroke();
+    for (const pt of oddsPts) { g.beginPath(); g.arc(X(pt.v), Y(pt[key]), 3.5, 0, 2 * Math.PI); g.fill(); }
+    g.fillText(label, key === 'broke' ? L + 8 : L + 80, T + 12);
+  }
+}
+$('bOdds').onclick = openOdds;
+$('bTests').onclick = openTests;
+$('bTestsClose').onclick = () => $('tests').classList.remove('on');
+$('tests').onclick = (e) => { if (e.target === $('tests')) $('tests').classList.remove('on'); };
+$('bOddsRun').onclick = runOdds;
+$('bOddsClose').onclick = () => $('odds').classList.remove('on');
+$('odds').onclick = (e) => { if (e.target === $('odds')) $('odds').classList.remove('on'); };
+
+// ---------- A glass cutter ----------
+// A score is a scratch with a vent crack under it: it gives at a fraction of
+// the glass's strength, and a crack that meets it follows it. Knocking it from
+// the far side opens it (bending closes a score on the side you push).
+let cutMode = null, cutLine = null;
+function addScore(pts, closed) {
+  if (!P || rigs || activeScene() || pts.length < 2) return;
+  G.gls_score_begin();
+  for (const p of pts) G.gls_score_point(p.x, p.y);
+  if (G.gls_score_end(closed ? 1 : 0, 0) < 0) return;
+  (P.scores ||= []).push({ pts: pts.map((p) => ({ x: p.x, y: p.y })), closed });
+  if (R) {
+    const v = pts.map((p) => new THREE.Vector3(p.x - P.W / 2, p.y + FLOOR, 0.0006));
+    if (closed) v.push(v[0].clone());
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(v), new THREE.LineBasicMaterial({ color: 0xe8f4ff, transparent: true, opacity: 0.75 }));
+    line.renderOrder = 3;
+    groupPane.add(line); P.meshes.push(line);
+  }
+  $('bKnock').disabled = false;
+  toast(closed ? 'Scored a circle. Now knock it out from behind' : 'Scored. Knock it from behind to snap it', 2600);
+}
+function circlePts(c, r) { return Array.from({ length: 64 }, (_, i) => ({ x: c.x + r * Math.cos(2 * Math.PI * i / 64), y: c.y + r * Math.sin(2 * Math.PI * i / 64) })); }
+function setCutMode(m) {
+  cutMode = cutMode === m ? null : m;
+  $('bCutter').setAttribute('aria-pressed', String(cutMode === 'line'));
+  $('bCircle').setAttribute('aria-pressed', String(cutMode === 'circle'));
+  if (cutMode) toast(cutMode === 'line' ? 'Drag across the glass to score it' : 'Tap the glass where the circle goes');
+}
+// Behind the last score: inside a circle, or 4 cm beside the middle of a line.
+function knockOut() {
+  const sc = P && P.scores && P.scores[P.scores.length - 1];
+  if (!sc) return;
+  const n = sc.pts.length;
+  let at;
+  if (sc.closed) at = sc.pts.reduce((a, p) => ({ x: a.x + p.x / n, y: a.y + p.y / n }), { x: 0, y: 0 });
+  else {
+    const i = Math.floor((n - 1) / 2), a = sc.pts[i], b = sc.pts[Math.min(n - 1, i + 1)];
+    const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1;
+    at = { x: (a.x + b.x) / 2 - 0.04 * dy / L, y: (a.y + b.y) / 2 + 0.04 * dx / L };
+  }
+  const ii = cat.impactors.findIndex((d) => d.id === 'rubber_mallet');
+  if (ii < 0) return;
+  pickImpactor(ii);
+  speed = 5; fromBack = true;
+  $('bSide').setAttribute('aria-pressed', 'true');
+  syncSpeed();
+  aim = { x: clamp(at.x, 0.01, P.W - 0.01), y: clamp(at.y, 0.01, P.H - 0.01) };
+  placeAimMarker();
+  fire(aim);
+}
+$('bCutter').onclick = () => setCutMode('line');
+$('bCircle').onclick = () => setCutMode('circle');
+$('bKnock').onclick = knockOut;
+function startBurglar() {
+  const gi = cat.glazings.findIndex((g) => g.id === 'annealed_6');
+  if (gi < 0) return;
+  if (activeScene()) leaveScene(false);
+  if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
+  if (TONE.on) setTone(false);
+  gIdx = gi;
+  chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+  newPane();
+  simClockReset();
+  addScore(circlePts({ x: P.W / 2, y: P.H / 2 }, 0.1), true);
+  setTimeout(() => { if (P && P.scores) knockOut(); }, 1400);
+}
+
+// ---------- Read the cracks ----------
+// Three stones hit a windscreen while you look away. Their cracks say in which
+// order: a running crack stops where it meets one already there, so the first
+// star's cracks run out to the frame and the later ones' end at the earlier.
+function startForensics() {
+  const gi = cat.glazings.findIndex((g) => g.id === 'windscreen'), ii = cat.impactors.findIndex((d) => d.id === 'steel_ball_227');
+  if (gi < 0 || ii < 0) return;
+  if (activeScene()) leaveScene(false);
+  if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
+  if (TONE.on) setTone(false);
+  gIdx = gi;
+  chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+  pickImpactor(ii);
+  speed = 16; yaw = 0; pitch = 0; fromBack = false;
+  $('bSide').setAttribute('aria-pressed', 'false');
+  syncSpeed();
+  newPane();
+  simClockReset();
+  P.puzzle = { phase: 'hidden', text: 'Three stones are about to hit this windscreen while you look away…' };
+  if (aimMarker) aimMarker.visible = false;
+  toast('Look away… three stones hit the windscreen', 2400);
+  setTimeout(() => {
+    // Across the windscreen, in a random order, 60 ms apart; every one must
+    // have broken the glass (a stone can bounce off), or the evidence is
+    // thrown away and it happens again.
+    for (let attempt = 0; attempt < 8; ++attempt) {
+      if (attempt) newPane();
+      const r = mulberry32((P.seed ^ 0x9e3779b9) >>> 0);
+      const cols = [0.2, 0.5, 0.8].sort(() => r() - 0.5);
+      const pts = cols.map((c) => ({ x: P.W * (c + 0.06 * (r() - 0.5)), y: P.H * (0.3 + 0.4 * r()) }));
+      const t0 = G.gls_time();
+      pts.forEach((p, k) => { G.gls_advance(t0 + 0.06 * k, 50000000); fire(p); });
+      G.gls_advance(t0 + 0.12 + 0.4, 50000000);
+      P.puzzle = { pts, guess: [], phase: 'hidden' };
+      let all = true;
+      for (let k = 0; k < 3; ++k) all = all && G.report(k).v[10] > 0;
+      if (all) break;
+    }
+    for (const m of P.impMeshes) if (m) m.visible = false;
+    if (aimMarker) aimMarker.visible = false;
+    simClockReset();
+    auto = true; syncAuto(); buildScaleButtons();
+    P.puzzle.phase = 'guess';
+    P.puzzle.text = 'Which came first? Tap the three impact points in the order they happened.';
+    P.puzzle.cls = '';
+    $('rWhat').textContent = 'Read the cracks';
+    banner('Which came first?', 'Tap the impact points in order');
+  }, 1200);
+}
+function puzzleLabel(text, color) {
+  const c = document.createElement('canvas'); c.width = c.height = 96;
+  const g = c.getContext('2d');
+  g.fillStyle = color; g.beginPath(); g.arc(48, 48, 40, 0, 2 * Math.PI); g.fill();
+  g.fillStyle = '#0a1830'; g.font = '900 44px "Big Shoulders Display", Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, 48, 51);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  sp.renderOrder = 8;
+  return sp;
+}
+function puzzleTap(p) {
+  const pz = P.puzzle;
+  if (!p || pz.phase !== 'guess') return;
+  let best = -1, bd = 0.1;
+  pz.pts.forEach((q, i) => { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd && !pz.guess.includes(i)) { bd = d; best = i; } });
+  if (best < 0) { toast('Tap right on an impact point'); return; }
+  pz.guess.push(best);
+  if (R) {
+    const q = pz.pts[best], sp = puzzleLabel(String(pz.guess.length), '#ffd36b');
+    sp.position.set(q.x - P.W / 2, q.y + FLOOR, 0.02);
+    sp.scale.setScalar(0.09);
+    groupPane.add(sp); P.meshes.push(sp);
+  }
+  if (pz.guess.length < pz.pts.length) return;
+  // The reveal: the true order beside each guess.
+  pz.phase = 'done';
+  const right = pz.guess.every((g, k) => g === k);
+  if (R) pz.pts.forEach((q, i) => {
+    const rank = pz.guess.indexOf(i) + 1, ok = rank === i + 1;
+    const sp = puzzleLabel(String(i + 1), ok ? '#36c483' : '#ef5d4f');
+    sp.position.set(q.x - P.W / 2 + 0.07, q.y + FLOOR + 0.06, 0.02);
+    sp.scale.setScalar(0.07);
+    groupPane.add(sp); P.meshes.push(sp);
+  });
+  banner(right ? 'Read it right' : 'Not quite', right ? 'The order of the stones, from their cracks alone' : 'Green: the true order, where you had it right');
+  pz.cls = right ? 'ok' : 'bad';
+  pz.text = (right ? 'Right. ' : 'Not quite. ') + 'The first star\'s cracks run out to the frame; the second\'s stop where they meet the first\'s; the third\'s stop at both. Replay (Z) shows it happening.';
+  updateReadouts();
+}
+
+// ---------- Certification tests ----------
+// Each test sets up what its standard tests (the glazing, at the specimen's
+// size), fires what the standard fires, the way it says to, and says whether
+// the glass would pass by the standard's own criterion, and what of the test
+// is not simulated.
+//   size: the specimen [width, height] (m); else the glazing's own size.
+//   rounds(W, H): where each round lands and how fast, [[x, y, speed?], ...];
+//     else one round at the centre at `speed` (else the object's own speed).
+//   at(k): engine time from the first round to round k, for rounds fired on
+//     a timer (default 50 ms apart).
+//   seq: rounds go one after another instead, each once the last is over and
+//     the glass has settled: 'break' stops at the first break, 'through' once
+//     one goes through.
+//   unit: what a round is called; how: the card's line for how it is fired.
+//   note: where the model is known to part from real glazing of this build.
+const dropSpeed = (h) => Math.sqrt(2 * 9.80665 * h);
+const around = (pts, v) => (W, H) => pts.map(([dx, dy]) => [W / 2 + dx, H / 2 + dy, v]);
+const UL_TRIANGLE = [[0, 0.059], [-0.051, -0.0295], [0.051, -0.0295]];   // 4 in (102 mm) between hits
+const UL_FIVE = [[0, 0], [-0.051, 0.051], [0.051, 0.051], [-0.051, -0.051], [0.051, -0.051]];
+const EN356_TRIANGLE = [[0, 0.075], [-0.065, -0.0375], [0.065, -0.0375]];   // 130 mm between drops
+const en356 = (drops, h) => around(Array.from({ length: drops }, (_, k) => EN356_TRIANGLE[k % 3]), dropSpeed(h));
+// Missile A: thirty balls, ten each spread over a patch at the centre, near
+// an edge and near a corner. Each ten land 2 ms apart, so they share one
+// stretch of slow motion (the real test fires them one at a time at a pane at
+// rest; the knock of a 2 g ball is slight).
+function missileA(W, H) {
+  const out = [];
+  for (const [cx, cy] of [[W / 2, H / 2], [W / 2, 0.25], [0.25, 0.25]])
+    for (let i = 0; i < 10; ++i) {
+      const r = 0.1 * Math.sqrt((i + 0.5) / 10), a = 2.39996 * i;
+      out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  return out;
+}
+// Large missiles: one at the centre, one within 150 mm of a corner.
+const centreAndCorner = (W, H) => [[W / 2, H / 2], [0.15, 0.15]];
+const EN12600_DROPS = (W, H) => [0.19, 0.45, 1.2].map((h) => [W / 2, H / 2, dropSpeed(h)]);
+// Toughened glass is broken with a centre punch 13 mm in from the middle of its long edge.
+const PUNCH = (W, H) => [[W / 2, 0.013]];
+const TESTS = [
+  { id: 'r43', group: 'Vehicles', std: 'ECE R43 · 2.26 kg ball', title: 'Windscreen ball test', glazing: 'windscreen', impactor: 'steel_ball_2260',
+    speed: 8.86, kind: 'r43', criterion: 'A 2.26 kg steel ball dropped from 4 m must not go through: the interlayer has to hold it.' },
+  { id: 'r43-frag', group: 'Vehicles', std: 'ECE R43 · fragmentation', title: 'Side window, broken on purpose', glazing: 'car_side_tempered',
+    impactor: 'window_punch', rounds: PUNCH, kind: 'en12150', unit: 'blow', how: ' · broken with a punch at its edge',
+    criterion: 'Broken with a punch, it must craze into at least 40 pieces in every 50 × 50 mm square: no long blades.' },
+  { id: 'z97-t', group: 'Building safety', std: 'ANSI Z97.1 · 100 lb bag from 48 in', title: 'Shower door, tempered', glazing: 'tempered_6',
+    impactor: 'body_bag', speed: 4.89, size: [0.864, 1.93], kind: 'z97', criterion: 'A 45 kg bag swung into it: it must not break, or break into small, harmless dice.' },
+  { id: 'z97-a', group: 'Building safety', std: 'ANSI Z97.1 · 100 lb bag from 48 in', title: 'Old door, annealed', glazing: 'annealed_6',
+    impactor: 'body_bag', speed: 4.89, size: [0.864, 1.93], kind: 'z97', criterion: 'The same swing into ordinary annealed glass, which breaks into long blades.' },
+  ...[['t', 'Tempered', 'tempered_6'], ['l', 'Laminated', 'laminated_6_38'], ['a', 'Annealed', 'annealed_6']].map(([k, name, glazing]) => (
+    { id: 'en12600-' + k, group: 'Building safety', std: 'EN 12600 · 50 kg pendulum', title: `${name} glass, graded`, glazing, impactor: 'twin_tyre_50',
+      size: [0.876, 1.938], rounds: EN12600_DROPS, seq: 'break', unit: 'drop', kind: 'en12600', how: ' from 190, 450 then 1,200 mm',
+      criterion: 'A 50 kg pendulum swung from 190, 450, then 1,200 mm until the pane breaks. Its class is the highest drop it survives, or breaks safely at: into dice, or held together by its interlayer.' })),
+  { id: 'en12150-6', group: 'Toughened glass', std: 'EN 12150 · fragmentation', title: 'Toughened 6 mm', glazing: 'tempered_6', impactor: 'window_punch',
+    size: [1.1, 0.36], rounds: PUNCH, kind: 'en12150', unit: 'blow', how: ' · broken with a punch at its edge',
+    criterion: 'Broken with a punch, it must craze into at least 40 pieces in a 50 × 50 mm square.' },
+  { id: 'en12150-10', group: 'Toughened glass', std: 'EN 12150 · fragmentation', title: 'Toughened 10 mm door', glazing: 'glass_door_10', impactor: 'window_punch',
+    size: [1.1, 0.36], rounds: PUNCH, kind: 'en12150', unit: 'blow', how: ' · broken with a punch at its edge',
+    criterion: 'The same count for a 10 mm glass door.' },
+  { id: 'en12150-hs', group: 'Toughened glass', std: 'EN 12150 · fragmentation', title: 'Heat-strengthened 6 mm', glazing: 'heat_strengthened_6',
+    impactor: 'window_punch', size: [1.1, 0.36], rounds: PUNCH, kind: 'en12150', unit: 'blow', how: ' · broken with a punch at its edge',
+    criterion: 'Heat-strengthened glass is twice as strong as annealed, but is it safety glass? The same count says.' },
+  ...[['p1a', 'P1A', 3, 1.5, 'laminated_6_38', 'Laminated 6.4 mm'], ['p2a', 'P2A', 3, 3, 'laminated_10_76', 'Laminated 10.8 mm'],
+    ['p4a', 'P4A', 3, 9, 'laminated_10_76', 'Laminated 10.8 mm'], ['p5a', 'P5A', 9, 9, 'hurricane', 'Ionoplast laminate'],
+    ['plain', 'P1A', 3, 1.5, 'annealed_6', 'Plain 6 mm glass']].map(([k, cls, n, h, glazing, title]) => (
+    { id: 'en356-' + k, group: 'Burglar resistance', std: `EN 356 ${cls} · ${n} drops from ${h} m`, title: `${title} at ${cls}`, glazing,
+      impactor: 'steel_ball_4110', size: [0.9, 1.1], rounds: en356(n, h), seq: 'through', unit: 'drop', kind: 'en356',
+      how: ` · ${n} drops from ${h} m`, criterion: `A 4.11 kg steel ball dropped ${n === 3 ? 'three' : 'nine'} times from ${h} m onto a 130 mm triangle: it must not go through.`,
+      note: k === 'p4a' ? 'Real 0.76 mm PVB laminates rate P2A, not P4A. The model is too kind: each drop meets fresh interlayer, where in real glass the earlier drops have already torn and loosened it.' : undefined })),
+  { id: 'e1996-A', group: 'Storms', std: 'ASTM E1996 · small missile A', title: 'Roof gravel, 30 balls', glazing: 'hurricane', impactor: 'steel_ball_2g',
+    rounds: missileA, at: (k) => 0.1 * Math.floor(k / 10) + 0.002 * (k % 10), unit: 'ball', kind: 'e1996', how: ' · 30 of them',
+    criterion: 'Thirty 2 g steel balls at 40 m/s, ten each at the centre, near an edge and near a corner: none may go through.' },
+  { id: 'e1996-B', group: 'Storms', std: 'ASTM E1996 · large missile B', title: 'A short 2x4 into laminated glass', glazing: 'laminated_6_38',
+    impactor: 'timber_2x4_b', rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996',
+    criterion: 'A 2 lb 2x4 at 50 ft/s (15.2 m/s), at the centre and near a corner: neither may go through.' },
+  { id: 'e1996-C', group: 'Storms', std: 'ASTM E1996 · large missile C', title: 'Hurricane glass, missile C', glazing: 'hurricane',
+    impactor: 'timber_2x4_c', rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996',
+    criterion: 'A 4.5 lb 2x4 at 40 ft/s (12.2 m/s), at the centre and near a corner: neither may go through.' },
+  { id: 'e1996-h', group: 'Storms', std: 'ASTM E1996 · large missile D', title: 'Hurricane glass', glazing: 'hurricane', impactor: 'timber_2x4',
+    speed: 15.25, rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996',
+    criterion: 'A 9 lb 2x4 end-on at 50 ft/s (15.2 m/s), at the centre and near a corner: neither may go through.',
+    note: 'Real windows of this build are rated for missile D. The model is too harsh on the frame near a corner: the shot there pulls the laminate out.' },
+  { id: 'e1996-a', group: 'Storms', std: 'ASTM E1996 · large missile D', title: 'An ordinary window', glazing: 'annealed_6', impactor: 'timber_2x4',
+    speed: 15.25, rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996', criterion: 'The same 2x4 into plain 6 mm glass.' },
+  { id: 'e1996-E', group: 'Storms', std: 'ASTM E1996 · large missile E', title: 'Hurricane glass, missile E', glazing: 'hurricane', impactor: 'timber_2x4',
+    speed: 24.38, rounds: centreAndCorner, seq: 'through', unit: 'missile', kind: 'e1996',
+    criterion: 'The 9 lb 2x4 at 80 ft/s (24.4 m/s), for hospitals and shelters in the strongest wind zone: neither may go through.',
+    note: 'Ionoplast glazing of this build is sold for missile E. The model does not yet give the broken laminate its full span, so the interlayer tears too soon.' },
+  { id: 'far25-250', group: 'Aircraft', std: '14 CFR 25.775(b) · 4 lb bird', title: 'Bird strike at 250 kt', glazing: 'aircraft_windshield',
+    impactor: 'bird_4lb', speed: 128.6, kind: 'far25', criterion: 'A 4 lb bird at design cruise speed: the windshield must keep the cabin sealed.' },
+  { id: 'far25-350', group: 'Aircraft', std: '14 CFR 25.775(b) · 4 lb bird', title: 'Bird strike at 350 kt', glazing: 'aircraft_windshield',
+    impactor: 'bird_4lb', speed: 180, kind: 'far25', criterion: 'The same bird at a faster airliner\'s design cruise speed.' },
+  { id: 'ul752-1', group: 'Bullet resistance', std: 'UL 752 Level 1 · 9 mm, 3 rounds', title: '9 mm vs Level 1', glazing: 'ul752_l1',
+    impactor: 'pistol_9mm', speed: 380, kind: 'ul752', rounds: around(UL_TRIANGLE), criterion: 'Three 9 mm rounds 4 in apart: none may go through.' },
+  { id: 'ul752-3', group: 'Bullet resistance', std: 'UL 752 Level 3 · .44 Magnum, 3 rounds', title: '.44 Magnum vs Level 3', glazing: 'ul752_l3',
+    impactor: 'magnum_44', speed: 430, kind: 'ul752', rounds: around(UL_TRIANGLE), criterion: 'Three .44 Magnum rounds 4 in apart: none may go through.' },
+  { id: 'ul752-8', group: 'Bullet resistance', std: 'UL 752 Level 8 · 7.62 mm, 5 rounds', title: 'Rifle vs Level 8', glazing: 'ul752_l8',
+    impactor: 'rifle_762', speed: 850, kind: 'ul752', rounds: around(UL_FIVE), criterion: 'Five 7.62 mm rifle rounds close together: none may go through.' },
+  { id: 'ul752-10', group: 'Bullet resistance', std: 'UL 752 Level 10 · .50 cal, 1 round', title: '.50 BMG vs Level 10', glazing: 'ul752_l10',
+    impactor: 'bmg_50', speed: 900, kind: 'ul752', criterion: 'One .50 calibre round: it must not go through.' },
+  { id: 'ul752-3r', group: 'Beyond the rating', std: 'Level 3 glazing · a Level 8 round', title: 'Rifle vs a handgun rating', glazing: 'ul752_l3',
+    impactor: 'rifle_762', speed: 850, kind: 'ul752', criterion: 'Handgun-rated glass against one 7.62 mm rifle round: what the rating does not cover.' },
+  { id: 'ul752-8b', group: 'Beyond the rating', std: 'Level 8 glazing · a Level 10 round', title: '.50 BMG vs Level 8', glazing: 'ul752_l8',
+    impactor: 'bmg_50', speed: 900, kind: 'ul752', criterion: 'A heavy machine-gun round has five times a rifle\'s energy.' },
+];
+const TEST_NOTES = {
+  'Vehicles': 'Windscreens are laminated so that what hits them stays outside, and what is inside stays in; side windows are toughened to crumble.',
+  'Building safety': 'Glass in doors and low windows must survive a person falling into it, or break harmlessly.',
+  'Toughened glass': 'Every batch of toughened glass is broken on purpose: it must craze into many small dice, counted in a 50 mm square.',
+  'Burglar resistance': 'Shop fronts and ground-floor windows are graded by how many blows of a falling steel ball they take without letting it through.',
+  'Storms': 'Windows in hurricane zones must keep wind-borne debris out, so the house keeps its envelope.',
+  'Aircraft': 'An airliner windshield has to take a bird at cruise speed and still hold cabin pressure.',
+  'Bullet resistance': 'The rounds of a rating, in the standard\'s pattern: every one must be stopped.',
+  'Beyond the rating': 'What a rating does not promise.',
+};
+const testRounds = (t, W, H) => (t.rounds ? t.rounds(W, H) : [[W / 2, H / 2]]);
+function openTests() {
+  const box = $('testList');
+  box.textContent = '';
+  for (const group of [...new Set(TESTS.map((t) => t.group))]) {
+    const h = document.createElement('h3'); h.textContent = group; box.appendChild(h);
+    const note = document.createElement('p'); note.className = 'gnote'; note.textContent = TEST_NOTES[group] || ''; box.appendChild(note);
+    const cards = document.createElement('div'); cards.className = 'tcards'; box.appendChild(cards);
+    for (const t of TESTS.filter((x) => x.group === group)) {
+      const g = cat.glazings.find((x) => x.id === t.glazing), d = cat.impactors.find((x) => x.id === t.impactor);
+      if (!g || !d) continue;
+      const b = document.createElement('button');
+      b.className = 'tcard';
+      const n = testRounds(t, 1, 1).length;
+      b.innerHTML = `<span class="std">${t.std}</span><b>${t.title}</b><span class="crit">${t.criterion}</span>` +
+        `<span class="spec">${g.name} · ${d.name}${t.how ?? ` at ${fmtSpeed(t.speed ?? d.speed)}${n > 1 ? ` · ${n} ${t.unit || 'round'}s` : ''}`}</span>` +
+        (t.note ? `<span class="mnote">Model note: ${t.note}</span>` : '');
+      b.onclick = () => runTest(t);
+      cards.appendChild(b);
+    }
+  }
+  $('tests').classList.add('on');
+}
+// Sets the test's specimen up and fires its rounds.
+function runTest(t) {
+  const gi = cat.glazings.findIndex((g) => g.id === t.glazing), ii = cat.impactors.findIndex((g) => g.id === t.impactor);
+  if (gi < 0 || ii < 0) return;
+  $('tests').classList.remove('on');
+  if (activeScene()) leaveScene(false);
+  if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
+  if (TONE.on) setTone(false);
+  gIdx = gi;
+  chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+  pickImpactor(ii);
+  yaw = 0; pitch = 0; $('yaw').value = '0'; $('pitch').value = '0'; $('vAngle').textContent = '0° / 0°';
+  fromBack = false;
+  $('bSide').setAttribute('aria-pressed', 'false');
+  labSize = t.size || null;
+  newPane();
+  simClockReset();
+  updatePaneInfo();
+  auto = true; syncAuto(); buildScaleButtons();
+  P.test = t.kind; P.testDef = t; P.testHits = []; P.testQueue = [];
+  const v0 = t.speed ?? cat.impactors[ii].speed, rs = testRounds(t, P.W, P.H);
+  speed = rs[0][2] ?? v0;
+  syncSpeed();
+  aim = { x: rs[0][0], y: rs[0][1] };
+  placeAimMarker();
+  fire(aim);
+  if (t.seq) P.testQueue = rs.slice(1);
+  else {
+    const t0 = P.shots[P.shots.length - 1].t;
+    for (let k = 1; k < rs.length; ++k) {
+      const sh = { t: t0 + (t.at ? t.at(k) : 0.05 * k), iIdx: ii, x: rs[k][0], y: rs[k][1], speed: rs[k][2] ?? v0, yaw: 0, pitch: 0, fromBack: false };
+      P.shots.push(sh);
+      P.pendingShots.push(sh);
+    }
+  }
+  if (window.innerWidth <= 860) showTab('res');
+}
+// Tests whose rounds go one after another: the next once the last is over and
+// the glass has had 0.4 s to settle (the real tests wait far longer, for a
+// pane at rest).
+function testStep() {
+  const q = P?.testQueue, t = P?.testDef;
+  if (!q?.length || !P.testHits.length) return;
+  const r = G.report(P.testHits[P.testHits.length - 1]), now = G.gls_time();
+  if (!r.outcome) { P.testNextAt = null; return; }
+  if ((t.seq === 'break' && G.state()[6]) || (t.seq === 'through' && r.v[11])) { q.length = 0; return; }
+  if (P.testNextAt == null) { P.testNextAt = now + 0.4; return; }
+  if (now < P.testNextAt) return;
+  P.testNextAt = null;
+  const [x, y, v] = q.shift();
+  speed = v ?? t.speed ?? speed;
+  syncSpeed();
+  aim = { x, y };
+  placeAimMarker();
+  fire(aim);
+}
+// The test's verdict: { pending } while rounds are still to come or still in
+// the glass, then { pass, grade?, rows?, why }; null before there is any.
+function testResult(s) {
+  const t = P.testDef;
+  if (!t) return null;
+  const hits = P.testHits || [], unit = t.unit || 'round';
+  const left = (P.testQueue?.length || 0) + P.pendingShots.length;
+  const planned = testRounds(t, 1, 1).length, n = t.seq ? hits.length + left : planned;
+  if (planned > 1 && (left || hits.length < n)) return { pending: `${unit} ${Math.max(1, hits.length)} of ${n}…` };
+  if (!hits.length) return null;
+  const reps = hits.map((h) => G.report(h));
+  if (planned === 1) return reps[0].outcome || ((t.kind === 'z97' || t.kind === 'en12150') && s[6]) ? testVerdict(t.kind, reps[0].v, s) : null;
+  const over = reps.filter((r) => r.outcome).length;
+  if (over < reps.length) return { pending: `${unit} ${over + 1} of ${n} in the glass…` };
+  if (t.kind === 'en12600') return en12600Verdict(reps, s);
+  const through = reps.findIndex((r) => r.v[11]);
+  const why = through < 0 ? `none of the ${n} ${unit}s went through` : `${unit} ${through + 1} of ${planned} went through`;
+  return { pass: through < 0,
+    why: t.kind === 'e1996' ? why + '; the 9,000 pressure cycles that follow in the real test are not simulated' : why };
+}
+// EN 12600: drops from 190, 450 and 1,200 mm until the pane breaks. A break
+// into dice (mode C) or held together by the interlayer (mode B) is safe and
+// the pane is classed at that drop; a break into shards (mode A) leaves the
+// class of the drop before.
+function en12600Verdict(reps, s) {
+  const k = reps.length - 1, heights = ['190', '450', '1,200'], classes = [3, 2, 1];
+  if (!s[6]) return { pass: true, grade: 'Class 1', why: 'it did not break, even from 1,200 mm' };
+  const mode = P.plies.some((p) => p.dicing) ? 'C' : !P.monolithic && s[8] && !reps[k].v[11] ? 'B' : 'A';
+  const cls = mode !== 'A' ? classes[k] : k > 0 ? classes[k - 1] : 0;
+  const how = { C: 'into small dice (mode C)', B: 'and its interlayer held the pieces together (mode B)', A: 'into sharp shards (mode A)' }[mode];
+  return { pass: cls > 0, grade: cls ? `Class ${cls}` : 'No class',
+    why: `it broke at ${heights[k]} mm ${how}` + (mode === 'A' ? (k > 0 ? `, after surviving ${heights[k - 1]} mm` : ', on the first drop') : '') };
+}
+// v: the round's report; s: the pane's state.
+function testVerdict(kind, v, s) {
+  const through = !!v[11], stopped = !!v[13], broke = !!s[6], intact = !!s[8];
+  switch (kind) {
+    case 'r43': return { pass: !through, why: through ? 'the ball went through the windscreen' : 'the interlayer held the ball' };
+    case 'e1996': return { pass: !through,
+      why: (through ? 'the 2x4 went through' : 'no penetration on impact') + '; the 9,000 pressure cycles that follow in the real test are not simulated' };
+    case 'far25': return { pass: intact && !through,
+      why: intact ? 'the windshield kept the cabin sealed' : 'the windshield was breached: the cabin would depressurise' };
+    case 'z97': {
+      const tempered = P.plies.some((p) => p.dicing);
+      return { pass: !broke || tempered,
+        why: !broke ? 'it did not break' : tempered ? 'it broke into small dice, as safety glass must' : 'it broke into long sharp shards: annealed glass cannot pass' };
+    }
+    case 'ul752': return { pass: stopped && !through, why: stopped ? 'the round was stopped in the layup' : 'the round went through' };
+    case 'en12150': {
+      // The count from the dice size the energy balance gives (the pieces the
+      // engine flies are coarser than the real dice).
+      if (!broke) return { pass: false, why: 'the punch did not break it' };
+      const pl = P.plies.find((p) => p.dicing);
+      if (!pl) return { pass: false, why: 'it broke into a few large pieces with long sharp edges: it is not toughened glass, which must dice' };
+      const n = Math.floor((0.05 / pl.dice) ** 2);
+      return { pass: n >= 40, rows: [['Pieces in 50 × 50 mm', `${n} (dice about ${(pl.dice * 1e3).toFixed(1)} mm)`]],
+        why: `${n} pieces in the count square, at least 40 needed; counted from the dice size its stored stress gives` };
+    }
+    default: return null;
+  }
+}
+
+// ---------- A pane that breaks by itself ----------
+// Nickel sulfide: a stone in the glass that slowly changes phase and swells,
+// years after tempering. In the tensile core of a tempered pane, a big enough
+// one breaks it with nothing touching it.
+function plantStone(n, delay = 1.6) {
+  if (!P || rigs || activeScene()) return;
+  P.nis = { x: n.x, y: n.y, d: n.d };
+  toast(delay > 0.5 ? `A ${n.d.toFixed(2)} mm nickel-sulfide stone sits in the glass. Years pass…` : 'Again', 2600);
+  setTimeout(() => {
+    if (!P || !P.nis) return;
+    const broke = G.gls_nickel_sulfide(n.x, n.y, n.d);
+    P.nis.broke = !!broke;
+    P.nis.text = (G.text() || '').replace(/^\s*[\d.]+ us\s+/, '').replace(/^./, (c) => c.toUpperCase());
+    banner(broke ? 'Exploded on its own' : 'Still standing', broke ? 'Nothing touched it' : 'The stone is too small to break it');
+    simClockReset();
+    auto = true; syncAuto(); buildScaleButtons();
+  }, delay * 1000);
+}
 
 // ---------- Sound: a steady note at the glass ----------
 // A loudspeaker (or a voice) is a plane wave on the struck face: the engine
@@ -3121,9 +4113,13 @@ function shareURL() {
   for (const l of stack) q.append('L', `${cat.glazings[l.gid].id}:${+(l.gap * 100).toFixed(1)}`);
   q.set('seed', (stackOn ? rigs.map((r) => r.P.seed) : [pane.seed]).join('.'));
   const at = aim || { x: pane.W / 2, y: pane.H / 2 };
+  if (P && P.scores && !stackOn)
+    for (const sc of P.scores) q.append('cut', (sc.closed ? 'c' : 'l') + sc.pts.map((p) => `${+p.x.toFixed(4)},${+p.y.toFixed(4)}`).join(';'));
+  if (P && P.testDef && !stackOn) q.set('test', P.testDef.id);
+  if (P && P.nis && !stackOn) q.set('nis', [+P.nis.x.toFixed(4), +P.nis.y.toFixed(4), +P.nis.d.toFixed(3)].join(','));
   const toned = (TONE.on || TONE.broke) && !stackOn;
   if (toned) q.set('tone', [+TONE.freq.toFixed(2), +TONE.dB.toFixed(1), TONE.shaker ? 1 : 0].join(','));
-  const shots = pane.shots.length ? pane.shots : toned ? [] : [{ t: 0, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack }];
+  const shots = pane.shots.length ? pane.shots : toned || P.nis ? [] : [{ t: 0, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack }];
   const t0 = shots.length ? shots[0].t : 0;
   for (const sh of shots)
     q.append('shot', [cat.impactors[sh.iIdx].id, +sh.speed.toFixed(2), +sh.x.toFixed(4), +sh.y.toFixed(4), +sh.yaw.toFixed(1),
@@ -3133,6 +4129,7 @@ function shareURL() {
 function shareText() {
   if (HS && HS.active) return 'Grenade in the shop';
   if (GT && GT.active) return 'Rosser V8 under fire';
+  if (P.nis && !stackOn && !P.shots.length) return `${cat.glazings[gIdx].name} with a ${P.nis.d.toFixed(2)} mm nickel-sulfide stone`;
   if ((TONE.on || TONE.broke) && !stackOn && !P.shots.length) return `${cat.glazings[gIdx].name} sung at ${fmtHz(TONE.freq)}, ${TONE.shaker ? $('vLevel').textContent + ' shaker' : `${TONE.dB.toFixed(0)} dB`}`;
   const pane = stackOn ? rigs[0].P : P;
   const sh = pane.shots[pane.shots.length - 1] || { iIdx, speed };
@@ -3152,6 +4149,8 @@ function applyShareLink() {
   if (!q.has('g') && !q.has('shot')) return false;
   const gi = cat.glazings.findIndex((g) => g.id === q.get('g'));
   if (gi >= 0) gIdx = gi;
+  const td = TESTS.find((x) => x.id === q.get('test'));
+  labSize = td?.size || null;
   stack = q.getAll('L').map((v) => {
     const [id, cm] = v.split(':');
     return { gid: cat.glazings.findIndex((g) => g.id === id), gap: clamp((Number(cm) || 10) / 100, 0.002, 1.5) };
@@ -3180,6 +4179,13 @@ function applyShareLink() {
   if (last) { aim = { x: P.shots[P.shots.length - 1].x, y: P.shots[P.shots.length - 1].y }; placeAimMarker(); }
   auto = true; syncAuto(); buildScaleButtons();
   simClockReset();
+  for (const c of q.getAll('cut').slice(0, 20)) {
+    const pts = c.slice(1).split(';').map((v) => v.split(',').map(Number)).filter((v) => v.length === 2 && v.every(Number.isFinite)).slice(0, 400).map(([x, y]) => ({ x, y }));
+    if (!stackOn) addScore(pts, c[0] === 'c');
+  }
+  if (td && !stackOn) { P.test = td.kind; P.testDef = td; P.testHits = []; P.testQueue = []; }
+  const ns = (q.get('nis') || '').split(',').map(Number);
+  if (ns.length === 3 && ns[2] > 0 && !stackOn) plantStone({ x: clamp(ns[0], 0, P.W), y: clamp(ns[1], 0, P.H), d: clamp(ns[2], 0.01, 2) });
   const tn = (q.get('tone') || '').split(',').map(Number);
   if (tn[0] > 0 && !stackOn) {
     TONE.freq = clamp(tn[0], 10, 5000);
@@ -3201,9 +4207,15 @@ $('bUnit').textContent = UNITS[unit][0];
 buildScaleButtons();
 syncAuto();
 syncPlay();
-newPane();
+{
+  const q = new URLSearchParams(location.search);
+  if (!q.has('g') && !q.has('shot')) {
+    const plate = cat.glazings.findIndex((g) => g.id === 'annealed_10');
+    if (plate >= 0) stack = [0, 1, 2].map(() => ({ gid: plate, gap: 1.0 }));
+  }
+}
+rebuildLab();
 simClockReset();
-renderLayers();
 const shared = applyShareLink();
 if (window.innerWidth <= 860 && !shared) showTab('lab');
 $('loading').remove();

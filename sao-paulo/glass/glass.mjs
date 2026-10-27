@@ -32,6 +32,7 @@ export default async function createGlassModule(wasmBytes) {
   memory = ex.memory;
   ex._initialize?.();
   const G = { ...Object.fromEntries(Object.entries(ex).filter(([k]) => k.startsWith('gls_'))) };
+  G.memory = memory;  // the module's memory (its buffer changes when it grows)
   const enc = new TextEncoder(), dec = new TextDecoder();
   G.text = (len) => dec.decode(new Uint8Array(memory.buffer, ex.gls_text(0), len ?? ex.gls_text_length()));
   // Loads a JSON library document; returns the error strings (empty when fine).
@@ -86,7 +87,14 @@ export default async function createGlassModule(wasmBytes) {
     return { nx: h[0], ny: h[1], label: new Int32Array(memory.buffer, p + 8, h[0] * h[1]).slice() };
   };
   G.fragmentPoses = (n) => new Float32Array(memory.buffer, ex.gls_fragment_poses(), 12 * n);
+  // Which bonded sheet each of the first n fragment records is in (-1 none): Int32Array (copy).
+  G.fragmentSheets = (n) => new Int32Array(memory.buffer, ex.gls_fragment_sheets(), n).slice();
   G.field = (g, nx, ny) => new Float32Array(memory.buffer, ex.gls_field(g, nx, ny), 3 * nx * ny);
   G.stressStrength = () => new Float64Array(memory.buffer, ex.gls_stress_strength(), 3).slice();
+  G.dropState = () => new Float64Array(memory.buffer, ex.gls_drop_state(), 16).slice();
+  G.dropFragments = (from) => {
+    const p = ex.gls_drop_fragments(from), n = new Float32Array(memory.buffer, p, 1)[0];
+    return new Float32Array(memory.buffer, p + 4, 9 * n).slice();
+  };
   return G;
 }

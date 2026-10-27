@@ -152,7 +152,7 @@ footer .row{display:flex;flex-wrap:wrap;gap:16px 40px;justify-content:space-betw
 .topbar nav{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;justify-content:flex-end;font:600 13.5px var(--body)}
 .topbar nav a:not(.drivebtn){color:var(--ink);text-decoration:none}.topbar nav a:not(.drivebtn):hover{color:var(--plate)}
 .drivebtn{display:inline-flex;align-items:center;gap:12px;background:var(--masp);color:#fff;text-decoration:none;border-radius:8px;padding:10px 18px 10px 12px;font:600 14px var(--body);box-shadow:0 12px 26px -16px rgba(210,42,31,.95)}
-.drivebtn:hover{filter:brightness(1.08)}@media (max-width:700px){.navfly{display:none}}.drivebtn.fly{background:var(--plate);box-shadow:0 12px 26px -16px rgba(29,87,194,.95)}.drivebtn.glass{background:#0f6f6a;box-shadow:0 12px 26px -16px rgba(15,111,106,.95)}.drivebtn.liquid{background:#7a1430;box-shadow:0 12px 26px -16px rgba(122,20,48,.95)}.drivebtn:focus-visible,.ghost:focus-visible,.topbar a:focus-visible{outline:2px solid var(--plate);outline-offset:3px}
+.drivebtn:hover{filter:brightness(1.08)}@media (max-width:700px){.navfly{display:none}}.drivebtn.fly{background:var(--plate);box-shadow:0 12px 26px -16px rgba(29,87,194,.95)}.drivebtn.glass{background:#0f6f6a;box-shadow:0 12px 26px -16px rgba(15,111,106,.95)}.drivebtn.liquid{background:#7a1430;box-shadow:0 12px 26px -16px rgba(122,20,48,.95)}.drivebtn.range{background:#5a4a12;box-shadow:0 12px 26px -16px rgba(90,74,18,.95)}.drivebtn:focus-visible,.ghost:focus-visible,.topbar a:focus-visible{outline:2px solid var(--plate);outline-offset:3px}
 .drivebtn .ico{width:30px;height:30px;flex:none;border-radius:50%;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:12px}
 .drivebtn b{display:block;font:800 20px/1 var(--display);text-transform:uppercase;letter-spacing:.03em}.drivebtn small{display:block;font:500 12px/1.3 var(--body);opacity:.92;margin-top:3px}
 .drivebtn.sm{padding:6px 14px 6px 8px;gap:8px}.drivebtn.sm .ico{width:22px;height:22px;font-size:9px}.drivebtn.sm b{font-size:16px}
@@ -194,10 +194,16 @@ footer .row{display:flex;flex-wrap:wrap;gap:16px 40px;justify-content:space-betw
 kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 6px;background:var(--bg);white-space:nowrap}
 </style>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}</style>
+<style>.dirbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--mute)}
+.dirbar button{font:inherit;font-size:13px;padding:5px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:transparent;color:inherit;cursor:pointer}
+.dirbar button[aria-pressed="true"]{background:#7fe0ff;color:#06131c;border-color:#7fe0ff;font-weight:600}
+.dirbar .lg{display:inline-flex;gap:4px;align-items:center}.dirbar i{display:inline-block;width:14px;height:4px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.45)}
+/* LANES_LAYER_V1 */
+</style>
 </head>
 <body>
 
-<header class="hero"><div class="wrap topbar"><nav aria-label="Sections"><a href="#film">Film</a><a href="#explore">Map &amp; tiles</a><a href="#north">The blocks</a><a href="#metro">Metrô</a><a href="#qa">Quality</a><a href="#balneario">Balneário</a><a href="physics/">Physics engine</a><a href="vehicle-dynamics/">Vehicle dynamics (math)</a><a class="navfly" href="flying/">Fly the 172</a><a class="navfly" href="golf/">Golf ball wind tunnel</a><a class="navfly" href="glass/">Glass lab</a><a class="navfly" href="liquids/">Liquids lab</a><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive the car</b></a></nav></div>
+<header class="hero"><div class="wrap topbar"><nav aria-label="Sections"><a href="#film">Film</a><a href="#explore">Map &amp; tiles</a><a href="#north">The blocks</a><a href="#metro">Metrô</a><a href="#qa">Quality</a><a href="#balneario">Balneário</a><a href="physics/">Physics engine</a><a href="vehicle-dynamics/">Vehicle dynamics (math)</a><a class="navfly" href="flying/">Fly the 172</a><a class="navfly" href="golf/">Golf ball wind tunnel</a><a class="navfly" href="glass/">Glass lab</a><a class="navfly" href="liquids/">Liquids lab</a><a class="navfly" href="wake/">Wake lab</a><a class="navfly" href="bloco/">Bloco</a><a class="navfly" href="destruction/">Destruction lab</a><a class="navfly" href="ballistics/">Ballistics range</a><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive the car</b></a></nav></div>
 <div class="wrap herotop">
   <div>
     <div class="eyebrow">An open-world game, one tile at a time</div>
@@ -205,7 +211,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
   </div>
   <div>
     <p class="lede intro">A block-by-block rebuild of São Paulo for an open-world driving game: 288 km² of the real city, built in blocks of 576 tiles from public survey data, with every building footprint, street tree, lamp post and named street, plus the Metrô running underneath at its real depth.</p>
-    <div class="ctas"><a class="drivebtn" href="driving/"><span class="ico" aria-hidden="true">▶</span><span><b>Drive the car</b><small>Vehicle physics test track, in your browser</small></span></a><a class="drivebtn fly" href="flying/"><span class="ico" aria-hidden="true">▲</span><span><b>Fly the 172</b><small>Or the Top G jet: flight test bed over the city</small></span></a><a class="drivebtn glass" href="glass/"><span class="ico" aria-hidden="true">✦</span><span><b>Break glass</b><small>Fracture lab, down to 1/100,000 speed</small></span></a><a class="drivebtn liquid" href="liquids/"><span class="ico" aria-hidden="true">●</span><span><b>Spill and splash</b><small>Liquids lab: wine, glass and spatter</small></span></a><a class="ghost" href="#film">▶ Watch the 30-second film</a><a class="ghost" href="#north" id="northlink">Two blocks built: 1,152 tiles</a></div>
+    <div class="ctas"><a class="drivebtn" href="driving/"><span class="ico" aria-hidden="true">▶</span><span><b>Drive the car</b><small>Vehicle physics test track, in your browser</small></span></a><a class="drivebtn fly" href="flying/"><span class="ico" aria-hidden="true">▲</span><span><b>Fly the 172</b><small>Or the Top G jet: flight test bed over the city</small></span></a><a class="drivebtn glass" href="glass/"><span class="ico" aria-hidden="true">✦</span><span><b>Break glass</b><small>Fracture lab, down to 1/100,000 speed</small></span></a><a class="drivebtn liquid" href="liquids/"><span class="ico" aria-hidden="true">●</span><span><b>Spill and splash</b><small>Liquids lab: wine, glass and spatter</small></span></a><a class="drivebtn" href="bloco/"><span class="ico" aria-hidden="true">■</span><span><b>Play Bloco</b><small>São Paulo in blocks: drive, fly, break glass</small></span></a><a class="drivebtn fly" href="wake/"><span class="ico" aria-hidden="true">≈</span><span><b>Near miss</b><small>Wake turbulence lab: a 737 over a 172 on final</small></span></a><a class="drivebtn liquid" href="destruction/"><span class="ico" aria-hidden="true">▼</span><span><b>Topple a tower</b><small>Destruction lab: 85 storeys into the Atlantic</small></span></a><a class="drivebtn range" href="ballistics/"><span class="ico" aria-hidden="true">⊕</span><span><b>Shoot two miles</b><small>Ballistics range, in bullet time</small></span></a><a class="ghost" href="#film">▶ Watch the 30-second film</a><a class="ghost" href="#north" id="northlink">Two blocks built: 1,152 tiles</a></div>
     <div class="facts" id="facts"></div>
   </div>
 </div>
@@ -228,7 +234,8 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
     <h2 id="ex_h">Pick any square</h2>
     <div class="eyebrow tp_area" id="ex_area"></div>
     <div><div class="tileimg"><img id="ex_img" src="tiles/T_p0_p0.jpg" alt="Top-down render of the selected tile"><div class="ph" id="ex_ph" hidden></div><canvas class="sx" id="ex_sx" aria-label="Hover a street to see its name and CEP"></canvas><div class="tag" id="ex_tag">T_p0_p0</div><div class="stip" id="ex_stip" role="status"></div></div>
-      <div class="sxhint">Hover a street on the render to light it up. CEPs come from Correios via ViaCEP and are still being filled in.</div></div>
+      <div class="sxhint">Hover a street on the render to light it up. CEPs come from Correios via ViaCEP and are still being filled in.</div>
+      <div class="dirbar" id="dirbar"><button id="dir_t" aria-pressed="false">Traffic direction</button><span class="lg" hidden id="dir_lg"><span class="lg"><i style="background:#7fe0ff"></i>one-way</span><span class="lg"><i style="background:#e9eef2"></i>two-way</span><span class="lg"><i style="background:#ff5a4f;width:8px;height:8px;border-radius:50%"></i>signal</span><span class="lg"><i style="background:#fff;width:8px;height:8px;border-radius:50%"></i>PARE</span></span><span id="dir_k"></span></div></div>
     <div class="kv" id="ex_kv"></div>
     <div class="slist" id="ex_sl"></div>
   </aside>
@@ -269,7 +276,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
       <div><div class="plate sm"><b>Rosser V8</b><span>9,000 rpm · 7-speed dual clutch</span></div></div>
       <div class="spec"><div><b>3.8 s</b><span>0–100 km/h</span></div><div><b>~330</b><span>km/h flat out</span></div><div><b>1,480</b><span>kg · 42 / 58</span></div><div><b>360 Hz</b><span>physics step</span></div></div>
       <ul><li><b>Proving ground</b>, where you start: a bump course, wet and dry skidpads, a split-µ strip and a slalom</li><li><b>Drag strip</b> for launches and top speed</li><li><b>Fun, Sport, Simulation</b>: the driver aids change, the grip stays the same</li><li>Engine sound synthesised live from rpm and load, skid marks, and telemetry you can download as CSV</li></ul>
-      <div class="ctas" style="margin-top:0"><a class="drivebtn" href="driving/"><span class="ico" aria-hidden="true">▶</span><span><b>Start driving</b><small>Desktop, gamepad or phone · turn the sound on</small></span></a><a class="drivebtn fly" href="flying/"><span class="ico" aria-hidden="true">▲</span><span><b>Or fly the 172</b><small>Take off from Campo de Marte</small></span></a><a class="drivebtn fly" href="flying/#topg"><span class="ico" aria-hidden="true">▲</span><span><b>Fly the Top G</b><small>Twin jet, Mach 0.85 over São Paulo</small></span></a><a class="drivebtn fly" href="golf/"><span class="ico" aria-hidden="true">●</span><span><b>Golf ball wind tunnel</b><small>Slow-motion airflow over the dimples</small></span></a><a class="drivebtn glass" href="glass/"><span class="ico" aria-hidden="true">✦</span><span><b>Glass lab</b><small>Windscreens, tempered, bullet-resistant, aircraft glass</small></span></a><a class="drivebtn liquid" href="liquids/"><span class="ico" aria-hidden="true">●</span><span><b>Liquids lab</b><small>Spills, bottles, spatter analysis, glTF export</small></span></a></div>
+      <div class="ctas" style="margin-top:0"><a class="drivebtn" href="driving/"><span class="ico" aria-hidden="true">▶</span><span><b>Start driving</b><small>Desktop, gamepad or phone · turn the sound on</small></span></a><a class="drivebtn fly" href="flying/"><span class="ico" aria-hidden="true">▲</span><span><b>Or fly the 172</b><small>Take off from Campo de Marte</small></span></a><a class="drivebtn fly" href="flying/#topg"><span class="ico" aria-hidden="true">▲</span><span><b>Fly the Top G</b><small>Twin jet, Mach 0.85 over São Paulo</small></span></a><a class="drivebtn fly" href="golf/"><span class="ico" aria-hidden="true">●</span><span><b>Golf ball wind tunnel</b><small>Slow-motion airflow over the dimples</small></span></a><a class="drivebtn glass" href="glass/"><span class="ico" aria-hidden="true">✦</span><span><b>Glass lab</b><small>Windscreens, tempered, bullet-resistant, aircraft glass</small></span></a><a class="drivebtn liquid" href="liquids/"><span class="ico" aria-hidden="true">●</span><span><b>Liquids lab</b><small>Spills, bottles, spatter analysis, glTF export</small></span></a><a class="drivebtn fly" href="wake/"><span class="ico" aria-hidden="true">≈</span><span><b>Wake turbulence lab</b><small>A wrong-runway near miss, in slow motion</small></span></a><a class="drivebtn liquid" href="destruction/"><span class="ico" aria-hidden="true">▼</span><span><b>Destruction lab</b><small>A tower falls into the sea; swim the wreck</small></span></a><a class="drivebtn range" href="ballistics/"><span class="ico" aria-hidden="true">⊕</span><span><b>Ballistics range</b><small>1 km to 2 miles: wind, air, spin, Coriolis</small></span></a></div>
     </div>
     <div style="display:grid;gap:18px;align-content:start">
     <div class="panel engcard"><div class="eyebrow">The engine underneath</div><h3 style="margin-top:8px">OpenRoad Dynamics</h3>
@@ -348,6 +355,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
       </div>
       <div class="facts" id="sfacts" style="margin-top:20px"></div>
       <p style="margin-top:18px;color:var(--mute)">Each plate shows its block's real number range from GeoSampa. Plates turn away from walls automatically, and every sign is a breakaway object in the physics manifest.</p>
+      <p style="margin-top:14px;color:var(--mute)" id="dirpara"><b style="color:var(--ink,#fff)">Which way the traffic goes.</b> Every road piece also carries its direction and lanes: 35,263 one-way pieces and 159,063 travel lanes, with turn rules through each junction, 4,187 signalised crossings, PARE signs on the minor road and priority from the right where the CTB says so. Bus lanes, speed bumps and 534 speed cameras (there to look at, they don't fine you) come from the same data. Switch on <i>Traffic direction</i> under any tile render to see it.</p>
     </div>
   </div>
 </div></section>
@@ -507,7 +515,7 @@ function showTile(t){selTile=t;
     const B=t.s==="built";
     if(t.img){$("ex_img").src="tiles/"+t.t+".jpg";$("ex_img").alt="Top-down render of tile "+t.t}else $("ex_ph").textContent=B?"Built. Its top-down render comes with the next site update":t.s==="building"?"Being built at the time of the snapshot":"Not built yet: queued in the north block build";
     $("ex_tag").textContent=t.t+" · block 2 (north)"+(B?", first pass":"");$("ex_area").textContent=t.d+"  ·  "+km+(B?"  ·  repair passes still to come":"");
-    $("ex_kv").innerHTML=B?(t.img?[[fmt(t.b),"buildings"],[fmt(t.tr),"trees"],[fmt(t.po),"poles"]]:[]).concat([[t.st,"named streets"]]).map(([v,l])=>`<div><b>${v}</b><span>${l}</span></div>`).join(""):"";
+    $("ex_kv").innerHTML=B?(t.img?[[fmt(t.b),"buildings"],[fmt(t.tr),"trees"],[fmt(t.po),"poles"]]:[]).concat([[t.st,"named streets"]]).concat(t.pl?[[fmt(t.pl),"name plates"]]:[]/*NPLATES_V1*/).map(([v,l])=>`<div><b>${v}</b><span>${l}</span></div>`).join(""):"";
     $("ex_sl").innerHTML=B?(t.sl.map(n=>`<div>${n}</div>`).join("")||"<div>No named streets</div>"):"";loadStreets(t.img?t:null);draw();return}
   $("ex_ph").hidden=true;$("ex_img").hidden=false;$("ex_img").src="tiles/"+t.t+".jpg";$("ex_img").alt="Top-down render of tile "+t.t;$("ex_tag").textContent=t.t+" · grade "+t.g;
   $("ex_h").textContent=(t.ar[0]||t.t);$("ex_area").textContent=(t.ar.join(" · ")||"–")+"  ·  "+(t.i*0.5).toFixed(1)+" km E, "+(t.j*0.5).toFixed(1)+" km N of MASP";
@@ -515,10 +523,25 @@ function showTile(t){selTile=t;
   $("ex_sl").innerHTML=t.sl.map(n=>`<div>${n}</div>`).join("")||"<div>No named streets</div>";loadStreets(t);draw()}
 // ---------------- street overlay on the tile render: hover -> name, bairro, numbers, CEP; the street lights up
 const SX=$("ex_sx"),sxc=SX.getContext("2d"),STIP=$("ex_stip");let SD=null,SDt=null,hov=null;
-async function loadStreets(t){SD=null;hov=null;SDt=t&&t.t;STIP.style.opacity=0;drawSX();if(!t)return;
+let LD=null,DIRON=false;try{DIRON=localStorage.getItem("sp_dir")==="1"}catch(e){}
+async function loadLanes(t){LD=null;$("dir_k").textContent="";if(!t)return;try{const r=await fetch("lanes/"+t.t+".json");if(!r.ok)return;const d=await r.json();if(SDt!==t.t)return;LD=d;
+  const k=d.k;$("dir_k").textContent=`${k.oneway} one-way of ${k.pieces} road pieces · ${k.signals} signals`+(k.bus_lanes?` · ${k.bus_lanes} bus lanes`:"")+(k.cameras?` · ${k.cameras} speed cameras`:"");drawSX()}catch(e){}}
+function setDir(on){DIRON=on;$("dir_t").setAttribute("aria-pressed",on?"true":"false");$("dir_lg").hidden=!on;try{localStorage.setItem("sp_dir",on?"1":"0")}catch(e){}drawSX()}
+$("dir_t").onclick=()=>setDir(!DIRON);setDir(DIRON);
+function drawLanes(c,w,h){if(!LD)return;const sx=w/1000,sy=h/1000,U=w/760;c.save();c.lineCap="round";c.lineJoin="round";
+  for(const e of LD.e){const o=e[0],n=e[1]+e[2],P=e.slice(5);c.beginPath();for(let k=0;k<P.length;k+=2){const x=P[k]*sx,y=P[k+1]*sy;k?c.lineTo(x,y):c.moveTo(x,y)}
+    c.lineWidth=(1.4+Math.min(n,6)*0.55)*U;c.strokeStyle=o?"rgba(127,224,255,.9)":"rgba(255,255,255,.55)";c.stroke();
+    if(!o)continue;let acc=0;for(let k=2;k<P.length;k+=2){const ax=P[k-2],ay=P[k-1],dx=P[k]-ax,dy=P[k+1]-ay,l=Math.hypot(dx,dy);if(!l)continue;
+      let s0=60-acc;while(s0<l){const ux=dx/l,uy=dy/l,x=(ax+ux*s0)*sx,y=(ay+uy*s0)*sy,a=7*U;c.beginPath();c.moveTo(x+ux*a,y+uy*a);c.lineTo(x-ux*a-uy*a*0.75,y-uy*a+ux*a*0.75);c.lineTo(x-ux*a+uy*a*0.75,y-uy*a-ux*a*0.75);c.closePath();c.fillStyle="#7fe0ff";c.fill();c.strokeStyle="rgba(6,19,28,.9)";c.lineWidth=1*U;c.stroke();s0+=110}
+      acc=(acc+l)%110}}
+  for(const [x,y,t] of LD.n){if(t==="r")continue;c.beginPath();c.arc(x*sx,y*sy,(t==="s"?5:3.6)*U,0,7);c.fillStyle=t==="s"?"#ff5a4f":"#ffffff";c.fill();c.lineWidth=1.2*U;c.strokeStyle="rgba(0,0,0,.8)";c.stroke()}
+  c.restore()}
+function laneAt(u,v){if(!LD)return null;let best=null,bd=26;for(const e of LD.e){const P=e.slice(5);for(let k=2;k<P.length;k+=2){const ax=P[k-2],ay=P[k-1],dx=P[k]-ax,dy=P[k+1]-ay,l2=dx*dx+dy*dy||1;
+  let q=((u-ax)*dx+(v-ay)*dy)/l2;q=Math.max(0,Math.min(1,q));const d=Math.hypot(ax+dx*q-u,ay+dy*q-v);if(d<bd){bd=d;best=e}}}return best}
+async function loadStreets(t){SD=null;hov=null;SDt=t&&t.t;STIP.style.opacity=0;loadLanes(t);drawSX();if(!t)return;
   try{const r=await fetch("streets/"+t.t+".json");if(!r.ok)return;const d=await r.json();if(SDt!==t.t)return;SD=d;linkList()}catch(e){}}
 function sizeSX(){const r=SX.getBoundingClientRect(),k=Math.min(2,window.devicePixelRatio||1);SX.width=Math.max(1,Math.round(r.width*k));SX.height=Math.max(1,Math.round(r.height*k));drawSX()}
-function drawSX(){const c=sxc,w=SX.width,h=SX.height;c.clearRect(0,0,w,h);if(!SD||hov==null)return;const s=SD.s[hov];c.save();c.lineCap="round";c.lineJoin="round";
+function drawSX(){const c=sxc,w=SX.width,h=SX.height;c.clearRect(0,0,w,h);if(DIRON)drawLanes(c,w,h);if(!SD||hov==null)return;const s=SD.s[hov];c.save();c.lineCap="round";c.lineJoin="round";
   c.fillStyle="rgba(5,10,20,.28)";c.fillRect(0,0,w,h);
   for(const [lw,col] of [[16,"rgba(255,211,107,.28)"],[8,"rgba(255,211,107,.95)"],[2.6,"#ffffff"]]){c.lineWidth=lw*w/760;c.strokeStyle=col;
     for(const L of s.L){c.beginPath();for(let k=0;k<L.length;k+=2){const x=L[k]/1000*w,y=L[k+1]/1000*h;k?c.lineTo(x,y):c.moveTo(x,y)}c.stroke()}}
@@ -527,6 +550,8 @@ function nearestStreet(u,v,maxd){let best=-1,bi=-1,bd=maxd;SD.s.forEach((s,si)=>
     let q=((u-ax)*dx+(v-ay)*dy)/l2;q=Math.max(0,Math.min(1,q));const d=Math.hypot(ax+dx*q-u,ay+dy*q-v)+s.k*0.6;if(d<bd){bd=d;best=si;bi=li}}}));return [best,bi]}
 function showStip(si,li,px,py){const s=SD.s[si],n=s.N&&s.N[li],cp=s.C&&s.C[li];STIP.innerHTML="";const b=document.createElement("b");b.textContent=s.n;const a=document.createElement("div");a.className="a";a.textContent=s.b||"";
   const m=document.createElement("div");m.className="m";m.textContent=[n?`Nº ${n[0]}–${n[1]}`:"",cp?(cp==="várias"?"several CEPs along this street":"CEP "+cp):"CEP not indexed yet"].filter(Boolean).join("  ·  ");STIP.append(b,a,m);
+  const box0=SX.getBoundingClientRect(),le=laneAt(px/box0.width*1000,py/box0.height*1000);if(le){const g=document.createElement("div");g.className="m";
+    g.textContent=(le[0]?`One-way · ${le[1]} lane${le[1]>1?"s":""}`:`Two-way · ${le[1]}+${le[2]} lanes`)+` · ${le[3]} km/h`;STIP.append(g)}
   const box=SX.getBoundingClientRect();STIP.style.left=Math.max(8,Math.min(px+16,box.width-STIP.offsetWidth-8))+"px";STIP.style.top=(py-STIP.offsetHeight-14<8?py+18:py-STIP.offsetHeight-14)+"px";STIP.style.opacity=1}
 function sxMove(e){if(!SD)return;const r=SX.getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top;const [si,li]=nearestStreet(px/r.width*1000,py/r.height*1000,e.pointerType==="touch"?40:24);
   if((si>=0?si:null)!==hov){hov=si>=0?si:null;drawSX()}if(si>=0)showStip(si,li,px,py);else STIP.style.opacity=0}

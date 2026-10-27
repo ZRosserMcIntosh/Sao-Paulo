@@ -192,6 +192,8 @@ body.jet #hud .levers{display:none}
   #toast{top:calc(64px + env(safe-area-inset-top))}
   #side{z-index:6;left:8px;right:8px;width:auto;top:calc(8px + env(safe-area-inset-top));max-height:calc(100% - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
 }
+#osmCredit{position:fixed;right:6px;bottom:4px;z-index:2;font:500 10px var(--body);color:rgba(255,255,255,.75);text-decoration:none;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+#osmCredit:hover{color:#fff;text-decoration:underline}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -296,6 +298,7 @@ body.jet #hud .levers{display:none}
     <span><kbd>Q</kbd><kbd>E</kbd></span><span>Rudder (steers on the ground; on the Top G below 5 kt, the nose-wheel tiller)</span>
     <span><kbd>[</kbd> <kbd>]</kbd></span><span>Elevator trim nose down / up</span>
     <span><kbd>L</kbd></span><span>Auto-trim: hold straight and level, on / off</span>
+    <span><kbd>U</kbd></span><span>Autoland: fly the approach to the destination and land, on / off (moving the stick takes over)</span>
   </div>
   <h2>Engines and configuration</h2>
   <div class="keys">
@@ -336,7 +339,9 @@ body.jet #hud .levers{display:none}
     <button data-assist="2" aria-pressed="false">Simulation</button>
   </div>
   <div class="row" style="margin-top:8px"><button id="bLevel" aria-pressed="false" title="L">Auto-trim: hold straight and level</button></div>
+  <div class="row" style="margin-top:8px"><button id="bAutoland" aria-pressed="false" title="U">Autoland: fly the approach and land</button></div>
   <p class="note">Assists only move the controls, as a skilled pilot would: Easy levels the wings, coordinates turns, trims and guards the stall; Simulation is the raw airplane. Lift, thrust and weight are identical in all three. Auto-trim (any mode): let go of the stick and it levels the wings, stops the climb or descent, then holds that heading and altitude and trims for you; near the stall it gives up height rather than speed. It never touches the throttle.</p>
+  <p class="note">Autoland (in the air, U): the blind-landing pilot of the flight core flies the GPS approach to the destination (the runway in use if none is picked) from the instruments alone. It joins the final where it can fly the 3° path from there, else it flies the whole procedure (the initial fix, the intermediate fix, level at the final approach fix's altitude); it lowers the gear, puts the flaps out as the speed allows, sets the altimeter to QNH, flares, lands and brakes to a stop on the centreline. Moving the stick, or U, gives you the controls back.</p>
 
   <h2>Display</h2>
   <div class="row" role="group" aria-label="Speed units">
@@ -345,6 +350,8 @@ body.jet #hud .levers{display:none}
     <button data-units="mph" aria-pressed="false">+ mph</button>
   </div>
   <p class="note">The instruments stay in knots, as in the airplane; the readouts add km/h or mph.</p>
+  <div class="row" style="margin-top:8px"><button id="bCity" aria-pressed="true">Buildings on</button></div>
+  <p class="note">The city's buildings from OpenStreetMap, at their mapped heights, and where OpenStreetMap has none the footprints traced from imagery by Google and Microsoft, their heights estimated from the mapped buildings around them: every building within a few kilometres, the skyline (35 m and taller) beyond. Building data © <a href="https://www.openstreetmap.org/copyright" style="color:var(--ink)">OpenStreetMap contributors</a>, Microsoft, Google Open Buildings (ODbL), via the Overture Maps buildings theme.</p>
 
   <h2>Sound</h2>
   <div class="row"><button id="bSound" aria-pressed="false" title="M">Sound off</button>
@@ -387,6 +394,7 @@ body.jet #hud .levers{display:none}
   </div>
 </div>
 <div id="warn">STALL</div>
+<a id="osmCredit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Buildings © OpenStreetMap contributors, Microsoft, Google Open Buildings</a>
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>
   <div class="lg slow"><span class="ends"><span>Slow motion <kbd>T</kbd></span><b id="slowO">real time</b></span><input id="slowR" type="range" min="0" max="4" step="1" value="0" aria-label="Slow motion: real time, 1/10, 1/100, 1/1000 or 1/5000"><span class="sm">At 1/1000× and slower the propeller is resolved: its blades, tip vortices and the slipstream they drive.</span></div>

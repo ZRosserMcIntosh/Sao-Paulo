@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bloco · São Paulo</title>
+<meta name="description" content="A block-world São Paulo around MASP: drive a Fusca, take off from Avenida Paulista in a Cessna, break windows. In your browser.">
+<style>
+  :root { --ink: #fff; --panel: rgba(0, 0, 0, 0.55); --accent: #ffe070; --sky: #9ad0ff; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #101820; color: var(--ink);
+    font: 600 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.6); }
+  #place { top: 12px; left: 14px; font-size: 18px; }
+  #shards { top: 38px; left: 14px; color: #b8e0f0; font-size: 14px; }
+  #debug { top: 62px; left: 14px; white-space: pre; font: 13px/1.4 ui-monospace, monospace; }
+  #crosshair { left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255, 255, 255, 0.85); }
+  #crosshair::before { left: 0; top: 9px; width: 20px; height: 2px; }
+  #crosshair::after { left: 9px; top: 0; width: 2px; height: 20px; }
+  #prompt { left: 0; right: 0; top: calc(50% + 34px); text-align: center; color: var(--accent); font-size: 17px; }
+  #toasts { left: 0; right: 0; top: 16%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  #toasts div { background: var(--panel); padding: 4px 12px; border-radius: 4px; max-width: min(92vw, 900px); text-align: center; }
+  #stall { left: 0; right: 0; top: 30%; text-align: center; color: #ff3030; font-size: 44px; font-weight: 800; }
+  #hotbarwrap { left: 50%; bottom: 14px; transform: translateX(-50%); text-align: center; }
+  #blockname { margin-bottom: 6px; }
+  #hotbar { display: flex; gap: 4px; }
+  .slot { position: relative; width: 46px; height: 46px; background: rgba(40, 40, 40, 0.65); border: 2px solid rgba(0, 0, 0, 0.6); }
+  .slot.sel { border-color: #fff; }
+  .slot img { position: absolute; inset: 5px; width: 32px; height: 32px; image-rendering: pixelated; }
+  .slot span { position: absolute; right: 2px; bottom: 0; font-size: 11px; }
+  #vehicle { right: 14px; bottom: 14px; background: var(--panel); padding: 10px 14px; border-radius: 6px; min-width: 260px; }
+  #vehicle .big { font-size: 46px; font-weight: 800; line-height: 1; display: flex; align-items: baseline; gap: 6px; }
+  #vehicle .big small { font-size: 16px; font-weight: 600; }
+  #vehicle .gear { margin-left: auto; color: #ffd040; font-size: 34px; }
+  #vehicle .alt { margin-left: auto; font-size: 20px; text-align: right; line-height: 1.1; }
+  #vehicle .bar { height: 10px; background: rgba(60, 60, 60, 0.8); margin: 8px 0 4px; }
+  #vehicle .bar i { display: block; height: 100%; background: #40c0ff; }
+  #vehicle .row { font-size: 13px; color: #ddd; display: flex; gap: 10px; justify-content: space-between; }
+  #vehicle .name { color: var(--sky); font-size: 13px; margin-top: 2px; }
+  #help { left: 14px; top: 64px; background: var(--panel); padding: 10px 14px; border-radius: 6px; font-size: 13px; max-width: 470px; }
+  #help b { color: var(--accent); }
+  #help kbd { font: inherit; color: var(--accent); }
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; text-align: center; padding: 16px; }
+  #loading { background: #101820; }
+  #loading h1, #pause h1 { margin: 0; font-size: clamp(28px, 6vw, 46px); }
+  #loading p, #pause p { margin: 0; color: #b0c4de; max-width: 620px; }
+  .track { width: min(420px, 80vw); height: 6px; background: #2a3440; border-radius: 3px; overflow: hidden; }
+  #loadbar { width: 0; height: 100%; background: var(--accent); transition: width 0.2s; }
+  #pause { background: rgba(10, 16, 24, 0.55); }
+  #start { pointer-events: auto; font: inherit; font-size: 20px; padding: 12px 28px; border: 0; border-radius: 6px;
+    background: var(--accent); color: #101820; cursor: pointer; }
+  #start:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  .credits { position: fixed; right: 10px; top: 8px; font-size: 11px; color: rgba(255, 255, 255, 0.75); text-shadow: 0 1px 2px #000; }
+  .credits a { color: inherit; pointer-events: auto; }
+  @media (max-width: 700px) { #help { display: none; } #vehicle { min-width: 0; } }
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="The game view"></canvas>
+
+<div class="hud" id="place"></div>
+<div class="hud" id="shards"></div>
+<div class="hud" id="debug" hidden></div>
+<div class="hud" id="crosshair"></div>
+<div class="hud" id="prompt"></div>
+<div class="hud" id="toasts" role="status" aria-live="polite"></div>
+<div class="hud" id="stall" hidden>STALL</div>
+<div class="hud" id="hotbarwrap"><div id="blockname"></div><div id="hotbar"></div></div>
+<div class="hud" id="vehicle" hidden></div>
+<div class="hud" id="help">
+  <b>Bloco · São Paulo</b> &nbsp;(<kbd>?</kbd> hides this)<br>
+  <kbd>WASD</kbd> move · <kbd>Space</kbd> jump · <kbd>Shift</kbd> sprint · mouse look<br>
+  Left click break (glass shatters) · right click place · <kbd>1–9</kbd> / wheel blocks<br>
+  <kbd>T</kbd> throw a rock · <kbd>C</kbd> spawn a car: Fusca » 911 » S 600 Guard<br>
+  <kbd>O</kbd> take off from Paulista · <kbd>P</kbd> plane ahead · <kbd>Shift+P</kbd> in the air<br>
+  <kbd>F</kbd> get in / out · <kbd>V</kbd> cockpit / chase · hold right mouse to look around<br>
+  Car: <kbd>W/S</kbd> gas, brake, reverse · <kbd>A/D</kbd> · <kbd>Space</kbd> handbrake · <kbd>H</kbd> horn · <kbd>B</kbd> belt · <kbd>R</kbd> flip<br>
+  Plane: <kbd>W/S</kbd> pitch · <kbd>A/D</kbd> roll · <kbd>Q/E</kbd> rudder · <kbd>Shift/Z</kbd> throttle · <kbd>G</kbd> flaps<br>
+  Annealed glass cracks locally; tempered windows dice the whole pane.
+</div>
+<div class="credits">Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors (ODbL), GeoSampa · <a href="../">São Paulo World</a></div>
+
+<div class="screen" id="pause" hidden>
+  <h1>Bloco · São Paulo</h1>
+  <p>Avenida Paulista, in front of MASP. Keyboard and mouse.</p>
+  <button id="start" type="button">Click to play</button>
+  <p>Esc releases the mouse.</p>
+  <p id="touchnote" hidden>This one needs a keyboard and mouse: open it on a computer.</p>
+</div>
+<div class="screen" id="loading">
+  <h1>Carregando São Paulo…</h1>
+  <div class="track"><div id="loadbar"></div></div>
+  <p id="loadmsg">Downloading the blocks around MASP (2 MB)</p>
+</div>
+
+<script>
+  if (matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches) document.getElementById('touchnote').hidden = false;
+</script>
+<script type="module" src="game.js"></script>
+</body>
+</html>

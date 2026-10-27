@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<base href="/sao-paulo/wake/">
+<title>Wake Turbulence Lab</title>
+<meta name="description" content="A near miss on final, solved: a 172 on approach to Congonhas, a 737 lined up on the wrong runway passes over it, and its wake vortices roll the 172. Unsteady vortex-lattice wakes from Aviation Dynamics in WebAssembly, in slow motion.">
+<meta property="og:title" content="São Paulo World · Wake Turbulence Lab">
+<meta property="og:description" content="A 737 lines up on the wrong runway and passes 20 m over a 172 on final. Watch its wake in slow motion.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"../driving/vendor/three.module.min.js"}}</script>
+<style>
+:root{
+  --bg:#0b111b; --panel:rgba(10,17,28,.86); --panel-solid:#0f1826; --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --plate-ink:#fff; --masp:#ec4a3c; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b; --ice:#9fd6ff;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#view,#view2d{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#view2d{display:none}
+button{font:600 12px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer;white-space:nowrap}
+button:hover{background:rgba(255,255,255,.13)}
+button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+select{font:600 12px var(--body);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:6px 8px;max-width:100%}
+input[type=range]{width:100%;accent-color:var(--hot)}
+kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:rgba(255,255,255,.05)}
+.eyebrow{font:600 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.panel{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:12px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.note{color:var(--mute);font-size:12px;margin:6px 0 0}
+.mono{font-family:var(--mono)}
+/* top bar */
+.top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
+.top>*{pointer-events:auto}
+.top button,.top select{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.slider .unit{font:inherit;font-size:11px;padding:1px 7px;margin-left:4px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ice);cursor:pointer}
+.top button[aria-pressed="true"]{background:#fff;color:#0a1830}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+/* left: the lab bench */
+#lab{position:fixed;left:12px;top:66px;width:318px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#lab h2,#res h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#lab h2:first-child,#res h2:first-child{margin-top:0}
+#lab h2 small,#res h2 small{font:500 10.5px var(--mono);color:var(--mute);text-transform:none;letter-spacing:0}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chips button{font-weight:600;padding:5px 8px}
+.chips .cat{width:100%;font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin:6px 0 1px}
+.desc{font-size:12.5px;color:#cfd8e3;margin:7px 0 0}
+.std{font:500 11px var(--mono);color:var(--mute);margin-top:4px}
+.slider{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-top:8px;font-size:12px;color:var(--mute)}
+.slider b{font:600 12px var(--mono);color:var(--ink);text-align:right}
+.tslider span{display:flex;align-items:center;gap:8px;min-height:58px}
+.thead{display:inline-block;transition:width .15s,height .15s;flex:none}
+.thead svg{width:100%;height:100%;display:block}
+.slider input{grid-column:1/-1}
+#fire{width:100%;margin-top:10px;padding:10px;font:800 16px var(--display);letter-spacing:.06em;text-transform:uppercase;background:var(--masp);border-color:var(--masp);color:#fff}
+#fire:hover{filter:brightness(1.1)}
+.presets{display:grid;grid-template-columns:1fr;gap:5px}
+.presets button{text-align:left;white-space:normal;line-height:1.3}
+.presets button small{display:block;color:var(--mute);font-weight:500}
+.presets button.feature{border-color:rgba(255,211,107,.55);background:linear-gradient(180deg,rgba(255,211,107,.16),rgba(255,211,107,.05))}
+/* right: results */
+#res{position:fixed;right:12px;top:66px;width:300px;max-height:calc(100% - 150px);overflow:auto;z-index:2;scrollbar-width:thin}
+#outcome{font:700 14px/1.35 var(--body);margin:0}
+#outcome.ok{color:var(--good)}#outcome.bad{color:var(--bad)}#outcome.warn{color:var(--warn)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;margin-top:8px}
+.kv span{color:var(--mute)}.kv b{font:600 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+#log{font:500 10.5px/1.45 var(--mono);color:#b9c4d3;max-height:170px;overflow:auto;white-space:pre-wrap;margin-top:6px;user-select:text;-webkit-user-select:text}
+/* bottom: time */
+#time{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:3;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100% - 24px)}
+#clock{font:600 13px var(--mono);min-width:150px;text-align:center;font-variant-numeric:tabular-nums}
+#clock small{display:block;font:500 10px var(--mono);color:var(--mute);letter-spacing:.06em}
+#scale button{min-width:46px}
+#limit{font:600 10.5px var(--mono);color:var(--warn)}
+/* banner + overlays */
+#banner{position:fixed;left:50%;top:70px;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:2;opacity:0;transition:opacity .35s;text-shadow:0 2px 10px rgba(0,0,0,.9)}
+#banner.on{opacity:1}
+#banner b{display:block;font:900 italic clamp(26px,4vw,44px)/1 var(--display);text-transform:uppercase}
+#banner small{display:block;font:600 12px var(--mono);color:#dfe6ef;margin-top:5px;letter-spacing:.06em}
+#toast{position:fixed;left:50%;top:120px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
+#toast.on{opacity:1}
+#loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg)}
+#loading .panel{max-width:440px;text-align:center}
+#loading h1{font:900 34px/1 var(--display);text-transform:uppercase;margin:0 0 8px}
+#help{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
+#help.on{display:grid}
+#help .panel{max-width:min(720px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:18px 20px}
+#help h2{font:900 26px/1 var(--display);text-transform:uppercase;margin:0 0 10px}
+#help h3{font:800 16px/1 var(--display);text-transform:uppercase;margin:16px 0 6px}
+#help p,#help li{font-size:13.5px;color:#d3dbe6}
+#help ul{padding-left:18px;margin:6px 0}
+.tabs{display:none}
+/* phones and narrow windows: the bench becomes a bottom sheet */
+@media (max-width:860px){
+  #lab,#res{left:8px;right:8px;width:auto;top:auto;bottom:calc(58px + env(safe-area-inset-bottom));max-height:38vh;border-radius:12px;padding:10px}
+  #lab[hidden],#res[hidden]{display:none}
+  .tabs{display:flex;position:fixed;left:8px;right:8px;bottom:calc(58px + 38vh + 6px + env(safe-area-inset-bottom));gap:5px;z-index:3;justify-content:center}
+  .tabs.closed{bottom:calc(58px + env(safe-area-inset-bottom))}
+  #time{left:8px;right:8px;bottom:calc(6px + env(safe-area-inset-bottom));transform:none;width:auto;gap:5px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;padding:6px 8px!important;scrollbar-width:none}
+  #time::-webkit-scrollbar{display:none}
+  #time button{padding:6px 7px;font-size:11.5px}
+  #scale{flex-wrap:nowrap}
+  #clock{min-width:96px;font-size:11px}
+  #clock small{font-size:9px}
+  .top .hide-sm{display:none}
+  .top .plate b{font-size:16px}.top .plate span{font-size:8px}
+  .top button,.top select{padding:5px 7px;font-size:11.5px}
+  #banner{top:64px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* wake additions */
+#go{width:100%;margin-top:12px;padding:10px;font:800 16px var(--display);letter-spacing:.06em;text-transform:uppercase;background:var(--masp);border-color:var(--masp);color:#fff}
+#go:hover{filter:brightness(1.1)}
+.field{display:grid;grid-template-columns:1fr;gap:4px;margin-top:8px;font-size:12px;color:var(--mute)}
+.field select{width:100%}
+.presets button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+.presets button[aria-pressed="true"] small{color:#46536a}
+.gauge{height:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;margin:2px 0 6px;position:relative}
+.gauge i{position:absolute;top:0;bottom:0;background:var(--ice)}
+.gauge i.hot{background:var(--bad)}
+.gauge::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.35)}
+.sep{font-size:12px;color:#cfd8e3;margin:6px 0 0}
+.sep b{color:var(--ink)}
+#radio{font:500 11px/1.5 var(--mono);color:#b9c4d3;max-height:180px;overflow:auto;white-space:pre-wrap;margin-top:6px;user-select:text;-webkit-user-select:text}
+#radio .tw{color:var(--hot)}#radio .jt{color:var(--ice)}#radio .lt{color:#c6f3d6}
+#brasher{position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:4;display:none;max-width:min(560px,calc(100% - 24px));text-align:center;border-color:rgba(255,211,107,.6);background:rgba(30,22,6,.9)}
+#brasher.on{display:block}
+#brasher .eyebrow{color:var(--hot)}
+#brasher p{margin:6px 0 4px;font:600 14px/1.4 var(--body)}
+#brasher .num{font:700 22px/1 var(--mono);letter-spacing:.08em;color:var(--hot);margin:6px 0}
+#hud{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);display:flex;gap:16px;z-index:2;pointer-events:none;text-shadow:0 1px 6px rgba(0,0,0,.9)}
+#hud div{text-align:center;font:700 20px/1 var(--mono);font-variant-numeric:tabular-nums}
+#hud small{display:block;font:600 9.5px var(--mono);letter-spacing:.12em;color:#c5cfdc;text-transform:uppercase;margin-top:3px}
+#hud .bad{color:var(--bad)}#hud .warn{color:var(--warn)}
+@media (max-width:860px){#hud{bottom:calc(64px + 38vh + 44px + env(safe-area-inset-bottom));gap:10px}#hud div{font-size:15px}#brasher{top:64px}}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="3D view of the approach to Congonhas. Drag to orbit, scroll or pinch to zoom."></canvas>
+
+<div class="top">
+  <a class="plate" href="/sao-paulo/" title="Back to São Paulo World"><b>São Paulo World</b><span>Wake turbulence lab</span></a>
+  <div class="row">
+    <button id="bSmoke" aria-pressed="true" title="Smoke from the jet's wingtips, carried by the air (M)">Smoke</button>
+    <button id="bCores" aria-pressed="true" title="The wake's vortex lines, coloured by strength (V)">Vortices</button>
+    <button id="bLite" class="hide-sm" aria-pressed="false" title="Lite: less smoke and fewer pixels, for slow devices (phones start in it)">Lite</button>
+    <button id="bCam" title="Camera views (C)">Camera</button>
+    <button id="bReset" title="Fly it again (R)">Again</button>
+    <button id="bHelp" title="How it works (H)">?</button>
+  </div>
+</div>
+
+<div class="tabs" id="tabs" role="tablist">
+  <button id="tLab" role="tab" aria-pressed="true">Scene</button>
+  <button id="tRes" role="tab" aria-pressed="false">Results</button>
+  <button id="tHide" role="tab" aria-pressed="false">Hide</button>
+</div>
+
+<aside id="lab" class="panel" aria-label="Scene">
+  <h2>Scenario <small>Congonhas, final 35L</small></h2>
+  <div class="presets" id="scenes"></div>
+  <h2>Set it up <small id="sumGeom"></small></h2>
+  <div class="field">The jet<select id="jet"></select></div>
+  <label class="slider">Passes above the 172 by <b id="vDh"></b><input id="dh" type="range" min="0" max="80" step="1"></label>
+  <label class="slider">Off to the side (+ left of it) <b id="vAside"></b><input id="aside" type="range" min="-60" max="60" step="1"></label>
+  <label class="slider">Goes around after passing it <b id="vGa"></b><input id="ga" type="range" min="0" max="3000" step="50"></label>
+  <label class="slider">Crosswind (+ from the right) <b id="vXw"></b><input id="xw" type="range" min="-8" max="8" step="0.5"></label>
+  <div class="field">Turbulence<select id="turb"><option value="0">Calm air</option><option value="1">Light</option><option value="2">Moderate</option></select></div>
+  <button id="go" title="Fly it (Space)">Fly it</button>
+  <p class="note" id="goNote">The 172's pilot holds the wings level and the glide path, as a pilot would. The jet is flown down its own line; nothing is scripted after that.</p>
+</aside>
+
+<aside id="res" class="panel" aria-label="Results">
+  <h2>The 172 <small id="r172"></small></h2>
+  <div class="kv" id="kv172"></div>
+  <div class="note">Aileron (full = the pilot is out of roll authority)</div>
+  <div class="gauge"><i id="ail"></i></div>
+  <h2>The jet <small id="rJet"></small></h2>
+  <div class="kv" id="kvJet"></div>
+  <h2>Separation <small>ICAO Doc 4444</small></h2>
+  <p class="sep" id="sep"></p>
+  <h2>Radio <small>Congonhas Tower</small></h2>
+  <div id="radio"></div>
+</aside>
+
+<div id="hud" aria-live="off">
+  <div id="hBank">0°<small>bank</small></div>
+  <div id="hRate">0°/s<small>roll rate</small></div>
+  <div id="hLost">0 m<small>below path</small></div>
+  <div id="hSep">–<small>to the jet</small></div>
+</div>
+
+<div id="time" class="panel" style="padding:8px 10px">
+  <button id="bPlay" title="Pause / play (P)" aria-pressed="false">Pause</button>
+  <div class="row" id="scale" role="group" aria-label="Playback speed"></div>
+  <button id="bAuto" aria-pressed="true" title="Slow down by itself for the encounter (A)">Slow-mo</button>
+  <div id="clock">0.0 s<small>1× · real time</small></div>
+</div>
+
+<div id="brasher" class="panel" role="status">
+  <div class="eyebrow">Congonhas Tower</div>
+  <p id="brText"></p>
+  <div class="num" id="brNum"></div>
+  <div class="note">The number is fictional; the phrase is the real one, and getting it is a pilot's least favourite moment.</div>
+  <button id="brClose" style="margin-top:8px">Copy that</button>
+</div>
+<div id="banner"><b id="bTitle"></b><small id="bSub"></small></div>
+<div id="toast" role="status"></div>
+
+<div id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><h2 id="helpTitle">Wake Turbulence Lab</h2><button id="bHelpClose">Close</button></div>
+    <p>A 172 is on a 3° final for runway 35L at Congonhas, 5 km out. A 737 cleared for the parallel runway lines up on the wrong one, overtakes it 80 kt faster and passes just above it, then goes around. Nothing here is animated: both aircraft are flown by <b>Aviation Dynamics</b>, the flight engine behind <a href="../flying/" style="color:var(--ice)">Fly the 172</a>, compiled to WebAssembly, and the 172 flies through the jet's wake as the engine computes it.</p>
+    <h3>Controls</h3>
+    <ul>
+      <li>Pick a scenario or set one up, then <b>Fly it</b> (<kbd>Space</kbd>). <kbd>R</kbd> flies it again.</li>
+      <li><b>Slow-mo</b> (<kbd>A</kbd>) slows the clock by itself while the 172 is in the wake, and back up after; the buttons beside it set the speed by hand, down to 1/50. <kbd>P</kbd> pauses.</li>
+      <li>Drag to orbit, scroll or pinch to zoom, <kbd>C</kbd> cycles the camera: chase, the 172's cockpit, the tower, beside the two, and behind the jet.</li>
+      <li><b>Lite</b> draws less smoke at a lower resolution for slow devices; phones start in it, and a computer that cannot keep up switches to it by itself.</li>
+      <li><b>Smoke</b> (<kbd>M</kbd>) puts smoke on the jet's wingtips, carried by the air the engine computes (the wind and the jet's vortices, summed from the same vortex segments the engine flies the 172 through), so you see the wake roll up, sink and spread. <b>Vortices</b> (<kbd>V</kbd>) draws the wake's vortex lines themselves, brighter where they are stronger.</li>
+    </ul>
+    <h3>What is solved</h3>
+    <ul>
+      <li><b>The wake:</b> each aircraft sheds an unsteady vortex lattice from its lifting surfaces, as it actually loads them, every step. The sheets roll up into a pair of vortices about π/4 of the span apart that sink at Γ/(2π b₀), about 1.7 m/s behind a 737 on approach; they grow viscous cores, the ground's mirror images spread them apart near the ground, and turbulence decays them (Sarpkaya's P2P model). A 737 on final sheds about 300 m²/s.</li>
+      <li><b>The encounter:</b> the 172's wings are lifting strips that each feel the air where they are, so a vortex beside the wing lifts one wing and pushes the other down: a rolling moment that, close in, is more than full aileron can hold. Directly under the pair it is the downwash between them instead, and the 172 sinks rather than rolls. That is why the side offset matters so much.</li>
+      <li><b>The pilots:</b> both are the same autopilot-like pilot (a line follower on the truth state): it holds the wings level, the line and the speed with the throttle, and the jet's pilot goes around with take-off thrust and a 5° climb. A human pilot reacts later; the roll here is a best case.</li>
+      <li><b>Separation:</b> controllers keep a LIGHT aircraft 5 NM behind a MEDIUM such as the 737 (6 NM behind a HEAVY) on approach for exactly this. Here it is a few dozen metres.</li>
+    </ul>
+    <h3>The phone number</h3>
+    <p>When a controller sees a pilot deviation, the tower reads the crew a scripted notice, the "Brasher warning": <i>possible pilot deviation, advise you call</i> a number. It is the start of an investigation. The number shown here is fictional.</p>
+    <h3>Honest limits</h3>
+    <p>The wake model is a vortex lattice with an engineering core and decay model, not a CFD solution; the vortex strength and sink rate are what theory and flight measurements give, but the exact roll in a given encounter depends on where the cores pass to the metre, as it does in life. The ground is flat at the field's elevation, and there is no city to hit.</p>
+  </div>
+</div>
+
+<div id="loading"><div class="panel"><h1>Wake Turbulence Lab</h1><p id="loadMsg">Loading the flight engine…</p></div></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
