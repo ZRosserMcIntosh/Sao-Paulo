@@ -92,7 +92,7 @@ footer{border-top:1px solid var(--line);padding-block:30px 50px;color:var(--mute
   <div class="eyebrow">OpenRoad Dynamics · technical reference</div>
   <h1>Motor Vehicle Dynamics</h1>
   <p class="subtitle">The mathematics of an open-source vehicle physics engine: every model, equation, constant and assumption as it is implemented, and how each one is checked.</p>
-  <p class="meta">Engine: OpenRoad Dynamics, C++20, MIT licence · Source: <a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">github.com/ZRosserMcIntosh/Vehicle-Dynamics</a> · Revision of 19 October 2026 (branch <code>claude/tuning-garage</code>, 140 automated tests)</p>
+  <p class="meta">Engine: OpenRoad Dynamics, C++20, MIT licence · Source: <a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">github.com/ZRosserMcIntosh/Vehicle-Dynamics</a> · Revision of 20 October 2026 (151 automated tests)</p>
   <div class="ctas">
     <a class="btn gh" href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Source on GitHub</a>
     <a class="btn drive" href="../driving/">▶ Drive it in the browser</a>
@@ -132,7 +132,7 @@ footer{border-top:1px solid var(--line);padding-block:30px 50px;color:var(--mute
 <ul class="list">
 <li>a 6-degree-of-freedom rigid chassis;</li>
 <li>wheel–ground contact by multi-point ray sampling of an arbitrary ground;</li>
-<li>a linearly implicit unsprung-mass suspension;</li>
+<li>a linearly implicit unsprung-mass suspension, guided by double-wishbone or MacPherson linkages solved from their pivot geometry (camber and toe curves, roll centres and jacking, anti-dive, motion ratio);</li>
 <li>a reduced Pacejka Magic Formula tyre with relaxation-length transient slip, combined slip, camber, a one-node thermal model and compounds;</li>
 <li>one implicit linear system coupling engine, clutch, gearbox, differentials, wheel spin and longitudinal slip, with a stick/slip active set for friction elements;</li>
 <li>an ISA atmosphere and aerodynamics with ride-height-sensitive downforce and a wing that stalls (Viterna–Corrigan);</li>
@@ -407,7 +407,33 @@ $$B_s=K_s\Delta t+c,\qquad K_s=k+k_{\text{arb}}\ [+k_b\ \text{when a stop is eng
 <li>The heave and wheel-hop frequencies of the reference sports car match the analytic quarter car: 1.728 / 1.728 Hz and 13.689 / 13.688 Hz.</li>
 <li>The definition validator requires the springs and bump stops to carry \(1.6\,Mg/n_w\) per corner.</li>
 </ul>
-<p class="note limit"><b>Not modelled.</b> Suspension kinematics: there are no wishbone or strut linkages, roll centres, anti-dive, anti-squat, jacking, motion ratios, compliance or bushings (planned). The damper is linearised at the start-of-step speed, with no iteration across the knee. Bump stops are linear, with no gap and no damping. The wheel equation neglects the rotation of \(\hat u\) within the step, including the Coriolis term.</p>
+<h3>5.6 Linkage kinematics</h3>
+<p class="src">kinematics.hpp/.cpp, vehicle.cpp (wheel loop), tests/test_kinematics.cpp</p>
+<p>A wheel may be guided by a real linkage instead of a slider: a double wishbone (two A-arms on body pivots, ball joints on the upright) or a MacPherson strut (lower arm plus a strut that pivots at its top mount and telescopes), each with a tie rod and a coil spring. Points are given in the body frame relative to the wheel centre at the design position, for the left wheel; the right wheel mirrors \(y\).</p>
+<p><b>Solved once.</b> At construction the mechanism is solved over the travel by Newton's method, 41 samples: for each wheel-centre height \(s\) the lower arm's angle, the upper arm's angle (keeping the ball joints at the upright's fixed separation) or the strut's extension, and the upright's rotation \(\phi\) about its kingpin axis that keeps the tie rod at its length. A point fixed to the upright maps as \(\mathbf P=\mathbf L+R_\phi R_0(\mathbf P_0-\mathbf L_0)\), with \(R_0\) the minimal rotation taking the design kingpin axis to the current one. Each sample stores the wheel centre's scrub \((x_c,y_c)\), the camber \(\gamma\), the toe, the spring length and their derivatives. The step only interpolates. A geometry that cannot reach the travel or folds over is rejected as an invalid definition.</p>
+<p><b>Every step.</b> The compression stays the single, implicitly solved DOF of §5.3, but the wheel moves along the linkage's path. Two directions matter, per metre of compression:</p>
+<div class="eq">$$\mathbf d=\Big(\frac{\partial x_c}{\partial s},\ \frac{\partial y_c}{\partial s},\ 1\Big),\qquad \mathbf d_p=\mathbf d+\boldsymbol\omega\times(\mathbf p-\mathbf c)=\Big(\frac{\partial x_c}{\partial s},\ \frac{\partial y_c}{\partial s}-r\,\frac{\partial\gamma}{\partial s},\ 1\Big)$$</div>
+<p>\(\mathbf d\) is the wheel centre's path and \(\mathbf d_p\) the contact patch's: as the upright tilts along the camber curve, the bottom of the tyre swings sideways by \(r\) per radian, and for a typical short-long-arm layout that term is several times the centre's scrub. The wheel equation of §5.3 becomes</p>
+<div class="eq">$$m\,|\mathbf d|^2\,\ddot x=\mathbf F_t\cdot\mathbf d_p+\mathbf F_{\text{tan}}\cdot\mathbf d_p-F_s+m\,\mathbf g\cdot\mathbf d-m\,\mathbf a_{hp}\cdot\mathbf d,$$</div>
+<p>where \(\mathbf F_{\text{tan}}=F_x\hat e_x+F_y\hat e_y\) is the previous step's tyre traction. That one term is where the handling effects come from, with no separate "anti" parameters:</p>
+<ul class="list">
+<li><b>Jacking and the roll centre.</b> A cornering force along a patch path with a sideways component pushes the outside wheel toward droop and the body is held up through the links. The front-view roll-centre height follows directly: \(h_{rc}=\tfrac{t}{2}\big(\partial y_c/\partial s-r\,\partial\gamma/\partial s\big)\), which has no singularity when the camber does not change.</li>
+<li><b>Anti-dive and anti-squat.</b> Pivot axes inclined in side view lean the path forward in bump; a braking force then pushes the front wheels toward droop. The same inclination on a rear axle is pro-squat, so rear axles use the opposite one.</li>
+</ul>
+<p>The spring's motion ratio \(\rho(s)\), coil travel per wheel travel normalised to 1 at design, scales the wheel rate and the damping by \(\rho^2\): \(F_s=k\,\rho(s)\big(S(s)-S_{\text{droop}}\big)+\ldots\) with \(S=\int\rho\,ds\). Camber is \(\gamma_0\) plus the curve's change from design (replacing \(G(x-x_{\text{ride}})\) in §6.2); toe is the static value plus the curve's change (bump steer, and with roll, roll steer). The garage's ride height moves the operating point along the curves: lowering a car 20 mm puts its wheels 20 mm further into bump at rest, with the camber that comes with it.</p>
+<div class="tbl"><table>
+<caption>Table 5.1. Kinematics checks (tests/test_kinematics.cpp).</caption>
+<thead><tr><th>Check</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>3-D wishbone solve vs. an independent 2-D four-bar (circle intersection)</td><td>camber and scrub agree to 1.4·10⁻⁵ over ±80 mm; MacPherson to 2·10⁻⁵</td></tr>
+<tr><td>Roll centre from the path vs. the graphical construction (arm lines → instant centre → n-line)</td><td>120.006 vs 120.000 mm; 55.90 vs 55.89 mm; 94.94 vs 94.94 mm</td></tr>
+<tr><td>Steady 0.59 g turn, same springs and bars, roll centre at the ground vs. +95 mm</td><td>roll gradient 2.54 → 2.12 deg/g; lateral load transfer unchanged within 8 %</td></tr>
+<tr><td>Braking from 80 km/h, level pivots vs. 0.30 rad anti-dive</td><td>dive 1.69° → 1.06°; stopping distance 30.46 vs 30.46 m</td></tr>
+<tr><td>Lowered 20 mm in the garage</td><td>camber at rest −0.01° → −0.59°, the curve's value at 20 mm</td></tr>
+<tr><td>Kerb strike at 60 km/h, 240 vs 1000 Hz</td><td>heave 13.1 vs 13.0 mm</td></tr>
+</tbody></table></div>
+<p>The reference cars keep sliders, so the golden baseline of chapter 16 is unchanged. The Rosser Stella V8 and the five real-car approximations use linkages of the published types with representative coordinates (roll centres 57–112 mm).</p>
+<p class="note limit"><b>Not modelled.</b> Solid axles, trailing arms and multilink geometries as such (a multilink axle is approximated by the double wishbone). Bushing compliance and compliance steer. The traction work term is one step lagged and is not applied to sliders. The camber curve rotates the upright but does not yet tilt the contact samples. The damper is linearised at the start-of-step speed, with no iteration across the knee. Bump stops are linear, with no gap and no damping. The wheel equation neglects the rotation of \(\hat u\) within the step, including the Coriolis term.</p>
 </section>
 
 <section class="ch" id="s6">
@@ -428,8 +454,8 @@ $$B_s=K_s\Delta t+c,\qquad K_s=k+k_{\text{arb}}\ [+k_b\ \text{when a stop is eng
 <div class="eq">$$g=\varsigma\big[\gamma_0+G(x-x_{\text{ride}})\big]+\sin\theta_c\sin\delta .$$</div>
 <p>The axle direction is rotated into the world and measured against the contact normal:</p>
 <div class="eq">$$\hat a=R(q)\,(-\sin\delta\cos g,\ \cos\delta\cos g,\ -\sin g),\qquad \gamma=-\arcsin\big(\operatorname{clamp}(\hat a\cdot\hat n,-1,1)\big) .$$</div>
-<p>Body roll and road camber therefore enter through \(R(q)\) and \(\hat n\): a car rolled by \(\phi\) with no static camber sees \(\gamma=-\phi\). The tyre model then uses \(\gamma\) (chapter 7).</p>
-<p class="note limit"><b>Not modelled.</b> A kingpin axis, scrub radius, caster trail and geometric self-alignment: steering rotates the wheel about body \(z\) at the hardpoint. Bump steer and roll steer. Steering compliance. Ackermann on rear-steered axles.</p>
+<p>Body roll and road camber therefore enter through \(R(q)\) and \(\hat n\): a car rolled by \(\phi\) with no static camber sees \(\gamma=-\phi\). The tyre model then uses \(\gamma\) (chapter 7). On a wheel with a real linkage (§5.6) the camber curve replaces \(G(x-x_{\text{ride}})\), and the toe gets the linkage's bump-steer curve, so roll steer appears when the car rolls.</p>
+<p class="note limit"><b>Not modelled.</b> A scrub radius and caster trail at the contact patch: steering rotates the wheel about body \(z\) at the hardpoint, even though a linkage defines a kingpin axis for its own bump-steer solve. Steering compliance. Ackermann on rear-steered axles.</p>
 </section>
 <section class="ch" id="s7">
 <h2><span class="n">7</span>The tyre model</h2>
@@ -975,7 +1001,7 @@ $$P_{\text{life-threatening}}=1-(1-P_h)(1-P_c),\qquad P_{\text{fatal}}^{\text{Jo
 <h2><span class="n">17</span>Limitations</h2>
 <p>Gathered from the chapters above, these are the largest gaps between this model and a real vehicle, roughly in order of how much they matter to how a car feels:</p>
 <ol class="steps">
-<li><b>No suspension kinematics.</b> Wheels slide along the body axis. Roll centres, anti-dive and anti-squat, bump steer and compliance steer are absent; camber gain is a linear stand-in. Hardpoint kinematics is the next planned step.</li>
+<li><b>Rigid linkages, lagged couplings.</b> The double-wishbone and MacPherson kinematics give camber and toe curves, roll centres, anti-dive and anti-squat, but the joints have no compliance (no compliance steer), there are no solid axles yet, and the traction's work on the suspension uses the previous step's force. The reference cars still use sliders.</li>
 <li><b>Reduced tyre model.</b> There are no MF shifts or full aligning-moment model, and the thermal model has one node. Compound and generator values are representative, not fitted to data.</li>
 <li><b>No steering system.</b> There is no column ratio, compliance, kingpin or trail, so force feedback would have to come from \(M_z\) alone.</li>
 <li><b>Explicit couplings.</b> The body acceleration seen by the wheels lags one step. The anti-roll bar partner, limited-slip capacity and contact geometry are lagged, and the gyroscopic term is explicit. Convergence studies show these are small at 240–360 Hz, but they bound the usable step.</li>
