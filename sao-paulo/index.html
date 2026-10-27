@@ -515,7 +515,7 @@ function showTile(t){selTile=t;
     const B=t.s==="built";
     if(t.img){$("ex_img").src="tiles/"+t.t+".jpg";$("ex_img").alt="Top-down render of tile "+t.t}else $("ex_ph").textContent=B?"Built. Its top-down render comes with the next site update":t.s==="building"?"Being built at the time of the snapshot":"Not built yet: queued in the north block build";
     $("ex_tag").textContent=t.t+" · block 2 (north)"+(B?", first pass":"");$("ex_area").textContent=t.d+"  ·  "+km+(B?"  ·  repair passes still to come":"");
-    $("ex_kv").innerHTML=B?(t.img?[[fmt(t.b),"buildings"],[fmt(t.tr),"trees"],[fmt(t.po),"poles"]]:[]).concat([[t.st,"named streets"]]).map(([v,l])=>`<div><b>${v}</b><span>${l}</span></div>`).join(""):"";
+    $("ex_kv").innerHTML=B?(t.img?[[fmt(t.b),"buildings"],[fmt(t.tr),"trees"],[fmt(t.po),"poles"]]:[]).concat([[t.st,"named streets"]]).concat(t.pl?[[fmt(t.pl),"name plates"]]:[]/*NPLATES_V1*/).map(([v,l])=>`<div><b>${v}</b><span>${l}</span></div>`).join(""):"";
     $("ex_sl").innerHTML=B?(t.sl.map(n=>`<div>${n}</div>`).join("")||"<div>No named streets</div>"):"";loadStreets(t.img?t:null);draw();return}
   $("ex_ph").hidden=true;$("ex_img").hidden=false;$("ex_img").src="tiles/"+t.t+".jpg";$("ex_img").alt="Top-down render of tile "+t.t;$("ex_tag").textContent=t.t+" · grade "+t.g;
   $("ex_h").textContent=(t.ar[0]||t.t);$("ex_area").textContent=(t.ar.join(" · ")||"–")+"  ·  "+(t.i*0.5).toFixed(1)+" km E, "+(t.j*0.5).toFixed(1)+" km N of MASP";
