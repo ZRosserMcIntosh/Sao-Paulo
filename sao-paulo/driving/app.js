@@ -21,6 +21,10 @@ import { Rewind, GhostCar } from './rewind.js';
 import { Weather, RAIN_LEVELS } from './weather.js';
 import { StuntPark } from './stunts.js';
 import { GlassFX } from './glassfx.js';
+import { CarFlowView } from './carflow.js';
+import { TelemetryPanel, captureTelemetry, REC } from './telemetry.js';
+import { ReplayViewer } from './replay.js';
+import { WindTunnel } from './tunnel.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -1047,6 +1051,101 @@ function updateDamagePanel(d) {
     `<span>Engine</span> ${eng}${d[14] > 0.01 ? ` · bay crushed ${Math.round(d[14] * 100)}%` : ''}`;
 }
 const rewind = new Rewind(M);
+// ---------- Airflow, wind tunnel, telemetry, slow motion and replay ----------
+const flowView = new CarFlowView({ parent: carRoot, mobile: MOBILE });
+const telemetry = new TelemetryPanel(document.body);
+const replay = new ReplayViewer(document.body);
+const tunnel = new WindTunnel({ THREE, scene, M, host: $('leftcol'), toast });
+const FLOWS = ['Airflow', 'Airflow: lines', 'Airflow: smoke'];
+const VIEW = { flow: 0, timeScale: 1, simTime: 0, aero: null, lastRec: null, camSaved: null };
+const TIME_SCALES = [0.05, 0.1, 0.25, 0.5, 1];
+const telBuf = () => new Float64Array(M.HEAPF64.buffer, M._ord_telemetry(), 16 + 6 * 8);
+function aeroInfo() { if (!VIEW.aero) VIEW.aero = new Float64Array(M.HEAPF64.buffer, M._ord_aero_info(), 24).slice(); return VIEW.aero; }
+// The airflow view's inputs from a telemetry record: the geometry, the forces, the air.
+function flowInputs(rec) {
+  const A = aeroInfo(), geo = carGeo();
+  const yaw = rec[REC.aeroYaw], v = rec[REC.airspeed];
+  return {
+    geo: { front: A[11], rear: A[12], hw: A[13], floor: A[14], roof: A[15], zg: groundZBody },
+    forces: { rho: A[10] || 1.225, dfFront: rec[REC.dfF], dfRearFloor: rec[REC.dfR] - rec[REC.wing], wing: rec[REC.wing], drag: rec[REC.drag] },
+    wing: A[3] > 0 ? { span: A[3], chord: A[4], x: A[5], z: A[7] } : null,
+    axles: { xf: geo.xf, xr: geo.xr },
+    U: [-v * Math.cos(yaw), -v * Math.sin(yaw), 0],
+    floorStalled: !!rec[REC.floorStall], wingStalled: !!rec[REC.wingStall],
+    both: tunnel.on && tunnel.flow === 'both',
+  };
+}
+function flowMode() {
+  if (tunnel.on) return tunnel.flow === 'lines' ? 2 : 3;
+  return VIEW.flow === 1 ? 1 : VIEW.flow === 2 ? 3 : 0;
+}
+function cycleFlow() {
+  if (isBike()) return;
+  VIEW.flow = (VIEW.flow + 1) % 3;
+  flowView.reset();
+  $('bFlow').textContent = FLOWS[VIEW.flow];
+  $('bFlow').setAttribute('aria-pressed', VIEW.flow > 0);
+  if (VIEW.flow === 1) toast('Airflow: streamlines through the field the car\'s drag and downforce imply, coloured by local speed (grey: undisturbed). V again for smoke.');
+  if (VIEW.flow === 2) toast('Smoke: a wand ahead of the car; the puffs ride the same field. Try the wind tunnel for a steady view.');
+}
+function setTimeScale(k) {
+  VIEW.timeScale = k;
+  $('slowmo').hidden = k >= 1;
+  $('slowmo').textContent = `Slow motion ${k}×`;
+  document.querySelectorAll('[data-time]').forEach((b) => b.setAttribute('aria-pressed', +b.dataset.time === k));
+}
+function stepTimeScale(dir) {
+  const i = TIME_SCALES.indexOf(VIEW.timeScale);
+  setTimeScale(TIME_SCALES[Math.max(0, Math.min(TIME_SCALES.length - 1, (i < 0 ? 4 : i) + dir))]);
+}
+function telemetryHistory() {
+  const out = [], f = rewind.frames;
+  for (let i = Math.max(0, f.length - 400); i < f.length; ++i) if (f[i].pose.tel) out.push(f[i].pose.tel);
+  return out;
+}
+function openReplay() {
+  if (isBike() || tunnel.on || lab?.active) return;
+  if (!replay.open(rewind.frames)) { toast('Drive a little first: the replay plays the last 25 seconds'); return; }
+  VIEW.camSaved = settings.cam; settings.cam = 4; camInit = true;
+  document.body.classList.add('replaymode');
+  toast('Replay: slow motion, scrub, drag to orbit. Drive from here carries on from the frame shown.');
+}
+function closeReplay(drive = null) {
+  if (!replay.on) return;
+  if (drive !== null) { rewind.active = true; rewind.cursor = rewind.frames.length - 1 - drive; }
+  replay.close();
+  document.body.classList.remove('replaymode');
+  if (VIEW.camSaved !== null) { settings.cam = VIEW.camSaved; VIEW.camSaved = null; camInit = true; }
+}
+replay.onExit = () => closeReplay();
+replay.onDrive = (i) => closeReplay(i);
+function enterTunnel() {
+  if (isBike() || tunnel.on) return;
+  closeReplay();
+  const z = ZONES[0];
+  placeAt(z);
+  M._ord_launch(z.x, z.y, z.yaw, tunnel.speed, 0);
+  M._ord_tunnel(1, tunnel.speed);
+  tunnel.enter(z.yaw, { x: z.x, y: z.y });
+  flowView.light = true; flowView.reset();
+  VIEW.camSaved = settings.cam; settings.cam = 4; orbit.yaw = 2.35; orbit.pitch = 0.22; orbit.dist = 7.5; camInit = true;
+  $('side').hidden = true;
+  document.body.classList.add('tunnelmode');
+  if (!telemetry.on) { telemetry.toggle(true); telemetry.setPage(2); }
+  toast('Wind tunnel: the car on a rolling road. Drag to orbit, P for telemetry, [ ] for slow motion.');
+}
+function exitTunnel() {
+  if (!tunnel.on) return;
+  M._ord_tunnel(0, 0);
+  tunnel.exit();
+  document.body.classList.remove('tunnelmode');
+  garage.applyWind();
+  flowView.light = false; flowView.reset();
+  if (VIEW.camSaved !== null) { settings.cam = VIEW.camSaved; VIEW.camSaved = null; }
+  placeAt(ZONES[0]);
+}
+tunnel.onExit = () => exitTunnel();
+telemetry.onToggle = (on) => $('bTelemetry')?.setAttribute('aria-pressed', on);
 const ghostCar = new GhostCar(THREE, scene, '#8fd3ff');
 const shadowCar = new GhostCar(THREE, scene, '#ffb347');
 const ghost = { on: store.get('ghost', true), runs: {}, rec: [], t: 0, idx: 0, zone: null };
@@ -1195,6 +1294,7 @@ function createCar() {
   crumple.capture(); crumpleLog.length = 0;
   physicsDamage(settings.damage === 'realistic');
   clearDebris();
+  VIEW.aero = null; flowView.reset();
   rewind.clear();
   if (shadow.on) startShadow(); else shadowCar.draw(null);
 }
@@ -1211,6 +1311,8 @@ function resetCar() {
 }
 const tipped = { t: 0, hinted: false, contacts: 0 };
 function placeAt(z) {
+  if (tunnel.on && z !== ZONES[0]) { M._ord_tunnel(0, 0); tunnel.exit(); document.body.classList.remove('tunnelmode'); garage.applyWind(); flowView.light = false; if (VIEW.camSaved !== null) { settings.cam = VIEW.camSaved; VIEW.camSaved = null; } }
+  closeReplay();
   // the last run from this start becomes its ghost
   if (!isBike() && ghost.zone && ghost.rec.length > 180) ghost.runs[ghost.zone] = ghost.rec;
   ghost.rec = []; ghost.t = 0; ghost.idx = 0; ghost.zone = z.name || null;
@@ -1359,6 +1461,12 @@ addEventListener('keydown', (e) => {
   if (k === 'n') $('bGhost').click();
   if (k === 'i') setRain((rainIdx + 1) % RAIN_LEVELS.length, true);
   if (k === 'f') repairBody(true);
+  if (k === 'v') cycleFlow();
+  if (k === 'p') telemetry.next();
+  if (k === '[') stepTimeScale(-1);
+  if (k === ']') stepTimeScale(1);
+  if (e.code === 'Backquote') { if (replay.on) closeReplay(); else openReplay(); }
+  if (k === 'escape' && tunnel.on) exitTunnel();
   if (k === 'backspace') { e.preventDefault(); if (!isBike() && !lab?.active) rewindHold = true; }
 });
 addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); keys.delete(k); if (k === 'backspace') rewindHold = false; });
@@ -2106,6 +2214,16 @@ function setRain(i, announce) {
   if (announce) toast(r.rain ? `${r.name}: wet road, slick paint and cobbles, puddles that can make a tyre hydroplane` : 'Dry');
 }
 document.querySelectorAll('[data-rain]').forEach((b) => (b.onclick = (e) => { setRain(+b.dataset.rain, true); e.currentTarget.blur(); }));
+$('bFlow').onclick = (e) => { cycleFlow(); e.currentTarget.blur(); };
+$('bTunnel').onclick = (e) => { if (tunnel.on) exitTunnel(); else enterTunnel(); e.currentTarget.blur(); };
+$('bTelemetry').onclick = (e) => { telemetry.toggle(); e.currentTarget.blur(); };
+$('bReplay').onclick = (e) => { if (replay.on) closeReplay(); else openReplay(); e.currentTarget.blur(); };
+document.querySelectorAll('[data-time]').forEach((b) => (b.onclick = () => { setTimeScale(+b.dataset.time); b.blur(); }));
+window.__spwView = () => ({ flow: VIEW.flow, timeScale: VIEW.timeScale, tunnel: tunnel.on, replay: replay.on, telemetry: telemetry.on, page: telemetry.page,
+  flowLines: flowView.ln.reduce((a, b) => a + b, 0), smoke: flowView.page.filter((a) => a < 1e8).length, rec: rewind.frames.length ? Array.from(rewind.frames[rewind.frames.length - 1].pose.tel || []) : null });
+window.__spwTunnel = (on, kmh, yawDeg, flow) => { if (kmh) tunnel.speed = kmh / 3.6; if (yawDeg !== undefined) tunnel.yaw = yawDeg * Math.PI / 180; if (flow) tunnel.flow = flow; tunnel.label(); if (on) enterTunnel(); else exitTunnel(); tunnel.applyWind(); };
+window.__spwTime = (k) => setTimeScale(k);
+window.__spwReplay = (on, speed) => { if (on) { openReplay(); if (speed) replay.speed = speed; } else closeReplay(); };
 $('bOverlay').onclick = (e) => { const on = overlay.toggle(); $('bOverlay').setAttribute('aria-pressed', on); if (on) toast('Physics overlay: friction circles, tyre forces, loads, g and the roll axis'); e.currentTarget.blur(); };
 $('bGhost').onclick = (e) => { ghost.on = !ghost.on; store.set('ghost', ghost.on); $('bGhost').setAttribute('aria-pressed', ghost.on); toast(ghost.on ? 'Ghost on: your last run from the same start drives beside you' : 'Ghost off'); e.currentTarget.blur(); };
 $('bGhost').setAttribute('aria-pressed', ghost.on);
@@ -2309,6 +2427,21 @@ function frameOnce(now, draw) {
     if (draw) renderer.render(scene, camera);
     return;
   }
+  // replay: the recorded frames in slow motion, physics paused; the telemetry pages follow it
+  if (replay.on) {
+    const r = replay.update(dt);
+    if (r) {
+      drawPose(r.pose, r.dt);
+      const fm = flowMode();
+      if (!fm || !r.pose.tel) flowView.group.visible = false;
+      if (fm && r.pose.tel) flowView.update(r.dt, fm, flowInputs(r.pose.tel));
+      telemetry.update(now, r.pose.tel, r.hist, `Replay ${replay.speed}× · ${replay.playing ? 'playing' : 'paused'}`);
+    }
+    updateCamera(dt, carRoot.position, carRoot.quaternion, new THREE.Vector3(), 0, 0);
+    sun.position.copy(carRoot.position).addScaledVector(SUN_DIR, 80); sun.target.position.copy(carRoot.position);
+    if (draw) renderer.render(scene, camera);
+    return;
+  }
   // rewind: hold Backspace; the car runs backwards through its recent past, physics paused
   if (rewindHold) {
     const p = rewind.stepBack(2);
@@ -2335,16 +2468,21 @@ function frameOnce(now, draw) {
     if (shadow.on) startShadow();
     frameNo = target;
   }
+  // slow motion: the world runs on simDt (the camera and the sound keep the wall clock)
+  const simDt = dt * VIEW.timeScale;
   let inp = readInput(dt, S(15), S(7));
   const robot = moose?.control(dt);
   if (robot) inp = robot;
   if (stunts) inp.steer = stunts.assistSteer(inp.steer);
+  if (tunnel.on) inp = tunnel.drive(simDt, S, carRoot.position, M._ord_ground_height(S(0), S(1)));
   const snap = rewind.beforeFrame();
   M._ord_set_input(inp.steer, inp.throttle, inp.brake, inp.hand, inp.shiftUp ? 1 : 0, inp.shiftDown ? 1 : 0);
-  M._ord_advance(dt);
+  M._ord_advance(simDt);
   ++frameNo;
   const pose = poseNow();
-  rewind.afterFrame(snap, dt, inp, pose);
+  VIEW.simTime += simDt;
+  pose.tel = captureTelemetry(S, W, telBuf(), VIEW.simTime);
+  rewind.afterFrame(snap, simDt, inp, pose);
   const hit = S(31);
   if (hit > 1.2) { lastImpact = hit; try { audio.impact(Math.min(1, hit / 12)); } catch { /* audio not ready */ } }
   {
@@ -2353,20 +2491,20 @@ function frameOnce(now, draw) {
     predictGlass();
     const nb = M._ord_break_events();
     if (nb) { const buf = new Float64Array(M.HEAPF64.buffer, M._ord_break_buffer(), 8 * nb); for (let k = 0; k < nb; ++k) onWallBreak(Array.from(buf.subarray(8 * k, 8 * k + 8))); }
-    destruction.update(dt);
-    glassfx?.update(dt);
+    destruction.update(simDt);
+    glassfx?.update(simDt);
   }
   if (S(23)) { toast('The simulation faulted (non-finite state). Resetting.'); placeAt(ZONES[0]); }
   // the body landing on the ground (rollover): a thump as hull points first touch
   if (tipped.contacts === 0 && S(37) > 0 && S(38) > 15000) { try { audio.impact(Math.min(1, S(38) / 120000)); } catch { /* audio not ready */ } }
   tipped.contacts = S(37);
-  tipped.t = S(36) < 0.5 && Math.hypot(S(7), S(8)) < 2 ? tipped.t + dt : 0;
+  tipped.t = S(36) < 0.5 && Math.hypot(S(7), S(8)) < 2 ? tipped.t + simDt : 0;
   if (tipped.t > 1.5 && settings.damage === 'cosmetic' && !isBike() && !labOn() && !rewindHold) { resetCar(); toast('Back on your wheels'); }
   else if (tipped.t > 1.5 && !tipped.hinted) { toast(S(36) < -0.5 ? 'On its roof. Press R to put it back on its wheels' : 'On its side. Press R to put it back on its wheels'); tipped.hinted = true; }
   if (S(36) > 0.9) tipped.hinted = false;
-  drawPose(pose, dt);
+  drawPose(pose, simDt);
   // ghost: this run is recorded; the last run from the same start plays beside it
-  ghost.t += dt;
+  ghost.t += simDt;
   ghost.rec.push({ ...pose, t: ghost.t });
   if (ghost.rec.length > 60 * 120) ghost.rec.shift();
   const gRun = ghost.on && ghost.zone ? ghost.runs[ghost.zone] : null;
@@ -2379,21 +2517,29 @@ function frameOnce(now, draw) {
   shadowCar.draw(sp);
   const worldVel = new THREE.Vector3(S(7), 0, -S(8)).applyQuaternion(carRoot.quaternion);
   syncDamage(now, worldVel);
-  updateDebris(dt);
+  updateDebris(simDt);
   // after a crash-lab test the camera stays on the wreck until you drive
   if (lab?.mode === 'report' && !(inp.throttle > 0.05 || inp.brake > 0.05 || Math.abs(inp.steer) > 0.05)) lab.camera(camera, carRoot.position);
   else updateCamera(dt, carRoot.position, carRoot.quaternion, worldVel);
   sun.position.copy(carRoot.position).addScaledVector(SUN_DIR, 80); sun.target.position.copy(carRoot.position);
-  updateCones(dt, { x: S(0), y: S(1) }, { x: worldVel.x, y: -worldVel.z });
-  updateHud(dt, inp, sp);
+  updateCones(simDt, { x: S(0), y: S(1) }, { x: worldVel.x, y: -worldVel.z });
+  updateHud(simDt, inp, sp);
   updateCrash(now);
   updateLights(S(15) === -1 ? 0 : inp.brake);
   updateSkids();
-  updateDrift(dt);
-  updateSmoke(dt, worldVel);
+  updateDrift(simDt);
+  updateSmoke(simDt, worldVel);
   overlay.update(dt);
-  moose?.update(dt);
-  stunts?.update(dt);
+  moose?.update(simDt);
+  stunts?.update(simDt);
+  {
+    const fm = flowMode();
+    if (!fm) flowView.group.visible = false;
+    if (fm) { flowView.wandY = tunnel.wandY; flowView.update(simDt, fm, flowInputs(pose.tel)); }
+    telemetry.update(now, pose.tel, telemetryHistory(), VIEW.timeScale < 1 ? `Slow motion ${VIEW.timeScale}× (] faster)` : '');
+    telemetry.hasFloor = aeroInfo()[20] > 0;
+    if (tunnel.on) tunnel.read(now, pose.tel, aeroInfo()[10], aeroInfo()[20] > 0);
+  }
   if (weather.rain > 0) {
     const wheels = [];
     const back = new THREE.Vector3(-1, 0, 0).applyQuaternion(carRoot.quaternion);
@@ -2401,7 +2547,7 @@ function frameOnce(now, draw) {
       const pw = v3(W(w, 0), W(w, 1), W(w, 2) - W(w, 3)).applyQuaternion(carRoot.quaternion).add(carRoot.position);
       wheels.push({ x: pw.x, y: pw.y, z: pw.z, contact: W(w, 11) > 0, back });
     }
-    weather.update(dt, camera.position, carRoot.position, Math.abs(S(7)), wheels, (k) => { try { audio.splash(k); } catch { /* audio not ready */ } });
+    weather.update(simDt, camera.position, carRoot.position, Math.abs(S(7)), wheels, (k) => { try { audio.splash(k); } catch { /* audio not ready */ } });
   }
   try { audio.update({ dt, rpm: S(14), load: S(17), limiter: LIMITER[settings.car], gear: S(15), speed: S(7), tyre: tyreState(), interior: settings.cam === 2, rain: weather.rain, wet: weather.rain }); } catch (e) { console.warn('audio update', e); }
   recordRow();

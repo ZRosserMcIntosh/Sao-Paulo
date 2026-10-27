@@ -142,6 +142,39 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #leftcol .panel{font:500 12px/1.55 var(--mono);padding:9px 11px}
 #leftcol .panel span{color:var(--mute)}
 #leftcol .panel small{color:var(--mute)}
+#side .row .lbl{color:var(--mute);font:600 12px var(--body);align-self:center;margin-right:4px}
+body.replaymode #hud,body.replaymode #hTyres,body.replaymode #drift,body.tunnelmode #hud,body.tunnelmode #hTyres,body.tunnelmode #zone,body.tunnelmode #drift{display:none!important}
+body.tunnelmode #telemetry{top:auto;bottom:12px;width:min(560px,calc(100% - 24px))}
+body.tunnelmode #telemetry canvas.trace{max-height:96px}
+#slowmo{position:fixed;left:50%;top:48px;transform:translateX(-50%);font:700 13px var(--body);letter-spacing:.06em;text-transform:uppercase;background:rgba(10,14,22,.72);color:#ffd36b;padding:4px 12px;border-radius:99px;z-index:3;pointer-events:none}
+#telemetry{position:fixed;right:12px;top:64px;width:min(700px,calc(100% - 24px));z-index:3;font:500 12px/1.5 var(--mono);padding:10px 12px}
+#telemetry .thead{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+#telemetry .tabs{display:flex;gap:4px;flex-wrap:wrap;flex:1}
+#telemetry .tabs button,#replay button{font:600 11.5px var(--body);padding:3px 8px}
+#telemetry .tclose{margin-left:auto}
+#telemetry span{color:var(--mute)}
+#telemetry .corners{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#telemetry .corner{position:relative;border:1px solid var(--line);border-radius:8px;padding:6px 8px 6px 34px;min-height:74px}
+#telemetry .corner>b:first-child{position:absolute;left:8px;top:6px;font:800 12px var(--body)}
+#telemetry .bar{position:absolute;left:10px;top:26px;bottom:8px;width:10px;border-radius:3px;background:rgba(255,255,255,.08);display:flex;align-items:flex-end;overflow:hidden}
+#telemetry .bar i{display:block;width:100%}
+#telemetry .tyre{position:absolute;left:6px;top:26px;width:22px;height:40px;border-radius:5px;font:700 9px var(--body);color:#06090f;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl}
+#telemetry b.bump{color:#ffb347}#telemetry b.reb{color:#5aa0ff}#telemetry b.bad{color:var(--bad)}#telemetry b.warn{color:var(--warn)}
+#telemetry .row2{margin-top:6px}
+#telemetry .aero div{margin:3px 0}
+#telemetry .gg{display:flex;gap:14px;align-items:center}
+#telemetry canvas.trace{width:100%;height:auto;margin-top:6px;display:block}
+#telemetry .tfoot{color:#ffd36b;min-height:1em}
+#replay{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);width:min(760px,calc(100% - 24px));z-index:4;padding:8px 12px}
+#replay .rrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#replay .rspeeds{display:flex;gap:3px}
+#replay .rtime{font:600 12px var(--mono);color:var(--mute);min-width:64px}
+#replay .rexit{margin-left:auto}
+#replay .rscrub{width:100%;margin-top:6px}
+#tunnel label{display:block;margin:4px 0}
+#tunnel input[type=range]{width:100%}
+#tunnel .tread{margin:6px 0;line-height:1.6}
+#tunnel .lhead{display:flex;justify-content:space-between;align-items:center}
 #dmgPanel .lhead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
 #dmgPanel b.ok{color:var(--good);font-weight:600}#dmgPanel b.warn{color:var(--warn);font-weight:600}#dmgPanel b.bad{color:var(--bad);font-weight:700}
 #xray i.k{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 3px 0 6px;vertical-align:-1px}
@@ -238,6 +271,15 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 
   <h2>Showcases</h2>
   <div class="row">
+    <button id="bTunnel" title="The car on a rolling road in a wind tunnel">Wind tunnel</button>
+    <button id="bFlow" aria-pressed="false" title="V: off, streamlines, smoke">Airflow</button>
+    <button id="bTelemetry" aria-pressed="false" title="P: suspension, tyres, aero, g-forces, drivetrain">Telemetry</button>
+    <button id="bReplay" title="` (backquote): the last 25 s in slow motion">Replay</button>
+  </div>
+  <div class="row" style="margin-top:6px" role="group" aria-label="Slow motion">
+    <span class="lbl">Slow motion</span><button data-time="1" aria-pressed="true">1×</button><button data-time="0.5">½×</button><button data-time="0.25">¼×</button><button data-time="0.1">0.1×</button><button data-time="0.05">0.05×</button>
+  </div>
+  <div class="row" style="margin-top:6px">
     <button id="bOverlay" aria-pressed="false" title="O">Physics overlay</button>
     <button id="bRewind" title="Hold Backspace (or hold this) to rewind">⟲ Hold to rewind</button>
     <button id="bGhost" aria-pressed="true" title="N">Ghost</button>
@@ -250,6 +292,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
   <div class="row" style="margin-top:6px" role="group" aria-label="Weather">
     <button data-rain="0" aria-pressed="true" title="I cycles">Dry</button><button data-rain="1">Drizzle</button><button data-rain="2">Rain</button><button data-rain="3">Downpour</button>
   </div>
+  <p class="note"><b>Wind tunnel</b>: the car on a rolling road (it really drives at the tunnel's speed, held in place), a cross wind for yaw; the panel shows the physics' own downforce front and rear, the wing, drag, CdA, ClA, balance, L/D and the floor clearance and stall. <b>Airflow</b> (<kbd>V</kbd>, also while you drive): streamlines released ahead of the car, or smoke from a wand, through a field built to carry the drag and downforce the physics reports this frame: the car as an equivalent body over the road, each downforce element (floor at each axle, rear wing) a vortex system with its ground image, and a wake that carries the drag. Colour is local air speed (grey: undisturbed). It shows where the air goes and how hard the car works it, not CFD of its surfaces. <b>Telemetry</b> (<kbd>P</kbd> for the next page): suspension travel, damper speed and load per corner, tyre temperature, slip and grip used, aero, a g-g diagram, drivetrain, with 5 s traces. <b>Slow motion</b> (<kbd>[</kbd> <kbd>]</kbd>): the whole world runs slower, physics included. <b>Replay</b> (<kbd>`</kbd>): the last 25 s at down to 0.05×, smooth between frames, scrub and orbit, the telemetry following; <i>Drive from here</i> carries on from the frame shown.</p>
   <p class="note"><b>Physics overlay</b> (<kbd>O</kbd>): each tyre's friction circle (how much force it can give at its load) and the force it gives now, the loads, the g vector, the roll centres and the roll axis. <b>Rewind</b>: hold <kbd>Backspace</kbd>; let go and you carry on from that moment (the physics is deterministic, so the replay is exact). <b>Ghost</b> (<kbd>N</kbd>): your last run from the same start drives beside you. <b>Shadow car</b> (<kbd>J</kbd>): a second car driven by your exact inputs, the stock version of yours or another model, through nothing: your setup against stock, same hands. <b>Rain</b> (<kbd>I</kbd>): wet grip, a water film, slick paint and cobbles, and puddles that can make a tyre hydroplane (water deeper than the tread clears, near 0.5-1 × the hydroplaning speed, Horne's 6.35 √p km/h) and pull the car toward them. <b>Share link</b>: this car, its setup, the weather and the place.</p>
   <h2>Moose test</h2>
   <div class="row">
@@ -313,6 +356,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <span><kbd>X</kbd></span><span>Drift assist on / off (any preset)</span>
     <span><kbd>R</kbd> · <kbd>C</kbd> · <kbd>H</kbd></span><span>Reset (a car on its side or roof is put back on its wheels where it is) · camera · panel</span>
     <span><kbd>F</kbd></span><span>Repair the car</span>
+    <span><kbd>V</kbd> · <kbd>P</kbd></span><span>Airflow (streamlines, smoke) · telemetry pages</span>
+    <span><kbd>[</kbd> <kbd>]</kbd> · <kbd>`</kbd></span><span>Slow motion slower / faster · replay the last 25 s</span>
     <span><kbd>U</kbd></span><span>Tuning garage</span>
     <span><kbd>M</kbd></span><span>Sound on / off</span>
     <span><kbd>K</kbd> · <kbd>Z</kbd></span><span>Mouse steering on / off · centre the wheel</span>
@@ -340,6 +385,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 </div>
 
 <div id="zone"></div>
+<div id="slowmo" hidden></div>
 <div id="drift" aria-hidden="true"><b><span id="dScore">0</span><i id="dMult">×1</i></b><small id="dInfo"></small></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="leftcol"><div id="crash" aria-live="polite"></div><div id="dmgPanel" class="panel" hidden aria-live="polite"></div></div>
