@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/sao-paulo/challenges/">
+<title>Viewer Challenges</title>
+<meta name="description" content="Viewer challenges for the Destruction lab: subscribers ask for something absurd, we build it, and whatever it teaches us goes back into the Destruction Dynamics engine.">
+<meta property="og:title" content="São Paulo World · Viewer Challenges">
+<meta property="og:description" content="Subscribers ask for something absurd, we build it into the Destruction lab.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eceeed; --paper:#f7f8f7; --ink:#0f1a2a; --mute:#5b6676; --line:#cfd5d8;
+  --plate:#0a3a8c; --plate-ink:#ffffff; --masp:#d22a1f; --cheese:#e2b33c; --cheese-ink:#3a2a05;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0b111b;--paper:#111a27;--ink:#e7ecf2;--mute:#93a0b2;--line:#233044;--plate:#1d57c2;--masp:#ec4a3c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0b111b;--paper:#111a27;--ink:#e7ecf2;--mute:#93a0b2;--line:#233044;--plate:#1d57c2;--masp:#ec4a3c;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--body);margin:0}
+.wrap{max-width:960px;margin:0 auto;padding-inline:16px}
+@media (min-width:700px){.wrap{padding-inline:40px}}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:.95;text-transform:uppercase}
+p{margin:0;max-width:64ch}
+a{color:var(--plate)}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.back{display:inline-block;margin:20px 0 0;font:600 14px var(--body);color:var(--mute);text-decoration:none}
+.back:hover{color:var(--plate)}
+header{padding:40px 0 28px}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:4px solid var(--plate-ink);outline:2px solid var(--plate);border-radius:6px;padding:12px 22px 10px;margin-top:14px}
+.plate b{font:900 clamp(40px,9vw,84px)/.86 var(--display);letter-spacing:.01em;text-transform:uppercase;text-align:center}
+.plate span{font:600 12px/1.2 var(--body);letter-spacing:.18em;text-transform:uppercase;margin-top:8px}
+.lede{margin-top:22px;font-size:18px}
+.rule{margin-top:12px;color:var(--mute)}
+.list{display:grid;gap:18px;padding:8px 0 56px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:20px;display:grid;gap:14px}
+@media (min-width:700px){.card{grid-template-columns:120px 1fr;padding:24px}}
+.day{display:grid;place-items:center;align-content:center;align-self:start;background:var(--cheese);color:var(--cheese-ink);border-radius:8px;padding:10px;min-height:96px}
+.day small{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.day b{font:900 56px/.9 var(--display)}
+.card h2{font-size:clamp(28px,5vw,40px);font-weight:800}
+.quote{margin-top:10px;font-style:italic}
+.who{margin-top:4px;font:500 13px var(--mono);color:var(--mute)}
+.card ul{margin:12px 0 0;padding-left:18px;color:var(--mute);font-size:14.5px}
+.card li+li{margin-top:4px}
+.go{display:inline-flex;align-items:center;gap:10px;margin-top:16px;background:var(--masp);color:#fff;text-decoration:none;border-radius:8px;padding:10px 18px 10px 12px;font:800 18px/1 var(--display);text-transform:uppercase;letter-spacing:.03em}
+.go:hover{filter:brightness(1.08)}
+.go:focus-visible,.back:focus-visible{outline:2px solid var(--plate);outline-offset:3px}
+.go i{font-style:normal;width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:11px}
+.next{border-style:dashed;background:transparent}
+.next .day{background:transparent;border:2px dashed var(--line);color:var(--mute)}
+footer{border-top:1px solid var(--line);padding:20px 0 40px;color:var(--mute);font-size:13.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="../">← São Paulo World</a>
+  <header>
+    <p class="eyebrow">Destruction lab · side quests</p>
+    <div class="plate"><b>Viewer Challenges</b><span>You ask, we build it</span></div>
+    <p class="lede">Subscribers ask for something absurd in the comments, and it goes into the Destruction lab as a playable scenario. Every scenario here is fictional and runs in your browser.</p>
+    <p class="rule">The rule: whatever a challenge teaches us about the physics goes back into the main Destruction Dynamics engine, so the regular tower falls better too.</p>
+  </header>
+
+  <main class="list">
+    <article class="card">
+      <div class="day"><small>Day</small><b>1</b></div>
+      <div>
+        <h2>The indestructible cheese</h2>
+        <p class="quote">“A giant block of cheese in the center forever (make it indestructible pls)”</p>
+        <p class="who">requested by @Fartman32</p>
+        <p style="margin-top:12px">An 85-storey tower tips into the Atlantic and lands on a 100 m wedge of Swiss, cut from the wheel, holes and all. The cheese does not move.</p>
+        <ul>
+          <li>Engine lesson: floors now collide with convex static obstacles and release from the authored fall at the first contact.</li>
+          <li>Engine lesson: slab joints break by the force they carry, and contacts get a velocity pass, so the wreck settles without bouncing.</li>
+          <li>Engine lesson: floor keyframes stream in from a worker, so playback starts in milliseconds.</li>
+        </ul>
+        <a class="go" href="../destruction/?scenario=cheese"><i aria-hidden="true">▶</i>Drop the tower on the cheese</a>
+      </div>
+    </article>
+
+    <article class="card next">
+      <div class="day"><small>Day</small><b>2</b></div>
+      <div>
+        <h2>Your idea here</h2>
+        <p style="margin-top:10px;color:var(--mute)">Leave it in the comments on the latest video.</p>
+      </div>
+    </article>
+  </main>
+
+  <footer>Fictional scenarios for entertainment. No real buildings, events or people were harmed, and none of this is engineering advice. · <a href="../destruction/">Back to the Destruction lab</a></footer>
+</div>
+</body>
+</html>
