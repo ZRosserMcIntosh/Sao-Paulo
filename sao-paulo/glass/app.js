@@ -25,12 +25,14 @@ const CAT_LABEL = { architectural: 'Buildings', automotive: 'Cars', aviation: 'A
   test: 'Test standards', everyday: 'Everyday', tool: 'Tools', weather: 'Weather', ballistic: 'Firearms', explosive: 'Explosives', artillery: 'Artillery', debris: 'Debris' };
 
 // ---------- Engine ----------
-let G, cat;
+let G, cat, LIB;
 try {
   // The engine and its library must match: revalidate both on every load, so a
   // browser never pairs a cached engine with a newer library after a deploy.
   G = await createEngine();
-  const errs = G.load(await (await fetch('library.json', { cache: 'no-cache' })).text());
+  const libText = await (await fetch('library.json', { cache: 'no-cache' })).text();
+  const errs = G.load(libText);
+  LIB = JSON.parse(libText);   // the materials' constants, for what the page fires itself
   if (errs.length) throw new Error(errs.join('; '));
   cat = G.catalog();
 } catch (e) {
@@ -2145,6 +2147,12 @@ const PRESETS = [
   ['Cannonball through a shop window', 'annealed_6', 'cannonball_9lb', 440, 'A Revolutionary War 9-pounder: 4 kg of iron at 1,450 ft/s'],
   ['Cannonball vs tempered', 'tempered_6', 'cannonball_9lb', 440, 'The same round shot into fully tempered glass'],
   ['Cannonball vs bulletproof glass', 'ul752_l3', 'cannonball_9lb', 440, 'The polycarbonate wraps round the ball and the whole window goes with it'],
+  ['Armour stops it, then becomes the missile', 'ul752_l10', 'cannonball_9lb', 440,
+    '95 mm of glass-clad polycarbonate stops the ball, but tears out of its frame round it: 80 kg of window flies into the shop window a metre behind',
+    { stack: [['annealed_10', 1]] }],
+  ['Through a stack of armour', 'ul752_l1', 'cannonball_9lb', 500,
+    'Three bullet-resistant panes a metre apart: every sheet the ball tears out goes on with it, and what it leaves behind flies on too',
+    { stack: [['ul752_l1', 1], ['ul752_l1', 1]] }],
 ];
 // ---------- The armoured car ----------
 let sceneLoading = false;
@@ -2312,7 +2320,12 @@ function buildPresets() {
       fromBack = !!opt.back;
       $('bSide').setAttribute('aria-pressed', String(fromBack));
       syncSpeed();
-      newPane();
+      if (opt.stack) {
+        // Panes behind, [glazing id, gap in m] each, cut to the first one's size.
+        stack = opt.stack.map(([id, gap]) => ({ gid: cat.glazings.findIndex((g) => g.id === id), gap })).filter((l) => l.gid >= 0);
+        rebuildLab();
+        if (stackOn) useRig(rigs[0]);
+      } else newPane();
       simClockReset();
       updatePaneInfo();
       auto = true; syncAuto(); buildScaleButtons();
@@ -2963,6 +2976,40 @@ function fireInto(r, di, x, y, sp, yawD, pitchD, back, lead, mass = 0, radius = 
   P.nImp = n;
   return h;
 }
+// What a ripped-out sheet hits the next pane with: its mass, a nose of the
+// given radius, and the elastic constants of its ply that leads (the back ply
+// of a sheet going on the way the shot came, else the front one). The nose
+// stays within the sizes the engine's push-through is made for (a ball to a
+// body bag): what leads is the wrapped object's bulge, or the sheet's edge.
+const NOSE_MAX = 0.15;
+function sheetBody(Pk, forward, mass, radius, ballR, mesh) {
+  const plies = LIB.glazings.find((g) => g.id === Pk.glazing.id)?.plies || [];
+  const ply = forward ? plies[plies.length - 1] : plies[0];
+  const mat = LIB.materials.find((m) => m.id === ply?.material) || { youngs_GPa: 72, poisson: 0.22 };
+  return { mass, radius, ballR, kind: 0, E: mat.youngs_GPa * 1e9, nu: mat.poisson, e: 0.3, mesh };
+}
+// Fires such a body into rig r's pane; drawn as impactor di (the object
+// inside it) at its own size, or not at all (a flying sheet draws itself).
+function fireBodyInto(r, di, x, y, sp, yawD, pitchD, back, lead, body) {
+  useRig(r);
+  const h = G.gls_fire_body(di, x, y, sp, yawD * Math.PI / 180, pitchD * Math.PI / 180, back ? 1 : 0, lead,
+    body.mass, body.radius, body.kind, body.E, body.nu, body.e);
+  if (h < 0) return -1;
+  const n = Math.max(h + 1, G.state()[3]);
+  P.shotMass ||= []; P.shotRadius ||= []; P.shotBody ||= [];
+  for (let k = h; k < n; ++k) {
+    P.shotDefs[k] = di;
+    P.shotMass[k] = body.mass; P.shotRadius[k] = body.radius; P.shotBody[k] = body;
+    if (R && body.mesh) {
+      const m = impactorMesh(cat.impactors[di]);
+      if (body.ballR > 0) m.scale.setScalar(body.ballR / cat.impactors[di].radius);
+      groupPane.add(m);
+      P.impMeshes[k] = m;
+    }
+  }
+  P.nImp = n;
+  return h;
+}
 // Everything flying off a pane toward another, about to reach it, goes into it.
 function stackHandOff() {
   const n = rigs.length, t = multiClock;
@@ -2981,18 +3028,54 @@ function stackHandOff() {
       const z = imps[o + 2], vz = imps[o + 5];
       if (vz > 0 ? z < Pk.T + 0.003 : z > -0.003) continue;   // not through or off this pane yet
       const it = { m, x: imps[o], y: imps[o + 1], z, vx: imps[o + 3], vy: imps[o + 4], vz, di: Pk.shotDefs[m] ?? iIdx,
-        mass: Pk.shotMass?.[m] || 0, radius: Pk.shotRadius?.[m] || 0 };
-      // Wrapped in the laminate it ripped out: the next pane is hit by the whole bundle.
+        mass: Pk.shotMass?.[m] || 0, radius: Pk.shotRadius?.[m] || 0, body: Pk.shotBody?.[m] };
+      // Wrapped in the laminate it ripped out: the next pane is hit by the
+      // whole bundle, nose first, the sheet's outer ply over the object.
       const sheet = G.gls_carried_sheet(m);
-      if (sheet >= 0) Object.assign(it, { sheet, mass: G.gls_sheet_mass(sheet), radius: 1.6 * imps[o + 13] });
+      if (sheet >= 0) {
+        const ballR = it.body?.ballR ?? imps[o + 13];
+        Object.assign(it, { sheet, body: sheetBody(Pk, vz > 0, G.gls_sheet_mass(sheet), Math.min(ballR + Pk.T, NOSE_MAX), ballR, true),
+          label: `${cat.impactors[it.di].name} wrapped in its window` });
+      }
       out.push(it);
     }
     const nf = G.state()[4];
+    const sheetOf = nf ? G.fragmentSheets(nf) : null;
+    if (nf) {
+      // Sheets flying on their own (a window ripped out round a stopped object,
+      // or what a tearing object left behind) hit the next pane as bodies of
+      // their own: their whole mass, bowed toward where they go.
+      const carried = new Set();
+      for (let m = 0; m < Pk.nImp; ++m) { const c = G.gls_carried_sheet(m); if (c >= 0) carried.add(c); }
+      Pk.sheetsHanded ||= new Set();
+      const poses = G.fragmentPoses(nf), groups = new Map();
+      for (let i = 0; i < nf; ++i) {
+        const c = sheetOf[i], q = 12 * i;
+        if (c < 0 || carried.has(c) || Pk.sheetsHanded.has(c) || poses[q + 10] < 0) continue;
+        let gr = groups.get(c);
+        if (!gr) groups.set(c, gr = { frags: [], sx: 0, sy: 0, sz: 0, vx: 0, vy: 0, vz: 0, zMin: Infinity, zMax: -Infinity });
+        gr.frags.push(i);
+        gr.sx += poses[q]; gr.sy += poses[q + 1]; gr.sz += poses[q + 2];
+        gr.vx += poses[q + 7]; gr.vy += poses[q + 8]; gr.vz += poses[q + 9];
+        gr.zMin = Math.min(gr.zMin, poses[q + 2]); gr.zMax = Math.max(gr.zMax, poses[q + 2]);
+      }
+      for (const [c, gr] of groups) {
+        const n = gr.frags.length, vx = gr.vx / n, vy = gr.vy / n, vz = gr.vz / n;
+        if (Math.abs(vz) < 0.5) continue;
+        const cx = gr.sx / n, cy = gr.sy / n;
+        let rMax = 0;
+        for (const i of gr.frags) rMax = Math.max(rMax, Math.hypot(poses[12 * i] - cx, poses[12 * i + 1] - cy));
+        out.push({ freeSheet: c, frags: gr.frags, x: cx, y: cy, z: vz > 0 ? gr.zMax : gr.zMin, vx, vy, vz, di: shardIdx >= 0 ? shardIdx : 0,
+          // What meets the glass first is the part of it that leads (its bulge or an edge as it tumbles).
+          body: sheetBody(Pk, vz > 0, G.gls_sheet_mass(c), clamp(rMax, 0.05, 0.12), 0, false),
+          label: `a flying sheet of ${Pk.glazing.name}` });
+      }
+    }
     if (nf && shardIdx >= 0) {
       const poses = G.fragmentPoses(nf), tPly = Pk.T / Math.max(1, Pk.nGlass);
       for (let i = 0; i < nf; ++i) {
         const q = 12 * i;
-        if (poses[q + 10] !== 2 || Pk.thrown.has(i) || G.gls_fragment_sheet(i) >= 0) continue;  // bonded glass goes as its sheet
+        if (poses[q + 10] !== 2 || Pk.thrown.has(i) || sheetOf[i] >= 0) continue;  // bonded glass goes as its sheet
         const vx = poses[q + 7], vy = poses[q + 8], vz = poses[q + 9];
         if (vx * vx + vy * vy + vz * vz < 4) continue;
         const rr = Math.max(0.002, Pk.pieceSize[i] || 0.01);
@@ -3003,7 +3086,7 @@ function stackHandOff() {
     }
     for (const it of out) {
       const j = it.vz > 0 ? k + 1 : k - 1;
-      const done = () => (it.frag === undefined ? Pk.handed.add(it.m) : Pk.thrown.add(it.frag));
+      const done = () => (it.freeSheet !== undefined ? Pk.sheetsHanded.add(it.freeSheet) : it.frag === undefined ? Pk.handed.add(it.m) : Pk.thrown.add(it.frag));
       if (j < 0 || j >= n) { done(); continue; }
       const rj = rigs[j];
       const zt = it.vz > 0 ? stackDepth[j] - stackDepth[k] : stackDepth[j] + rj.P.T - stackDepth[k];
@@ -3013,17 +3096,29 @@ function stackHandOff() {
       const tc = Math.max(0, ttc);
       const x = it.x + it.vx * tc, y = it.y + it.vy * tc - 4.905 * tc * tc;
       if (ttc < -0.05 || x <= 0.003 || y <= 0.003 || x >= rj.P.W - 0.003 || y >= rj.P.H - 0.003) continue;  // past it, or misses
-      const shard = it.di === shardIdx;
+      const shard = it.di === shardIdx && !it.body;   // a flying sheet is built on the shard, but it is no shard
       if (shard && (rj.shards >= SHARDS_PER_PANE || 0.5 * (it.mass || cat.impactors[it.di].mass) * (it.vx ** 2 + it.vy ** 2 + it.vz ** 2) < SHARD_MIN_ENERGY)) continue;
       const vy = it.vy - 9.81 * tc, sp = Math.hypot(it.vx, vy, it.vz);
       const yawD = Math.atan2(it.vx, Math.abs(it.vz)) * 180 / Math.PI, pitchD = Math.asin(clamp(vy / sp, -1, 1)) * 180 / Math.PI;
-      const h = fireInto(rj, it.di, x, y, sp, yawD, pitchD, it.vz < 0, Math.max(0.004, sp * tc), it.mass, it.radius);
+      const lead = Math.max(0.004, sp * tc);
+      if (it.body && it.label) it.body.label = it.label;   // it keeps its name pane after pane
+      const h = it.body ? fireBodyInto(rj, it.di, x, y, sp, yawD, pitchD, it.vz < 0, lead, it.body)
+        : fireInto(rj, it.di, x, y, sp, yawD, pitchD, it.vz < 0, lead, it.mass, it.radius);
       if (h < 0) continue;
       // Where the object starts out in pane j: what carried sheets ride on from.
       const s0 = G.impactors(rj.P.nImp).slice(20 * h, 20 * h + 3);
       if (shard) { ++rj.shards; rj.shardMax = Math.max(rj.shardMax, sp); }
-      else rj.hits.push({ name: cat.impactors[it.di].name, speed: sp });
+      else rj.hits.push({ name: it.label || it.body?.label || cat.impactors[it.di].name, speed: sp });
       useRig(r);
+      if (it.freeSheet !== undefined) {
+        // The sheet goes on as the body just fired: drawn riding on it.
+        const poses = G.fragmentPoses(G.state()[4]), base = [];
+        for (const i of it.frags) { for (let q = 0; q < 12; ++q) base.push(poses[12 * i + q]); G.gls_drop_fragment(i); }
+        const rd = { rig: r, frags: it.frags, base: Float32Array.from(base), anchor: [0, 0, 0], delta: [0, 0, 0], on: null };
+        reattach(rd, rj, h, s0);
+        riders.push(rd);
+        continue;
+      }
       if (it.frag !== undefined) G.gls_drop_fragment(it.frag);
       else if (Pk.impMeshes[it.m]) Pk.impMeshes[it.m].visible = false;
       if (it.frag === undefined) {
@@ -3034,9 +3129,9 @@ function stackHandOff() {
           // The sheet it ripped out of this pane goes on wrapped round it: this
           // pane's engine lets go of it (its mass went with the object into the
           // next pane), and it is drawn riding on the object from here on.
-          const nf = G.state()[4], poses = G.fragmentPoses(nf), frags = [], base = [];
+          const nf = G.state()[4], poses = G.fragmentPoses(nf), ids = G.fragmentSheets(nf), frags = [], base = [];
           for (let i = 0; i < nf; ++i) {
-            if (G.gls_fragment_sheet(i) !== it.sheet) continue;
+            if (ids[i] !== it.sheet) continue;
             frags.push(i);
             for (let q = 0; q < 12; ++q) base.push(poses[12 * i + q]);
             G.gls_drop_fragment(i);

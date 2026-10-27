@@ -87,6 +87,8 @@ export default async function createGlassModule(wasmBytes) {
     return { nx: h[0], ny: h[1], label: new Int32Array(memory.buffer, p + 8, h[0] * h[1]).slice() };
   };
   G.fragmentPoses = (n) => new Float32Array(memory.buffer, ex.gls_fragment_poses(), 12 * n);
+  // Which bonded sheet each of the first n fragment records is in (-1 none): Int32Array (copy).
+  G.fragmentSheets = (n) => new Int32Array(memory.buffer, ex.gls_fragment_sheets(), n).slice();
   G.field = (g, nx, ny) => new Float32Array(memory.buffer, ex.gls_field(g, nx, ny), 3 * nx * ny);
   G.stressStrength = () => new Float64Array(memory.buffer, ex.gls_stress_strength(), 3).slice();
   G.dropState = () => new Float64Array(memory.buffer, ex.gls_drop_state(), 16).slice();

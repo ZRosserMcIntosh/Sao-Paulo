@@ -17,7 +17,7 @@ export const wasmFile = WebAssembly.validate(SIMD_PROBE) ? 'glass.wasm' : 'glass
 const REQ_BYTES = 8 << 20, RES_BYTES = 24 << 20;
 // glass.mjs's helpers over the raw gls_* calls.
 const HELPERS = new Set(['text', 'load', 'catalog', 'state', 'plies', 'impactors', 'report', 'events', 'cracks', 'fragmentShapes',
-  'sprays', 'crushes', 'fragmentMap', 'fragmentPoses', 'field', 'stressStrength', 'dropState', 'dropFragments']);
+  'sprays', 'crushes', 'fragmentMap', 'fragmentPoses', 'fragmentSheets', 'field', 'stressStrength', 'dropState', 'dropFragments']);
 
 // The worker's fragmentShapes (glass.mjs's layout): [{index, ply, chip, thickness, outline, holes}].
 function parseShapes(f) {
