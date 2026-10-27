@@ -57,6 +57,11 @@
       "permanent": true
     },
     {
+      "source": "/sao-paulo/impact",
+      "destination": "/sao-paulo/impact/",
+      "permanent": true
+    },
+    {
       "source": "/sao-paulo/challenges",
       "destination": "/sao-paulo/challenges/",
       "permanent": true
@@ -183,6 +188,15 @@
         {
           "key": "Cross-Origin-Embedder-Policy",
           "value": "credentialless"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/impact/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
         }
       ]
     },
