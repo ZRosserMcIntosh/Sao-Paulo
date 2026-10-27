@@ -2684,6 +2684,7 @@ function paneFrame(dt, s, tEng) {
   let poses = null;
   if (nFrag > 0) {
     poses = G.fragmentPoses(nFrag).slice();
+    if (riders.length) rideAlong(poses);
     P.frags.update(poses, Math.max(0, tEng - s[23]), tEng);  // pieces step every 0.5 ms; extrapolate between
   }
   if (s[26] > P.crush.count) P.crush.add(G.crushes(P.crush.count).slice());
@@ -2791,6 +2792,7 @@ function disposePane(p, group) {
 // meanwhile.
 function makeRigs(specs) {
   dropRigs();
+  riders = [];
   disposePane(P, labGroup);
   P = null; slab = stressMesh = aimMarker = null;
   G.gls_select(0); G.gls_free_pane();
@@ -2813,6 +2815,7 @@ function makeRigs(specs) {
   return rigs;
 }
 function dropRigs() {
+  riders = [];
   if (!rigs) return;
   for (const r of rigs) {
     disposePane(r.P, r.group);
@@ -2844,6 +2847,7 @@ function multiFrame(dt) {
     limited = lim;
     if (lim) multiClock = tMin;
   }
+  if (riders.length) updateRiders();
   // What each pane shows, at the detail its scene gives it from where the
   // camera is (2 near, 1 small on the screen, 0 out of sight): a small pane
   // catches up every other frame, one out of sight every eighth and isn't
@@ -3013,17 +3017,82 @@ function stackHandOff() {
       if (shard && (rj.shards >= SHARDS_PER_PANE || 0.5 * (it.mass || cat.impactors[it.di].mass) * (it.vx ** 2 + it.vy ** 2 + it.vz ** 2) < SHARD_MIN_ENERGY)) continue;
       const vy = it.vy - 9.81 * tc, sp = Math.hypot(it.vx, vy, it.vz);
       const yawD = Math.atan2(it.vx, Math.abs(it.vz)) * 180 / Math.PI, pitchD = Math.asin(clamp(vy / sp, -1, 1)) * 180 / Math.PI;
-      if (fireInto(rj, it.di, x, y, sp, yawD, pitchD, it.vz < 0, Math.max(0.004, sp * tc), it.mass, it.radius) < 0) continue;
+      const h = fireInto(rj, it.di, x, y, sp, yawD, pitchD, it.vz < 0, Math.max(0.004, sp * tc), it.mass, it.radius);
+      if (h < 0) continue;
+      // Where the object starts out in pane j: what carried sheets ride on from.
+      const s0 = G.impactors(rj.P.nImp).slice(20 * h, 20 * h + 3);
       if (shard) { ++rj.shards; rj.shardMax = Math.max(rj.shardMax, sp); }
       else rj.hits.push({ name: cat.impactors[it.di].name, speed: sp });
       useRig(r);
       if (it.frag !== undefined) G.gls_drop_fragment(it.frag);
       else if (Pk.impMeshes[it.m]) Pk.impMeshes[it.m].visible = false;
-      if (it.sheet !== undefined)
-        for (let i = 0, nf = G.state()[4]; i < nf; ++i) if (G.gls_fragment_sheet(i) === it.sheet) G.gls_drop_fragment(i);
+      if (it.frag === undefined) {
+        // Sheets it already carried from panes before ride on with it.
+        for (const rd of riders)
+          if (rd.on.rig === r && rd.on.m === it.m) reattach(rd, rj, h, s0);
+        if (it.sheet !== undefined) {
+          // The sheet it ripped out of this pane goes on wrapped round it: this
+          // pane's engine lets go of it (its mass went with the object into the
+          // next pane), and it is drawn riding on the object from here on.
+          const nf = G.state()[4], poses = G.fragmentPoses(nf), frags = [], base = [];
+          for (let i = 0; i < nf; ++i) {
+            if (G.gls_fragment_sheet(i) !== it.sheet) continue;
+            frags.push(i);
+            for (let q = 0; q < 12; ++q) base.push(poses[12 * i + q]);
+            G.gls_drop_fragment(i);
+          }
+          if (frags.length) {
+            const rd = { rig: r, frags, base: Float32Array.from(base), anchor: [0, 0, 0], delta: [0, 0, 0], on: null };
+            reattach(rd, rj, h, s0);
+            riders.push(rd);
+          }
+        }
+      }
     }
   }
   useRig(rigs[0]);
+}
+// Sheets a projectile ripped out of one pane of a stack and carries on into
+// the next: the next pane's physics has their mass (the object it is hit by
+// is the whole bundle), and here they are drawn riding on that object, so a
+// cannonball through several armoured panes drags every sheet it has picked up.
+// { rig (whose pieces), frags, base (their poses when picked up, 12 floats
+// each), anchor (the carrier's position then, in that rig's pane frame),
+// delta (how far it has gone since), on: { rig, m } (the carrier) }.
+let riders = [];
+function rigDepth(r) { return stackDepth[rigs.indexOf(r)] || 0; }
+// Rides on impactor h of rig rj from start point s0 (rj's pane frame): what has
+// been travelled so far is folded into the base poses.
+function reattach(rd, rj, h, s0) {
+  for (let k = 0; k < rd.frags.length; ++k)
+    for (let a = 0; a < 3; ++a) rd.base[12 * k + a] += rd.delta[a];
+  rd.anchor = [s0[0], s0[1], s0[2] + rigDepth(rj) - rigDepth(rd.rig)];
+  rd.delta = [0, 0, 0];
+  rd.on = { rig: rj, m: h };
+}
+function updateRiders() {
+  for (const rd of riders) {
+    const c = rd.on.rig;
+    if (!c.P || rd.on.m >= c.P.nImp) continue;
+    useRig(c);
+    const o = 20 * rd.on.m, im = G.impactors(c.P.nImp);
+    const dz = rigDepth(c) - rigDepth(rd.rig);
+    rd.delta = [im[o] - rd.anchor[0], im[o + 1] - rd.anchor[1], im[o + 2] + dz - rd.anchor[2]];
+  }
+}
+// This pane's poses with its riding sheets moved to where their carrier is.
+function rideAlong(poses) {
+  for (const rd of riders) {
+    if (rd.rig.P !== P) continue;
+    for (let k = 0; k < rd.frags.length; ++k) {
+      const q = 12 * rd.frags[k];
+      if (q + 11 >= poses.length) continue;
+      for (let a = 0; a < 12; ++a) poses[q + a] = rd.base[12 * k + a];
+      poses[q] += rd.delta[0]; poses[q + 1] += rd.delta[1]; poses[q + 2] += rd.delta[2];
+      poses[q + 7] = poses[q + 8] = poses[q + 9] = 0;
+      poses[q + 10] = 1;   // moving with it, no extrapolation of its own
+    }
+  }
 }
 // What happened to each pane of the stack.
 function stackReadout() {
@@ -3111,7 +3180,7 @@ function listen(poses, nFrag) {
 
 // Hook for automated browser tests.
 window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, get HS() { return HS; }, get rigs() { return rigs; },
-  get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound, R, bench, get tier() { return tier; } };
+  get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound, R, bench, get tier() { return tier; }, get riders() { return riders; } };
 
 // ---------- Odds of breaking ----------
 // The same shot into a hundred panes, each with its own flaws, at the lab's
