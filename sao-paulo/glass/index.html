@@ -116,8 +116,18 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg)}
 #loading .panel{max-width:440px;text-align:center}
 #loading h1{font:900 34px/1 var(--display);text-transform:uppercase;margin:0 0 8px}
-#help,#odds{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
-#odds.on{display:grid}
+#help,#odds,#tests{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
+#odds.on,#tests.on{display:grid}
+#tests .panel{max-width:min(900px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:16px 18px}
+#tests h2{font:900 24px/1 var(--display);text-transform:uppercase;margin:0}
+#tests h3{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.04em;margin:16px 0 4px;color:var(--hot)}
+#tests .gnote{color:var(--mute);font-size:12px;margin:0 0 8px}
+.tcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.tcard{display:flex;flex-direction:column;gap:4px;text-align:left;white-space:normal;padding:10px 11px;border-radius:8px;background:rgba(255,255,255,.04)}
+.tcard b{font:700 13px/1.25 var(--body)}
+.tcard .std{font:600 10.5px var(--mono);color:var(--mute);letter-spacing:.02em}
+.tcard .crit{font-size:12px;color:#cfd8e3}
+.tcard .spec{font-size:11.5px;color:var(--mute)}
 #odds .panel{max-width:min(720px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:16px 18px}
 #odds h2{font:900 24px/1 var(--display);text-transform:uppercase;margin:0}
 #oddsChart{width:100%;height:auto;display:block;background:#0b1320;border:1px solid var(--line);border-radius:8px;margin-top:8px}
@@ -166,6 +176,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <button id="bStress" aria-pressed="false" title="Stress seen through crossed polarisers (S)">Stress</button>
     <button id="bCam" class="hide-sm" title="Camera: front, three-quarter, side (C)">Camera</button>
     <button id="bReset" title="New pane (R)">New pane</button>
+    <button id="bTests" title="Certification tests: put glazing through the standards it is made to pass">Tests</button>
     <button id="bShare" title="Copy a link to exactly this setup and shot">Share</button>
     <a class="how" href="how/" title="How every number is calculated: the equations, the data and their sources">How it works</a>
     <button id="bHelp" title="Help (H)">?</button>
@@ -265,6 +276,13 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
     <p class="note">No two panes are alike: each has its own scattering of microscopic flaws (a Weibull population, the same model the lab uses for every shot). So the same shot breaks one pane and not the next. This fires it into ten panes at each of ten speeds, every pane with fresh flaws, at the lab's physics, on copies of the engine running in the background.</p>
   </div>
 </div>
+<div id="tests" role="dialog" aria-modal="true" aria-labelledby="testsTitle">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><h2 id="testsTitle">Certification tests</h2><button id="bTestsClose">Close</button></div>
+    <p class="note">Each test sets up the glazing and fires what its standard fires, the way it says to, then gives the verdict against the standard's criterion. The panes are representative builds, so a pass means the model behaves the way glazing built to that standard does, not a certificate.</p>
+    <div id="testList"></div>
+  </div>
+</div>
 <div id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
   <div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:10px"><h2 id="helpTitle">Glass Lab</h2><button id="bHelpClose">Close</button></div>
@@ -279,7 +297,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
       <li><b>Sound</b> plays a steady note at the glass. Every pane has natural notes (its plate modes); on one of them the swing builds up cycle after cycle until it breaks. <b>Sing</b> lets your voice drive it, boosted to what a loudspeaker could do. <kbd>T</kbd> plays or stops the note.</li>
       <li><b>Prince Rupert's drop</b> (in Scenarios) opens its own page: shoot its head, snap its tail, or see its frozen stress through crossed polarisers.</li>
       <li><b>Glass cutter</b> and <b>Circle cutter</b> score the glass (drag a line, or tap for a circle); <b>Knock it out</b> taps it from behind with a rubber mallet, and the crack follows the score.</li>
-      <li><b>Odds of breaking at every speed</b> (under Fire) fires the object into a hundred panes, each with its own flaws, and plots how often they break. Certification scenarios (ECE R43, ASTM E1996, the FAA bird strike, ANSI Z97.1, UL 752) say whether the glass passed.</li>
+      <li><b>Odds of breaking at every speed</b> (under Fire) fires the object into a hundred panes, each with its own flaws, and plots how often they break.</li>
+      <li><b>Tests</b> (top bar) puts glazing through the standards it is made for (ECE R43, ANSI Z97.1, ASTM E1996, the FAA bird strike, UL 752) and gives the verdict against each standard's criterion. The UL 752 levels fire their rounds the way the standard does: three (or five) close together, every one of which must be stopped.</li>
       <li><b>Read the cracks</b> is a forensics puzzle: which of three stones hit first? <b>A window that explodes on its own</b> breaks a tempered panel with a nickel-sulfide stone.</li>
       <li><b>Share</b> copies a link to exactly this setup and shot: whoever opens it sees the same glass, the same shot and the same cracks.</li>
       <li><kbd>S</kbd> shows the bending stress as a photoelastic fringe pattern, <kbd>R</kbd> fits a new pane, <kbd>Z</kbd> replays the last shot exactly (the fracture is deterministic).</li>

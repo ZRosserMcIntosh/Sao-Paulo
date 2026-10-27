@@ -1560,6 +1560,7 @@ function fire(at = aim, record = true) {
   const h = G.gls_fire(iIdx, at.x, at.y, speed, yaw * Math.PI / 180, pitch * Math.PI / 180, fromBack ? 1 : 0, lead);
   if (h < 0) return;
   if (record) P.shots.push({ t, iIdx, x: at.x, y: at.y, speed, yaw, pitch, fromBack });
+  if (P.test) (P.testHits ||= []).push(h);
   // A shot load fires several pellets; they follow the first one's index.
   const n = Math.max(h + 1, G.state()[3]);
   for (let k = h; k < n; ++k) {
@@ -1604,9 +1605,10 @@ function replay() {
   }
   if (P && P.nis && !P.shots.length) { const n = P.nis; newPane(P.seed); simClockReset(); plantStone(n, 0.4); return; }
   if (!P || !P.shots.length) { toast('Nothing to replay yet'); return; }
-  const shots = P.shots.slice();
+  const shots = P.shots.slice(), test = P.test, testDef = P.testDef;
   newPane(P.seed, true);
   if (GT && GT.active) GT.attach(P, P.seed, shots[0].iIdx);
+  if (test) { P.test = test; P.testDef = testDef; P.testHits = []; }
   P.shots = shots;
   P.pendingShots = shots.slice();
   simClockReset();
@@ -1791,11 +1793,16 @@ function updateReadouts(final) {
     if (r.outcome && v[1] > 0) kv.push(['Leaves at', fmtSpeed(v[1])]);
     if (v[8] > 0) kv.push(['Depth reached', `${(v[8] * 1e3).toFixed(1)} mm of ${(P.T * 1e3).toFixed(1)}`]);
     if (v[9] > 0.0005) kv.push(['Bulge', `${(v[9] * 1e3).toFixed(0)} mm`]);
-    const verdict = P.test && (r.outcome || (P.test === 'z97' && s[6])) ? testVerdict(P.test, v, s) : null;
-    if (verdict) {
+    const rounds = P.testDef?.shots?.length || 1;
+    const verdict = !P.test ? null : rounds > 1 ? roundsVerdict(rounds)
+      : r.outcome || (P.test === 'z97' && s[6]) ? testVerdict(P.test, v, s) : null;
+    if (verdict && !verdict.pending && P.testDef) verdict.name = P.testDef.std;
+    if (verdict?.pending) kv.unshift(['Test', verdict.pending]);
+    else if (verdict) {
       kv.unshift(['Test', `<span style="color:var(--${verdict.pass ? 'good' : 'bad'})">${verdict.pass ? 'PASS' : 'FAIL'}</span> · ${verdict.name}`]);
       kv.push(['Why', verdict.why]);
     }
+    if (verdict && P.testDef) kv.splice(1, 0, ['Criterion', P.testDef.criterion]);
   } else if (P.nis && P.nis.text) {
     const out = $('outcome');
     out.textContent = P.nis.text;
@@ -2067,7 +2074,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 't') $('bTone').click();
   else if (k === 'a') $('bAuto').click();
   else if (k === 'h' || k === '?') $('help').classList.toggle('on');
-  else if (k === 'escape') $('help').classList.remove('on');
+  else if (k === 'escape') { $('help').classList.remove('on'); $('tests').classList.remove('on'); }
   else if (k >= '1' && k <= '6') { auto = false; scaleManual = SCALES[+k - 1][0]; buildScaleButtons(); syncAuto(); }
 });
 
@@ -2136,23 +2143,10 @@ const PRESETS = [
   ['Ball through a window', 'annealed_6', 'steel_ball_2260', 8.86, 'A 2.26 kg steel ball dropped 4 m onto 6 mm plate glass'],
   ['Baseball through a house window', 'annealed_4', 'baseball', 40, '90 mph fastball, thin annealed glass'],
   ['Escape tool on a car door', 'car_side_tempered', 'window_punch', 5.5, 'Spring punch: tempered glass crumbles from a 0.3 J tap'],
-  ['ECE R43 windscreen ball test', 'windscreen', 'steel_ball_2260', 8.86, 'The PVB must catch a 2.26 kg ball from 4 m', { test: 'r43' }],
   ['Pedestrian head on a windscreen', 'windscreen', 'headform', 11.1, 'Euro NCAP adult headform at 40 km/h', { y: 0.32 }],
   ['Occupant head from inside', 'windscreen', 'headform', 7, 'Unbelted head strike, 25 km/h, from the cabin', { back: true, y: 0.55 }],
   ['Stone chip at highway speed', 'windscreen', 'stone', 30, 'A granite chip stars the outer ply only'],
-  ['Bird strike at 250 kt', 'aircraft_windshield', 'bird_4lb', 128.6, '14 CFR 25.775: 4 lb bird, pressurised cabin', { test: 'far25' }],
-  ['Bird strike at 350 kt', 'aircraft_windshield', 'bird_4lb', 180, 'The same bird at a typical airliner design cruise speed', { test: 'far25' }],
   ['Hail on a window', 'annealed_4', 'hail_50', 33, '50 mm hailstone at terminal velocity'],
-  ['Hurricane debris', 'hurricane', 'timber_2x4', 15.2, 'ASTM E1996 missile D: 2x4 stud at 15 m/s', { test: 'e1996' }],
-  ['Hurricane debris vs a plain window', 'annealed_6', 'timber_2x4', 15.2, 'The same 2x4 into ordinary 6 mm glass', { test: 'e1996' }],
-  ['Falling into a shower door', 'tempered_6', 'body_bag', 4.89, 'ANSI Z97.1 bag from 48 in: tempered glass', { test: 'z97' }],
-  ['Falling into an old door', 'annealed_6', 'body_bag', 4.89, 'The same fall into annealed glass', { test: 'z97' }],
-  ['9 mm vs Level 1', 'ul752_l1', 'pistol_9mm', 380, 'UL 752 Level 1 class all-glass laminate', { test: 'ul752' }],
-  ['.44 Magnum vs Level 3', 'ul752_l3', 'magnum_44', 430, 'Glass-clad polycarbonate catches it', { test: 'ul752' }],
-  ['Rifle vs Level 3', 'ul752_l3', 'rifle_762', 850, 'A handgun rating does not stop 7.62 mm', { test: 'ul752' }],
-  ['Rifle vs Level 8', 'ul752_l8', 'rifle_762', 850, 'Rifle-rated: stopped deep in the layup', { test: 'ul752' }],
-  ['.50 BMG vs Level 8', 'ul752_l8', 'bmg_50', 900, 'A heavy machine-gun round has five times a rifle\'s energy: straight through', { test: 'ul752' }],
-  ['.50 BMG vs Level 10', 'ul752_l10', 'bmg_50', 900, 'Nearly 4 in of glass-clad polycarbonate stops it', { test: 'ul752' }],
   ['BB gun vs plate glass', 'annealed_6', 'bb', 120, 'Hertzian cone: the classic conical hole'],
   ['Buckshot through a window', 'annealed_6', 'buckshot_00', 395, 'A 12-gauge 00 buck shell from 7 m: nine pellets, one after another'],
   ['Buckshot vs car door glass', 'car_side_tempered', 'buckshot_00', 395, 'Nine pellets into tempered side glass'],
@@ -3288,7 +3282,7 @@ function listen(poses, nFrag) {
 
 // Hook for automated browser tests.
 window.__glass = { get P() { return P; }, THREE, scene, camera, G, get GT() { return GT; }, get HS() { return HS; }, get rigs() { return rigs; },
-  get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound, R, bench, get tier() { return tier; }, get riders() { return riders; } };
+  get groupPane() { return groupPane; }, useRig, cam, applyCamera, sound, R, bench, get tier() { return tier; }, get riders() { return riders; }, shareURL };
 
 // ---------- Odds of breaking ----------
 // The same shot into a hundred panes, each with its own flaws, at the lab's
@@ -3384,6 +3378,9 @@ function drawOdds() {
   }
 }
 $('bOdds').onclick = openOdds;
+$('bTests').onclick = openTests;
+$('bTestsClose').onclick = () => $('tests').classList.remove('on');
+$('tests').onclick = (e) => { if (e.target === $('tests')) $('tests').classList.remove('on'); };
 $('bOddsRun').onclick = runOdds;
 $('bOddsClose').onclick = () => $('odds').classList.remove('on');
 $('odds').onclick = (e) => { if (e.target === $('odds')) $('odds').classList.remove('on'); };
@@ -3548,6 +3545,112 @@ function puzzleTap(p) {
 // Each scenario that reproduces a published test says whether the glass would
 // pass it, by that test's own criterion, and what of the test is not simulated.
 // v: the shot's report; s: the pane's state.
+// What each standard fires, how, and what it takes to pass. shots: the
+// rounds of a multi-shot test as offsets (m) from the aim point, fired 50 ms
+// apart (each is over long before the next).
+const UL_TRIANGLE = [[0, 0.059], [-0.051, -0.0295], [0.051, -0.0295]];   // 4 in (102 mm) between hits
+const UL_FIVE = [[0, 0], [-0.051, 0.051], [0.051, 0.051], [-0.051, -0.051], [0.051, -0.051]];
+const TESTS = [
+  { id: 'r43', group: 'Vehicles', std: 'ECE R43 · 2.26 kg ball', title: 'Windscreen ball test', glazing: 'windscreen', impactor: 'steel_ball_2260',
+    speed: 8.86, kind: 'r43', criterion: 'A 2.26 kg steel ball dropped from 4 m must not go through: the interlayer has to hold it.' },
+  { id: 'z97-t', group: 'Building safety', std: 'ANSI Z97.1 · 100 lb bag from 48 in', title: 'Shower door, tempered', glazing: 'tempered_6',
+    impactor: 'body_bag', speed: 4.89, kind: 'z97', criterion: 'A 45 kg bag swung into it: it must not break, or break into small, harmless dice.' },
+  { id: 'z97-a', group: 'Building safety', std: 'ANSI Z97.1 · 100 lb bag from 48 in', title: 'Old door, annealed', glazing: 'annealed_6',
+    impactor: 'body_bag', speed: 4.89, kind: 'z97', criterion: 'The same swing into ordinary annealed glass, which breaks into long blades.' },
+  { id: 'e1996-h', group: 'Storms', std: 'ASTM E1996 · large missile D', title: 'Hurricane glass', glazing: 'hurricane', impactor: 'timber_2x4',
+    speed: 15.2, kind: 'e1996', criterion: 'A 9 lb 2x4 end-on at 50 ft/s (15.2 m/s) must not go through.' },
+  { id: 'e1996-a', group: 'Storms', std: 'ASTM E1996 · large missile D', title: 'An ordinary window', glazing: 'annealed_6', impactor: 'timber_2x4',
+    speed: 15.2, kind: 'e1996', criterion: 'The same 2x4 into plain 6 mm glass.' },
+  { id: 'far25-250', group: 'Aircraft', std: '14 CFR 25.775(b) · 4 lb bird', title: 'Bird strike at 250 kt', glazing: 'aircraft_windshield',
+    impactor: 'bird_4lb', speed: 128.6, kind: 'far25', criterion: 'A 4 lb bird at design cruise speed: the windshield must keep the cabin sealed.' },
+  { id: 'far25-350', group: 'Aircraft', std: '14 CFR 25.775(b) · 4 lb bird', title: 'Bird strike at 350 kt', glazing: 'aircraft_windshield',
+    impactor: 'bird_4lb', speed: 180, kind: 'far25', criterion: 'The same bird at a faster airliner\'s design cruise speed.' },
+  { id: 'ul752-1', group: 'Bullet resistance', std: 'UL 752 Level 1 · 9 mm, 3 rounds', title: '9 mm vs Level 1', glazing: 'ul752_l1',
+    impactor: 'pistol_9mm', speed: 380, kind: 'ul752', shots: UL_TRIANGLE, criterion: 'Three 9 mm rounds 4 in apart: none may go through.' },
+  { id: 'ul752-3', group: 'Bullet resistance', std: 'UL 752 Level 3 · .44 Magnum, 3 rounds', title: '.44 Magnum vs Level 3', glazing: 'ul752_l3',
+    impactor: 'magnum_44', speed: 430, kind: 'ul752', shots: UL_TRIANGLE, criterion: 'Three .44 Magnum rounds 4 in apart: none may go through.' },
+  { id: 'ul752-8', group: 'Bullet resistance', std: 'UL 752 Level 8 · 7.62 mm, 5 rounds', title: 'Rifle vs Level 8', glazing: 'ul752_l8',
+    impactor: 'rifle_762', speed: 850, kind: 'ul752', shots: UL_FIVE, criterion: 'Five 7.62 mm rifle rounds close together: none may go through.' },
+  { id: 'ul752-10', group: 'Bullet resistance', std: 'UL 752 Level 10 · .50 cal, 1 round', title: '.50 BMG vs Level 10', glazing: 'ul752_l10',
+    impactor: 'bmg_50', speed: 900, kind: 'ul752', criterion: 'One .50 calibre round: it must not go through.' },
+  { id: 'ul752-3r', group: 'Beyond the rating', std: 'Level 3 glazing · a Level 8 round', title: 'Rifle vs a handgun rating', glazing: 'ul752_l3',
+    impactor: 'rifle_762', speed: 850, kind: 'ul752', criterion: 'Handgun-rated glass against one 7.62 mm rifle round: what the rating does not cover.' },
+  { id: 'ul752-8b', group: 'Beyond the rating', std: 'Level 8 glazing · a Level 10 round', title: '.50 BMG vs Level 8', glazing: 'ul752_l8',
+    impactor: 'bmg_50', speed: 900, kind: 'ul752', criterion: 'A heavy machine-gun round has five times a rifle\'s energy.' },
+];
+const TEST_NOTES = {
+  'Vehicles': 'Windscreens are laminated so that what hits them stays outside, and what is inside stays in.',
+  'Building safety': 'Glass in doors and low windows must survive a person falling into it, or break harmlessly.',
+  'Storms': 'Windows in hurricane zones must keep wind-borne debris out, so the house keeps its envelope.',
+  'Aircraft': 'An airliner windshield has to take a bird at cruise speed and still hold cabin pressure.',
+  'Bullet resistance': 'The rounds of a rating, in the standard\'s pattern: every one must be stopped.',
+  'Beyond the rating': 'What a rating does not promise.',
+};
+function openTests() {
+  const box = $('testList');
+  box.textContent = '';
+  for (const group of [...new Set(TESTS.map((t) => t.group))]) {
+    const h = document.createElement('h3'); h.textContent = group; box.appendChild(h);
+    const note = document.createElement('p'); note.className = 'gnote'; note.textContent = TEST_NOTES[group] || ''; box.appendChild(note);
+    const cards = document.createElement('div'); cards.className = 'tcards'; box.appendChild(cards);
+    for (const t of TESTS.filter((x) => x.group === group)) {
+      const g = cat.glazings.find((x) => x.id === t.glazing), d = cat.impactors.find((x) => x.id === t.impactor);
+      if (!g || !d) continue;
+      const b = document.createElement('button');
+      b.className = 'tcard';
+      const n = t.shots?.length || 1;
+      b.innerHTML = `<span class="std">${t.std}</span><b>${t.title}</b><span class="crit">${t.criterion}</span>` +
+        `<span class="spec">${g.name} · ${d.name} at ${fmtSpeed(t.speed)}${n > 1 ? ` · ${n} rounds` : ''}</span>`;
+      b.onclick = () => runTest(t);
+      cards.appendChild(b);
+    }
+  }
+  $('tests').classList.add('on');
+}
+// Sets the test's glazing up and fires its rounds.
+function runTest(t) {
+  const gi = cat.glazings.findIndex((g) => g.id === t.glazing), ii = cat.impactors.findIndex((g) => g.id === t.impactor);
+  if (gi < 0 || ii < 0) return;
+  $('tests').classList.remove('on');
+  if (activeScene()) leaveScene(false);
+  if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
+  if (TONE.on) setTone(false);
+  gIdx = gi;
+  chipGroup($('glazings'), cat.glazings, gIdx, pickGlazing);
+  pickImpactor(ii);
+  speed = t.speed;
+  yaw = 0; pitch = 0; $('yaw').value = '0'; $('pitch').value = '0'; $('vAngle').textContent = '0° / 0°';
+  fromBack = false;
+  $('bSide').setAttribute('aria-pressed', 'false');
+  syncSpeed();
+  newPane();
+  simClockReset();
+  updatePaneInfo();
+  auto = true; syncAuto(); buildScaleButtons();
+  P.test = t.kind; P.testDef = t; P.testHits = [];
+  const offs = t.shots || [[0, 0]], cx = P.W / 2, cy = P.H / 2;
+  aim = { x: cx + offs[0][0], y: cy + offs[0][1] };
+  placeAimMarker();
+  fire(aim);
+  const t0 = P.shots[P.shots.length - 1].t;
+  for (let k = 1; k < offs.length; ++k) {
+    const sh = { t: t0 + 0.05 * k, iIdx: ii, x: cx + offs[k][0], y: cy + offs[k][1], speed: t.speed, yaw: 0, pitch: 0, fromBack: false };
+    P.shots.push(sh);
+    P.pendingShots.push(sh);
+  }
+  if (window.innerWidth <= 860) showTab('res');
+}
+// A test of several rounds: its verdict once every round is over.
+function roundsVerdict(n) {
+  const hits = P.testHits || [];
+  if (hits.length < n) return { pending: `round ${hits.length} of ${n} fired…` };
+  const reps = hits.slice(0, n).map((h) => G.report(h));
+  const done = reps.filter((r) => r.outcome).length;
+  if (done < n) return { pending: `${done} of ${n} rounds over…` };
+  const through = reps.findIndex((r) => r.v[11]);
+  return { name: `${P.testDef.std}`, pass: through < 0,
+    why: through < 0 ? `all ${n} rounds were stopped in the layup` : `round ${through + 1} of ${n} went through` };
+}
 function testVerdict(kind, v, s) {
   const through = !!v[11], stopped = !!v[13], broke = !!s[6], intact = !!s[8];
   switch (kind) {
@@ -3868,6 +3971,7 @@ function shareURL() {
   const at = aim || { x: pane.W / 2, y: pane.H / 2 };
   if (P && P.scores && !stackOn)
     for (const sc of P.scores) q.append('cut', (sc.closed ? 'c' : 'l') + sc.pts.map((p) => `${+p.x.toFixed(4)},${+p.y.toFixed(4)}`).join(';'));
+  if (P && P.testDef && !stackOn) q.set('test', P.testDef.id);
   if (P && P.nis && !stackOn) q.set('nis', [+P.nis.x.toFixed(4), +P.nis.y.toFixed(4), +P.nis.d.toFixed(3)].join(','));
   const toned = (TONE.on || TONE.broke) && !stackOn;
   if (toned) q.set('tone', [+TONE.freq.toFixed(2), +TONE.dB.toFixed(1), TONE.shaker ? 1 : 0].join(','));
@@ -3933,6 +4037,8 @@ function applyShareLink() {
     const pts = c.slice(1).split(';').map((v) => v.split(',').map(Number)).filter((v) => v.length === 2 && v.every(Number.isFinite)).slice(0, 400).map(([x, y]) => ({ x, y }));
     if (!stackOn) addScore(pts, c[0] === 'c');
   }
+  const td = TESTS.find((x) => x.id === q.get('test'));
+  if (td && !stackOn) { P.test = td.kind; P.testDef = td; P.testHits = []; }
   const ns = (q.get('nis') || '').split(',').map(Number);
   if (ns.length === 3 && ns[2] > 0 && !stackOn) plantStone({ x: clamp(ns[0], 0, P.W), y: clamp(ns[1], 0, P.H), d: clamp(ns[2], 0.01, 2) });
   const tn = (q.get('tone') || '').split(',').map(Number);
