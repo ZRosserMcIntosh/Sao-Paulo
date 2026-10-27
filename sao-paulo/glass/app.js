@@ -226,10 +226,10 @@ function banner(title, sub) {
 }
 
 // ---------- Selection state ----------
-// Every visit opens on a storefront panel (fully tempered 10 mm) with three
-// 10 mm annealed plates behind it, a metre apart, and the cannonball (until another object
-// is picked: a new key, so earlier picks give way to the new default).
-let gIdx = Math.max(0, cat.glazings.findIndex((g) => g.id === 'storefront_tempered_10'));
+// Every visit opens on four 10 mm annealed shopfront plates, a metre apart,
+// and the cannonball (until another object is picked: a new key, so earlier
+// picks give way to the new default).
+let gIdx = Math.max(0, cat.glazings.findIndex((g) => g.id === 'annealed_10'));
 let iIdx = Math.max(0, cat.impactors.findIndex((g) => g.id === store.get('impactor:v2', 'cannonball_9lb')));
 let speed = cat.impactors[iIdx].speed;
 let yaw = 0, pitch = 0, fromBack = false;
