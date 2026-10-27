@@ -13,6 +13,14 @@ import { BikeView } from './bike.js';
 import { Destruction } from './destruction.js';
 import { CrashDummies } from './dummies.js';
 import { Garage } from './garage.js';
+import { PhysicsOverlay } from './overlay.js';
+import { MooseTest } from './moose.js';
+import { Crumple } from './crumple.js';
+import { CrashLab, TESTS as LAB_TESTS } from './crashlab.js';
+import { Rewind, GhostCar } from './rewind.js';
+import { Weather, RAIN_LEVELS } from './weather.js';
+import { StuntPark } from './stunts.js';
+import { GlassFX } from './glassfx.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -60,6 +68,31 @@ const WORLD = (() => {
 })();
 function switchWorld(w) { store.set('world', w); const u = new URL(location.href); u.searchParams.set('world', w); location.href = u.href; }
 
+// ---------- Share links: ?car=&setup=&rain=&zone= (see shareLink below) ----------
+const SHARE = (() => {
+  const q = new URLSearchParams(location.search);
+  const o = { car: q.has('car') ? +q.get('car') : null, setup: q.get('setup'), rain: q.has('rain') ? +q.get('rain') : null, zone: q.get('zone'), preset: q.has('preset') ? +q.get('preset') : null };
+  return o.car !== null || o.setup || o.rain !== null || o.zone ? o : null;
+})();
+async function inflateSetup(b64) {
+  const bin = Uint8Array.from(atob(b64.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  if (typeof DecompressionStream === 'function') {
+    try { return await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text(); } catch { /* not compressed */ }
+  }
+  return new TextDecoder().decode(bin);
+}
+async function deflateSetup(json) {
+  let bin = new TextEncoder().encode(json);
+  if (typeof CompressionStream === 'function') bin = new Uint8Array(await new Response(new Blob([bin]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+  let s = ''; for (const b of bin) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+if (SHARE?.car !== null && SHARE?.car !== undefined && SHARE.car >= 0 && SHARE.car <= 13) { store.set('car', SHARE.car); store.set('stellaPhysics', true); }
+if (SHARE?.setup && SHARE.car !== null) {
+  try { store.set('setup' + SHARE.car, JSON.parse(await inflateSetup(SHARE.setup))); } catch (e) { console.warn('shared setup unreadable', e); }
+}
+if (SHARE?.preset !== null && SHARE?.preset !== undefined && SHARE.preset >= 0 && SHARE.preset <= 3) store.set('preset', SHARE.preset);
+
 // ---------- Settings ----------
 const settings = {
   car: store.get('stellaPhysics', false) ? store.get('car', 5) : 5, // the Stella's own physics is the default
@@ -70,6 +103,7 @@ const settings = {
   lock: store.get('driftLock', false),            // drift steering lock (0.9 rad) on the cars
   diff: store.get('diff', -1),                    // rear diff: -1 stock, 0 open, 1 locked, 2 tight LSD
   dummies: store.get('dummies', true), belted: store.get('belted', true), airbags: store.get('airbags', true), xray: store.get('xray', false),
+  damage: store.get('damage', 'cosmetic'),
 };
 function presetAids(p) {
   if (p === 0) return { abs: true, tcs: 2, esc: 2, auto: true, drift: 0 };
@@ -106,7 +140,8 @@ const SKY = new THREE.Color('#9fb8d3');
 scene.background = SKY;
 scene.fog = new THREE.Fog(SKY, 180, 900);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.2, 2000);
-scene.add(new THREE.HemisphereLight('#dbe8ff', '#4a4136', 0.9));
+const hemi = new THREE.HemisphereLight('#dbe8ff', '#4a4136', 0.9);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff4e0', 2.4);
 sun.castShadow = true;
 sun.shadow.mapSize.set(MOBILE ? 1024 : 2048, MOBILE ? 1024 : 2048);
@@ -407,13 +442,15 @@ function onWallBreak(e) {
   const qw = S(3), qx = S(4), qy = S(5), qz = S(6);
   const yaw = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz));
   const vel = [S(7) * Math.cos(yaw) - S(8) * Math.sin(yaw), S(7) * Math.sin(yaw) + S(8) * Math.cos(yaw)];
-  const name = destruction.breakSection(w.def, { px: e[2], py: e[3], nx: e[4], ny: e[5], speed: e[6], kept: e[7], vel });
+  const viaEngine = w.def.material === 1 && glassfx?.onBreak(e[0], { x: -e[4], y: -e[5] });
+  const name = viaEngine ? 'glass storefront' : destruction.breakSection(w.def, { px: e[2], py: e[3], nx: e[4], ny: e[5], speed: e[6], kept: e[7], vel });
   lastBreak = { name, t: performance.now() };
   try { if (w.def.material === 1) audio.shatter(Math.min(1, e[6] / 12)); else audio.rubble(Math.min(1, e[6] / 15)); } catch { /* audio not ready */ }
 }
 function resetWalls() {
   M._ord_reset_obstacles();
   destruction.reset();
+  glassfx?.reset();
   for (const w of Object.values(walls)) w.mesh.visible = true;
   lastBreak = null;
 }
@@ -448,6 +485,7 @@ function heightPatch(x0, x1, y0, y1, d, color) {
   const tex = asphalt.clone(); tex.needsUpdate = true;
   const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, vertexColors: true, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   m.receiveShadow = m.castShadow = true; m.position.y = 0.001; TRACK.add(m);
+  return m;
 }
 if (WORLD === 'track') {
   const white = new THREE.Color('#ffffff'), red = new THREE.Color('#d22a1f'), kw = new THREE.Color('#f4f4f4'), yel = new THREE.Color('#f0c419'), blk = new THREE.Color('#222222');
@@ -458,6 +496,48 @@ if (WORLD === 'track') {
   for (let x = ROLL.kx0; x < ROLL.kx1; x += 12) stripe(x, ROLL.kerbY + 9, x + 6, ROLL.kerbY + 9, 0.12, yellowPaint);
   stripe(-450, ROLL.rampY - 2.5, -230, ROLL.rampY - 2.5, 0.15);
   for (let x = -450; x < ROLL.rx0 - 2; x += 12) stripe(x, ROLL.rampY, x + 6, ROLL.rampY, 0.12, yellowPaint);
+}
+
+// Test areas south of the rollover area and the stunt park (ord_web.cpp: ord_test_areas)
+const AREAS = new Float64Array(M.HEAPF64.buffer, M._ord_test_areas(), 35).slice();
+const AQUA = { y: AREAS[1], pool: [AREAS[2], AREAS[3]], puddle: [AREAS[4], AREAS[5]] };
+const SURF = { y: AREAS[6], cobble: [AREAS[7], AREAS[8]], paint: [AREAS[9], AREAS[10]] };
+const MOOSE = { y: AREAS[0], x0: -300 };
+function settsTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#3d3a36'; g.fillRect(0, 0, 256, 256);
+  // granite setts in staggered rows (Sao Paulo's paralelepipedos), ~14 cm
+  for (let r = 0; r < 8; ++r) for (let k = -1; k < 9; ++k) {
+    const t = Math.random(), x = k * 32 + (r % 2) * 16, y = r * 32;
+    g.fillStyle = `rgb(${110 + 50 * t | 0},${106 + 46 * t | 0},${100 + 40 * t | 0})`;
+    g.beginPath(); g.roundRect(x + 2, y + 2, 28, 28, 5); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.06)'; g.fillRect(x + 5, y + 4, 18, 5);
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  return t;
+}
+if (WORLD === 'track') {
+  // aquaplaning lane: an 8 mm pool across it, then a 12 mm puddle under the left wheels
+  const water = new THREE.MeshPhysicalMaterial({ color: '#2c4f66', roughness: 0.02, metalness: 0.1, transparent: true, opacity: 0.72, clearcoat: 1, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  const pool = new THREE.Mesh(new THREE.PlaneGeometry(AQUA.pool[1] - AQUA.pool[0], 8), water); pool.rotation.x = -Math.PI / 2; pool.position.copy(v3((AQUA.pool[0] + AQUA.pool[1]) / 2, AQUA.y, 0.006)); TRACK.add(pool);
+  const pud = new THREE.Mesh(new THREE.PlaneGeometry(AQUA.puddle[1] - AQUA.puddle[0], 3), water); pud.rotation.x = -Math.PI / 2; pud.position.copy(v3((AQUA.puddle[0] + AQUA.puddle[1]) / 2, AQUA.y + 1.5, 0.006)); TRACK.add(pud);
+  stripe(-470, AQUA.y - 4, -150, AQUA.y - 4, 0.15); stripe(-470, AQUA.y + 4, -150, AQUA.y + 4, 0.15);
+  for (let x = -470; x < AQUA.pool[0] - 4; x += 12) stripe(x, AQUA.y, x + 6, AQUA.y, 0.12, yellowPaint);
+  // surfaces lane: cobblestones, then a zebra crossing (0.5 m stripes every metre)
+  const setts = settsTexture(); setts.repeat.set((SURF.cobble[1] - SURF.cobble[0]) / 1.1, 8 / 1.1);
+  const cob = new THREE.Mesh(new THREE.PlaneGeometry(SURF.cobble[1] - SURF.cobble[0], 8), new THREE.MeshStandardMaterial({ map: setts, roughness: 0.75, ...decal }));
+  cob.rotation.x = -Math.PI / 2; cob.position.copy(v3((SURF.cobble[0] + SURF.cobble[1]) / 2, SURF.y, 0.002)); cob.receiveShadow = true; TRACK.add(cob);
+  for (let x = SURF.paint[0]; x < SURF.paint[1]; x += 1) stripe(x, SURF.y - 4, x, SURF.y + 4, 0.5);
+  stripe(-470, SURF.y - 4, -150, SURF.y - 4, 0.15); stripe(-470, SURF.y + 4, -150, SURF.y + 4, 0.15);
+  // moose test: run-up lane to the entry gate (the cones are moose.js's, sized to the car)
+  stripe(-470, MOOSE.y - 1.7, MOOSE.x0, MOOSE.y - 1.7, 0.12); stripe(-470, MOOSE.y + 1.7, MOOSE.x0, MOOSE.y + 1.7, 0.12);
+  stripe(MOOSE.x0, MOOSE.y - 6, MOOSE.x0, MOOSE.y + 6, 0.3, yellowPaint);
+  document.fonts?.ready.then(() => {
+    sign('AQUAPLANING', -462, AQUA.y + 5, '8 mm pool · then a puddle on the left');
+    sign('COBBLES & PAINT', -462, SURF.y + 5, 'setts · zebra · slick when it rains');
+    sign('MOOSE TEST', -462, MOOSE.y + 5, 'ISO 3888-2 · lift off at the yellow line');
+  });
 }
 
 // Slalom cones: 10 cones, 18 m apart, at y = -45
@@ -563,6 +643,7 @@ function buildPlaceholder() {
     const rim = new THREE.Mesh(new THREE.CylinderGeometry(w.r * 0.62, w.r * 0.62, 0.25, 6), rimMat);
     rim.rotation.x = Math.PI / 2;
     spin.add(tire, rim); steer.add(spin); placeholder.add(steer);
+    steer.userData.noCrumple = true;
     wheelRigs.push({ steer, spin, base: steer.position.clone() });
   }
   return { xf, xr, half, r, midX };
@@ -663,6 +744,7 @@ async function loadModel(buffer, name, announce = true) {
       for (const m of meshes) box.union(new THREE.Box3().setFromObject(m));
       const centre = carRoot.worldToLocal(box.getCenter(new THREE.Vector3()));
       const steer = new THREE.Group(), spin = new THREE.Group();
+      steer.userData.noCrumple = true;
       steer.position.copy(centre); steer.add(spin); wrapper.add(steer);
       steer.updateMatrixWorld(true);
       for (const m of meshes) spin.attach(m);
@@ -676,6 +758,7 @@ async function loadModel(buffer, name, announce = true) {
   setupLights(inner);
   setupPaint(inner);
   placeholder.visible = false;
+  crumple?.capture();
   $('modelNote').innerHTML = `Driving <b>${escapeHtml(name)}</b> (${size.x.toFixed(2)} × ${size.z.toFixed(2)} m). ` +
     (hasWheels ? 'Wheels found and animated from the physics.' : 'No separate wheel objects found (name them “Wheel_FL”, “Tire_RR”…, to animate them).');
   if (announce) toast(`Loaded ${name}`);
@@ -815,6 +898,14 @@ const ZONES = CITY_ZONES || [
   { name: 'Smash: glass storefront', x: M._ord_crash_barrier_x() - 110, y: M._ord_smash_lane_y(0), yaw: 0 },
   { name: 'Smash: block wall', x: M._ord_crash_barrier_x() - 160, y: M._ord_smash_lane_y(1), yaw: 0 },
   { name: 'Smash: brick wall', x: M._ord_crash_barrier_x() - 220, y: M._ord_smash_lane_y(2), yaw: 0 },
+  { name: 'Moose test (ISO 3888-2)', x: -440, y: AREAS[0], yaw: 0 },
+  { name: 'Aquaplaning', x: -462, y: AREAS[1] + 1.5, yaw: 0 },
+  { name: 'Cobbles & paint', x: -462, y: AREAS[6], yaw: 0 },
+  { name: 'Stunt: jumps', x: -462, y: AREAS[11], yaw: 0 },
+  { name: 'Stunt: big jump', x: -462, y: AREAS[12], yaw: 0 },
+  { name: 'Stunt: half-pipe', x: -455, y: AREAS[23], yaw: 0 },
+  // the loop: on its approach line, already rolling at 110 km/h (the loop assist steers the ribbon)
+  { name: 'Stunt: loop (110 km/h)', x: -400, y: AREAS[30] - (AREAS[29] + 400) * Math.tan(AREAS[34]), yaw: AREAS[34], v: 110 / 3.6 },
 ];
 let bikeView = null, crashT = 0;
 function createBike(z, speed = 0) {
@@ -836,6 +927,115 @@ function hudLabels(bike) {
 // Tuning garage (U): a full setup for the car, applied by the physics core.
 const garage = new Garage(M, { store, toast, isBike, carIndex: () => settings.car, startYaw: () => ZONES[0].yaw });
 $('bGarage').onclick = (e) => { garage.toggle(); e.currentTarget.blur(); };
+
+// ---------- Showcases: overlay, crumple, rewind, ghost & shadow car, weather, stunts, moose, crash lab, glass ----------
+const overlay = new PhysicsOverlay(THREE, M, { S, W, parent: carRoot, garageState: () => garage.gs() });
+overlay.group.userData.noCrumple = true;
+dummies.group.userData.noCrumple = true;
+function skipCrumple(o) {
+  for (let n = o; n && n !== carRoot; n = n.parent) if (!n.visible || n.userData.noCrumple) return true;
+  return false;
+}
+const crumple = new Crumple(THREE, carRoot, skipCrumple);
+// Damage modes. Cosmetic (the default, game-like): shallow dents and scuffs, no injury report, a
+// car that ends up on its side or roof is put back on its wheels by itself. Realistic: dents as
+// deep as the crush model says and the dummies' crash report. Off: no dents. None of them change
+// how the car drives: the physics has no mechanical damage. The crash lab is always realistic.
+const COSMETIC_CAP = 0.08;
+const labOn = () => !!(lab && lab.mode !== 'off');
+crumple.cap = () => (settings.damage === 'cosmetic' && !labOn() ? COSMETIC_CAP : Infinity);
+const crumpleLog = [];   // { frame, point, dir, depth, radius } for rewinding through crashes
+const rewind = new Rewind(M);
+const ghostCar = new GhostCar(THREE, scene, '#8fd3ff');
+const shadowCar = new GhostCar(THREE, scene, '#ffb347');
+const ghost = { on: store.get('ghost', true), runs: {}, rec: [], t: 0, idx: 0, zone: null };
+const shadow = { on: false, car: -1, stock: true };
+const weather = (() => {
+  const ground = [];
+  scene.traverse((o) => {
+    if (!o.isMesh || carRoot.getObjectById(o.id)) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (m?.isMeshStandardMaterial && !m.transparent && m.roughness >= 0.7 && !ground.some((g) => g.mat === m)) ground.push({ mat: m, roughness: m.roughness, color: m.color.clone(), env: m.envMapIntensity ?? 1 });
+    }
+  });
+  return new Weather(THREE, scene, M, { mobile: MOBILE, sky: SKY, fog: scene.fog, sun, hemi, ground });
+})();
+let rainIdx = Math.max(0, RAIN_LEVELS.findIndex((r) => r.rain === (SHARE?.rain ?? store.get('rain', 0))));
+const stunts = WORLD === 'track' ? new StuntPark(THREE, TRACK, M, { heightPatch, sign, toast, S, W }) : null;
+const glassfx = WORLD === 'track' ? new GlassFX(THREE, scene, { mobile: MOBILE }) : null;
+const crashStructure = () => new Float64Array(M.HEAPF64.buffer, M._ord_crash_structure(), 7).slice();
+function launch(x, y, yaw, v, lat = 0) {
+  M._ord_launch(x, y, yaw, v, lat);
+  resetSkidTrail?.(); resetWalls(); crumple.restore(); crumpleLog.length = 0;
+  rewind.clear(); camInit = true;
+}
+const moose = WORLD === 'track' ? new MooseTest(THREE, TRACK, {
+  M, S, W, store, toast, carName: () => $('car').selectedOptions[0]?.textContent.split(' · ')[0] || 'car',
+  maxSteer: () => (settings.lock ? 0.9 : MAXSTEER[settings.car] || 0.55), launch: (x, y, yaw, v) => launch(x, y, yaw, v), x0: MOOSE.x0, y0: MOOSE.y,
+}) : null;
+const lab = WORLD === 'track' ? new CrashLab({
+  M, S, W, occState: (seat) => occState(seat), launch, structure: crashStructure, toast,
+  lane: { y: CRASH.y, bx: CRASH.bx, px: CRASH.px, py: CRASH.y + 16 },
+  crumpleHit: (h, kind) => { const hit = crumpleFromEvent(h, true); return hit ? { set: (a) => crumple.setAmount(hit, a) } : null; },
+}) : null;
+if (lab) lab.onAgain = (t) => runLabTest(t);
+function carGeo() {
+  const wh = geometryFromState();
+  const xf = Math.max(...wh.map((w) => w.x)), xr = Math.min(...wh.map((w) => w.x)), half = Math.max(...wh.map((w) => Math.abs(w.y)));
+  return { wheels: wh, xf, xr, half, groundZ: groundZBody, seatX: xr + 0.42 * (xf - xr) };
+}
+function runLabTest(test) {
+  if (!lab || isBike()) return;
+  lab.start(test, carGeo());
+  crashSeen[0] = occState(0)[6]; crashSeen[1] = occState(1)[6];
+}
+// A hit from the physics -> a dent: depth from the crush model, where and which way in the car's frame.
+function crumpleFromEvent(h, deferred = false) {
+  const [px, py, pz, nx, ny, speed, kind] = h;
+  if (speed < 2.5 || isBike()) return null;
+  const mode = deferred ? 'realistic' : settings.damage;   // deferred = the crash lab's replay
+  if (mode === 'off') return null;
+  const qw = S(3), qx = S(4), qy = S(5), qz = S(6);
+  const q = new THREE.Quaternion(qx, qy, qz, qw).invert();   // ISO world -> ISO body
+  const rel = new THREE.Vector3(px - S(0), py - S(1), pz - S(2)).applyQuaternion(q);
+  const n = new THREE.Vector3(nx, ny, 0).applyQuaternion(q);   // wall normal, pointing into the car
+  const st = crashStructure();
+  const zone = n.x < -0.6 ? 0 : n.x > 0.6 ? 1 : 2;             // front, rear, side
+  const omega = st[zone], limit = st[3 + zone];
+  let depth = Crumple.depth(speed, omega, limit);
+  if (kind === 2) depth *= 0.35;   // a wall that gave way took most of it
+  let radius = kind === 1 ? 0.22 : zone === 2 ? 0.8 : 1.15;
+  // cosmetic: a few centimetres that grow gently with the hit, over a smaller patch
+  if (mode === 'cosmetic') { depth = COSMETIC_CAP * (1 - Math.exp(-depth / 0.25)); radius *= 0.75; }
+  const args = { point: new THREE.Vector3(rel.x, rel.z, -rel.y), dir: new THREE.Vector3(n.x, n.z, -n.y), depth, radius };
+  const hit = crumple.addHit(args.point, args.dir, args.depth, args.radius);
+  crumpleLog.push({ frame: frameNo, ...args });
+  if (!deferred) crumple.setAmount(hit, 1);
+  return hit;
+}
+
+// ---------- Damage mode and repair ----------
+function repairBody(say) {
+  if (isBike() || labOn()) return;
+  const had = crumpleLog.length;
+  crumple.restore(); crumpleLog.length = 0;
+  if (say) toast(had ? 'Body repaired' : 'Not a scratch on it');
+}
+function applyDamageUi() {
+  document.querySelectorAll('[data-damage]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.damage === settings.damage));
+}
+function setDamage(mode) {
+  settings.damage = mode; store.set('damage', mode); applyDamageUi();
+  // redraw what is already there at the new depth (the hits are kept exactly)
+  const keep = crumpleLog.slice();
+  crumple.restore(); crumpleLog.length = 0;
+  if (mode !== 'off') for (const c of keep) { crumple.setAmount(crumple.addHit(c.point, c.dir, c.depth, c.radius), 1); crumpleLog.push(c); }
+  toast({ cosmetic: 'Cosmetic damage: dents and scuffs, the car always drives on', realistic: 'Realistic damage: full crush depth and the crash report', off: 'Damage off' }[mode]);
+}
+document.querySelectorAll('[data-damage]').forEach((b) => (b.onclick = () => { setDamage(b.dataset.damage); b.blur(); }));
+$('bRepair').onclick = (e) => { repairBody(true); e.currentTarget.blur(); };
+applyDamageUi();
+
 $('bGarage2').onclick = (e) => { garage.toggle(true); e.currentTarget.blur(); };
 function createCar() {
   setVoice();
@@ -861,6 +1061,14 @@ function createCar() {
   applySeeThrough(); applyDummies();
   crashSeen[0] = crashSeen[1] = 0;
   resetTimers();
+  const geo = carGeo();
+  overlay.reset(groundZBody);
+  moose?.build(geo.half);
+  ghostCar.build(geo);
+  ghost.runs = {}; ghost.rec = []; ghost.t = 0;
+  crumple.capture(); crumpleLog.length = 0;
+  rewind.clear();
+  if (shadow.on) startShadow(); else shadowCar.draw(null);
 }
 // R: a car on its side or roof is put back on its wheels where it lies; otherwise back to the start.
 function resetCar() {
@@ -875,7 +1083,17 @@ function resetCar() {
 }
 const tipped = { t: 0, hinted: false, contacts: 0 };
 function placeAt(z) {
-  if (isBike()) createBike(z); else M._ord_reset(z.x, z.y, z.yaw);
+  // the last run from this start becomes its ghost
+  if (!isBike() && ghost.zone && ghost.rec.length > 180) ghost.runs[ghost.zone] = ghost.rec;
+  ghost.rec = []; ghost.t = 0; ghost.idx = 0; ghost.zone = z.name || null;
+  if (isBike()) createBike(z);
+  else if (z.v) M._ord_launch(z.x, z.y, z.yaw, z.v, 0);
+  else M._ord_reset(z.x, z.y, z.yaw);
+  if (lab) { lab.mode = 'off'; lab.panel.hidden = true; }
+  moose?.stopRobot?.();
+  crumple.restore(); crumpleLog.length = 0;
+  rewind.clear();
+  if (shadow.on && !isBike()) startShadow();
   resetSkidTrail?.();
   resetWalls();
   for (const c of cones) { c.hit = false; c.mesh.position.copy(c.home); c.mesh.rotation.set(0, 0, 0); c.vel.set(0, 0, 0); }
@@ -1006,8 +1224,14 @@ addEventListener('keydown', (e) => {
   if (k === 'y') $('aEsc').click();
   if (k === 'g') $('aBox').click();
   if (k === 'u') garage.toggle();
+  if (k === 'o') $('bOverlay').click();
+  if (k === 'j') $('bShadow').click();
+  if (k === 'n') $('bGhost').click();
+  if (k === 'i') setRain((rainIdx + 1) % RAIN_LEVELS.length, true);
+  if (k === 'f') repairBody(true);
+  if (k === 'backspace') { e.preventDefault(); if (!isBike() && !lab?.active) rewindHold = true; }
 });
-addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); keys.delete(k); if (k === 'backspace') rewindHold = false; });
 addEventListener('blur', () => keys.clear());
 const touch = { steer: 0, gas: 0, brake: 0, hand: 0 };
 function bindHold(id, prop) {
@@ -1259,8 +1483,10 @@ function updateCrash(now) {
         seatHtml('Driver', r) + seatHtml('Passenger', p) +
         `<div class="seat"><small>delta-V fatality statistic (Joksch 1993): ${(100 * r[14]).toFixed(r[14] < 0.1 ? 1 : 0)}%. ${settings.belted ? 'Belted' : 'Unbelted'}, airbags ${settings.airbags ? 'on' : 'off'}.</small></div>`;
     }
-    $('crash').innerHTML = html; $('crash').classList.add('on'); crashHide = now + 12000;
     lastCrash = { dv: r[2], verdict: r[15] };
+    if (lab && lab.mode !== 'off') continue;   // the crash lab's own report has it all
+    if (settings.damage !== 'realistic' && seat !== 2) continue;   // game modes: no injury report
+    $('crash').innerHTML = html; $('crash').classList.add('on'); crashHide = now + 12000;
   }
   if (crashHide && now > crashHide) { $('crash').classList.remove('on'); crashHide = 0; }
 }
@@ -1333,7 +1559,7 @@ function gripBar(e, load, grip, locked, contact) {
   e.el.style.opacity = contact ? 1 : 0.4;
 }
 
-function updateHud(dt, inp) {
+function updateHud(dt, inp, sp = null) {
   garage.updateHud();
   const kmh = S(7) * 3.6;
   $('hSpeed').firstChild.nodeValue = Math.abs(Math.round(kmh)).toString();
@@ -1394,7 +1620,14 @@ function updateHud(dt, inp) {
     (onSkid ? `<span>Skidpad radius</span> <b>${fmt(Math.abs(v / (S(9) || 1e-6)), 1)} m</b><br>` : '') +
     (CITY ? `<span>Last impact</span> <b>${lastImpact ? fmt(lastImpact * 3.6, 0) + ' km/h' : '—'}</b><br>`
       : `<span>Slalom</span> <b>${timers.slalomLast ? fmt(timers.slalomLast.time) + ' s' : '—'}</b>${timers.slalomLast ? ` <span>${timers.slalomLast.cones} cones</span>` : ''}<br>`) +
-    `<span>Sideslip</span> <b>${fmt((S(10) * 180) / Math.PI, 1)}°</b>`;
+    `<span>Sideslip</span> <b>${fmt((S(10) * 180) / Math.PI, 1)}°</b>` +
+    (sp ? (() => {
+      // the shadow car: how far ahead along your heading, and its speed
+      const qw = S(3), qx = S(4), qy = S(5), qz = S(6);
+      const fx = 1 - 2 * (qy * qy + qz * qz), fy = 2 * (qx * qy + qw * qz);
+      const d = (sp.x - S(0)) * fx + (sp.y - S(1)) * fy;
+      return `<br><span>Shadow</span> <b style="color:#ffb347">${d >= 0 ? '+' : ''}${fmt(d, 1)} m</b> <span>${fmt(sp.v * 3.6, 0)} km/h</span>`;
+    })() : '');
 }
 
 // ---------- Two-wheeler HUD ----------
@@ -1735,8 +1968,57 @@ function tyreState() {
   return tyreSnd;
 }
 
+// ---------- Showcase controls ----------
+function setRain(i, announce) {
+  rainIdx = i; const r = RAIN_LEVELS[i];
+  weather.set(r.rain); store.set('rain', r.rain);
+  document.querySelectorAll('[data-rain]').forEach((b) => b.setAttribute('aria-pressed', +b.dataset.rain === i));
+  if (announce) toast(r.rain ? `${r.name}: wet road, slick paint and cobbles, puddles that can make a tyre hydroplane` : 'Dry');
+}
+document.querySelectorAll('[data-rain]').forEach((b) => (b.onclick = (e) => { setRain(+b.dataset.rain, true); e.currentTarget.blur(); }));
+$('bOverlay').onclick = (e) => { const on = overlay.toggle(); $('bOverlay').setAttribute('aria-pressed', on); if (on) toast('Physics overlay: friction circles, tyre forces, loads, g and the roll axis'); e.currentTarget.blur(); };
+$('bGhost').onclick = (e) => { ghost.on = !ghost.on; store.set('ghost', ghost.on); $('bGhost').setAttribute('aria-pressed', ghost.on); toast(ghost.on ? 'Ghost on: your last run from the same start drives beside you' : 'Ghost off'); e.currentTarget.blur(); };
+$('bGhost').setAttribute('aria-pressed', ghost.on);
+$('bShadow').onclick = (e) => {
+  if (isBike()) return;
+  shadow.on = !shadow.on; $('bShadow').setAttribute('aria-pressed', shadow.on);
+  if (shadow.on) { startShadow(); toast(shadow.car < 0 ? 'Shadow car: the stock version of your car, driven with your inputs' : 'Shadow car: ' + $('shadowCar').selectedOptions[0].textContent + ', driven with your inputs'); }
+  else { M._ord_shadow_stop(); shadowCar.draw(null); }
+  e.currentTarget.blur();
+};
+$('shadowCar').onchange = (e) => { shadow.car = +e.target.value; shadow.stock = true; if (shadow.on) startShadow(); e.target.blur(); };
+{
+  // the shadow car list: the stock version of this car, or any other car
+  const sel = $('shadowCar');
+  for (const o of $('car').querySelectorAll('option')) { if (+o.value >= 6 && +o.value <= 8) continue; const c = document.createElement('option'); c.value = o.value; c.textContent = o.textContent.split(' · ')[0]; sel.append(c); }
+}
+$('bShare').onclick = (e) => { shareLink(); e.currentTarget.blur(); };
+{
+  const hold = $('bRewind');
+  hold.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!isBike() && !lab?.active) rewindHold = true; hold.classList.add('on'); });
+  const up = () => { rewindHold = false; hold.classList.remove('on'); };
+  hold.addEventListener('pointerup', up); hold.addEventListener('pointercancel', up); hold.addEventListener('pointerleave', up);
+}
+if (WORLD === 'track') {
+  $('mooseSpeed').oninput = (e) => { $('mooseSpeedV').textContent = e.target.value + ' km/h'; };
+  $('bMooseRun').onclick = (e) => { if (!isBike()) moose.startRobot(+$('mooseSpeed').value, false); e.currentTarget.blur(); };
+  $('bMooseLadder').onclick = (e) => { if (!isBike()) { moose.startRobot(Math.max(40, +$('mooseSpeed').value - 12), true); toast('Speed ladder: the robot runs the lane 4 km/h faster each time until it fails'); } e.currentTarget.blur(); };
+  $('bMooseStop').onclick = (e) => { moose.stopRobot(); e.currentTarget.blur(); };
+  for (const t of LAB_TESTS) { const o = document.createElement('option'); o.value = t.id; o.textContent = t.name; $('labTest').append(o); }
+  $('bLabRun').onclick = (e) => { runLabTest(LAB_TESTS.find((t) => t.id === $('labTest').value)); e.currentTarget.blur(); };
+  $('bLoopAssist').onclick = (e) => { stunts.assist = !stunts.assist; $('bLoopAssist').setAttribute('aria-pressed', stunts.assist); toast(stunts.assist ? 'Loop assist on: it steers the small corrections that keep you on the ribbon' : 'Loop assist off: steer the loop yourself'); e.currentTarget.blur(); };
+} else for (const id of ['bMooseRun', 'bMooseLadder', 'bMooseStop', 'bLabRun', 'bLoopAssist', 'labTest', 'mooseSpeed']) $(id).disabled = true;
+window.__spwShow = () => ({ overlay: overlay.on, rain: weather.rain, puddles: weather.puddles.count, ghost: ghost.on, ghostRuns: Object.keys(ghost.runs), shadow: shadow.on, rewindFrames: rewind.frames.length, dents: crumpleLog.length,
+  lab: lab?.mode, moose: moose ? { run: moose.run, robot: moose.robot, last: moose.last, results: moose.results } : null, glassViews: glassfx?.views.length ?? 0, glassJobs: glassfx ? [...glassfx.jobs.values()].map((j) => ({ seg: j.seg, ready: !!j.result, error: j.error, started: j.started, ms: j.result?.ms, pieces: j.result?.shapes.length })) : [] });
+window.__spwDamage = (m) => { if (m) setDamage(m); let mx = 0; for (const mm of crumple.meshes) for (let i = 0; i < mm.offset.length; i += 3) mx = Math.max(mx, Math.hypot(mm.offset[i], mm.offset[i + 1], mm.offset[i + 2])); return { mode: settings.damage, dents: crumpleLog.length, rawMax: mx, cap: crumple.cap(), card: $('crash').classList.contains('on') }; };
+window.__spwRewind = () => ({ hold: rewindHold, active: rewind.active, cursor: rewind.cursor, frames: rewind.frames.length, snaps: M._ord_snap_count() });
+window.__spwLab = (id) => runLabTest(LAB_TESTS.find((t) => t.id === id));
+window.__spwZone = (name) => { const z = ZONES.find((q) => q.name.startsWith(name)); if (z) placeAt(z); return !!z; };
+
 // ---------- Main loop ----------
 createCar();
+setRain(rainIdx, false);
+if (SHARE?.zone) { const z = ZONES.find((q) => q.name === SHARE.zone); if (z) placeAt(z); }
 const MODEL_URL = MOBILE ? 'models/car_mobile.glb' : 'models/car.glb';
 const savedModel = await fetch(MODEL_URL, { method: 'HEAD' }).then((r) => (r.ok ? true : false)).catch(() => false);
 if (savedModel) {
@@ -1799,56 +2081,201 @@ function frameBike(dt, now) {
   const z = zoneAt(B(23), B(24));
   if (z !== currentZone) { currentZone = z; $('zone').textContent = z; $('zone').classList.toggle('on', !!z); }
 }
-function frame(now) {
-  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+// ---------- Pose: read from the physics, or from a recording (rewind, ghost, crash-lab replay) ----------
+let frameNo = 0;
+function poseNow() {
+  return { id: frameNo, x: S(0), y: S(1), z: S(2), qw: S(3), qx: S(4), qy: S(5), qz: S(6),
+    wz: [W(0, 2), W(1, 2), W(2, 2), W(3, 2)], steer: [W(0, 4), W(1, 4), W(2, 4), W(3, 4)], omega: [W(0, 5), W(1, 5), W(2, 5), W(3, 5)] };
+}
+function drawPose(p, dt) {
+  qIso.set(p.qx, p.qz, -p.qy, p.qw);
+  carRoot.quaternion.copy(qIso);
+  carRoot.position.copy(v3(p.x, p.y, p.z));
+  const rigs = model?.hasWheels ? model.rigs : model ? null : wheelRigs;
+  for (let w = 0; w < 4; ++w) {
+    spinAngle[w] = (spinAngle[w] + p.omega[w] * dt) % (Math.PI * 2);
+    const r = rigs?.[w];
+    if (!r) continue;
+    r.steer.position.copy(r.base); r.steer.position.y += p.wz[w] - restWheelZ[w];
+    r.steer.rotation.y = p.steer[w];
+    r.spin.rotation.z = -spinAngle[w];
+  }
+}
+// Shadow car: the same inputs, another setup or model, from where you are now.
+function startShadow() {
+  if (isBike()) return;
+  const idx = shadow.car < 0 ? -1 : engineCar(shadow.car);
+  if (!M._ord_shadow_start(idx, shadow.stock ? 1 : 0)) { toast('That car cannot run as a shadow'); shadow.on = false; return; }
+  const p = M._ord_shadow_state() / 8, wh = [];
+  for (let w = 0; w < M.HEAPF64[p + 22]; ++w) { const o = p + HEADER + PER_WHEEL * w; wh.push({ x: M.HEAPF64[o], y: M.HEAPF64[o + 1], z: M.HEAPF64[o + 2], r: M.HEAPF64[o + 3] }); }
+  const xs = wh.map((w) => w.x);
+  shadowCar.build({ wheels: wh, xf: Math.max(...xs), xr: Math.min(...xs), half: Math.max(...wh.map((w) => Math.abs(w.y))), groundZ: Math.min(...wh.map((w) => w.z - w.r)) });
+}
+function shadowPose() {
+  const p = M._ord_shadow_state() / 8, H = M.HEAPF64;
+  if (!H[p + 3] && !H[p + 4] && !H[p + 5] && !H[p + 6]) return null;
+  const wl = (i) => [0, 1, 2, 3].map((w) => H[p + HEADER + PER_WHEEL * w + i]);
+  return { x: H[p], y: H[p + 1], z: H[p + 2], qw: H[p + 3], qx: H[p + 4], qy: H[p + 5], qz: H[p + 6], wz: wl(2), steer: wl(4), v: H[p + 7] };
+}
+// Glass: when the car is heading for a pane fast enough to break it, have the glass engine break
+// it ahead of time (~1.6 s), where the car will hit it.
+function predictGlass() {
+  if (!glassfx || isBike()) return;
+  const v = S(7), x = S(0), y = S(1);
+  if (v < 2.5 || Math.abs(y - SMASH.y[0]) > 6) return;
+  const dist = SMASH.x - x;
+  if (dist < 0 || dist > Math.max(6, v * 1.6)) return;
+  const geo = carGeo(), mass = new Float64Array(M.HEAPF64.buffer, M._ord_vehicle_info(), 7)[3];
+  for (const [seg, w] of Object.entries(walls)) {
+    if (w.def.material !== 1 || !w.mesh.visible) continue;
+    const y0 = Math.min(w.def.ay, w.def.by), y1 = Math.max(w.def.ay, w.def.by);
+    if (y + geo.half + 0.2 < y0 || y - geo.half - 0.2 > y1) continue;
+    // where along this section (from its first end) the car's centre line meets it, at bumper height
+    glassfx.predict(+seg, w.def, (y - w.def.ay) * Math.sign(w.def.by - w.def.ay), 0.55, v, mass || 1500);
+  }
+}
+// Share: this car, its setup, the weather and where you are, as a link.
+async function shareLink() {
+  const u = new URL(location.href);
+  u.search = '';
+  u.searchParams.set('world', WORLD);
+  u.searchParams.set('car', settings.car);
+  u.searchParams.set('preset', settings.preset);
+  if (!isBike() && garage.setup) u.searchParams.set('setup', await deflateSetup(JSON.stringify(garage.setup)));
+  if (weather.rain > 0) u.searchParams.set('rain', weather.rain);
+  if (ghost.zone) u.searchParams.set('zone', ghost.zone);
+  const link = u.href;
+  try { await navigator.clipboard.writeText(link); toast('Link copied: this car, its setup, the weather and the place'); }
+  catch { prompt('Copy this link', link); }
+  return link;
+}
+window.__spwShare = shareLink;
+let rewindHold = false;
+
+function frameOnce(now, draw) {
+  const dt = TICKS > 1 ? 1 / 60 : Math.min(0.1, (now - last) / 1000); last = now;
   adaptRes(dt);
   window.__frames = (window.__frames || 0) + 1;
-  if (isBike()) { frameBike(dt, now); renderer.render(scene, camera); requestAnimationFrame(frame); return; }
-  const inp = readInput(dt, S(15), S(7));
+  if (isBike()) { frameBike(dt, now); if (draw) renderer.render(scene, camera); return; }
+  // crash lab: the live run and the slow-motion replay drive the car themselves
+  if (lab?.active) {
+    const rec = lab.mode === 'run' ? lab.stepRun(dt) : lab.stepReplay(dt);
+    if (rec) {
+      drawPose(rec, lab.mode === 'replay' ? dt * 0.1 : dt);
+      if (!isBike()) for (const seat of [0, 1]) { const o = rec.occ[seat]; dummies.update(seat, o[0], o[1], o[2], o[3], o[4]); }
+    }
+    lab.camera(camera, carRoot.position);
+    {
+      const nb = M._ord_break_events();
+      if (nb) { const buf = new Float64Array(M.HEAPF64.buffer, M._ord_break_buffer(), 8 * nb); for (let k = 0; k < nb; ++k) onWallBreak(Array.from(buf.subarray(8 * k, 8 * k + 8))); }
+    }
+    destruction.update(dt); glassfx?.update(dt);
+    sun.position.copy(carRoot.position).addScaledVector(SUN_DIR, 80); sun.target.position.copy(carRoot.position);
+    if (lab.mode === 'report') updateCrash(now);
+    if (draw) renderer.render(scene, camera);
+    return;
+  }
+  // rewind: hold Backspace; the car runs backwards through its recent past, physics paused
+  if (rewindHold) {
+    const p = rewind.stepBack(2);
+    if (p) drawPose(p, -dt * 2);
+    const worldVel = new THREE.Vector3();
+    updateCamera(dt, carRoot.position, carRoot.quaternion, worldVel, 0, 0);
+    $('zone').textContent = '⟲ Rewind'; $('zone').classList.add('on'); currentZone = '⟲';
+    if (draw) renderer.render(scene, camera);
+    return;
+  }
+  if (rewind.active) {
+    const target = rewind.frames[rewind.frames.length - 1 - rewind.cursor]?.pose.id ?? frameNo;
+    rewind.resume((inp) => M._ord_set_input(inp.steer, inp.throttle, inp.brake, inp.hand, inp.shiftUp ? 1 : 0, inp.shiftDown ? 1 : 0));
+    // walls, glass and dents back to how they were at that frame
+    const n = M._ord_obstacle_count(), o = new Float64Array(M.HEAPF64.buffer, M._ord_obstacles(), 8 * n);
+    for (const [i, w] of Object.entries(walls)) w.mesh.visible = !o[8 * i + 7];
+    destruction.reset(); glassfx?.reset();
+    const keep = crumpleLog.filter((c) => c.frame <= target);
+    crumple.restore(); crumpleLog.length = 0;
+    for (const c of keep) { crumple.setAmount(crumple.addHit(c.point, c.dir, c.depth, c.radius), 1); crumpleLog.push(c); }
+    ghost.rec = ghost.rec.filter((g) => g.id <= target);
+    ghost.t = ghost.rec.length ? ghost.rec[ghost.rec.length - 1].t : 0;
+    if (shadow.on) startShadow();
+    frameNo = target;
+  }
+  let inp = readInput(dt, S(15), S(7));
+  const robot = moose?.control(dt);
+  if (robot) inp = robot;
+  if (stunts) inp.steer = stunts.assistSteer(inp.steer);
+  const snap = rewind.beforeFrame();
   M._ord_set_input(inp.steer, inp.throttle, inp.brake, inp.hand, inp.shiftUp ? 1 : 0, inp.shiftDown ? 1 : 0);
   M._ord_advance(dt);
+  ++frameNo;
+  const pose = poseNow();
+  rewind.afterFrame(snap, dt, inp, pose);
   const hit = S(31);
   if (hit > 1.2) { lastImpact = hit; try { audio.impact(Math.min(1, hit / 12)); } catch { /* audio not ready */ } }
   {
+    const nh = M._ord_hit_events();
+    if (nh) { const hb = new Float64Array(M.HEAPF64.buffer, M._ord_hit_buffer(), 7 * nh).slice(); for (let k = 0; k < nh; ++k) crumpleFromEvent(Array.from(hb.subarray(7 * k, 7 * k + 7))); }
+    predictGlass();
     const nb = M._ord_break_events();
     if (nb) { const buf = new Float64Array(M.HEAPF64.buffer, M._ord_break_buffer(), 8 * nb); for (let k = 0; k < nb; ++k) onWallBreak(Array.from(buf.subarray(8 * k, 8 * k + 8))); }
     destruction.update(dt);
+    glassfx?.update(dt);
   }
   if (S(23)) { toast('The simulation faulted (non-finite state). Resetting.'); placeAt(ZONES[0]); }
   // the body landing on the ground (rollover): a thump as hull points first touch
   if (tipped.contacts === 0 && S(37) > 0 && S(38) > 15000) { try { audio.impact(Math.min(1, S(38) / 120000)); } catch { /* audio not ready */ } }
   tipped.contacts = S(37);
   tipped.t = S(36) < 0.5 && Math.hypot(S(7), S(8)) < 2 ? tipped.t + dt : 0;
-  if (tipped.t > 1.5 && !tipped.hinted) { toast(S(36) < -0.5 ? 'On its roof. Press R to put it back on its wheels' : 'On its side. Press R to put it back on its wheels'); tipped.hinted = true; }
+  if (tipped.t > 1.5 && settings.damage === 'cosmetic' && !isBike() && !labOn() && !rewindHold) { resetCar(); toast('Back on your wheels'); }
+  else if (tipped.t > 1.5 && !tipped.hinted) { toast(S(36) < -0.5 ? 'On its roof. Press R to put it back on its wheels' : 'On its side. Press R to put it back on its wheels'); tipped.hinted = true; }
   if (S(36) > 0.9) tipped.hinted = false;
-  // car pose: ISO quaternion (w,x,y,z) -> three (w, x, z, -y)
-  qIso.set(S(4), S(6), -S(5), S(3));
-  carRoot.quaternion.copy(qIso);
-  carRoot.position.copy(v3(S(0), S(1), S(2)));
-  const rigs = model?.hasWheels ? model.rigs : model ? null : wheelRigs;
-  for (let w = 0; w < 4; ++w) {
-    spinAngle[w] = (spinAngle[w] + W(w, 5) * dt) % (Math.PI * 2);
-    const r = rigs?.[w];
-    if (!r) continue;
-    r.steer.position.copy(r.base); r.steer.position.y += W(w, 2) - restWheelZ[w];
-    r.steer.rotation.y = W(w, 4);
-    r.spin.rotation.z = -spinAngle[w];
-  }
+  drawPose(pose, dt);
+  // ghost: this run is recorded; the last run from the same start plays beside it
+  ghost.t += dt;
+  ghost.rec.push({ ...pose, t: ghost.t });
+  if (ghost.rec.length > 60 * 120) ghost.rec.shift();
+  const gRun = ghost.on && ghost.zone ? ghost.runs[ghost.zone] : null;
+  if (gRun) {
+    if (ghost.idx >= gRun.length || (ghost.idx > 0 && gRun[ghost.idx - 1].t > ghost.t)) ghost.idx = 0;
+    while (ghost.idx < gRun.length - 1 && gRun[ghost.idx].t < ghost.t) ++ghost.idx;
+    ghostCar.draw(ghost.t <= gRun[gRun.length - 1].t ? gRun[ghost.idx] : null);
+  } else ghostCar.draw(null);
+  const sp = shadow.on ? shadowPose() : null;
+  shadowCar.draw(sp);
   const worldVel = new THREE.Vector3(S(7), 0, -S(8)).applyQuaternion(carRoot.quaternion);
-  updateCamera(dt, carRoot.position, carRoot.quaternion, worldVel);
+  // after a crash-lab test the camera stays on the wreck until you drive
+  if (lab?.mode === 'report' && !(inp.throttle > 0.05 || inp.brake > 0.05 || Math.abs(inp.steer) > 0.05)) lab.camera(camera, carRoot.position);
+  else updateCamera(dt, carRoot.position, carRoot.quaternion, worldVel);
   sun.position.copy(carRoot.position).addScaledVector(SUN_DIR, 80); sun.target.position.copy(carRoot.position);
   updateCones(dt, { x: S(0), y: S(1) }, { x: worldVel.x, y: -worldVel.z });
-  updateHud(dt, inp);
+  updateHud(dt, inp, sp);
   updateCrash(now);
   updateLights(S(15) === -1 ? 0 : inp.brake);
   updateSkids();
   updateDrift(dt);
   updateSmoke(dt, worldVel);
-  try { audio.update({ dt, rpm: S(14), load: S(17), limiter: LIMITER[settings.car], gear: S(15), speed: S(7), tyre: tyreState(), interior: settings.cam === 2 }); } catch (e) { console.warn('audio update', e); }
+  overlay.update(dt);
+  moose?.update(dt);
+  stunts?.update(dt);
+  if (weather.rain > 0) {
+    const wheels = [];
+    const back = new THREE.Vector3(-1, 0, 0).applyQuaternion(carRoot.quaternion);
+    for (let w = 0; w < 4; ++w) {
+      const pw = v3(W(w, 0), W(w, 1), W(w, 2) - W(w, 3)).applyQuaternion(carRoot.quaternion).add(carRoot.position);
+      wheels.push({ x: pw.x, y: pw.y, z: pw.z, contact: W(w, 11) > 0, back });
+    }
+    weather.update(dt, camera.position, carRoot.position, Math.abs(S(7)), wheels, (k) => { try { audio.splash(k); } catch { /* audio not ready */ } });
+  }
+  try { audio.update({ dt, rpm: S(14), load: S(17), limiter: LIMITER[settings.car], gear: S(15), speed: S(7), tyre: tyreState(), interior: settings.cam === 2, rain: weather.rain, wet: weather.rain }); } catch (e) { console.warn('audio update', e); }
   recordRow();
   const z = zoneAt(S(0), S(1));
   if (z !== currentZone) { currentZone = z; $('zone').textContent = z; $('zone').classList.toggle('on', !!z); }
-  renderer.render(scene, camera);
+  if (draw) renderer.render(scene, camera);
+}
+// ?ticks=N (tests on slow software renderers): N fixed 1/60 s frames of logic per drawn frame.
+const TICKS = Math.max(1, Math.min(30, +new URLSearchParams(location.search).get('ticks') || 1));
+function frame(now) {
+  for (let k = 0; k < TICKS; ++k) frameOnce(now, k === TICKS - 1);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
