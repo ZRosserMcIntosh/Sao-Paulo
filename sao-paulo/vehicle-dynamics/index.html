@@ -92,7 +92,7 @@ footer{border-top:1px solid var(--line);padding-block:30px 50px;color:var(--mute
   <div class="eyebrow">OpenRoad Dynamics · technical reference</div>
   <h1>Motor Vehicle Dynamics</h1>
   <p class="subtitle">The mathematics of an open-source vehicle physics engine: every model, equation, constant and assumption as it is implemented, and how each one is checked.</p>
-  <p class="meta">Engine: OpenRoad Dynamics, C++20, MIT licence · Source: <a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">github.com/ZRosserMcIntosh/Vehicle-Dynamics</a> · Revision of 22 October 2026 (157 automated tests)</p>
+  <p class="meta">Engine: OpenRoad Dynamics, C++20, MIT licence · Source: <a href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener">github.com/ZRosserMcIntosh/Vehicle-Dynamics</a> · Revision of 25 October 2026 (171 automated tests)</p>
   <div class="ctas">
     <a class="btn gh" href="https://github.com/ZRosserMcIntosh/Vehicle-Dynamics" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Source on GitHub</a>
     <a class="btn drive" href="../driving/">▶ Drive it in the browser</a>
@@ -122,6 +122,8 @@ footer{border-top:1px solid var(--line);padding-block:30px 50px;color:var(--mute
     <li><a href="#s16">16 · Validation</a></li>
     <li><a href="#s17">17 · Limitations</a></li>
     <li><a href="#s18">18 · Showcases on the proving ground</a></li>
+    <li><a href="#s19">19 · Damage: crash structure and parts</a></li>
+    <li><a href="#s20">20 · Wind tunnel, airflow, telemetry and replay</a></li>
     <li><a href="#refs">References</a></li>
   </ol>
 </nav>
@@ -1018,7 +1020,7 @@ $$P_{\text{life-threatening}}=1-(1-P_h)(1-P_c),\qquad P_{\text{fatal}}^{\text{Jo
 <li><b>Explicit couplings.</b> The body acceleration seen by the wheels lags one step. The anti-roll bar partner, limited-slip capacity and contact geometry are lagged, and the gyroscopic term is explicit. Convergence studies show these are small at 240–360 Hz, but they bound the usable step.</li>
 <li><b>Driver aids are game controllers</b> reading ground truth, with hand-set gains, not models of production ECUs.</li>
 <li><b>Aero</b> acts through ride-height factors only. There is no pitch or yaw sensitivity, wake or slipstream.</li>
-<li><b>Damage.</b> Rollover and crashes treat the body as rigid, and crash survivability is an estimate. The browser demo draws dents from the crush model (§18.4), shallow by default; nothing breaks off and no part's function changes.</li>
+<li><b>Damage.</b> With damage on, the body is a coarse node/beam structure (§19): about 110 nodes and one-dimensional beams, no panels, welds or material models, a rigid passenger cell, and no car-to-car contact. Parts break by simple rules read from it. Off (the default), rollover and crashes treat the body as rigid; crash survivability is an estimate either way.</li>
 </ol>
 </section>
 
@@ -1042,9 +1044,62 @@ $$P_{\text{life-threatening}}=1-(1-P_h)(1-P_c),\qquad P_{\text{fatal}}^{\text{Jo
 <p>Tests put the car on a sled (full-width rigid barrier at 50, 56, 64 and 80 km/h; a pole at 32 km/h and 75°), record every 1/360 s step, and replay the impact at a tenth of real speed with the crush growing as the half-sine pulse's displacement \(d(t)=\tfrac12 d_{\max}(1-\cos\omega t)\), \(d_{\max}=0.85\min(\Delta v/\omega,\ \text{crush limit})\). The dent is drawn on the mesh: vertices behind the impact surface within the crush zone \(z=\max(0.35,2.2d)\) move in by</p>
 <div class="eq">$$\Delta=d_{\max}\,e^{-r^2/R^2}\Big(1-\frac{s}{z}\Big)\quad(R=1.15\ \text{m wall},\ 0.8\ \text{side},\ 0.22\ \text{pole}),$$</div>
 <p>plus buckling folds. It is a drawing of the crush model, not a soft-body simulation.</p>
-<p>That depth is the <b>Realistic</b> damage setting. The default, <b>Cosmetic</b>, is the game setting: a dent is \(d_c=0.08\,(1-e^{-d_{\max}/0.25})\) m over three quarters of the patch, the drawn displacement of any point is capped smoothly at \(0.08\tanh(|\Delta|/0.08)\) m so stacked hits flatten instead of folding the body in, there is no injury report, and a car left on its side or roof is set back on its wheels. The stored offsets stay exact, so switching modes redraws the same hits at the other depth. In every mode the car drives the same afterwards (no mechanical damage), and the crash lab is always Realistic.</p>
+<p>That depth was the first <b>Realistic</b> setting; Realistic is now the crash structure of §19, and the crash lab runs on it (its pulse is then measured, not assumed). The default, <b>Cosmetic</b>, is the game setting: a dent is \(d_c=0.08\,(1-e^{-d_{\max}/0.25})\) m over three quarters of the patch, the drawn displacement of any point is capped smoothly at \(0.08\tanh(|\Delta|/0.08)\) m so stacked hits flatten instead of folding the body in, there is no injury report, and a car left on its side or roof is set back on its wheels. The stored offsets stay exact, so switching modes redraws the same hits at the other depth. In Cosmetic the car drives the same afterwards.</p>
 <h3>18.5 Glass</h3>
 <p>Whether a storefront pane gives way is decided here (its fracture energy against the hit, §3); how it breaks is the Glass Dynamics engine's: the same engine and glazing library as the Glass Lab, run in a worker as the car approaches, firing a 1.5 t blunt impactor at the bumper's height and speed.</p>
+</section>
+
+<section class="ch" id="s19">
+<h2><span class="n">19</span>Damage: crash structure and parts</h2>
+<p class="src">src/core/include/ord/damage.hpp, src/core/src/damage.cpp, the hooks in vehicle.cpp; tests/test_damage.cpp; docs/architecture/damage.md</p>
+<p>Off by default: without it the car is exactly the rigid body of the chapters above (the golden benchmarks do not move). With it on and nothing near, driving is bit-identical and makes no extra ground queries.</p>
+<h3>19.1 The structure</h3>
+<p>The body becomes a lattice built from the same box as the rollover hull (§12) and the crash structure's crush depths (§14): stations along the car (three cells in each crush zone, which reaches 0.3 m behind the front axle and 0.25 m ahead of the rear one; ~0.6 m cells along the cabin), four columns across (the outer skin and the cabin wall, the side crush depth inside it), floor and belt levels, and roof nodes over the greenhouse: about 110 nodes and 380 beams. The passenger cell is the rigid body itself (its nodes are anchored to it); the zones, doors, sills and roof are free nodes sharing 5% of the mass.</p>
+<p>A beam of rest length \(\ell\) carries an elastic force until its yield force, then deforms plastically with linear hardening:</p>
+<div class="eq">$$F=\frac{l-\ell}{\alpha},\qquad |F|\le F_y+H\,p\ \ \Rightarrow\ \ \text{else}\ \ \ell\leftarrow l-\operatorname{sgn}(F)\,\alpha\,(F_y+Hp),\quad p\mathrel{+}=|\Delta\ell|,$$</div>
+<p>with \(\alpha\) its compliance (1% strain at full strength) and \(p\) its accumulated plastic deformation. Crushed to 15% of its length it is solid; stretched to 145% it tears. Strengths come from the crash structure: a zone of crush depth \(d\) and natural frequency \(\omega\) acts like a spring \(k=m\omega^2\) whose force reaches \(k\,d\) at full crush. Its eight rails take half of that, each yielding at 15% of its share and hardening linearly to it. The diagonals, cross members and verticals carry the rest as the zone folds. The roof's pillars yield at three times the car's weight in total, the FMVSS 216 requirement.</p>
+<h3>19.2 The solve</h3>
+<p>XPBD (extended position-based dynamics) solves the beams and contacts, and the rigid body takes part. At an anchored point \(r\) from the centre of mass, along \(n\), the body's generalised inverse mass is</p>
+<div class="eq">$$w=\frac{1}{m}+(r\times n)^{\!\top} I^{-1}(r\times n),\qquad \Delta\lambda=\frac{-C-\tilde\alpha\lambda-\gamma\,\nabla C\cdot(x-x_0)}{(1+\gamma)\sum w+\tilde\alpha},\quad \tilde\alpha=\frac{\alpha}{h^2},\ \gamma=\frac{\tilde\alpha\beta}{h}$$</div>
+<p>(Macklin, Müller and Chentanez 2016; Müller et al. 2020). The damping time \(\beta\) gives each beam ~30% of critical damping for an eighth of the car's mass, so a car resting on its structure does not rock. Each vehicle step, after the chassis is integrated, the body restarts from its start-of-step pose, with its own forces (tyres, aero, gravity) applied a share per substep. Then come 16 substeps of 2 iterations each; substeps, not iterations, converge a stiff structure (Macklin et al. 2019). The beam force for plasticity is its multiplier \(-\lambda/h^2\), not its leftover strain, which a finite solve overstates (the first attempt sprang back 11 m/s from a 56 km/h crash for that reason). Gauss-Seidel in a fixed order leaned a symmetric crash to one side, so beams and contacts are stored in mirror pairs and the sweeps alternate direction.</p>
+<p>A cell node that reaches an obstacle means its zone is used up. Past the crush limit the structure stiffens: that contact gets the compliance of a zone at \(2.5\omega\), unloading 20 times stiffer than it loads (crushed metal does not push back). How far it goes in is the intrusion. The structure sleeps unless the host reports an obstacle near, the car is tilted or airborne, or a wheel is gone. Its nodes are then the car's collision hull, against the ground too.</p>
+<p>Into a full-width rigid wall, coasting (reference saloon, 1,800 kg, \(\omega=32\) rad/s):</p>
+<div class="tbl"><table><tr><th>Speed</th><th class="n">Crush</th><th class="n">Peak</th><th class="n">Pulse</th><th class="n">Energy into the structure</th></tr>
+<tr><td>15 km/h</td><td class="n">0.08 m</td><td class="n">11 g</td><td class="n">58 ms</td><td class="n">~100%</td></tr>
+<tr><td>30 km/h</td><td class="n">0.22 m</td><td class="n">16 g</td><td class="n">75 ms</td><td class="n">~100%</td></tr>
+<tr><td>56 km/h</td><td class="n">0.51 m</td><td class="n">27 g</td><td class="n">92 ms</td><td class="n">100%</td></tr>
+<tr><td>80 km/h</td><td class="n">0.91 m</td><td class="n">39 g</td><td class="n">119 ms</td><td class="n">89%</td></tr></table></div>
+<p>The linear-spring estimate at 56 km/h is \(\Delta v/\omega=0.49\) m over \(\pi/\omega=98\) ms. Rebound stays under 2 m/s. A 254 mm pole at 32 km/h pushes the door in 0.35 m with 5 cm of intrusion. Upside down from 0.3–2 m, the roof crushes 0.16–0.27 m and the car comes to rest carrying exactly its weight. The dummies (§14) then ride the structure's own pulse, the step's real acceleration, instead of a synthesised half sine.</p>
+<h3>19.3 Parts</h3>
+<p>Read from the deformed lattice whenever it changes: a Gaussian-weighted average of node displacements around a point, with \(\sigma=0.35\) m and the cell's nodes counting as zero. The loads come from the step.</p>
+<ul>
+<li><b>Suspension.</b> The mount moves with the lattice. Toe is the difference 0.3 m ahead and behind, \(\arctan\frac{\Delta y_f-\Delta y_r}{0.6}\), and camber the difference top to bottom. Past 0.35 m of mount travel, or 30 times its static load, the wheel comes off. At 15–30 times its static load the arm bends toe-out.</li>
+<li><b>Tyres.</b> More than 85 mm of deflection at speed pinches the tyre on the rim, and more than 60 kN on an obstacle at the wheel cuts it. Over 4 s the radius falls 18%, the vertical stiffness 85% and the grip 45%, and rolling resistance rises elevenfold.</li>
+<li><b>Steering.</b> The rack at the front axle moved sideways steers off-centre; pushed back, it loses lock.</li>
+<li><b>Cooling and engine.</b> Crush 12 cm behind the bumper destroys the radiator, and the coolant runs out in 45 s. The engine then heats with load, from the thermostat's 90 °C. It loses power from 115 °C, down to half at 130 °C, and seizes past 135 °C. A crushed engine bay costs up to 70% of the torque.</li>
+<li><b>Aero.</b> Crumpled panels add up to 75% drag, and a crushed tail stops the rear wing working.</li>
+</ul>
+<p>Measured: a 35 km/h offset hit bends that corner, and the car no longer drives straight (18° of heading in 4 s, hands off). With a destroyed radiator at full throttle, power falls after ~30 s and the engine seizes after ~40 s. A 20 cm kerb at 70 km/h pinch-flats the left tyres, and the car pulls left. A 90 km/h offset hit tears the front wheel off, and the car still drives on three. Repair restores everything, and the next crash matches a new car's.</p>
+</section>
+
+<section class="ch" id="s20">
+<h2><span class="n">20</span>Wind tunnel, airflow, telemetry and replay</h2>
+<p class="src">web/ord_web.cpp (ord_telemetry, ord_aero_info, ord_tunnel), Vehicle::shiftPosition; the page's carflow_field.js, carflow.js, tunnel.js, telemetry.js, replay.js</p>
+<h3>20.1 The rolling road</h3>
+<p>The wind tunnel is a rolling road: each step, after the physics, the car is moved back to where the tunnel started (with its crash structure, §19) and its forward speed is restrained to the tunnel speed. Everything else is the full model of the chapters above: the tyres turn on the road, the suspension carries the downforce, and the aero model (§10) gives the forces with its ride height, floor stall and the wing's polar. A cross wind of \(V\tan\psi\) across the car sets the yaw \(\psi\). The panel shows the physics' own numbers: downforce front and rear and its balance, \(C_LA\) and \(C_DA\) from \(q=\tfrac12\rho V^2\), drag power and \(L/D\). A held car does exactly what a free one does on ground that is the same all along the road, scraping a wall included (a test checks it).</p>
+<h3>20.2 The airflow view</h3>
+<p>The streamlines and the smoke are drawn through a potential flow built from those forces, not computed by CFD. It is a picture consistent with the forces, not a prediction of them:</p>
+<ul>
+<li><b>Body.</b> Three sources across the nose and three sinks across the tail, with strength \(Q=VA\) for 82% of the car's frontal box, set back so the half-body's nose lands on the bumper. The air slows ahead of the nose (to ~0.6V) and speeds up over the roof and under the floor.</li>
+<li><b>Downforce.</b> Horseshoe vortices at the front and rear axle under the floor, and at the wing, each with circulation from Kutta–Joukowski, \(\Gamma=D/(\rho V b)\), with trailing legs 40 m long, drawn with Biot–Savart and a smoothed core. The upwash behind the wing and the tip vortices follow from them.</li>
+<li><b>Ground.</b> Every source and vortex has its mirror image below the road, so no air crosses it.</li>
+<li><b>Wake.</b> A Gaussian velocity deficit behind the tail, widening downstream (\(\sigma=0.42\,w/2+0.09s\)). Its amplitude makes its momentum deficit equal the drag: \(\rho V\!\int\!\Delta u\,dA=D\). It sways at a Strouhal number of 0.2.</li>
+</ul>
+<p>Checked numerically: the momentum flux of the wake matches \(D/(\rho V)\) to 2%, and the vertical velocity at the road is zero.</p>
+<h3>20.3 Telemetry and slow motion</h3>
+<p>Every frame records an 80-number telemetry snapshot with the car's pose: per wheel, the load, slip ratio and angle, tyre forces and grip used, suspension compression and damper speed, tyre temperature and camber; for the body, the g-forces, yaw rate and sideslip, roll and pitch, downforce front, rear and from the wing, drag, floor clearance, the driver's inputs, and engine rpm, gear and torque. The panel's pages (suspension, tyres, aero, g-forces, drivetrain) draw them with a g-g diagram and 5-second traces. Slow motion (1 down to 1/20) slows the simulation clock itself, so the physics, the airflow and the smoke run slower while the camera and sound stay real time.</p>
+<h3>20.4 Replay</h3>
+<p>The replay plays back the rewind recorder's last ~25 s at a chosen speed, blending between recorded frames (positions linearly, orientations by normalised quaternion interpolation) so that 1/20 speed stays smooth, with the telemetry following along. <b>Drive from here</b> restores the simulation to that frame exactly (the step is deterministic) and hands the car back.</p>
 </section>
 
 <section class="ch" id="refs">
@@ -1067,6 +1122,10 @@ $$P_{\text{life-threatening}}=1-(1-P_h)(1-P_c),\qquad P_{\text{fatal}}^{\text{Jo
 <li>EASA CS-25, AMC 25.1591, "Performance information for operations with contaminated runway surface conditions."</li>
 <li>ISO 3888-2:2011, "Passenger cars: test track for a severe lane-change manoeuvre, part 2: obstacle avoidance."</li>
 <li>S. Thrun et al., "Stanley: the robot that won the DARPA Grand Challenge," <i>Journal of Field Robotics</i> 23(9), 2006.</li>
+<li>M. Macklin, M. Müller, N. Chentanez, "XPBD: position-based simulation of compliant constrained dynamics," <i>Motion in Games</i>, 2016.</li>
+<li>M. Müller, M. Macklin, N. Chentanez, S. Jeschke, T.-Y. Kim, "Detailed rigid body simulation with extended position based dynamics," <i>Computer Graphics Forum</i> 39(8), 2020.</li>
+<li>M. Macklin, K. Storey, M. Lu, P. Terdiman, N. Chentanez, S. Jeschke, M. Müller, "Small steps in physics simulation," <i>SCA</i>, 2019.</li>
+<li>FMVSS 216a, "Roof crush resistance; upgraded standard," 49 CFR 571.216a.</li>
 </ol>
 </section>
 </main>
