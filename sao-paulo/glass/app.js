@@ -1721,10 +1721,18 @@ function contactTime(k) {
 }
 function autoTargetBase(imps, plies) {
   let approach = Infinity, contact = 0, membrane = false;
+  const now = G.gls_time(), since = (P.contactSince ||= []);
   for (let k = 0; k < P.nImp; ++k) {
     const o = 20 * k, phase = imps[o + 9];
-    // A contact shows over about four seconds, never faster than 1/100.
-    if (phase === PH.CONTACT || phase === PH.BALLISTIC) contact = Math.min(contact || 1, clamp(contactTime(k) / 4, 1 / 5000, 1 / 100));
+    // A contact shows over about four seconds, never faster than 1/100; one
+    // that lasts longer than that (a pane flexing under a heavy ball holds it
+    // far longer than rigid glass would) eases up as it goes on.
+    if (phase === PH.CONTACT || phase === PH.BALLISTIC) {
+      since[k] ??= now;
+      // Something lying against the glass is no impact to slow down for.
+      if (now - since[k] > 3e-3 && Math.hypot(imps[o + 3], imps[o + 4], imps[o + 5]) < 0.3) continue;
+      contact = Math.min(contact || 1, clamp(Math.max(contactTime(k), now - since[k]) / 4, 1 / 5000, 1 / 100));
+    } else since[k] = null;
     if (phase === PH.MEMBRANE) membrane = true;
     if (phase === PH.FLIGHT) {
       const side = imps[o + 16], vz = imps[o + 5];
@@ -1737,9 +1745,17 @@ function autoTargetBase(imps, plies) {
       }
     }
   }
-  let tips = 0;
-  for (let k = 0; k < P.nGlass; ++k) tips += plies[12 * k + 11];
-  if (tips > 0) return 1 / 5000;
+  let tips = 0, crack = 0;
+  for (let k = 0; k < P.nGlass; ++k) { tips += plies[12 * k + 11]; crack += plies[12 * k + 2] * plies[12 * k + 3]; }
+  // Running cracks (hundreds of m/s) need 1/5000; cracks creeping on under a
+  // slow push (a ball sinking into a laminate) follow the contact instead.
+  const cr = P.crackRun ||= { t: now, len: crack, speed: 0 };
+  if (now < cr.t || crack < cr.len) Object.assign(cr, { t: now, len: crack, speed: 0 });
+  else if (now - cr.t > 2e-5) {
+    cr.speed = (crack - cr.len) / (now - cr.t) / Math.max(1, tips);
+    cr.t = now; cr.len = crack;
+  }
+  if (tips > 0 && (cr.speed > 50 || !contact)) return 1 / 5000;
   if (contact) return contact;
   // A note building up to break the glass: slow enough to watch it swing.
   if (TONE.on) return TONE_SLOW;
