@@ -16,7 +16,7 @@
 // Deterministic from the seed and the pane picked: Replay throws the same
 // throw again.
 
-import { mulberry32, gasPressure, paneLoad, sideOn, positivePhase, fragmentsThrough, createBlastFX } from './blast.js';
+import { mulberry32, gasPressure, paneLoad, sideOn, positivePhase, fragmentsThrough, createBlastFX, arrivalTime } from './blast.js';
 
 const ROOM = 3.0;                 // m, half the room's inside width
 const WALL_T = 0.2;               // m
@@ -423,17 +423,22 @@ export function createHouseScene(ctx) {
       const { w, h } = r.spec, N = new THREE.Vector3(0, 0, -1).applyQuaternion(r.group.quaternion);  // out of its outer face
       const centre = paneCentre(r), d = centre.clone().sub(c), R = Math.max(0.3, d.length());
       const facing = d.clone().normalize().dot(N), cosI = Math.abs(facing);
-      // From inside, each pane is pushed away from the charge (the propped door
-      // stands outside, side-on); from outside, every pane is pushed in.
-      const sign = inside && facing > 0 ? 1 : -1;
-      const L = paneLoad(Wt, R, cosI);
-      if (!inside && facing > 0) L.peak *= 0.25;      // behind the shop: diffracted round it
+      // The charge in the pane's own frame (engine x, y on the glass; z the
+      // standoff): the engine gives every point of the glass its own arrival
+      // and peak, so the glass nearest the charge goes first and hardest.
+      const L0 = r.group.worldToLocal(c.clone());
+      const cx = L0.x + w / 2, cy = L0.y - FLOOR, standoff = Math.abs(L0.z);
+      const near = Math.hypot(Math.min(Math.max(cx, 0), w) - cx, Math.min(Math.max(cy, 0), h) - cy, standoff);
+      // It pushes away from the charge; behind the shop, outside, the shock is
+      // diffracted round the building to about a quarter.
+      const side = L0.z > 0 ? 1 : -1, scale = !inside && facing > 0 ? 0.25 : 1;
       const g = inside && !(r.spec.door && doorOpen()) ? gas : 0;   // the room's gas only on its own walls
       ctx.useRig(r);
-      G.gls_blast(t + L.arrival, sign * L.peak, L.td, L.decay, g, 2e-3, gasTau);
-      r.blast = { t: t + L.arrival, peak: L.peak };
-      peakMax = Math.max(peakMax, L.peak);
-      S.effects.addJet(centre, N, t + L.arrival);
+      G.gls_blast_point(t, Wt, cx, cy, standoff, side, scale, g, 2e-3, gasTau);
+      const arrival = arrivalTime(Math.max(0.05, near), Wt), peak = scale * paneLoad(Wt, near, standoff / Math.max(near, 1e-6)).peak;
+      r.blast = { t: t + arrival, peak };
+      peakMax = Math.max(peakMax, peak);
+      S.effects.addJet(centre, N, t + arrival);
       const n = fragmentsThrough(rnd, FRAGMENTS, w * h, cosI, R, 6);
       for (let k = 0; k < n; ++k) {
         const hx = 0.04 + (w - 0.08) * rnd(), hy = 0.04 + (h - 0.08) * rnd();

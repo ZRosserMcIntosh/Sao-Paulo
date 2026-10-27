@@ -1674,8 +1674,8 @@ function detonateGrenades(tEng) {
     const dx = P.W / 2 - x, dy = P.H / 2 - y, dz = P.T / 2 - z;
     const far = Math.max(0.15, Math.hypot(dx, dy, dz)), cosI = Math.abs(dz) / far;
     const front = z < P.T / 2;                                       // in front: pushes toward the back face
-    const L = paneLoad(GRENADE_TNT, far, cosI);
-    G.gls_blast(gr.t + L.arrival, (front ? 1 : -1) * L.peak, L.td, L.decay, 0, 1e-3, 0);
+    // Every point of the glass gets its own arrival and peak (the engine's free-air TNT).
+    G.gls_blast_point(gr.t, GRENADE_TNT, x, y, front ? -z : z - P.T, front ? 1 : -1, 1, 0, 1e-3, 0);
     // The steel that reaches the glass, each splinter an engine projectile.
     const rnd = mulberry32((P.seed ^ (gr.k * 7919)) >>> 0), fi = cat.impactors.findIndex((d) => d.id === 'grenade_fragment');
     const n = fragmentsThrough(rnd, GRENADE_FRAGS, P.W * P.H, cosI, far, 10);
@@ -1692,7 +1692,9 @@ function detonateGrenades(tEng) {
     if (R) (P.blastFX ||= []).push(createBlastFX(THREE, groupPane, new THREE.Vector3(x - P.W / 2, y + FLOOR, -z), gr.t,
       { W: GRENADE_TNT, seed: P.seed + gr.k, scale: 0.8 }));
     sound.explosion(panAt(x, y));
-    $('rWhat').textContent = `${spec.label} · went off ${(far * 100).toFixed(0)} cm from the glass centre · ${(L.peak / 1000).toFixed(0)} kPa on the glass`;
+    const off = front ? -z : z - P.T, near = Math.hypot(clamp(x, 0, P.W) - x, clamp(y, 0, P.H) - y, off);
+    const peakNear = paneLoad(GRENADE_TNT, near, Math.abs(off) / Math.max(near, 1e-6)).peak;
+    $('rWhat').textContent = `${spec.label} · went off ${(near * 100).toFixed(0)} cm from the glass · ${(peakNear / 1000).toFixed(0)} kPa on the glass nearest it`;
   }
 }
 // Bullet time round a grenade: crawl through the shock and the first
