@@ -155,7 +155,11 @@ body.jet #hud .levers{display:none}
   #tBr{right:calc(92px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom))}
   #tGear{right:calc(156px + env(safe-area-inset-right));bottom:calc(68px + env(safe-area-inset-bottom))}
   #tSpd{right:calc(156px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom))}
+  #tRev{right:calc(156px + env(safe-area-inset-right));bottom:calc(120px + env(safe-area-inset-bottom))}
   .tb[hidden]{display:none}
+  .apsel{display:grid;grid-template-columns:auto 28px 1fr 28px;gap:6px 8px;align-items:center;margin-top:8px;font:600 12px var(--mono);color:var(--mute)}
+  .apsel b{text-align:center;color:var(--ink);font-weight:700}
+  .apsel button{padding:2px 0}
   #instr{bottom:auto;top:calc(60px + env(safe-area-inset-top));height:var(--instr-h,96px)}
   #instr .grip{top:auto;bottom:-7px}#instr .grip::before{border-top:0;border-bottom:3px solid var(--ink)}
   body.jet{--instr-h:min(192px,45vh)}
@@ -193,7 +197,8 @@ body.jet #hud .levers{display:none}
   #side{z-index:6;left:8px;right:8px;width:auto;top:calc(8px + env(safe-area-inset-top));max-height:calc(100% - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
 }
 #osmCredit{position:fixed;right:6px;bottom:4px;z-index:2;font:500 10px var(--body);color:rgba(255,255,255,.75);text-decoration:none;text-shadow:0 1px 2px rgba(0,0,0,.6)}
-#osmCredit:hover{color:#fff;text-decoration:underline}
+#osmCredit a{color:inherit;text-decoration:none}
+#osmCredit a:hover{color:#fff;text-decoration:underline}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -299,6 +304,9 @@ body.jet #hud .levers{display:none}
     <span><kbd>[</kbd> <kbd>]</kbd></span><span>Elevator trim nose down / up</span>
     <span><kbd>L</kbd></span><span>Auto-trim: hold straight and level, on / off</span>
     <span><kbd>U</kbd></span><span>Autoland: fly the approach to the destination and land, on / off (moving the stick takes over)</span>
+    <span><kbd>Y</kbd></span><span>Autopilot on / off: holds the heading, altitude and (jets) speed; modes and selections in Options</span>
+    <span><kbd>PgUp</kbd> <kbd>PgDn</kbd></span><span>Autopilot: selected altitude ±500 ft (Shift ±100), climbing or descending to it</span>
+    <span class="jetonly"><kbd>N</kbd></span><span class="jetonly">Reverse thrust (hold, throttles at idle, on the ground)</span>
   </div>
   <h2>Engines and configuration</h2>
   <div class="keys">
@@ -340,7 +348,21 @@ body.jet #hud .levers{display:none}
   </div>
   <div class="row" style="margin-top:8px"><button id="bLevel" aria-pressed="false" title="L">Auto-trim: hold straight and level</button></div>
   <div class="row" style="margin-top:8px"><button id="bAutoland" aria-pressed="false" title="U">Autoland: fly the approach and land</button></div>
+  <div class="row" role="group" aria-label="Autopilot" style="margin-top:8px">
+    <button id="apOn" aria-pressed="false" title="Y">AP</button>
+    <button id="apHdg" aria-pressed="false" title="Heading bug: ; and '">HDG</button>
+    <button id="apNav" aria-pressed="false" title="The GPS route">NAV</button>
+    <button id="apAlt" aria-pressed="false">ALT</button>
+    <button id="apVs" aria-pressed="false">VS</button>
+    <button id="apSpd" aria-pressed="false">SPD</button>
+  </div>
+  <div class="apsel" aria-label="Autopilot selections">
+    <span>ALT</span><button data-apsel="alt" data-step="-500" title="PgDn">−</button><b id="apAltV">—</b><button data-apsel="alt" data-step="500" title="PgUp">+</button>
+    <span>VS</span><button data-apsel="vs" data-step="-100">−</button><b id="apVsV">—</b><button data-apsel="vs" data-step="100">+</button>
+    <span>SPD</span><button data-apsel="ias" data-step="-5">−</button><b id="apIasV">—</b><button data-apsel="ias" data-step="5">+</button>
+  </div>
   <p class="note">Assists only move the controls, as a skilled pilot would: Easy levels the wings, coordinates turns, trims and guards the stall; Simulation is the raw airplane. Lift, thrust and weight are identical in all three. Auto-trim (any mode): let go of the stick and it levels the wings, stops the climb or descent, then holds that heading and altitude and trims for you; near the stall it gives up height rather than speed. It never touches the throttle.</p>
+  <p class="note">Autopilot (in the air, Y): the flight core's autopilot, flown from the instruments. Y engages it holding the present heading (HDG, on the heading bug: ; and ' turn it), altitude (ALT) and, on the jets, speed (SPD, the autothrottle). NAV follows the GPS route to the destination; VS climbs or descends at the selected rate to the selected altitude and levels off there (PgUp and PgDn move it by 500 ft; changing it starts the climb or descent). It runs the trim, banks at most 25°, and lets go on the ground; the stick or Y gives you the controls back.</p>
   <p class="note">Autoland (in the air, U): the blind-landing pilot of the flight core flies the GPS approach to the destination (the runway in use if none is picked) from the instruments alone. It joins the final where it can fly the 3° path from there, else it flies the whole procedure (the initial fix, the intermediate fix, level at the final approach fix's altitude); it lowers the gear, puts the flaps out as the speed allows, sets the altimeter to QNH, flares, lands and brakes to a stop on the centreline. Moving the stick, or U, gives you the controls back.</p>
 
   <h2>Display</h2>
@@ -394,7 +416,7 @@ body.jet #hud .levers{display:none}
   </div>
 </div>
 <div id="warn">STALL</div>
-<a id="osmCredit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Buildings © OpenStreetMap contributors, Microsoft, Google Open Buildings</a>
+<div id="osmCredit"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Buildings © OpenStreetMap contributors, Microsoft, Google Open Buildings</a> · <a href="https://www.earthdata.nasa.gov/data/instruments/srtm" target="_blank" rel="noopener">Terrain: SRTM (NASA, USGS)</a></div>
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>
   <div class="lg slow"><span class="ends"><span>Slow motion <kbd>T</kbd></span><b id="slowO">real time</b></span><input id="slowR" type="range" min="0" max="4" step="1" value="0" aria-label="Slow motion: real time, 1/10, 1/100, 1/1000 or 1/5000"><span class="sm">At 1/1000× and slower the propeller is resolved: its blades, tip vortices and the slipstream they drive.</span></div>
@@ -416,6 +438,7 @@ body.jet #hud .levers{display:none}
   <div class="tb" id="tBr">BRK</div>
   <div class="tb jetonly" id="tGear" hidden>GEAR</div>
   <div class="tb jetonly" id="tSpd" hidden>SPD</div>
+  <div class="tb jetonly" id="tRev" hidden>REV</div>
 </div>
 
 <div id="loading"><div class="panel"><div class="eyebrow">Loading flight physics</div><p id="loadMsg" style="margin:10px 0 0">Starting the WebAssembly flight core and the city map…</p></div></div>

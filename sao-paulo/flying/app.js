@@ -86,10 +86,24 @@ function loadInto(json) {
   M = markingsFrom(A.markings());
 }
 const hashFor = (p) => (p.id === 'c172' ? '#172' : `#${p.id}`);
+// The region's terrain between the airfields (the flight core's tools/terrain:
+// SRTM, a 200 m grid over 220 x 180 km), gzipped. Without it the core blends
+// the fields' elevations as before.
+async function fetchTerrain() {
+  try {
+    const r = await fetch('./terrain_sp.avt.gz');
+    if (!r.ok) return null;
+    const b = new Uint8Array(await r.arrayBuffer());
+    if (b[0] !== 0x1f || b[1] !== 0x8b) return b;  // already decoded on the way
+    return new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  } catch { return null; }
+}
 try {
-  const [mod, json] = await Promise.all([createAvdModule(), fetchDef(P)]);
+  const [mod, json, terr] = await Promise.all([createAvdModule(), fetchDef(P), fetchTerrain()]);
   A = mod;
   A.avd_set_airport(AIRPORT);  // before the first load: every reset uses it
+  // Before the ground mesh and the buildings are laid on it.
+  if (terr && A.terrain && A.terrain(terr) < 0) console.warn('terrain_sp.avt: not an AVT1 grid');
   loadInto(json);
   applyVisual(P, def);
 } catch (e) {
@@ -199,7 +213,7 @@ scene.add(skyDome);
 
 // ---------- Ground: the São Paulo World map on the core's ground ----------
 // The core's ground (avd_ground_height): each airport's field flat at its own
-// elevation, the terrain between blended. One mesh out to ~100 km on a 1 km
+// elevation, the region's real terrain between them (SRTM). One mesh out to ~100 km on a 1 km
 // grid aligned with the map, with a hole where the map is; the map itself on a
 // 500 m grid, both following the same heights.
 const enu = (e, n, u) => new THREE.Vector3(e, u, -n);
@@ -653,6 +667,7 @@ function restart(i = ui.start) {
   ui.start = i;
   smoke.reset();
   crashFx.clear();
+  if (ap.on) { ap.on = false; apUi(); }  // the core's reset lets go of it
   if (!STARTS[i]) ui.start = i = 0;
   const st = STARTS[i];
   applyWeather();
@@ -685,7 +700,7 @@ const keyMap = {
   KeyA: 'rollLeft', ArrowLeft: 'rollLeft', KeyD: 'rollRight', ArrowRight: 'rollRight',
   KeyQ: 'yawLeft', KeyE: 'yawRight', Equal: 'thrUp', NumpadAdd: 'thrUp', KeyX: 'thrUp',
   Minus: 'thrDown', NumpadSubtract: 'thrDown', KeyZ: 'thrDown', KeyB: 'brake',
-  BracketLeft: 'trimDown', BracketRight: 'trimUp',
+  BracketLeft: 'trimDown', BracketRight: 'trimUp', KeyN: 'reverse',
 };
 const flaps = (dir) => setControl('flaps.lever', controlPos('flaps.lever') + dir);
 function toggleGear() {
@@ -727,6 +742,8 @@ addEventListener('keydown', (e) => {
     case 'KeyH': togglePanel(); break;
     case 'KeyL': setLevel(!ui.level, true); break;
     case 'KeyU': setAutoland(!autoland); break;
+    case 'KeyY': setAutopilot(!ap.on); break;
+    case 'PageUp': case 'PageDown': apSelect('alt', (e.code === 'PageUp' ? 1 : -1) * (e.shiftKey ? 100 : 500)); e.preventDefault(); break;
     case 'KeyM': toggleSound(); break;
     case 'Space': togglePause(); e.preventDefault(); break;
     default:
@@ -739,7 +756,7 @@ addEventListener('keyup', (e) => {
 addEventListener('blur', () => keys.clear());
 
 // Touch: stick (pitch/roll; on the ground it also steers), throttle slider, flaps and brake.
-const touch = { x: 0, y: 0, id: null, thrId: null, brake: false };
+const touch = { x: 0, y: 0, id: null, thrId: null, brake: false, rev: false };
 {
   const stick = $('stick'), knob = stick.querySelector('i');
   const move = (e) => {
@@ -759,6 +776,10 @@ const touch = { x: 0, y: 0, id: null, thrId: null, brake: false };
   thr.addEventListener('pointerup', () => { touch.thrId = null; });
   $('tGear').addEventListener('pointerdown', () => toggleGear());
   $('tSpd').addEventListener('pointerdown', () => cycleSpeedbrake());
+  const rev = $('tRev');
+  rev.addEventListener('pointerdown', (e) => { touch.rev = true; rev.classList.add('on'); rev.setPointerCapture(e.pointerId); });
+  const revEnd = () => { touch.rev = false; rev.classList.remove('on'); };
+  rev.addEventListener('pointerup', revEnd); rev.addEventListener('pointercancel', revEnd);
   $('tFu').addEventListener('pointerdown', () => flaps(-1));
   $('tFd').addEventListener('pointerdown', () => flaps(1));
   const br = $('tBr');
@@ -877,6 +898,7 @@ function setAutoland(on, why) {
     if (r === -2) { toast('Autoland works in the air: take off first.', 3); return; }
     if (r !== 1) { toast('Autoland: no approach to fly here (pick a destination).', 3.5); return; }
     autoland = true; alStatus = A.autolandStatus();
+    if (ap.on) { ap.on = false; apUi(); }  // the autoland takes over from it
     const rt = A.route();
     toast(`Autoland: ${DEST ? `${DEST.icao} ${DEST.runway}` : ''}, ${rt.wp.slice(A.gps()[1]).map((w) => w.ident).join(' → ')}; ${Math.round(alStatus.kias)} kt on the approach. Move the stick, or U, to take over.`, 6);
   } else {
@@ -886,9 +908,87 @@ function setAutoland(on, why) {
   $('bAutoland').setAttribute('aria-pressed', String(autoland));
 }
 $('bAutoland').addEventListener('click', (e) => { setAutoland(!autoland); e.currentTarget.blur(); });
+
+// ---------- Autopilot ----------
+// The flight core's autopilot (avd_autopilot), flown from the instruments:
+// HDG on the heading bug or NAV on the GPS route; ALT, or VS to the selected
+// altitude (captured, then held); SPD, the autothrottle. Y engages it on the
+// present heading, altitude and speed; the stick (or Y) gives the controls back.
+const AP_LAT = ['', 'ROL', 'HDG', 'NAV'], AP_VERT = ['', 'PIT', 'ALT', 'VS', 'ALT*'];
+const ap = { on: false, lat: 2, vert: 2, at: false, alt: 0, vs: 0, ias: 0 };
+let apStatus = { on: false, lateral: 0, vertical: 0 };
+function apUi() {
+  $('apOn').setAttribute('aria-pressed', String(ap.on));
+  $('apHdg').setAttribute('aria-pressed', String(ap.on && ap.lat === 2));
+  $('apNav').setAttribute('aria-pressed', String(ap.on && ap.lat === 3));
+  $('apAlt').setAttribute('aria-pressed', String(ap.on && ap.vert === 2));
+  $('apVs').setAttribute('aria-pressed', String(ap.on && ap.vert === 3));
+  $('apSpd').setAttribute('aria-pressed', String(ap.on && ap.at));
+  $('apAltV').textContent = ap.on || ap.alt ? `${fmt(ap.alt)} ft` : '—';
+  $('apVsV').textContent = ap.on || ap.vs ? `${ap.vs > 0 ? '+' : ''}${fmt(ap.vs)} fpm` : '—';
+  $('apIasV').textContent = ap.on || ap.ias ? `${fmt(ap.ias)} kt` : '—';
+}
+// Hand the modes and selections to the core; false if it would not engage.
+function apApply() {
+  const r = A.autopilot({ lateral: ap.lat, vertical: ap.vert, autothrottle: ap.at, altFt: ap.alt, vsFpm: ap.vs, iasKt: ap.ias });
+  if (r === -3) { toast('NAV needs a route: pick a destination (Flight menu). HDG kept.', 3); ap.lat = 2; return apApply(); }
+  if (r === -2) { toast('The autopilot engages in the air.', 2.5); ap.on = false; apUi(); return false; }
+  ap.on = r === 1;
+  if (ap.on && autoland) { autoland = false; $('bAutoland').setAttribute('aria-pressed', 'false'); }
+  apStatus = A.autopilotStatus();
+  apUi();
+  return ap.on;
+}
+function setAutopilot(on, why) {
+  if (on && !A.autopilot) { toast('This flight core has no autopilot.'); return; }
+  if (on) {
+    if (autoland) setAutoland(false);
+    // The present heading on the bug, the present altitude and speed selected.
+    A.avd_heading_bug(Math.round(((c[K.dg] % 360) + 360) % 360));
+    Object.assign(ap, { lat: 2, vert: 2, at: P.jet, alt: Math.round(c[K.alt] / 100) * 100, vs: 0, ias: Math.round(c[K.ias]) });
+    if (apApply()) toast(`Autopilot: HDG ${String(Math.round(((c[K.dg] % 360) + 360) % 360)).padStart(3, '0')} · ALT ${fmt(ap.alt)} ft${ap.at ? ` · SPD ${ap.ias} kt` : ''}. The stick or Y gives you the controls.`, 4);
+  } else {
+    if (ap.on) toast(why || 'Autopilot off: you have the controls.', 2.5);
+    if (A.autopilot) A.autopilot({});
+    ap.on = false;
+    apUi();
+  }
+}
+// A new selected altitude (or rate) while engaged starts the climb or descent to it.
+function apSelect(what, step) {
+  if (what === 'alt') {
+    ap.alt = Math.max(0, Math.round(((ap.alt || Math.round(c[K.alt] / 100) * 100) + step) / 100) * 100);
+    if (ap.on && ap.vert !== 1) {
+      const up = ap.alt > c[K.alt];
+      if (Math.abs(ap.alt - c[K.alt]) > 50) { ap.vert = 3; ap.vs = (up ? 1 : -1) * Math.max(Math.abs(ap.vs) || 0, P.jet ? 1500 : 500); }
+    }
+  } else if (what === 'vs') {
+    ap.vs = Math.round((ap.vs + step) / 100) * 100;
+    if (ap.on && ap.vs !== 0) ap.vert = 3;
+  } else if (what === 'ias') {
+    ap.ias = Math.max(40, (ap.ias || Math.round(c[K.ias])) + step);
+    if (ap.on) ap.at = true;
+  }
+  if (ap.on) apApply(); else apUi();
+}
+$('apOn').addEventListener('click', (e) => { setAutopilot(!ap.on); e.currentTarget.blur(); });
+const apMode = (fn) => (e) => { e.currentTarget.blur(); if (!ap.on) { setAutopilot(true); if (!ap.on) return; } fn(); apApply(); };
+$('apHdg').addEventListener('click', apMode(() => { ap.lat = 2; }));
+$('apNav').addEventListener('click', apMode(() => { ap.lat = ap.lat === 3 ? 2 : 3; }));
+$('apAlt').addEventListener('click', apMode(() => { ap.vert = 2; ap.alt = Math.round(c[K.alt] / 100) * 100; }));
+$('apVs').addEventListener('click', apMode(() => { ap.vert = 3; if (!ap.vs) ap.vs = Math.round(c[K.vsi] / 100) * 100 || (ap.alt >= c[K.alt] ? 500 : -500); }));
+$('apSpd').addEventListener('click', apMode(() => { ap.at = !ap.at; if (ap.at) ap.ias = Math.round(c[K.ias]); }));
+document.querySelectorAll('[data-apsel]').forEach((b) => b.addEventListener('click', (e) => { apSelect(b.dataset.apsel, +b.dataset.step); e.currentTarget.blur(); }));
+function apText() {
+  const st = apStatus;
+  const lat = AP_LAT[st.lateral] + (st.lateral === 2 ? ` ${String(Math.round(st.bugDeg) % 360).padStart(3, '0')}` : '');
+  const vert = st.vertical === 3 ? `VS ${st.vsFpm > 0 ? '+' : ''}${fmt(st.vsFpm)} → ${fmt(st.altFt)}` : st.vertical === 4 ? `ALT* ${fmt(st.altFt)}` : st.vertical === 2 ? `ALT ${fmt(st.altFt)}` : AP_VERT[st.vertical];
+  return ['AP', lat, vert, st.autothrottle ? `SPD ${fmt(st.iasKt)}` : ''].filter(Boolean).join(' · ');
+}
 // Status after the assist mode: auto-trim state, and Q/E on the tiller.
 function assistStatus() {
   if (autoland) return `AUTOLAND · ${AL_PHASES[alStatus.phase] || ''}`;
+  if (ap.on) return apText();
   const lvl = !ui.level ? '' : s[58] ? ' · TOO SLOW' : s[55] ? ' · HOLDING LEVEL' : ' · AUTO-TRIM';
   return ASSIST[ui.assist] + lvl + (s[56] ? ' · TILLER' : '');
 }
@@ -955,7 +1055,7 @@ $('bPanel').addEventListener('click', (e) => { togglePanel(); e.currentTarget.bl
 $('sideClose').addEventListener('click', () => togglePanel(false));
 showMenu(menu, !(MOBILE || innerWidth < 900));
 // The automatic ground spoilers and thrust reversers, called out as they act.
-let revPhaseWas = 0, gndSpWas = 0;
+let revPhaseWas = 0, gndSpWas = 0, reverse = 0, revHint = false;
 function landingRollCallouts() {
   const ph = j[53] | 0, gs = j[56] | 0;
   if (gs !== gndSpWas) toast(gs ? 'Ground spoilers deployed.' : 'Ground spoilers stowed.', 2);
@@ -963,6 +1063,7 @@ function landingRollCallouts() {
     if (ph === 1) toast('Thrust reversers deploying: reverse thrust.', 2.5);
     else if (ph === 2) toast('60 knots: reverse idle.', 2);
     else if (ph === 3) toast('Thrust reversers stowing.', 2);
+    else if (ph === 4) toast('Reverse thrust: the reversers deploy, N1 follows the levers (let go of N to stow).', 3);
   }
   revPhaseWas = ph; gndSpWas = gs;
 }
@@ -1250,7 +1351,7 @@ function jetHud() {
     ['Heading', `${hdg}°`], ...windRows(), ['Above field', `${fmt(Math.max(0, s[14]))} ft`],
     ['N1 L / R', `${fmt(j[8], 1)} / ${fmt(j[16], 1)} %`], ['Fuel flow', `${fmt(j[7] * 2.20462 / 10) * 10 || 0} lb/h`],
     ['Fuel', `${fmt(j[6] * 2.20462)} lb`], ['Flaps', `${fmt(j[27])}°`], ['Gear', gear], ['Speedbrake', j[56] ? 'ground spoilers' : j[3] > 0.02 ? `${fmt(j[3] * 100)} %` : 'retracted'],
-    ...(j[57] ? [['Reversers', j[52] > 0.02 ? ['', 'reverse thrust', 'reverse idle', 'stowing'][j[53] | 0] || `${fmt(j[52] * 100)} %` : 'stowed (auto)']] : []),
+    ...(j[57] ? [['Reversers', j[52] > 0.02 ? ['', 'reverse thrust', 'reverse idle', 'stowing', 'reverse (levers)'][j[53] | 0] || `${fmt(j[52] * 100)} %` : 'stowed (auto)']] : []),
     ['Thrust levers', input.levers ? `${fmt(j[58] * 100)} / ${fmt(j[59] * 100)} %` : `${fmt(input.throttle * 100)} %`],
     ['Load', `${fmt(s[18], 2)} g`], ['Brakes', s[49] ? 'PARKING SET' : input.brake ? 'on' : 'off'],
   ];
@@ -1270,7 +1371,7 @@ function jetData() {
   return {
     ias: c[K.ias], alt: c[K.alt], baro: c[K.kollsman], vsi: c[K.vsi], pitch: c[K.aiPitch], roll: c[K.aiRoll], hdg: c[K.dg], bug: c[K.bug],
     ball: c[K.ball], stall: c[K.stall] > 0.5, mach: j[5], gs: s[12], tas: j[26], agl: Math.max(0, s[14]), vmo: j[25], mmo: j[24],
-    assist: FMA[ui.assist] + (s[58] ? ' · UNDERSPD' : s[55] ? ' · ALT HDG HOLD' : ''), n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
+    assist: ap.on ? apText() : FMA[ui.assist] + (s[58] ? ' · UNDERSPD' : s[55] ? ' · ALT HDG HOLD' : ''), n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
     run: [j[13], j[21]], starting: [j[14], j[22]], fuelSw: [j[15], j[23]], n1cmd: [22 + 78 * j[58], 22 + 78 * j[59]],
     fuelKg: j[6], gear: j[1], spd: j[3], flaps: j[27], wow: j[29], park: s[49],
     x: s[0], y: s[1], trueHdg: s[9], runway: RW, airport: AP.icao, points: LANDMARKS,
@@ -1559,9 +1660,31 @@ function frame() {
     }
     // The stick takes over from the autoland.
     if (autoland && (Math.abs(input.pitch) > 0.5 || Math.abs(input.roll) > 0.5)) setAutoland(false, 'Autoland disconnected: you have the controls.');
+    if (ap.on && (Math.abs(input.pitch) > 0.5 || Math.abs(input.roll) > 0.5)) setAutopilot(false, 'Autopilot disconnected: you have the controls.');
+    // The reverse levers (N held, or REV): up over half a second, the core
+    // deploys them at idle on the main wheels.
+    if (P.jet && A.setReverse) {
+      const want = keys.has('reverse') || touch.rev ? 1 : 0;
+      reverse += clamp(want - reverse, -dt * 2, dt * 2);
+      A.setReverse(reverse);
+      if (want && !revHint && s[28] && j[53] === 0 && reverse > 0.99) {
+        revHint = true;
+        toast(input.throttle > 0.1 ? 'Reverse thrust: close the throttles first (Z).' : 'Reverse thrust: the main wheels must be on the runway.', 2.5);
+      }
+      if (!want) revHint = false;
+    }
     A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, input.starter);
     if (input.levers) { A.setThrottle(0, input.levers[0]); A.setThrottle(1, input.levers[1]); }  // set_input rejoined them
     A.avd_advance(simDt);
+    if (ap.on) {
+      const st = A.autopilotStatus();
+      if (!st.on) setAutopilot(false, s[28] ? 'Autopilot off: on the ground.' : 'Autopilot off.');
+      else {
+        if (st.vertical === 2 && apStatus.vertical === 4) toast(`Autopilot: level at ${fmt(st.altFt)} ft.`, 2.5);
+        apStatus = st;
+        ap.vert = st.vertical === 4 ? 3 : st.vertical;
+      }
+    }
     if (autoland) {
       const st = A.autolandStatus();
       if (!st.on) { autoland = false; $('bAutoland').setAttribute('aria-pressed', 'false'); }
