@@ -93,23 +93,36 @@ function loadInto(json) {
 }
 const hashFor = (p) => (p.id === 'c172' ? '#172' : `#${p.id}`);
 // The region's terrain between the airfields (the flight core's tools/terrain:
-// SRTM, a 200 m grid over 220 x 180 km), gzipped. Without it the core blends
+// SRTM, a 200 m grid over 220 x 180 km), and the city's finer grid nested in
+// it (50 m over 50 x 62 km round MASP), gzipped. Without them the core blends
 // the fields' elevations as before.
-async function fetchTerrain() {
+async function fetchTerrain(file) {
   try {
-    const r = await fetch('./terrain_sp.avt.gz');
+    const r = await fetch(file);
     if (!r.ok) return null;
     const b = new Uint8Array(await r.arrayBuffer());
     if (b[0] !== 0x1f || b[1] !== 0x8b) return b;  // already decoded on the way
     return new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
   } catch { return null; }
 }
+// An AVT1 grid's extent (header: "AVT1", int32 nx, ny, float64 east0, north0, spacing, scale).
+function avtExtent(b) {
+  if (!b || b.length < 44 || String.fromCharCode(...b.subarray(0, 4)) !== 'AVT1') return null;
+  const v = new DataView(b.buffer, b.byteOffset, 44), nx = v.getInt32(4, true), ny = v.getInt32(8, true);
+  const e0 = v.getFloat64(12, true), n0 = v.getFloat64(20, true), step = v.getFloat64(28, true);
+  return { e0, n0, e1: e0 + (nx - 1) * step, n1: n0 + (ny - 1) * step, step };
+}
+let FINE = null;  // the city grid's extent, for the drawn ground (ground.js)
 try {
-  const [mod, json, terr] = await Promise.all([createAvdModule(), fetchDef(P), fetchTerrain()]);
+  const [mod, json, terr, city] = await Promise.all([createAvdModule(), fetchDef(P), fetchTerrain('./terrain_sp.avt.gz'), fetchTerrain('./terrain_sp_city.avt.gz')]);
   A = mod;
   A.avd_set_airport(AIRPORT);  // before the first load: every reset uses it
   // Before the ground mesh and the buildings are laid on it.
   if (terr && A.terrain && A.terrain(terr) < 0) console.warn('terrain_sp.avt: not an AVT1 grid');
+  if (city && A.terrainDetail) {
+    if (A.terrainDetail(city) < 0) console.warn('terrain_sp_city.avt: not an AVT1 grid');
+    else FINE = avtExtent(city);
+  }
   loadInto(json);
   applyVisual(P, def);
 } catch (e) {
@@ -219,9 +232,9 @@ scene.add(skyDome);
 
 // ---------- Ground: the São Paulo World map on the core's ground ----------
 // The core's ground (avd_ground_height): each airport's field flat at its own
-// elevation, the region's real terrain between them (SRTM, a 200 m grid).
-// Drawn by ground.js in chunks around the camera: at the core's own
-// resolution (and finer) near it, coarser farther out (there never below the
+// elevation, the region's real terrain between them (SRTM, a 200 m grid; over
+// the city a 50 m grid). Drawn by ground.js in chunks around the camera: at
+// the core's own resolution (and finer) near it, coarser farther out (there never below the
 // core's ground), out to ~100 km beyond the map, the map photo draped over its
 // area.
 const enu = (e, n, u) => new THREE.Vector3(e, u, -n);
@@ -249,7 +262,7 @@ function heightMesh(x0, y0, nx, ny, step, skip, mat, drop, ox = 0, oy = 0) {
   return m;
 }
 const TN = 104;  // km of terrain beyond the map on each side
-const ground = buildGround({ groundAt, bounds: [MX0 - TN * 1000, MY0 - TN * 1000, MX1 + TN * 1000, MY1 + TN * 1000], map: [MX0, MY0, MX1, MY1] });
+const ground = buildGround({ groundAt, bounds: [MX0 - TN * 1000, MY0 - TN * 1000, MX1 + TN * 1000, MY1 + TN * 1000], map: [MX0, MY0, MX1, MY1], fine: FINE });
 scene.add(ground.group);
 // Rebuilt when a destination beyond the region joins the ground: it shifts
 // the blend everywhere a little, and gets ground of its own (a 1 km patch
@@ -1938,3 +1951,5 @@ function frame() {
   if (toastT > 0 && (toastT -= dt) <= 0) toastEl.classList.remove('on');
 }
 requestAnimationFrame(frame);
+// For checks (?debug): the core, the drawn ground and the page's state.
+if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, restart, setControl };
