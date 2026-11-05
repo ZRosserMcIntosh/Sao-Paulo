@@ -447,6 +447,7 @@ const ui = {
 // Slow motion: the whole simulation (flight, airflow, smoke, propeller) runs
 // this many times slower than real time, as in the golf ball's wind tunnel.
 const SLOWS = [1, 10, 100, 1000, 5000];
+let crashHeard = false;  // the crash's sound has played: the continuous sounds are silent
 let propPhase = 0, simClock = 0, stepPos = null, stepT = 0, stepVel = new THREE.Vector3();
 // levers: the jet's two thrust levers while split ([engine 1, engine 2]);
 // null while they move together on `throttle`.
@@ -687,6 +688,7 @@ function restart(i = ui.start) {
   smoke.reset();
   crashFx.clear();
   if (ap.on) { ap.on = false; apUi(); }  // the core's reset lets go of it
+  if (autoland) { A.autoland(false); autoland = false; $('bAutoland').setAttribute('aria-pressed', 'false'); }
   if (!STARTS[i]) ui.start = i = 0;
   const st = STARTS[i];
   applyWeather();
@@ -966,6 +968,9 @@ $('bLevel').addEventListener('click', (e) => { setLevel(!ui.level, true); e.curr
 // the destination (the runway in use if none is picked), to a stop.
 const AL_PHASES = ['INTERCEPT', 'FINAL', 'FLARE', 'ROLLOUT', 'STOPPED'];
 let autoland = false, alStatus = { phase: 0 };
+// The autoland or the autothrottle letting go: the throttle stays where the
+// core left it (avd_state[24]), every lever together, and the pilot has it from there.
+function handBackThrottle() { input.throttle = clamp(A.state()[24], 0, 1); input.levers = null; }
 function setAutoland(on, why) {
   if (on && !A.autoland) { toast('This flight core has no autoland.'); return; }
   if (on) {
@@ -982,7 +987,9 @@ function setAutoland(on, why) {
     toast(`Autoland: ${DEST ? `${DEST.icao} ${DEST.runway}` : ''}, ${rt.wp.slice(A.gps()[1]).map((w) => w.ident).join(' → ')}; ${Math.round(alStatus.kias)} kt on the approach. Move the stick, or U, to take over.`, 6);
   } else {
     if (autoland) toast(why || 'Autoland off: you have the controls.', 2.5);
-    A.autoland(false); autoland = false;
+    A.autoland(false);
+    if (autoland) handBackThrottle();
+    autoland = false;
   }
   $('bAutoland').setAttribute('aria-pressed', String(autoland));
 }
@@ -1009,11 +1016,13 @@ function apUi() {
 }
 // Hand the modes and selections to the core; false if it would not engage.
 function apApply() {
+  const hadThrottle = ap.on && ap.at;
   const r = A.autopilot({ lateral: ap.lat, vertical: ap.vert, autothrottle: ap.at, altFt: ap.alt, vsFpm: ap.vs, iasKt: ap.ias });
   if (r === -3) { toast('NAV needs a route: pick a destination (Flight menu). HDG kept.', 3); ap.lat = 2; return apApply(); }
-  if (r === -2) { toast('The autopilot engages in the air.', 2.5); ap.on = false; apUi(); return false; }
+  if (r === -2) { toast('The autopilot engages in the air.', 2.5); ap.on = false; if (hadThrottle) handBackThrottle(); apUi(); return false; }
   ap.on = r === 1;
   if (ap.on && autoland) { autoland = false; $('bAutoland').setAttribute('aria-pressed', 'false'); }
+  if (hadThrottle && !(ap.on && ap.at)) handBackThrottle();  // SPD off: the autothrottle lets go
   apStatus = A.autopilotStatus();
   apUi();
   return ap.on;
@@ -1029,6 +1038,7 @@ function setAutopilot(on, why) {
   } else {
     if (ap.on) toast(why || 'Autopilot off: you have the controls.', 2.5);
     if (A.autopilot) A.autopilot({});
+    if (ap.on && ap.at) handBackThrottle();
     ap.on = false;
     apUi();
   }
@@ -1132,7 +1142,7 @@ function showMenu(name, open = true) {
   $('bPanel').setAttribute('aria-expanded', String(open));
   document.body.classList.toggle('side-open', open);
   if (open) side.scrollTop = 0;
-  requestAnimationFrame(sizePanel);
+  requestAnimationFrame(applyInstrSize);  // the room beside the menu changed
 }
 // H (and the Menu button) opens the last menu or closes it; a top-bar menu
 // button opens its menu, or closes it when it is the one showing.
@@ -1158,6 +1168,17 @@ function landingRollCallouts() {
     else if (ph === 4) toast('Reverse thrust: the reversers deploy, N1 follows the levers (let go of N to stow).', 3);
   }
   revPhaseWas = ph; gndSpWas = gs;
+}
+// Why the reverse levers do nothing on the ground (null: they do): the core
+// deploys a reverser with its engine running, every thrust lever at idle
+// (0.08 at most) and the main wheels on the ground.
+function reverseBlocked() {
+  if (j[53] === 4 || j[55] === 4) return null;
+  const lever = input.levers ? Math.max(...input.levers) : input.throttle;
+  if (!j[13] && !j[21]) return 'the engines are not running';
+  if (input.levers && lever > 0.08) return 'the thrust levers are split; close both (Z rejoins them and pulls them back)';
+  if (lever > 0.08) return `close the throttles first (Z): ${Math.round(lever * 100)} %, idle is under 8 %`;
+  return 'the main wheels must be on the runway';
 }
 function setSlow(i) {
   ui.slow = clamp(i, 0, SLOWS.length - 1);
@@ -1343,10 +1364,14 @@ function sizePanel() {
 // Kept per aircraft in this browser; the flow legend sits above it.
 // The jets' and the 172's panels, and the 172's G1000, each keep their own size.
 const sizeKey = () => 'instrSize.' + P.id + (!P.jet && ui.glass ? '.g1000' : '');
+// The width the panel may take: the window's, less the open side menu beside
+// it on a desktop (index.html: body.side-open #instr), less the margins.
+const SIDE_BESIDE = matchMedia('(min-width:900px) and (pointer:fine)');
+const instrRoom = () => innerWidth - (document.body.classList.contains('side-open') && SIDE_BESIDE.matches ? 358 : 24);
 function applyInstrSize() {
   const el = $('instr'), z = store.get(sizeKey(), null);
   if (z && z.w > 0 && z.h > 0) {
-    el.style.width = `${Math.round(Math.min(z.w, innerWidth - 24))}px`;
+    el.style.width = `${Math.round(Math.min(z.w, instrRoom()))}px`;
     document.body.style.setProperty('--instr-h', `${Math.round(Math.min(z.h, innerHeight * 0.85))}px`);
   } else { el.style.width = ''; document.body.style.removeProperty('--instr-h'); }
   sizePanel();
@@ -1360,7 +1385,7 @@ for (const g of document.querySelectorAll('#instr .grip')) {
   });
   g.addEventListener('pointermove', (e) => {
     if (!start) return;
-    const w = clamp(start.w + 2 * start.side * (e.clientX - start.x), 300, innerWidth - 24);
+    const w = clamp(start.w + 2 * start.side * (e.clientX - start.x), 300, instrRoom());
     const h = clamp(start.h + start.up * (start.y - e.clientY), 70, innerHeight * 0.85);
     $('instr').style.width = `${Math.round(w)}px`;
     document.body.style.setProperty('--instr-h', `${Math.round(h)}px`);
@@ -1420,7 +1445,7 @@ function resize() {
   sizePanel();
 }
 const lctx = $('labels').getContext('2d');
-addEventListener('resize', resize);
+addEventListener('resize', () => { resize(); applyInstrSize(); });
 resize();
 
 // ---------- HUD ----------
@@ -1837,9 +1862,9 @@ function frame() {
       const want = keys.has('reverse') || touch.rev ? 1 : 0;
       reverse += clamp(want - reverse, -dt * 2, dt * 2);
       A.setReverse(reverse);
-      if (want && !revHint && s[28] && j[53] === 0 && reverse > 0.99) {
-        revHint = true;
-        toast(input.throttle > 0.1 ? 'Reverse thrust: close the throttles first (Z).' : 'Reverse thrust: the main wheels must be on the runway.', 2.5);
+      if (want && !revHint && s[28] && reverse > 0.99) {
+        const why = reverseBlocked();
+        if (why) { revHint = true; toast(`Reverse thrust: ${why}.`, 3); }
       }
       if (!want) revHint = false;
     }
@@ -1855,9 +1880,11 @@ function frame() {
         ap.vert = st.vertical === 4 ? 3 : st.vertical;
       }
     }
+    // The autoland or the autothrottle flies the throttle: the levers on screen follow it.
+    if (autoland || (ap.on && ap.at)) { input.throttle = clamp(A.state()[24], 0, 1); input.levers = null; }
     if (autoland) {
       const st = A.autolandStatus();
-      if (!st.on) { autoland = false; $('bAutoland').setAttribute('aria-pressed', 'false'); }
+      if (!st.on) { autoland = false; handBackThrottle(); $('bAutoland').setAttribute('aria-pressed', 'false'); }
       else {
         if (st.phase !== alStatus.phase && st.phase === 4) toast('Autoland: stopped on the runway. You have the controls when you want them (U).', 4);
         alStatus = st;
@@ -1940,14 +1967,18 @@ function frame() {
     else if (ui.glass) drawG1000(pctx, r.width, r.height, g1000Data());
     else drawPanel(pctx, r.width, r.height, c, M, panelLayout);
   }
-  if (P.jet) audio.update(ui.paused || S > 1 ? [0, 0] : [j[8], j[16]], ui.paused || S > 1 ? [0, 0] : [j[9], j[17]], (j[12] + j[20]) / 150, j[26], c[K.stall] > 0.5, ui.cam === 1);
-  else audio.update(ui.paused || S > 1 ? 0 : s[19], s[20], s[11], c[K.stall] > 0.5, ui.cam === 1);
+  // After a crash, once its sound has played: the engines, the wind, the
+  // roll and the horn fall silent until the restart.
+  const hush = ui.paused || S > 1 || crashHeard;
+  if (P.jet) audio.update(hush ? [0, 0] : [j[8], j[16]], hush ? [0, 0] : [j[9], j[17]], crashHeard ? 0 : (j[12] + j[20]) / 150, crashHeard ? 0 : j[26], c[K.stall] > 0.5 && !crashHeard, ui.cam === 1);
+  else audio.update(hush ? 0 : s[19], s[20], crashHeard ? 0 : s[11], c[K.stall] > 0.5 && !crashHeard, ui.cam === 1);
   audio.extras({
     tas: s[11], gs: s[12], vs: s[15], nz: s[18], flapDeg: s[26], flapMax: P.jet ? j[50] : 30,
     gear: P.jet ? j[1] : 1, retractable: !!P.jet, spoiler: P.jet ? Math.max(j[3], j[56] ? 1 : 0) : 0,
     onGround: !!s[28], stalled: s[43], rev: P.jet ? (j[52] + j[54]) / 2 : 0, crashed: !!ui.crashed,
-    cabin: ui.cam === 1, paused: ui.paused || S > 1,
+    cabin: ui.cam === 1, paused: ui.paused || S > 1 || crashHeard,
   });
+  crashHeard = ui.crashed && audio.on;  // the update that fired the crash sound has run
   if (toastT > 0 && (toastT -= dt) <= 0) toastEl.classList.remove('on');
 }
 requestAnimationFrame(frame);
