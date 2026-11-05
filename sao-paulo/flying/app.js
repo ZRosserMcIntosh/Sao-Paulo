@@ -20,6 +20,8 @@ import { mountLoadSheet } from './loadsheet.js';
 import { buildCity } from './buildings.js';
 import { buildGround } from './ground.js';
 import { buildCrash } from './crash.js';
+import { buildIce } from './ice.js';
+import { buildRain } from './rain.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -343,12 +345,24 @@ function drawRunway(e0, n0, hdg, len, wid, elev, id1, id2, parent = scene) {
   end(false); end(true);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const rw = new THREE.Mesh(new THREE.PlaneGeometry(wid, len),
-    new THREE.MeshLambertMaterial({ map: t, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  // Phong, its highlight off while dry: wet (avd_state[63]) it darkens and shines (setRunwayWet).
+  const mat = new THREE.MeshPhongMaterial({ map: t, specular: 0x000000, shininess: 90, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  runwayMats.push(mat);
+  const rw = new THREE.Mesh(new THREE.PlaneGeometry(wid, len), mat);
   rw.rotation.set(-Math.PI / 2, 0, -hdg * DEG);
   rw.position.copy(enu(e0 + Math.sin(hdg * DEG) * len / 2, n0 + Math.cos(hdg * DEG) * len / 2, elev + 0.02));
   rw.receiveShadow = true;
   parent.add(rw);
+}
+// The runways' wetness: the rain's water film or the set runway water (mm):
+// darker asphalt and the sky's sheen; standing water (3 mm and more) more so.
+const runwayMats = [];
+let runwayWet = -1;
+function setRunwayWet(mm) {
+  const w = mm > 0.02 ? clamp(0.35 + mm / 3, 0, 1) : 0;
+  if (Math.abs(w - runwayWet) < 0.01) return;
+  runwayWet = w;
+  for (const m of runwayMats) { m.color.setScalar(1 - 0.38 * w); m.specular.setScalar(0.45 * w); m.shininess = 40 + 80 * w; }
 }
 // The runway in use (avd_runway), then every other runway of the region; the
 // fields off the map get a grass apron so they read from the air.
@@ -381,8 +395,13 @@ for (let i = 0; i < REGION_N; ++i) drawField(i, scene);
 const farFields = new THREE.Group();
 scene.add(farFields);
 function drawFarFields() {
-  farFields.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } });
+  farFields.traverse((o) => {
+    if (!o.isMesh) return;
+    o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose();
+    const k = runwayMats.indexOf(o.material); if (k >= 0) runwayMats.splice(k, 1);
+  });
   farFields.clear();
+  runwayWet = -1;  // the new runways take the wetness on the next frame
   for (let i = REGION_N; i < REGION.length; ++i) drawField(i, farFields);
 }
 buildTerrain();
@@ -413,6 +432,9 @@ function useRig(p) {
     const model = p.jet ? buildJet(def) : buildAircraft(def);
     const cab = p.jet ? buildJetCabin({ mobile: MOBILE, maxAniso, skin: model.skin || jetSkin, scale: def.visual?.nose_scale || 1 })
       : buildCabin({ mobile: MOBILE, maxAniso });
+    // The ice the core grows on the leading edges (ice.js).
+    model.ice = buildIce(def);
+    model.root.add(model.ice.root);
     const e = new THREE.Object3D();
     e.position.set(...p.eye);
     e.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0)));
@@ -430,6 +452,8 @@ const flow = buildFlow({ mobile: MOBILE });
 acGroup.add(flow.group);
 const smoke = buildSmoke({ renderer, mobile: MOBILE });
 scene.add(smoke.group);
+const rainFx = buildRain({ mobile: MOBILE });
+scene.add(rainFx.group);
 const invM = new THREE.Matrix4();
 // The flat ground (ENU height h) as a plane in the aircraft's structural
 // frame (x fwd, y right, z down): [n, d] with n . p >= d above the ground.
@@ -461,6 +485,8 @@ let propPhase = 0, simClock = 0, stepPos = null, stepT = 0, stepVel = new THREE.
 const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0, starter: 0, levers: null, prop: 1 };
 // A turboprop's indication (A.turboprop()), read each frame.
 let tp = null;
+// The weather at the aircraft and the field (A.weather()) and the ice on it (A.icing()), each frame.
+let wx = null, icing = null;
 // One engine's lever (splits them; `throttle` keeps their mean), and the lever as it stands.
 function setLever(i, v) {
   if (!input.levers) input.levers = [input.throttle, input.throttle];
@@ -667,7 +693,13 @@ restoreDestination();
 
 function applyWeather() {
   const kt = +$('wind').value, dir = +$('windDir').value, turb = +$('turb').value, temp = +$('temp').value;
-  A.avd_set_weather(kt * 0.5144, dir, turb, temp, 0.6);
+  // An icing preset sets the temperature in its layer (the ISA deviation that
+  // makes its OAT there), and humid air; else the slider's.
+  const ice = ICING[wxx.icing?.level || 0];
+  A.avd_set_weather(kt * 0.5144, dir, turb, ice ? ice.oat - (15 - 0.0065 * wxx.icing.alt) : temp, ice ? 0.9 : 0.6);
+  if (A.setRain) A.setRain(wxx.rain);
+  if (ice) A.avd_set_cloud(wxx.icing.alt - 600, wxx.icing.alt + 600, ice.lwc); else A.avd_set_cloud(0, 0, 0);
+  $('temp').disabled = !!ice;
   A.avd_set_wind_detail(+$('turbClass').value, +$('thermals').value, 1500);
   A.avd_set_runway_water(+$('rwyWater').value);
   ui.vis = +$('vis').value || 0;
@@ -676,7 +708,7 @@ function applyWeather() {
   $('windV').textContent = kt ? `${kt} kt` : 'calm';
   $('windDirV').textContent = `${String(dir).padStart(3, '0')}°`;
   $('turbV').textContent = turb ? `${turb.toFixed(1)} m/s` : 'none';
-  $('tempV').textContent = temp ? `ISA ${temp > 0 ? '+' : '−'}${Math.abs(temp)} °C` : 'ISA';
+  $('tempV').textContent = ice ? `${ice.oat} °C in cloud` : temp ? `ISA ${temp > 0 ? '+' : '−'}${Math.abs(temp)} °C` : 'ISA';
 }
 for (const id of ['wind', 'windDir', 'turb', 'temp']) $(id).addEventListener('input', applyWeather);
 // Turbulence class, thermals, hazard and runway: kept across reloads.
@@ -701,6 +733,54 @@ for (const id of ['turbClass', 'thermals', 'hazard', 'rwyWater', 'vis']) {
   });
 }
 A.avd_set_wind_hazard(+$('hazard').value);
+
+// ---------- Rain, icing, fronts ----------
+// Rain (mm/h, A.setRain): the visibility falls, the runways wet. An icing
+// preset: a supercooled stratus 1,200 m deep round the altitude it was chosen
+// at (avd_set_cloud) at -5, -7 or -10 °C there; the airframe ices
+// (A.icing()). A front (A.setFront) reaching the field in the minutes set.
+const ICING = [null, { name: 'light', lwc: 0.2, oat: -5 }, { name: 'moderate', lwc: 0.4, oat: -7 }, { name: 'severe', lwc: 0.8, oat: -10 }];
+const wxx = { rain: +store.get('wx:rain', 0) || 0, icing: store.get('wx:icing', null), front: store.get('wx:front', 'none'), eta: +store.get('wx:frontEta', 10) || 10 };
+if (!wxx.icing || !ICING[wxx.icing.level] || !Number.isFinite(wxx.icing.alt)) wxx.icing = null;
+$('rain').value = String(wxx.rain);
+$('icing').value = String(wxx.icing?.level || 0);
+$('front').value = ['none', 'cold', 'warm'].includes(wxx.front) ? wxx.front : 'none';
+$('frontEta').value = String(wxx.eta);
+function applyFront() {
+  if (!A.setFront) return;
+  A.setFront({ kind: $('front').value, etaMin: wxx.eta });
+  $('frontEtaV').textContent = `${wxx.eta} min`;
+}
+$('rain').addEventListener('change', (e) => { wxx.rain = +e.target.value; store.set('wx:rain', wxx.rain); applyWeather(); e.target.blur(); });
+$('icing').addEventListener('change', (e) => {
+  const level = +e.target.value;
+  wxx.icing = level ? { level, alt: Math.round(s[53] * 0.3048) } : null;
+  store.set('wx:icing', wxx.icing);
+  applyWeather();
+  if (level) toast(`Icing, ${ICING[level].name}: a cloud layer from ${fmt((wxx.icing.alt - 600) / 0.3048 / 100) * 100} to ${fmt((wxx.icing.alt + 600) / 0.3048 / 100) * 100} ft at ${ICING[level].oat} °C, ${ICING[level].lwc} g/m³ of supercooled water. Choose it again to move it to your altitude.`, 6);
+  e.target.blur();
+});
+$('front').addEventListener('change', (e) => { wxx.front = e.target.value; store.set('wx:front', wxx.front); applyFront(); if (wxx.front !== 'none') toast(`A ${wxx.front} front reaches ${AP.icao} in ${wxx.eta} min: watch the QNH and the OAT.`, 4); e.target.blur(); });
+$('frontEta').addEventListener('input', (e) => { wxx.eta = +e.target.value; store.set('wx:frontEta', wxx.eta); $('frontEtaV').textContent = `${wxx.eta} min`; });
+$('frontEta').addEventListener('change', (e) => { applyFront(); e.target.blur(); });
+// Ice protection: the 172's carburettor heat, the jets' wing and tail anti-ice
+// (or de-ice boots): buttons for the controls this aircraft has, and \ (Shift+\: the second).
+let iceCtl = [];
+function buildIceSwitches() {
+  iceCtl = A.cockpit().filter((x) => /^(anti_ice\.|engine\d\.carb_heat$)/.test(x.id));
+  const row = $('iceSw');
+  row.innerHTML = iceCtl.map((x, k) => `<button data-icectl="${x.id}" aria-pressed="false" title="${x.label}${k < 2 ? ` (${k ? 'Shift+' : ''}\\)` : ''}">${x.id.endsWith('carb_heat') ? 'CARB HEAT' : x.label.replace(/ \(.*\)/, '').replace('Anti-Ice', 'A/I').replace('De-Ice Boots', 'boots').toUpperCase()}</button>`).join('');
+  row.hidden = !iceCtl.length;
+  row.querySelectorAll('[data-icectl]').forEach((b) => b.addEventListener('click', (e) => { toggleIce(b.dataset.icectl); e.currentTarget.blur(); }));
+  $('iceNone').hidden = iceCtl.length > 0;
+}
+function toggleIce(id) {
+  const x = A.cockpit().find((q) => q.id === id);
+  if (!x) { toast('No ice protection on this aircraft.', 2); return; }
+  setControl(id, x.position ? 0 : 1);
+  const on = !x.position, label = id.endsWith('carb_heat') ? 'Carburettor heat' : x.label;
+  toast(`${label}: ${on ? (id.endsWith('carb_heat') ? 'HOT (some power lost; the ice melts, the engine may run rough as it goes)' : 'ON') : (id.endsWith('carb_heat') ? 'COLD' : 'OFF')}.`, 3);
+}
 
 function restart(i = ui.start) {
   ui.start = i;
@@ -808,6 +888,7 @@ addEventListener('keydown', (e) => {
     case 'KeyY': setAutopilot(!ap.on); break;
     case 'PageUp': case 'PageDown': apSelect('alt', (e.code === 'PageUp' ? 1 : -1) * (e.shiftKey ? 100 : 500)); e.preventDefault(); break;
     case 'KeyM': toggleSound(); break;
+    case 'Backslash': { const x = iceCtl[e.shiftKey ? 1 : 0]; if (x) toggleIce(x.id); else toast('No ice protection to switch here.', 2); break; }
     case 'Space': togglePause(); e.preventDefault(); break;
     default:
   }
@@ -1536,6 +1617,11 @@ function windRows() {
   const rows = [['Wind', s[60] >= 1 ? `${deg3(s[59])}° / ${spd(s[60])}` : 'calm']];
   if (s[12] > 20 && !s[28]) rows.push(['Track · drift', `${deg3(s[61])}° · ${s[62] >= 0 ? 'R' : 'L'} ${fmt(Math.abs(s[62]))}°`]);
   if (s[63] > 0) rows.push(['Runway', s[63] >= 3 ? `standing water ${fmt(s[63])} mm` : 'wet']);
+  if (wx?.rain > 0) rows.push(['Rain', `${fmt(wx.rain, wx.rain < 10 ? 1 : 0)} mm/h${wx.freezingRain ? ' FREEZING' : ''}`]);
+  if (wx?.inCloud) rows.push(['Cloud', `in cloud · vis ${wx.visibility < 1000 ? `${fmt(wx.visibility)} m` : `${fmt(wx.visibility / 1000, 1)} km`}`]);
+  const iceMm = icing?.surfaces?.length ? Math.max(...icing.surfaces.map((q) => q.mm)) : 0;
+  if (iceMm > 0.1) rows.push(['Ice', `${fmt(iceMm, 1)} mm ${icing.surfaces[0].glaze > 0.5 ? 'clear' : 'rime'} · ${['', 'trace', 'light', 'moderate', 'severe'][icing.intensity] || 'none now'}`]);
+  if (icing?.carburettor && (icing.carbBlockage > 0.03 || icing.carbHeat > 0.1)) rows.push(['Carb ice', `${fmt(icing.carbBlockage * 100)} % · heat ${controlPos('engine1.carb_heat') ? 'HOT' : 'COLD'}`]);
   return rows;
 }
 // The navigation card: the GPS leg, then NAV 1 (the ILS) or the GPS approach
@@ -1654,6 +1740,9 @@ function jetData() {
     destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
     nav: { valid: !!c[K.navValid], loc: !!c[K.loc], cdi: c[K.cdi], gsValid: !!c[K.gsValid], gs: c[K.gs], mhz: c[K.navAct] },
     taws: tawsUi,
+    // Ice: the detector's ICE, and the protection switched on (WING A/I, TAIL A/I).
+    ice: icing ? { detected: icing.iceDetected, protOn: icing.protectionMask > 0,
+      on: iceCtl.filter((x, k) => (icing.protectionMask >> k) & 1).map((x) => (x.id === 'anti_ice.tail' ? 'TAIL A/I' : x.id === 'anti_ice.wing' ? 'WING A/I' : `${x.id.split('.')[1].toUpperCase()} A/I`)) } : null,
     // A turboprop: its engine indication, power levers and the prop lever (glass.js turboprop page).
     ...(tp ? tpData() : {}),
   };
@@ -1810,6 +1899,63 @@ function updateCamera(dt) {
   if (ui.flow === 2) { scene.fog.near = 1.5 * P.chase; scene.fog.far = 7 * P.chase; }
   else { const f = VIEWS[gfx.view].fog; scene.fog.near = (2500 + agl * 3) * f; scene.fog.far = (22000 + agl * 12) * f; }
   updateFogLayer();
+  weatherVisibility();
+}
+
+// ---------- The weather, seen ----------
+// Rain streaks round the camera; the ice on the leading edges; the runways'
+// wetness; frost on the windshield (cockpit view); the carburettor-ice hint;
+// the ATIS line in the Weather menu.
+const WX_GREY = new THREE.Color().setRGB(0.72, 0.74, 0.77);
+const vAc = new THREE.Vector3(), vWind = new THREE.Vector3();
+let carbHint = false, atisAt = 0;
+function weatherFx(dt) {
+  const tr = s[61] * DEG, gs = s[12] * 0.514444, wf = s[59] * DEG, wk = s[60] * 0.514444;
+  vAc.set(gs * Math.sin(tr), s[15] * 0.00508, -gs * Math.cos(tr));
+  vWind.set(-wk * Math.sin(wf), 0, wk * Math.cos(wf));
+  rainFx.update(camera, ui.flow === 2 ? 0 : wx?.rain || 0, vAc, vWind, ui.paused ? 0 : dt);
+  aircraft.ice?.update(icing);
+  setRunwayWet(s[63] || 0);
+  $('frost').style.opacity = ui.cam === 1 && icing ? String(clamp(icing.windshieldOpacity, 0, 1)) : '0';
+  // The 172's carburettor ice: a word once it blocks a fifth of the throttle's area.
+  if (icing?.carburettor) {
+    const b = icing.carbBlockage;
+    if (b > 0.2 && !carbHint && !ui.crashed) { carbHint = true; toast(`Carburettor ice: ${Math.round(b * 100)} % of the throat blocked, the rpm falling. Carb heat on (\\ or Weather → CARB HEAT), expect it to run rough as the ice melts.`, 7); }
+    else if (b < 0.1) carbHint = false;
+  }
+  // The ATIS once a second of wall time while the Weather menu shows.
+  if (performance.now() - atisAt > 1000 && !$('side').hidden && menu === 'weather') { atisAt = performance.now(); $('atis').innerHTML = atisText(); }
+}
+// Haze in the rain and in cloud: the view closes in to the meteorological
+// visibility (A.weather().visibility) and the sky greys (after the fog layer's own).
+function weatherVisibility() {
+  if (ui.flow === 2 || !wx) return;
+  const vis = wx.visibility;
+  if (!(vis < 30000)) { scene.fog.color.copy(SKY); return; }
+  scene.fog.far = Math.min(scene.fog.far, Math.max(60, vis * 1.25));
+  scene.fog.near = Math.min(scene.fog.near, vis * 0.05);
+  const g = clamp(1 - vis / 12000, 0, 1) * (wx.inCloud ? 1 : 0.85);
+  scene.fog.color.copy(SKY).lerp(WX_GREY, g);
+  const u = skyDome.material.uniforms;
+  u.hor.value.lerp(WX_GREY, g); u.zen.value.lerp(WX_GREY, g * 0.9);
+  sun.intensity *= 1 - 0.55 * g; ambient.intensity = Math.max(ambient.intensity, 0.58 + 0.3 * g);
+}
+// The field's ATIS, from the core: QNH and OAT at the field, the rain, the
+// cloud layer, a front's ETA (or how long ago it passed).
+function atisText() {
+  if (!wx) return '';
+  const hpa = wx.fieldQnh, inHg = hpa * 0.02953, kt = +$('wind').value, dir = +$('windDir').value;
+  const parts = [`<b>${AP.icao} ATIS</b>`, kt ? `wind ${String(dir).padStart(3, '0')}° ${kt} kt` : 'wind calm'];
+  if (wx.rain > 0 || wxx.rain > 0) parts.push(`${wxx.rain >= 50 ? 'torrential' : wxx.rain >= 10 ? 'heavy' : wxx.rain >= 2.5 ? 'moderate' : 'light'} rain (${wxx.rain} mm/h)`);
+  if (wx.cloudTop > wx.cloudBase && wx.cloudTop > ELEV) {
+    const base = Math.round((wx.cloudBase - ELEV) / 0.3048 / 100) * 100;
+    parts.push(`${base > 0 ? `overcast ${base.toLocaleString('en-US')} ft` : 'cloud on the field'}, tops ${(Math.round(wx.cloudTop / 0.3048 / 100) * 100).toLocaleString('en-US')} ft MSL`);
+  }
+  parts.push(`OAT ${fmt(wx.fieldOat)} °C`, `QNH ${fmt(hpa)} hPa (${inHg.toFixed(2)} inHg)`);
+  if (wx.frontEtaMin > 0) parts.push(`${$('front').value} front expected in ${fmt(wx.frontEtaMin)} min`);
+  else if (wx.frontBehind >= 0 && wx.frontEtaMin <= 0 && $('front').value !== 'none') parts.push(`${$('front').value} front passed ${fmt(-wx.frontEtaMin)} min ago`);
+  if (s[63] > 0) parts.push(s[63] >= 3 ? `standing water on the runway (${fmt(s[63], 1)} mm)` : s[63] < 0.1 ? 'runway damp' : `runway wet (${fmt(s[63], 1)} mm)`);
+  return parts.join(' · ');
 }
 
 // ---------- Visibility: haze, mist and fog ----------
@@ -1990,6 +2136,8 @@ async function selectAircraft(id) {
     city.resyncPhysics();  // the core was rebuilt without its buildings
     applyVisual(next, def);
     A.avd_set_wind_hazard(+$('hazard').value);  // a new aircraft starts a fresh sim
+    applyFront();  // (and its weather: the restart applies the rest)
+    buildIceSwitches();
   } catch (e) { toast('Could not load the aircraft: ' + e.message, 6); return; }
   audio.stop();
   P = next;
@@ -2012,6 +2160,8 @@ async function selectAircraft(id) {
 document.querySelectorAll('[data-aircraft]').forEach((b) => b.addEventListener('click', () => { selectAircraft(b.dataset.aircraft); b.blur(); }));
 
 // ---------- Loop ----------
+buildIceSwitches();
+applyFront();
 applyProfileUi();
 setAssist(ui.assist);
 setLevel(ui.level, false);
@@ -2091,6 +2241,7 @@ function frame() {
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
   tp = P.turboprop ? A.turboprop() : null;
+  wx = A.weather ? A.weather() : null; icing = A.icing ? A.icing() : null;
   readTaws();
   if (P.jet) landingRollCallouts();
   // The propeller's blade angle (about the thrust axis, right-handed; the
@@ -2145,6 +2296,7 @@ function frame() {
   }
   acGroup.updateMatrixWorld(true);
   updateCamera(dt);
+  weatherFx(simDt);
   if (showCity && ui.flow !== 2) city.update(s[0], s[1], Math.max(0, s[14] * 0.3048), scene.fog.far);
   {
     const ce = camera.position.x, cn = -camera.position.z;

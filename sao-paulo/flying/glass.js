@@ -104,6 +104,9 @@ export function casMessages(d) {
     if (d.hyd[0] < 1500 && d.hyd[1] < 1500 && d.brakeAccum >= 0 && d.brakeAccum <= 2) m.push(['BRAKE ACCUM LOW', 2]);
     if (d.gearFreeFall) m.push(['GEAR FREE FALL', 1]);
   }
+  // Ice: the detector's ICE, and the protection switched on (A.icing(), app.js).
+  if (d.ice?.detected) m.push(['ICE DETECTED', d.ice.protOn ? 1 : 2]);  // amber until the anti-ice is on
+  for (const a of d.ice?.on || []) m.push([a, 1]);
   const sbBad = !d.gndSpoilers && d.spd > 0.02 && (d.flaps > 25 || d.thrLever > 0.6 || (!d.wow && d.ra < 1000));
   if (d.gndSpoilers) m.push(['GROUND SPOILERS', 1]);
   if ((d.rev?.[0] || 0) > 0.02 || (d.rev?.[1] || 0) > 0.02) m.push(['THRUST REVERSERS', 1]);

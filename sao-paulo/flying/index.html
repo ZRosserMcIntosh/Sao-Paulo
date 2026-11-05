@@ -112,6 +112,10 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 /* TAWS: the top alert as a tag (the analog 172, or the jets with the panel hidden). */
 #taws{position:fixed;left:50%;top:112px;transform:translateX(-50%);font:900 24px/1 var(--display);letter-spacing:.06em;color:#fff;border:2px solid #fff;background:rgba(10,17,28,.72);border-radius:6px;padding:6px 14px;z-index:2;pointer-events:none}
 #taws[hidden]{display:none}
+/* Windshield frost (cockpit view): over the upper view, fading at the glareshield; opacity from the core's windshield ice. */
+#frost{position:fixed;left:0;right:0;top:0;height:72%;z-index:1;pointer-events:none;opacity:0;transition:opacity .4s;
+  background:radial-gradient(ellipse 60% 55% at 46% 42%,rgba(226,236,244,.35),rgba(232,240,247,.9) 70%),repeating-linear-gradient(115deg,rgba(255,255,255,.12) 0 2px,rgba(210,224,236,.1) 2px 5px);
+  -webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);-webkit-mask-image:linear-gradient(to bottom,#000 78%,transparent);mask-image:linear-gradient(to bottom,#000 78%,transparent)}
 #taws.caut{color:#1b1200;background:var(--warn);border-color:var(--warn)}
 #taws.warn{background:var(--bad);border-color:var(--bad);animation:tawsFlash .8s steps(1) infinite}
 @keyframes tawsFlash{50%{background:rgba(10,17,28,.72);color:var(--bad)}}
@@ -229,7 +233,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <span class="menus" role="group" aria-label="Menus">
       <button data-open="flight" aria-expanded="false" aria-controls="side" title="Aircraft, airport, destination and start">Flight</button>
       <button data-open="load" aria-expanded="false" aria-controls="side" title="Weight and fuel">Load</button>
-      <button data-open="weather" aria-expanded="false" aria-controls="side" title="Wind, visibility and fog, turbulence, runway">Weather</button>
+      <button data-open="weather" aria-expanded="false" aria-controls="side" title="Wind, visibility and fog, turbulence, rain, icing, fronts, runway">Weather</button>
       <button data-open="controls" aria-expanded="false" aria-controls="side" title="Keys, mouse and gamepad">Controls</button>
       <button data-open="options" aria-expanded="false" aria-controls="side" title="Assists, display, sound and failures">Options</button>
     </span>
@@ -307,6 +311,15 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   <label class="ctl">Thermals <select id="thermals"><option value="0">none</option><option value="1.5">weak (w* 1.5 m/s)</option><option value="2.5">good (w* 2.5 m/s)</option><option value="3.5">strong (w* 3.5 m/s)</option></select><output></output></label>
   <label class="ctl">Hazard <select id="hazard"><option value="0">none</option><option value="1">microburst on final</option><option value="2">gust front from the SW</option></select><output></output></label>
   <label class="ctl">Runway <select id="rwyWater"><option value="0">dry</option><option value="1">wet</option><option value="6">standing water (6 mm)</option><option value="13">flooded (13 mm)</option></select><output></output></label>
+  <h2>Rain, ice and fronts</h2>
+  <label class="ctl">Rain <select id="rain"><option value="0">off</option><option value="1">light · 1 mm/h</option><option value="2.5">moderate · 2.5 mm/h</option><option value="10">heavy · 10 mm/h</option><option value="50">downpour · 50 mm/h</option></select><output></output></label>
+  <label class="ctl">Icing <select id="icing"><option value="0">none</option><option value="1">light · −5 °C, 0.2 g/m³</option><option value="2">moderate · −7 °C, 0.4 g/m³</option><option value="3">severe · −10 °C, 0.8 g/m³</option></select><output></output></label>
+  <label class="ctl">Front <select id="front"><option value="none">none</option><option value="cold">cold front</option><option value="warm">warm front</option></select><output></output></label>
+  <label class="ctl">Arriving in <input id="frontEta" type="range" min="1" max="30" step="1" value="10"><output id="frontEtaV">10 min</output></label>
+  <div class="row" id="iceSw" role="group" aria-label="Ice protection" style="margin-top:8px"></div>
+  <p class="note" id="iceNone" hidden>This aircraft has no ice protection to switch (its pitot heat is on the electrical panel).</p>
+  <p class="note" id="atis" aria-live="off">—</p>
+  <p class="note">Rain falls from the cloud's top to the ground: the visibility falls with it, and the runways wet over a few minutes (a water film, standing water in a downpour) and dry after. Icing puts a supercooled stratus 1,200 m deep round the altitude you are at when you choose it (choose again to move it): in it the airframe ices, the stall speed rises and the windshield frosts; below 0 °C rain is freezing rain. The jets' ice detector shows ICE DETECTED; their wing (and the CJ4's tail) anti-ice or boots are the buttons above, or <kbd>\</kbd> and <kbd>⇧\</kbd>. The 172 can ice its carburettor in humid air even when warm: the rpm sags, and carb heat (<kbd>\</kbd>) melts it. A front moves across the field at the minute set: behind a cold front it is 6 °C colder, the QNH 3 hPa higher and the wind 15 kt from 200°; behind a warm front 4 °C warmer, 2 hPa lower, 10 kt from 320°. An altimeter set ahead of it reads wrong behind it: the ATIS line has the field's QNH.</p>
   <p class="note">The wind is the airfield report: it grows and backs with height and brings its own gusts over the city. Turbulence follows MIL-HDBK-1797; a wet runway brakes like the certification wet-runway curve, and in standing water the tyres hydroplane above 9·√(tyre psi) kt (about 124 kt for the Top G, 55 kt for the 172).</p>
 
   </section>
@@ -334,6 +347,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <span class="tponly" hidden><kbd>⇧,</kbd> <kbd>⇧.</kbd></span><span class="tponly" hidden>Propeller levers back / forward (hold: 1,450 to 1,700 rpm, both engines)</span>
     <span class="tponly" hidden><kbd>⇧1</kbd> <kbd>⇧2</kbd> <kbd>⇧3</kbd></span><span class="tponly" hidden>Condition levers: CUT-OFF, LOW IDLE, HIGH IDLE (both engines)</span>
     <span><kbd>B</kbd> · <kbd>P</kbd></span><span>Brakes · parking brake</span>
+    <span><kbd>\</kbd> · <kbd>⇧\</kbd></span><span>Ice protection: the 172's carburettor heat; the jets' wing anti-ice (or boots) · the tail's (Weather menu)</span>
   </div>
   <h2>Instruments</h2>
   <div class="keys">
@@ -471,6 +485,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
 </div>
 <div id="warn">STALL</div>
 <div id="taws" role="alert" hidden></div>
+<div id="frost" aria-hidden="true"></div>
 <div id="osmCredit"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Buildings © OpenStreetMap contributors, Microsoft, Google Open Buildings</a> · <a href="https://www.earthdata.nasa.gov/data/instruments/srtm" target="_blank" rel="noopener">Terrain: SRTM (NASA, USGS)</a></div>
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>
