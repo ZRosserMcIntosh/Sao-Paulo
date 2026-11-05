@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <base href="/sao-paulo/flying/">
 <title>Flight Test Bed</title>
-<meta name="description" content="Fly the 172 or the Top G business jet over São Paulo World in the browser: the Aviation Dynamics flight core compiled to WebAssembly, with real instruments, from Congonhas or Campo de Marte.">
+<meta name="description" content="Fly the 172, the King Air 350 or the Top G business jet over São Paulo World in the browser: the Aviation Dynamics flight core compiled to WebAssembly, with real instruments, from Congonhas or Campo de Marte.">
 <meta property="og:title" content="São Paulo World · Flight Test Bed">
 <meta property="og:description" content="Fly the 172 or the Top G jet over São Paulo, in your browser: take off from Congonhas or Campo de Marte and fly over the city.">
 <meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
@@ -256,8 +256,10 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <button data-aircraft="learjet45" aria-pressed="false">Learjet 45 <small style="font-weight:500;opacity:.7">· mid-size jet</small></button>
     <button data-aircraft="crj700" aria-pressed="false">CRJ700 <small style="font-weight:500;opacity:.7">· regional jet</small></button>
     <button data-aircraft="b738" aria-pressed="false">737-800 <small style="font-weight:500;opacity:.7">· airliner</small></button>
+    <button data-aircraft="kingair" aria-pressed="false">King Air 350 <small style="font-weight:500;opacity:.7">· twin turboprop</small></button>
   </div>
-  <p class="note jetonly" hidden>The Top G flies on the G650ER's published figures: two 75 kN turbofans with thrust lapse and spool lag, a swept supercritical wing with Mach drag rise, Fowler flaps, speedbrakes and retractable gear. Mmo 0.925, Vmo 340 kt.</p>
+  <p class="note tponly" hidden>The King Air 350: two 1,050 shp PT6A-60A turboprops (torque and ITT limited at the power levers' forward stop), four-blade constant-speed propellers governed from 1,450 to 1,700 rpm, with feather, ground beta and reverse, autofeather, a T-tail and winglets. Power levers on the throttle keys, propeller levers ⇧, ⇧., condition levers ⇧1 ⇧2 ⇧3, beta ⇧N and reverse N on the ground.</p>
+  <p class="note fanonly" hidden>The Top G flies on the G650ER's published figures: two 75 kN turbofans with thrust lapse and spool lag, a swept supercritical wing with Mach drag rise, Fowler flaps, speedbrakes and retractable gear. Mmo 0.925, Vmo 340 kt.</p>
 
   <h2>Airport</h2>
   <div class="row" role="group" aria-label="Airport">
@@ -319,7 +321,8 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <span><kbd>U</kbd></span><span>Autoland: fly the approach to the destination and land, on / off (moving the stick takes over)</span>
     <span><kbd>Y</kbd></span><span>Autopilot on / off: holds the heading, altitude and (jets) speed; modes and selections in Options</span>
     <span><kbd>PgUp</kbd> <kbd>PgDn</kbd></span><span>Autopilot: selected altitude ±500 ft (Shift ±100), climbing or descending to it</span>
-    <span class="jetonly"><kbd>N</kbd></span><span class="jetonly">Reverse thrust (hold, throttles at idle, on the ground)</span>
+    <span class="fanonly"><kbd>N</kbd></span><span class="fanonly">Reverse thrust (hold, throttles at idle, on the ground)</span>
+    <span class="tponly" hidden><kbd>N</kbd> · <kbd>⇧N</kbd></span><span class="tponly" hidden>Reverse · ground beta (hold, power levers at idle, on the ground: the blades on the power levers below the flight-idle gate)</span>
   </div>
   <h2>Engines and configuration</h2>
   <div class="keys">
@@ -327,7 +330,9 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <span class="jetonly" hidden><kbd>⇧X</kbd><kbd>⇧Z</kbd> · <kbd>Alt X</kbd><kbd>Alt Z</kbd></span><span class="jetonly" hidden>Engine 1 lever alone · engine 2 lever alone (split thrust: asymmetric, or differential taxi)</span>
     <span><kbd>,</kbd> <kbd>.</kbd></span><span>Flaps up / down a notch</span>
     <span class="jetonly" hidden><kbd>G</kbd></span><span class="jetonly" hidden>Landing gear</span>
-    <span class="jetonly" hidden><kbd>/</kbd></span><span class="jetonly" hidden>Speedbrake (RET, half, full)</span>
+    <span class="fanonly" hidden><kbd>/</kbd></span><span class="fanonly" hidden>Speedbrake (RET, half, full)</span>
+    <span class="tponly" hidden><kbd>⇧,</kbd> <kbd>⇧.</kbd></span><span class="tponly" hidden>Propeller levers back / forward (hold: 1,450 to 1,700 rpm, both engines)</span>
+    <span class="tponly" hidden><kbd>⇧1</kbd> <kbd>⇧2</kbd> <kbd>⇧3</kbd></span><span class="tponly" hidden>Condition levers: CUT-OFF, LOW IDLE, HIGH IDLE (both engines)</span>
     <span><kbd>B</kbd> · <kbd>P</kbd></span><span>Brakes · parking brake</span>
   </div>
   <h2>Instruments</h2>
@@ -421,7 +426,8 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   <div class="row"><button id="bSound" aria-pressed="false" title="M">Sound off</button>
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)">Volume <input id="vol" type="range" min="0" max="100" value="80" style="width:110px"></label></div>
   <p class="note pistononly">Synthesized from the simulation: firing pulses at the engine rpm, louder with manifold pressure, wind from the airspeed, and the stall-warning reed horn.</p>
-  <p class="note jetonly" hidden>Synthesized from the simulation: fan tone and core whine from each engine's N1 and N2, roar with thrust, wind from the airspeed, and the stall warning.</p>
+  <p class="note fanonly" hidden>Synthesized from the simulation: fan tone and core whine from each engine's N1 and N2, roar with thrust, wind from the airspeed, and the stall warning.</p>
+  <p class="note tponly" hidden>Synthesized from the simulation: each turbine's whine from its Ng, each four-blade propeller's tone at the blade-passing frequency (4 × Np), buzzier with torque, the roar of beta and reverse, wind from the airspeed, and the stall warning.</p>
 
   <h2>Failures</h2>
   <div class="row">
@@ -433,6 +439,12 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <button data-fail="4" class="jetonly" hidden aria-pressed="false" title="Engine 1's generator off line: the other carries the bus">GEN 1</button>
     <button data-fail="5" class="jetonly" hidden aria-pressed="false" title="Engine 2's generator off line: the other carries the bus">GEN 2</button>
   </div>
+  <div class="row tponly" role="group" aria-label="Propellers" style="margin-top:8px" hidden>
+    <button data-feather="0" aria-pressed="false" title="Propeller 1 to the feather detent">Feather 1</button>
+    <button data-feather="1" aria-pressed="false" title="Propeller 2 to the feather detent">Feather 2</button>
+    <button id="bAutofeather" aria-pressed="false" title="Autofeather switch: ARM">Autofeather</button>
+  </div>
+  <p class="note tponly" hidden>King Air: Engine 1 cut-off moves its condition lever to CUT-OFF; the propeller windmills on its governor (drag) until it is feathered (Feather 1), or the armed autofeather does it.</p>
   <p class="note">Failures act on the physical systems: with the fuel off the engine starves after the line fuel is used; a failed vacuum pump lets the gyros spin down; a blocked pitot bleeds the airspeed to zero<span class="jetonly" hidden>; with both generators off the battery carries the bus until it is flat</span>.</p>
 
   <h2>About</h2>
@@ -480,7 +492,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   <div class="tb" id="tFd">FL+</div>
   <div class="tb" id="tBr">BRK</div>
   <div class="tb jetonly" id="tGear" hidden>GEAR</div>
-  <div class="tb jetonly" id="tSpd" hidden>SPD</div>
+  <div class="tb fanonly" id="tSpd" hidden>SPD</div>
   <div class="tb jetonly" id="tRev" hidden>REV</div>
 </div>
 

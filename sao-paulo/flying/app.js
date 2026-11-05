@@ -12,7 +12,7 @@ import { drawJetStrip } from './glass.js';
 import { drawG1000, g1000Click, g1000Key, g1000WheelTarget, g1000Range, g1000Cursor, G1000_WHEEL, G1000_SPOTS } from './g1000.js';
 import { buildCabin } from './cabin.js';
 import { buildJetCabin } from './jetcabin.js';
-import { FlightAudio, JetAudio } from './audio.js';
+import { FlightAudio, JetAudio, TurbopropAudio } from './audio.js';
 import { buildIndex, searchAirports } from './airportsearch.js';
 import { buildFlow } from './flow.js';
 import { buildSmoke } from './smoke.js';
@@ -55,6 +55,10 @@ const PROFILES = {
 // numbers come from the definition's visual block when it loads.
 const JETS = [['phenom300', 'Phenom 300E'], ['cj4', 'Citation CJ4'], ['learjet45', 'Learjet 45'], ['crj700', 'CRJ700'], ['b738', '737-800']];
 for (const [id, name] of JETS) PROFILES[id] = { id, name, file: `./${id}.json`, jet: true, fromVisual: true, fuse: { xNose: 0, xTail: -20, R: 1, z: 0 }, chase: 40, zoom: [15, 200], target: [-10, 0, 0.5], eye: [-3.4, 0.52, 0.42], tower: 40, shadow: 20 };
+// The King Air 350: twin PT6A turboprops. It takes the jets' glass deck, starts,
+// gear and split power levers (jet: true), its own engine page, propeller and
+// condition levers, beta and reverse (turboprop: true).
+PROFILES.kingair = { id: 'kingair', name: 'King Air 350', file: './king_air_350.json', jet: true, turboprop: true, fromVisual: true, fuse: { xNose: 0, xTail: -14.2, R: 0.8, z: 0 }, chase: 26, zoom: [10, 130], target: [-6.5, 0, 0.3], eye: [-2.55, 0.42, 0.38], tower: 24, shadow: 14 };
 function applyVisual(p, d) {
   const v = d.visual;
   if (!p.fromVisual || !v) return;
@@ -113,6 +117,9 @@ function avtExtent(b) {
   return { e0, n0, e1: e0 + (nx - 1) * step, n1: n0 + (ny - 1) * step, step };
 }
 let FINE = null;  // the city grid's extent, for the drawn ground (ground.js)
+// A turboprop's first load builds its propellers' blade-element tables: a few seconds in WebAssembly.
+const SLOW_LOAD = (p) => (p.turboprop ? `Loading the ${p.name}: setting up its propellers takes a few seconds…` : '');
+if (SLOW_LOAD(P)) loadMsg(SLOW_LOAD(P));
 try {
   const [mod, json, terr, city] = await Promise.all([createAvdModule(), fetchDef(P), fetchTerrain('./terrain_sp.avt.gz'), fetchTerrain('./terrain_sp_city.avt.gz')]);
   A = mod;
@@ -451,7 +458,9 @@ let crashHeard = false;  // the crash's sound has played: the continuous sounds 
 let propPhase = 0, simClock = 0, stepPos = null, stepT = 0, stepVel = new THREE.Vector3();
 // levers: the jet's two thrust levers while split ([engine 1, engine 2]);
 // null while they move together on `throttle`.
-const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0, starter: 0, levers: null };
+const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, trimRate: 0, starter: 0, levers: null, prop: 1 };
+// A turboprop's indication (A.turboprop()), read each frame.
+let tp = null;
 // One engine's lever (splits them; `throttle` keeps their mean), and the lever as it stands.
 function setLever(i, v) {
   if (!input.levers) input.levers = [input.throttle, input.throttle];
@@ -486,6 +495,16 @@ const JET_STARTS = [
   { name: 'Centro', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(2100, -3000, 600, 0, 220, 0), trim: true },
   { name: 'Ibirapuera', sub: '2000 ft, 220 kt', go: () => A.avd_reset_air(-4000, -7000, 600, 40, 220, 0), trim: true },
   { name: 'Cruise FL410', sub: 'high and fast over the city', go: () => A.avd_reset_air(0, -9000, 12497 - ELEV, 340, 253, 0), trim: true },
+];
+const TP_STARTS = [
+  { name: `Runway ${AP.runway}`, sub: 'engines at low idle', go: () => A.avd_reset(1), thr: 0 },
+  { name: 'Cold and dark', sub: `runway ${AP.runway}`, go: () => A.avd_reset(0), thr: 0 },
+  { name: `Final ${AP.runway}`, sub: '6 km, Vref + 5, full flap', go: () => A.avd_reset(2), trim: true },
+  { name: `Downwind ${AP.runway}`, sub: '1500 ft, 150 kt', go: () => A.avd_reset_air(rwMid[0] - rwRight[0] * 2000, rwMid[1] - rwRight[1] * 2000, 457, (RW[3] + 180) % 360, 150, 1), trim: true },
+  { name: 'Avenida Paulista', sub: 'low pass, 200 kt', go: () => A.avd_reset_air(3200, -2200, 330, 305, 200, 0), trim: true },
+  { name: 'Centro', sub: '2000 ft, 200 kt', go: () => A.avd_reset_air(2100, -3000, 600, 0, 200, 0), trim: true },
+  { name: 'Ibirapuera', sub: '2000 ft, 200 kt', go: () => A.avd_reset_air(-4000, -7000, 600, 40, 200, 0), trim: true },
+  { name: 'Cruise FL240', sub: 'over the city, 190 kt', go: () => A.avd_reset_air(0, -9000, 7315 - ELEV, 340, 190, 0), trim: true },
 ];
 // ---------- Destination: search Brazil's airports; its ILS on NAV 1, a GPS route ----------
 let DEST = null;  // { ai, ri, icao, name, runway, ils, khz, synthetic }
@@ -588,7 +607,7 @@ function refreshRegion() {
 }
 // The starts: the aircraft's own, plus the destination's approach and final.
 function startsFor() {
-  const base = P.jet ? JET_STARTS : PISTON_STARTS;
+  const base = P.turboprop ? TP_STARTS : P.jet ? JET_STARTS : PISTON_STARTS;
   if (!DEST) return base;
   return [...base,
     { name: `Approach ${DEST.icao} ${DEST.runway}`, sub: `10 NM out, ${DEST.ils ? `intercept ${DEST.ils}` : 'GPS'}`, go: () => A.avd_reset(4), trim: true },
@@ -692,6 +711,8 @@ function restart(i = ui.start) {
   if (!STARTS[i]) ui.start = i = 0;
   const st = STARTS[i];
   applyWeather();
+  input.prop = 1;
+  if (P.turboprop) { A.setPropLever(1); A.setReverse(0); reverse = 0; }  // propeller levers full forward (rated rpm) before a trimmed spawn
   st.go();
   A.avd_set_assist(ui.assist);
   input.pitch = input.roll = input.yaw = input.trimRate = 0;
@@ -699,12 +720,16 @@ function restart(i = ui.start) {
   input.levers = null;
   input.mixture = st.trim ? A.avd_trim_mixture() : 1;
   for (const k of Object.keys(failed)) failed[k] = false;
-  document.querySelectorAll('[data-fail]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+  document.querySelectorAll('[data-fail], [data-feather]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
   ui.crashed = false; parkHint = false;
   A.events();  // drop the reset's own events
+  s = A.state().slice();  // the new spawn's state (the old one's 'on the ground, parking brake set' would release it)
   [...startsEl.children].forEach((b, k) => b.setAttribute('aria-pressed', String(k === i)));
   snapCamera = true;
-  if (i === 0 && P.jet) {
+  if (i === 0 && P.turboprop) {
+    const jj = A.jet(), vr = Math.round(1.1 * jj[33]);
+    toast(`Runway ${AP.runway}: propeller levers forward (${MOBILE ? 'full' : '⇧. '}), flaps ${Math.round(jj[49])} or up, power (${MOBILE ? 'slide THR up' : '+ or X'}) to the torque limit, rotate at about ${vr} kt, gear up (${MOBILE ? 'GEAR' : 'G'}).`, 7);
+  } else if (i === 0 && P.jet) {
     // VR as the PFD bugs it (glass.js): for the take-off flap, the middle detent.
     const jj = A.jet(), vr = Math.round(1.2 * jj[33]) - 6;
     toast(`Runway ${AP.runway}: flaps ${Math.round(jj[49])} (${MOBILE ? 'FL+' : '.'}), full thrust (${MOBILE ? 'slide THR up' : '+ or X'}), rotate at ${vr} kt, gear up (${MOBILE ? 'GEAR' : 'G'}) once climbing.`, 7);
@@ -737,9 +762,25 @@ function cycleSpeedbrake() {
 }
 // The jet's levers one at a time: Shift+X / Shift+Z engine 1, Alt+X / Alt+Z engine 2.
 const THR_KEYS = { KeyX: 'thrUp', KeyZ: 'thrDown' };
+// A turboprop's propeller levers: Shift+, / Shift+. (held: down to 1,450 rpm, up to 1,700).
+const PROP_KEYS = { Comma: 'propDown', Period: 'propUp' };
+const CONDITIONS = ['CUT-OFF', 'LOW IDLE', 'HIGH IDLE'];
+function setCondition(p) {
+  if (!P.turboprop) return;
+  A.setCondition(-1, p);
+  toast(`Condition levers: ${CONDITIONS[p]}${p === 0 ? ' (fuel off: the engines shut down)' : p === 2 ? ' (Ng 72 %)' : ''}.`, 2.5);
+}
+function setFeather(i, on) {
+  if (!P.turboprop) return;
+  A.setFeather(i, on);
+  document.querySelectorAll(`[data-feather="${i}"]`).forEach((b) => b.setAttribute('aria-pressed', String(on)));
+}
 addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, select, textarea')) return;
   if (THR_KEYS[e.code] && P.jet && (e.shiftKey || e.altKey) && !e.ctrlKey && !e.metaKey) { keys.add(THR_KEYS[e.code] + (e.shiftKey ? 1 : 2)); e.preventDefault(); return; }
+  if (PROP_KEYS[e.code] && P.turboprop && e.shiftKey) { keys.add(PROP_KEYS[e.code]); e.preventDefault(); return; }
+  if (P.turboprop && e.shiftKey && /^Digit[123]$/.test(e.code)) { if (!e.repeat) setCondition(+e.code[5] - 1); e.preventDefault(); return; }
+  if (e.code === 'KeyN' && P.turboprop) { keys.add(e.shiftKey ? 'beta' : 'reverse'); e.preventDefault(); return; }
   if (keyMap[e.code]) { keys.add(keyMap[e.code]); e.preventDefault(); }
   if (e.repeat) return;
   switch (e.code) {
@@ -774,6 +815,8 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => {
   if (keyMap[e.code]) keys.delete(keyMap[e.code]);
   if (THR_KEYS[e.code]) for (const k of ['', 1, 2]) keys.delete(THR_KEYS[e.code] + k);  // the modifier may go first
+  if (PROP_KEYS[e.code]) keys.delete(PROP_KEYS[e.code]);
+  if (e.code === 'KeyN') keys.delete('beta');
 });
 addEventListener('blur', () => keys.clear());
 
@@ -841,6 +884,10 @@ function readInputs(dt) {
   if (P.jet) for (let i = 0; i < 2; ++i) {
     const d = (k(`thrUp${i + 1}`) ? 1 : 0) - (k(`thrDown${i + 1}`) ? 1 : 0);
     if (d) setLever(i, leverPos(i) + d * 0.5 * dt);
+  }
+  if (P.turboprop) {
+    const d = (k('propUp') ? 1 : 0) - (k('propDown') ? 1 : 0);
+    if (d) { input.prop = clamp(input.prop + d * 0.5 * dt, 0, 1); A.setPropLever(input.prop); }
   }
   input.trimRate = k('trimUp') ? 1 : k('trimDown') ? -1 : 0;
   if (trimPulse && performance.now() < trimPulse.until) input.trimRate = trimPulse.rate;
@@ -1085,19 +1132,34 @@ function assistStatus() {
 document.querySelectorAll('[data-fail]').forEach((b) => b.addEventListener('click', () => {
   const k = b.dataset.fail, on = !failed[k];
   failed[k] = on; b.setAttribute('aria-pressed', String(on));
-  if (k === 'fuel') setControl(P.jet ? 'engine1.fuel' : 'fuel.shutoff', on ? 0 : 1);
+  if (k === 'fuel') setControl(P.turboprop ? 'engine1.condition' : P.jet ? 'engine1.fuel' : 'fuel.shutoff', on ? 0 : 1);
   else A.avd_failure(+k, on ? 1 : 0);
   toast(`${b.textContent}: ${on ? (k === 'fuel' ? 'closed' : 'failed') : 'restored'}.`);
   b.blur();
 }));
 
+// The King Air's propellers: feather (the propeller lever's detent) and the autofeather switch.
+document.querySelectorAll('[data-feather]').forEach((b) => b.addEventListener('click', () => {
+  const i = +b.dataset.feather, on = b.getAttribute('aria-pressed') !== 'true';
+  setFeather(i, on);
+  toast(`Propeller ${i + 1}: ${on ? 'feathered (the blades edge-on: no windmilling drag)' : 'out of feather, back on the governor'}.`, 3);
+  b.blur();
+}));
+$('bAutofeather').addEventListener('click', (e) => {
+  setControl('propeller.autofeather', controlPos('propeller.autofeather') ? 0 : 1);
+  const on = !!controlPos('propeller.autofeather');
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+  toast(on ? 'Autofeather ARM: with both power levers above 85 % and both torques above 24 %, an engine whose torque falls under 12 % feathers.' : 'Autofeather off.', 4);
+  e.currentTarget.blur();
+});
 $('bQuick').addEventListener('click', (e) => {
   if (STARTS[ui.start].trim || s[30]) restart(1);
   A.avd_quick_start(); toast(P.jet ? 'Quick Start: battery and generators on, starting engine 1, then engine 2…' : 'Quick Start: working through the checklist…'); e.currentTarget.blur();
 });
 
-const audios = { piston: new FlightAudio(), jet: new JetAudio() };
-let audio = P.jet ? audios.jet : audios.piston;
+const audios = { piston: new FlightAudio(), jet: new JetAudio(), tp: new TurbopropAudio() };
+const audioFor = (p) => (p.turboprop ? audios.tp : p.jet ? audios.jet : audios.piston);
+let audio = audioFor(P);
 for (const a of Object.values(audios)) a.setVolume(ui.vol / 100);
 $('vol').value = ui.vol;
 $('vol').addEventListener('input', (e) => { ui.vol = +e.target.value; for (const a of Object.values(audios)) a.setVolume(ui.vol / 100); store.set('vol', ui.vol); });
@@ -1158,7 +1220,14 @@ $('sideClose').addEventListener('click', () => togglePanel(false));
 showMenu(menu, !(MOBILE || innerWidth < 900));
 // The automatic ground spoilers and thrust reversers, called out as they act.
 let revPhaseWas = 0, gndSpWas = 0, reverse = 0, revHint = false;
+let betaWas = 0;
 function landingRollCallouts() {
+  if (P.turboprop) {
+    const b = tp && tp.engines.some((e) => e.beta) ? (reverse > 0.42 ? 2 : 1) : 0;
+    if (b !== betaWas && b) toast(b === 2 ? 'Reverse: the blades past the reverse stop, Ng rising with the levers (let go of N to come out).' : 'Ground beta: the blades on the power levers, no thrust at idle (Shift+N held; N for reverse).', 3);
+    betaWas = b;
+    return;
+  }
   const ph = j[53] | 0, gs = j[56] | 0;
   if (gs !== gndSpWas) toast(gs ? 'Ground spoilers deployed.' : 'Ground spoilers stowed.', 2);
   if (ph !== revPhaseWas) {
@@ -1172,9 +1241,19 @@ function landingRollCallouts() {
 // Why the reverse levers do nothing on the ground (null: they do): the core
 // deploys a reverser with its engine running, every thrust lever at idle
 // (0.08 at most) and the main wheels on the ground.
+// A turboprop's: the blades go to beta (tp's beta flag) with an engine running,
+// its power lever under 5 % and the main wheels on the ground.
 function reverseBlocked() {
-  if (j[53] === 4 || j[55] === 4) return null;
   const lever = input.levers ? Math.max(...input.levers) : input.throttle;
+  if (P.turboprop) {
+    if (!tp || tp.engines.some((e) => e.beta)) return null;
+    const idle = 0.05, what = 'power levers';
+    if (!tp.engines.some((e) => e.running)) return 'the engines are not running';
+    if (input.levers && lever >= idle) return `the ${what} are split; close both (Z rejoins them and pulls them back)`;
+    if (lever >= idle) return `close the ${what} to idle first (Z): ${Math.round(lever * 100)} %, the gate is under 5 %`;
+    return 'the main wheels must be on the runway (in the air the flight-idle gate holds)';
+  }
+  if (j[53] === 4 || j[55] === 4) return null;
   if (!j[13] && !j[21]) return 'the engines are not running';
   if (input.levers && lever > 0.08) return 'the thrust levers are split; close both (Z rejoins them and pulls them back)';
   if (lever > 0.08) return `close the throttles first (Z): ${Math.round(lever * 100)} %, idle is under 8 %`;
@@ -1233,7 +1312,7 @@ function buildSpots() {
     mesh(p.flap, stepper('flaps.lever'));
     mesh(p.gear, { label: () => `${named('gear.lever')} · click to move the handle`, down: () => toggleGear() });
     for (const w of p.switches || []) mesh(w.g, switcher(w.id));
-    for (const w of p.fuelSw || []) mesh(w.g, switcher(w.id));
+    for (const w of p.fuelSw || []) mesh(w.g, P.turboprop ? stepper(w.id.replace('.fuel', '.condition'), '⇧1 ⇧2 ⇧3 all') : switcher(w.id));
     mesh(p.park, switcher('brakes.parking'));
     mesh(p.hdgKnob, { label: () => `Heading bug ${String(Math.round(c[K.bug])).padStart(3, '0')}° · scroll to turn, click to sync to the heading`,
       wheel: (n) => A.avd_heading_bug((Math.round(c[K.bug]) + n + 360) % 360), down: () => A.avd_heading_bug(Math.round(s[9]) % 360) });
@@ -1510,6 +1589,28 @@ function jetHud() {
   $('hAlt').innerHTML = `${fmt(c[K.alt])}<small>FT MSL</small>`;
   const hdg = String(Math.round(((c[K.dg] % 360) + 360) % 360) || 360).padStart(3, '0');
   const gear = j[1] > 0.999 ? 'down' : j[1] < 0.001 ? 'up' : 'in transit';
+  if (tp) {
+    const [e1, e2] = tp.engines, two = (f, d = 0) => `${fmt(f(e1), d)} / ${fmt(f(e2), d)}`;
+    const blades = tp.engines.map((e) => (e.feathered ? 'feathered' : e.beta ? (reverse > 0.42 ? 'reverse' : 'beta') : ''));
+    const rows = [
+      ['Ground speed', spd(s[12])], ['Vertical', `${fmt(c[K.vsi])} fpm`], ['Heading', `${hdg}°`], ...windRows(), ['Above field', `${fmt(Math.max(0, s[14]))} ft`],
+      ['Torque L / R', `${two((e) => e.torque)} %`], ['Np L / R', `${two((e) => e.np)} rpm`], ['Ng L / R', `${two((e) => e.ng, 1)} %`],
+      ['ITT L / R', `${two((e) => e.itt)} °C`], ['Fuel flow', `${fmt((e1.fuelFlowLbH + e2.fuelFlowLbH) / 10) * 10 || 0} lb/h`], ['Fuel', `${fmt(j[6] * 2.20462)} lb`],
+      ['Flaps', `${fmt(j[27])}°`], ['Gear', gear], ['Power levers', input.levers ? `${fmt(input.levers[0] * 100)} / ${fmt(input.levers[1] * 100)} %` : `${fmt(input.throttle * 100)} %`],
+      ['Propellers', `${fmt(tp.npSelected)} rpm${tp.autofeather.armed ? ' · AF armed' : ''}`], ['Condition', tp.engines.map((e) => CONDITIONS[e.condition] || '—').join(' / ')],
+      ...(blades.some(Boolean) ? [['Blades', blades.map((b) => b || 'governing').join(' / ')]] : []),
+      ['Load', `${fmt(s[18], 2)} g`], ['Brakes', s[49] ? 'PARKING SET' : input.brake ? 'on' : 'off'],
+    ];
+    hRead.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
+    const split = !!input.levers;
+    $('lThr').parentElement.classList.toggle('split', split);
+    $('lThr').style.height = `${leverPos(0) * 100}%`;
+    $('lThr2').style.height = `${leverPos(1) * 100}%`;
+    $('lMix').style.height = `${tp.propLever * 100}%`;
+    $('lFlp').style.height = `${clamp(j[27] / (j[50] || 35), 0, 1) * 100}%`;
+    if (MOBILE) $('thr').querySelector('i').style.top = `${(1 - input.throttle) * (170 - 34) + 2}px`;
+    return;
+  }
   const rows = [
     ['Mach', j[5] > 0.2 ? fmt(j[5], 3) : '—'], ['Ground speed', spd(s[12])], ['Vertical', `${fmt(c[K.vsi])} fpm`],
     ['Heading', `${hdg}°`], ...windRows(), ['Above field', `${fmt(Math.max(0, s[14]))} ft`],
@@ -1553,9 +1654,21 @@ function jetData() {
     destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
     nav: { valid: !!c[K.navValid], loc: !!c[K.loc], cdi: c[K.cdi], gsValid: !!c[K.gsValid], gs: c[K.gs], mhz: c[K.navAct] },
     taws: tawsUi,
+    // A turboprop: its engine indication, power levers and the prop lever (glass.js turboprop page).
+    ...(tp ? tpData() : {}),
   };
 }
 
+// The King Air's engines for the glass deck: the indication (A.turboprop())
+// and the engine flags the crew alerting reads (running, starting, fuel on).
+function tpData() {
+  const E = tp.engines;
+  return {
+    tp: { ...tp, levers: [leverPos(0), leverPos(1)], reverse }, run: E.map((e) => +e.running), starting: E.map((e) => +(e.starter && !e.running)),
+    fuelSw: E.map((e) => +(e.condition > 0)), oil: E.map((e) => e.oilPsi), itt: E.map((e) => e.itt), n1: E.map((e) => e.torque), ff: E.map((e) => e.fuelFlowKgH),
+    thrLever: Math.max(leverPos(0), leverPos(1)), fuelLowKg: 230,
+  };
+}
 // The G1000's readings: the instrument models (attitude, heading, air data),
 // the engine's sensors, NAV 1 and the GPS (g1000.js).
 function g1000Modes() {
@@ -1846,9 +1959,14 @@ $('slowR').addEventListener('input', (e) => { setSlow(+e.target.value); e.target
 let loadSheet = null;
 function applyProfileUi() {
   document.querySelectorAll('[data-aircraft]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aircraft === P.id)));
-  $('lMixLbl').textContent = P.jet ? 'SPD BRK' : 'MIX';
+  $('lMixLbl').textContent = P.turboprop ? 'PROP' : P.jet ? 'SPD BRK' : 'MIX';
   document.querySelector('[data-fail="fuel"]').textContent = P.jet ? 'Engine 1 cut-off' : 'Fuel shutoff';
+  document.querySelector('[data-fail="fuel"]').title = P.turboprop ? 'Engine 1\'s condition lever to CUT-OFF: fuel off, the engine runs down (feather it: Feather 1)'
+    : P.jet ? 'Engine 1\'s fuel control switch to CUTOFF' : 'Close the fuel shutoff valve: the engine runs on the fuel in the lines, then quits';
+  // .jetonly: the jets and the King Air; .fanonly: the turbofan jets; .tponly: the turboprop.
   document.querySelectorAll('.jetonly').forEach((el) => { el.hidden = !P.jet; });
+  document.querySelectorAll('.fanonly').forEach((el) => { el.hidden = !P.jet || !!P.turboprop; });
+  document.querySelectorAll('.tponly').forEach((el) => { el.hidden = !P.turboprop; });
   document.querySelectorAll('.pistononly').forEach((el) => { el.hidden = P.jet; });
   document.body.classList.toggle('jet', P.jet);
   document.body.classList.toggle('g1000', ui.glass && !P.jet);
@@ -1862,7 +1980,13 @@ async function selectAircraft(id) {
   if (P.id === id) return;
   const next = PROFILES[id];
   try {
-    loadInto(await fetchDef(next));
+    const json = await fetchDef(next);
+    // A slow first load (a turboprop's propellers): say so, and let the page paint it first.
+    if (SLOW_LOAD(next)) {
+      loadMsg(SLOW_LOAD(next)); $('loading').hidden = false; $('loading').style.display = '';
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
+    }
+    try { loadInto(json); } finally { $('loading').hidden = true; $('loading').style.display = 'none'; }
     city.resyncPhysics();  // the core was rebuilt without its buildings
     applyVisual(next, def);
     A.avd_set_wind_hazard(+$('hazard').value);  // a new aircraft starts a fresh sim
@@ -1871,7 +1995,7 @@ async function selectAircraft(id) {
   P = next;
   store.set('aircraft', P.id);
   try { history.replaceState(null, '', hashFor(P)); } catch { /* sandboxed */ }
-  audio = P.jet ? audios.jet : audios.piston;
+  audio = audioFor(P);
   if (ui.sound) audio.start();
   useRig(P);
   flow.reset();
@@ -1905,6 +2029,11 @@ function readSwitches() {
     nav: p['electrical.load.nav_lights'], strobe: p['electrical.load.strobes'], pitot: p['electrical.load.pitot_heat'],
     mags: p['engine1.ignition'], flaps: p['flaps.lever'], fuelSel: p['fuel.selector'], pos: p,
   });
+  document.querySelectorAll('[data-icectl]').forEach((b) => b.setAttribute('aria-pressed', String(!!p[b.dataset.icectl])));
+  if (P.turboprop) {
+    $('bAutofeather').setAttribute('aria-pressed', String(!!p['propeller.autofeather']));
+    document.querySelectorAll('[data-feather]').forEach((b) => b.setAttribute('aria-pressed', String(!!tp?.engines[+b.dataset.feather]?.feather)));
+  }
 }
 function frame() {
   requestAnimationFrame(frame);
@@ -1925,11 +2054,13 @@ function frame() {
     if (ap.on && (Math.abs(input.pitch) > 0.5 || Math.abs(input.roll) > 0.5)) setAutopilot(false, 'Autopilot disconnected: you have the controls.');
     // The reverse levers (N held, or REV): up over half a second, the core
     // deploys them at idle on the main wheels.
+    // A turboprop's power levers below idle: N to full reverse (0.4 to 1),
+    // Shift+N to ground beta alone (0 to 0.4, the blades at the reverse stop at idle Ng).
     if (P.jet && A.setReverse) {
-      const want = keys.has('reverse') || touch.rev ? 1 : 0;
-      reverse += clamp(want - reverse, -dt * 2, dt * 2);
+      const want = keys.has('reverse') || touch.rev ? 1 : keys.has('beta') ? 0.4 : 0;
+      reverse += clamp(want - reverse, -dt * 2, dt * (P.turboprop ? 1 : 2));
       A.setReverse(reverse);
-      if (want && !revHint && s[28] && reverse > 0.99) {
+      if (want && !revHint && s[28] && reverse > Math.min(want, 0.4) - 0.01) {
         const why = reverseBlocked();
         if (why) { revHint = true; toast(`Reverse thrust: ${why}.`, 3); }
       }
@@ -1959,6 +2090,7 @@ function frame() {
     }
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
+  tp = P.turboprop ? A.turboprop() : null;
   readTaws();
   if (P.jet) landingRollCallouts();
   // The propeller's blade angle (about the thrust axis, right-handed; the
@@ -1987,7 +2119,12 @@ function frame() {
   else if (S > 1) acGroup.position.addScaledVector(stepVel, lag);
   acGroup.quaternion.copy(qM).multiply(qBody.set(s[4], s[5], s[6], s[3]));
   const collapsed = A.occupant ? A.occupant().collapsed : null;
-  if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3], lights: !!(j[13] || j[21]), reverser: [j[52], j[54]], collapsed, slow: S }, simDt);
+  // A turboprop's propellers: Np (the gauges read 0 without bus power: then
+  // the core's engine 1 truth for both) and the blade angle.
+  const props = tp ? tp.engines.map((e) => ({ np: tp.powered ? e.np : s[19], blade: e.blade })) : null;
+  if (P.jet) aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], n1: [j[8], j[16]], gear: j[1], speedbrake: j[3],
+    lights: tp ? tp.engines.some((e) => e.running) : !!(j[13] || j[21]), reverser: [j[52], j[54]], props: ui.paused ? props?.map((p) => ({ ...p, np: 0 })) : props,
+    disc: ui.cam === 1 ? 0.2 : 1, collapsed, slow: S }, simDt);
   else aircraft.update({ flapDeg: s[26], aileron: s[45], elevator: s[46], rudder: s[47], rpm: ui.paused ? 0 : s[19], disc: ui.cam === 1 ? 0.15 : 1, phase: propPhase, collapsed, slow: S }, simDt);
   if (ui.flow) {
     acGroup.updateMatrixWorld(true);
@@ -2022,7 +2159,7 @@ function frame() {
   panelT += dt; cabinT += dt; swT += dt;
   if (swT > 0.2) { swT = 0; readSwitches(); }
   if (P.jet) {
-    cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, levers: [j[58], j[59]], spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2], pos: sw.pos });
+    cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, levers: P.turboprop ? [leverPos(0), leverPos(1)] : [j[58], j[59]], spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2], pos: sw.pos });
     if (ui.cam === 1 && cabinT > 1 / 20) { cabinT = 0; cabin.redraw(jetData()); }
   } else {
     cabin.update({ elev: s[46], ail: s[45], rud: s[47], trim: s[27], thr: input.throttle, mix: input.mixture, flapLever: sw.flaps, fuelSel: sw.fuelSel, shutoff: sw.pos?.['fuel.shutoff'], park: s[49] });
@@ -2038,12 +2175,13 @@ function frame() {
   // After a crash, once its sound has played: the engines, the wind, the
   // roll and the horn fall silent until the restart.
   const hush = ui.paused || S > 1 || crashHeard;
-  if (P.jet) audio.update(hush ? [0, 0] : [j[8], j[16]], hush ? [0, 0] : [j[9], j[17]], crashHeard ? 0 : (j[12] + j[20]) / 150, crashHeard ? 0 : j[26], c[K.stall] > 0.5 && !crashHeard, ui.cam === 1);
+  if (tp) audio.update(hush ? null : tp.engines.map((e) => ({ ng: e.ng, np: tp.powered ? e.np : s[19], torque: e.torque, beta: e.beta })), crashHeard ? 0 : s[11], c[K.stall] > 0.5 && !crashHeard, ui.cam === 1);
+  else if (P.jet) audio.update(hush ? [0, 0] : [j[8], j[16]], hush ? [0, 0] : [j[9], j[17]], crashHeard ? 0 : (j[12] + j[20]) / 150, crashHeard ? 0 : j[26], c[K.stall] > 0.5 && !crashHeard, ui.cam === 1);
   else audio.update(hush ? 0 : s[19], s[20], crashHeard ? 0 : s[11], c[K.stall] > 0.5 && !crashHeard, ui.cam === 1);
   audio.extras({
     tas: s[11], gs: s[12], vs: s[15], nz: s[18], flapDeg: s[26], flapMax: P.jet ? j[50] : 30,
     gear: P.jet ? j[1] : 1, retractable: !!P.jet, spoiler: P.jet ? Math.max(j[3], j[56] ? 1 : 0) : 0,
-    onGround: !!s[28], stalled: s[43], rev: P.jet ? (j[52] + j[54]) / 2 : 0, crashed: !!ui.crashed,
+    onGround: !!s[28], stalled: s[43], rev: tp ? (tp.engines.some((e) => e.beta) ? clamp((reverse - 0.4) / 0.6, 0, 1) * 0.6 : 0) : P.jet ? (j[52] + j[54]) / 2 : 0, crashed: !!ui.crashed,
     cabin: ui.cam === 1, paused: ui.paused || S > 1 || crashHeard,
   });
   crashHeard = ui.crashed && audio.on;  // the update that fired the crash sound has run
@@ -2051,4 +2189,4 @@ function frame() {
 }
 requestAnimationFrame(frame);
 // For checks (?debug): the core, the drawn ground and the page's state.
-if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, restart, setControl };
+if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl };

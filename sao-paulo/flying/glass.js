@@ -64,18 +64,28 @@ export function casMessages(d) {
   const m = [];
   const lim = speedLimits(d);
   const side = (i) => (i ? 'R' : 'L');
+  const t = d.tp;
   for (let i = 0; i < 2; ++i) {
     if (d.fuelSw[i] && !d.run[i] && !d.starting[i]) m.push([`${side(i)} ENGINE FAIL`, 3]);
     if (!d.fuelSw[i] && !d.run[i]) m.push([`${side(i)} ENGINE OFF`, 2]);
-    if (d.run[i] && d.oil[i] < 25) m.push([`${side(i)} OIL PRESS LOW`, 2]);
+    if (d.run[i] && d.oil[i] < (t ? 60 : 25)) m.push([`${side(i)} OIL PRESS LOW`, 2]);
     if (d.starting[i]) m.push([`${side(i)} ENGINE START`, 0]);
+    // A turboprop: the propeller feathered (by the pilot or the autofeather), in beta or reverse.
+    const e = t?.engines[i];
+    if (e?.autofeathered) m.push([`${side(i)} AUTOFEATHER`, 2]);
+    else if (e?.feathered && !d.wow) m.push([`${side(i)} PROP FEATHERED`, 1]);
+    if (e?.beta) m.push([`${side(i)} BETA`, 1]);
   }
+  if (t?.autofeather.fitted && t.autofeather.on && !t.autofeather.armed && !d.wow && d.thrLever > 0.85) m.push(['AUTOFEATHER OFF', 1]);
   if (!d.wow && d.gear < 0.99 && (d.flaps > 25 || (d.ra < 700 && d.thrLever < 0.3 && d.vsi < -200))) m.push(['GEAR NOT DOWN', 3]);
   if (!d.wow && d.ias > lim.vmax + 3) m.push(['OVERSPEED', 3]);
   if (d.pusher) m.push(['STICK PUSHER', 3]);
   if (d.stall) m.push(['STALL', 3]);
-  if (d.wow && d.thrLever > 0.7 && (d.flaps < 9 || d.flaps > 21 || d.spd > 0.02 || d.park)) m.push(['NO TAKEOFF CONFIG', 3]);
-  if (d.fuelKg < 1500) m.push(['FUEL LOW', 2]);
+  // Take-off configuration: a jet's take-off flap; a turboprop's flaps up to
+  // its take-off detent and the propeller levers forward.
+  const flapBad = t ? d.flaps > (d.toFlap || 14) + 2 || t.propLever < 0.95 : d.flaps < 9 || d.flaps > 21;
+  if (d.wow && d.thrLever > 0.7 && (flapBad || d.spd > 0.02 || d.park)) m.push(['NO TAKEOFF CONFIG', 3]);
+  if (d.fuelKg < (d.fuelLowKg || 1500)) m.push(['FUEL LOW', 2]);
   // Electrics: one message a generator on a type with the systems model
   // (hydraulics fitted: the generated jets report one generator), else the aggregate.
   const perGen = d.hydFit && d.gens;
@@ -409,7 +419,7 @@ function deviation(ctx, ax, ay, aw, ah, cx, cy, u, d) {
 }
 
 // ---------------------------------------------------------- engine display ----
-function n1Dial(ctx, cx, cy, r, n1, cmd, running, u, limit) {
+function n1Dial(ctx, cx, cy, r, n1, cmd, running, u, limit, redAt = 100) {
   const a = (p) => (-210 + clamp(p, 0, 110) / 110 * 240) * DEG;
   ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(1.5, u * 0.35);
   ctx.beginPath(); ctx.arc(cx, cy, r, a(0), a(100)); ctx.stroke();
@@ -425,22 +435,56 @@ function n1Dial(ctx, cx, cy, r, n1, cmd, running, u, limit) {
   const al = a(limit);
   ctx.strokeStyle = C.amber; ctx.lineWidth = Math.max(2, u * 0.6);
   ctx.beginPath(); ctx.moveTo(cx + Math.cos(al) * (r - u * 1.5), cy + Math.sin(al) * (r - u * 1.5)); ctx.lineTo(cx + Math.cos(al) * (r + u * 1.5), cy + Math.sin(al) * (r + u * 1.5)); ctx.stroke();
-  ctx.strokeStyle = n1 > 100 ? C.red : running ? C.white : C.amber; ctx.lineWidth = Math.max(2, u * 0.6);
+  ctx.strokeStyle = n1 > redAt ? C.red : running ? C.white : C.amber; ctx.lineWidth = Math.max(2, u * 0.6);
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a(n1)) * r * 0.95, cy + Math.sin(a(n1)) * r * 0.95); ctx.stroke();
   // Commanded N1 (thrust lever) caret.
   ctx.fillStyle = C.cyan; const ac = a(cmd);
   ctx.beginPath(); ctx.arc(cx + Math.cos(ac) * r * 1.08, cy + Math.sin(ac) * r * 1.08, u * 0.9, 0, 7); ctx.fill();
   box(ctx, cx - u * 1, cy - r * 0.05, r * 1.0, u * 6.4, C.white, C.black, 1);
-  text(ctx, n1.toFixed(1), cx + r * 0.45, cy - r * 0.05 + u * 3.2, u * 4.2, n1 > 100 ? C.red : running ? C.green : C.amber, 'center');
+  text(ctx, n1.toFixed(1), cx + r * 0.45, cy - r * 0.05 + u * 3.2, u * 4.2, n1 > redAt ? C.red : running ? C.green : C.amber, 'center');
 }
 
 const CAS_COL = [C.white, C.cyan, C.amber, C.red];
+// A turboprop's engine page (the King Air's PT6As, A.turboprop()): torque
+// dials with the power lever's caret and the 100 % limit, then ITT, Ng, Np,
+// fuel flow and oil a row, and the lights: FEATHER, BETA (REV in reverse), AUTOFEATHER.
+function turbopropEngines(ctx, x, y, w, u, d) {
+  const t = d.tp, E = t.engines, col = (i) => x + w * (i ? 0.72 : 0.28);
+  text(ctx, 'TRQ %', x + w * 0.5, y + 6 * u, u * 3.4, C.grey);
+  text(ctx, `SAT ${Math.round(d.sat)}°C`, x + w * 0.03, y + 4 * u, u * 2.6, C.white, 'left');
+  text(ctx, `PROP ${Math.round(t.npSelected)}`, x + w * 0.97, y + 4 * u, u * 2.6, C.cyan, 'right');
+  // Red past the 100 % limit's transient allowance (the limiter holds it at 100).
+  for (let i = 0; i < 2; ++i) n1Dial(ctx, col(i), y + 21 * u, 12 * u, E[i].torque, 100 * (t.levers?.[i] ?? 0), E[i].running, u, 100, 102);
+  // The lights under each dial; the autofeather's between them.
+  for (let i = 0; i < 2; ++i) {
+    const e = E[i], lights = [];
+    if (e.feathered) lights.push(['FEATHER', e.autofeathered ? C.amber : C.white]);
+    if (e.beta) lights.push([t.reverse > 0.42 ? 'REV' : 'BETA', C.green]);
+    if (e.starter) lights.push(['IGN', C.green]);
+    lights.forEach(([s, c], k) => { box(ctx, col(i) - u * 6 + (k - (lights.length - 1) / 2) * u * 12.5, y + 31.2 * u, u * 12, u * 3.6, c, null, 1); text(ctx, s, col(i) + (k - (lights.length - 1) / 2) * u * 12.5, y + 33 * u, u * 2.5, c, 'center', MONO, 700); });
+  }
+  if (t.autofeather.fitted && t.autofeather.on) text(ctx, t.autofeather.armed ? 'AUTOFTHR' : 'AF ON', x + w * 0.5, y + 33 * u, u * 2.4, t.autofeather.armed ? C.green : C.white, 'center', MONO, 700);
+  const row = (label, f, yy, fmt, color = () => C.green) => {
+    text(ctx, label, x + w * 0.5, yy, u * 2.7, C.grey);
+    E.forEach((e, i) => { const v = f(e); text(ctx, fmt(v), col(i), yy, u * 3.3, t.powered ? color(v, e) : C.dim); });
+  };
+  const y0 = 38.5, dy = 4.3;
+  row('ITT °C', (e) => e.itt, y + y0 * u, (v) => String(Math.round(v)), (v) => (v > 820 ? C.red : v > 800 ? C.amber : C.green));
+  row('NG %', (e) => e.ng, y + (y0 + dy) * u, (v) => v.toFixed(1), (v) => (v > 104 ? C.red : C.green));
+  row('NP RPM', (e) => e.np, y + (y0 + 2 * dy) * u, (v) => String(Math.round(v / 10) * 10), (v) => (v > 1735 ? C.red : C.green));
+  row('FF PPH', (e) => e.fuelFlowLbH, y + (y0 + 3 * dy) * u, (v) => String(Math.round(v / 10) * 10));
+  row('OIL PSI', (e) => e.oilPsi, y + (y0 + 4 * dy) * u, (v) => String(Math.round(v)), (v, e) => (e.running && v < 60 ? C.red : v > 135 ? C.amber : C.green));
+  row('OIL °C', (e) => e.oilC, y + (y0 + 5 * dy) * u, (v) => String(Math.round(v)), (v) => (v > 110 ? C.red : v > 99 ? C.amber : C.green));
+}
 export function drawEICAS(ctx, x, y, w, h, d) {
   ctx.save();
   ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
   ctx.fillStyle = C.black; ctx.fillRect(x, y, w, h);
   const u = h / 100;
   const cas = casMessages(d);
+  const sys = !!d.hydFit;  // the systems line takes a row: the engine rows close up for it
+  if (d.tp) turbopropEngines(ctx, x, y, w, u, d);
+  else {
   // Thrust rating for the N1 limit: take-off on the ground, climb below FL280, cruise above.
   const [rating, limit] = d.wow || d.ra < 1500 ? ['TO', 100] : d.alt < 28000 ? ['CLB', 96.5] : ['CRZ', 93];
   text(ctx, 'N1', x + w * 0.5, y + 6 * u, u * 3.4, C.grey);
@@ -457,7 +501,6 @@ export function drawEICAS(ctx, x, y, w, h, d) {
     text(ctx, label, x + w * 0.5, yy, u * 2.9, C.grey);
     vals.forEach((v, i) => text(ctx, fmt(v, i), x + w * (i ? 0.72 : 0.28), yy, u * 3.6, typeof color === 'function' ? color(v, i) : color));
   };
-  const sys = !!d.hydFit;  // the systems line takes a row: the engine rows close up for it
   const dy = sys ? 5.4 : 6, y0 = sys ? 37.6 : 39;
   row('ITT °C', d.itt, y + y0 * u, (v) => String(Math.round(v)), (v) => (v > 900 ? C.red : v > 860 ? C.amber : C.green));
   row('N2 %', d.n2, y + (y0 + dy) * u, (v) => v.toFixed(1), (v) => (v > 102 ? C.red : C.green));
@@ -470,6 +513,7 @@ export function drawEICAS(ctx, x, y, w, h, d) {
     const gens = d.gens || [d.gen, d.gen];
     const genCol = (i) => (gens[i] ? C.green : d.run[i] ? C.amber : C.grey);
     runText(ctx, x + w * 0.97, yy, u * 2.5, [['GEN 1 ', C.grey], [gens[0] ? 'ON ' : 'OFF', genCol(0)], ['  GEN 2 ', C.grey], [gens[1] ? 'ON ' : 'OFF', genCol(1)]], 'right');
+  }
   }
   ctx.strokeStyle = '#2b323b'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + w * 0.03, y + 61.6 * u); ctx.lineTo(x + w * 0.97, y + 61.6 * u); ctx.stroke();
   // Fuel, weight, trim.
@@ -501,9 +545,16 @@ export function drawEICAS(ctx, x, y, w, h, d) {
   text(ctx, 'FLAPS', fx + 5.5 * u, gy + 13 * u, u * 2.3, C.grey);
   const bx2 = x + w * 0.44;
   box(ctx, bx2, gy + 2 * u, 11 * u, 2 * u, C.dim, null, 1);
-  ctx.fillStyle = d.spd > 0.02 ? C.amber : C.dim; ctx.fillRect(bx2, gy + 2 * u, 11 * u * d.spd, 2 * u);
-  text(ctx, d.spd > 0.02 ? 'EXT' : 'RET', bx2 + 5.5 * u, gy + 8 * u, u * 3, d.spd > 0.02 ? C.amber : C.grey);
-  text(ctx, 'SPD BRK', bx2 + 5.5 * u, gy + 13 * u, u * 2.3, C.grey);
+  if (d.tp) {
+    // The propeller levers: their position and the governed rpm they select.
+    ctx.fillStyle = C.cyan; ctx.fillRect(bx2, gy + 2 * u, 11 * u * clamp(d.tp.propLever, 0, 1), 2 * u);
+    text(ctx, String(Math.round(d.tp.npSelected)), bx2 + 5.5 * u, gy + 8 * u, u * 3, C.cyan);
+    text(ctx, 'PROP RPM', bx2 + 5.5 * u, gy + 13 * u, u * 2.3, C.grey);
+  } else {
+    ctx.fillStyle = d.spd > 0.02 ? C.amber : C.dim; ctx.fillRect(bx2, gy + 2 * u, 11 * u * d.spd, 2 * u);
+    text(ctx, d.spd > 0.02 ? 'EXT' : 'RET', bx2 + 5.5 * u, gy + 8 * u, u * 3, d.spd > 0.02 ? C.amber : C.grey);
+    text(ctx, 'SPD BRK', bx2 + 5.5 * u, gy + 13 * u, u * 2.3, C.grey);
+  }
   // Crew alerting window: the most urgent first.
   const cx0 = x + w * 0.6, cw = w * 0.38;
   box(ctx, cx0, y + 73 * u, cw, 26 * u, '#2b323b', null, 1);
