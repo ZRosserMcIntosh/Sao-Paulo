@@ -1,7 +1,9 @@
 // São Paulo World · flight test bed: the Top G, a low-poly twin-jet built from
 // the aircraft definition the physics flies (top_g.json: swept wing panels,
 // T-tail, engine positions, gear attach points and control-surface spans).
-// No third-party model.
+// The generated jets and the King Air 350 (twin turboprops: wing nacelles,
+// four-blade propellers, the mains retracting into the nacelles) come from
+// their definitions' visual blocks the same way. No third-party model.
 //
 // Body FLU (x forward, y left, z up), metres from the structural datum = the
 // nose tip; the definition's structural frame is x forward, y right, z down.
@@ -253,7 +255,7 @@ export function buildJet(def) {
         const entry = { pivot, axis, side, def: ctl };
         if (ctl.channel === 'flap') controls.flaps.push(entry); else if (ctl.channel === 'aileron') controls.ailerons.push(entry);
         // Spoilers ride on the upper surface ahead of the outboard flap.
-        if (ctl.channel === 'flap' && a === 0) {
+        if (ctl.channel === 'flap' && a === 0 && def.controls?.speedbrake) {
           for (let k = 0; k < 3; ++k) {
             const sa = a + (b - a) * (k / 3), sb = a + (b - a) * ((k + 1) / 3) - 0.01;
             const cs = c0 + (c1 - c0) * sa, ce = c0 + (c1 - c0) * sb;
@@ -307,7 +309,9 @@ export function buildJet(def) {
     const mid = le0.clone().lerp(le1, 0.42).add(new THREE.Vector3(-c0 * 0.36, 0, 0));
     for (const out of [1, -1]) {
       // Text runs aft on the left side and forward on the right, reading upright from outside.
-      const d = new THREE.Mesh(new THREE.PlaneGeometry(3.0 * kf * Math.max(1, name.length / 5) * 0.8, 1.1 * kf), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4 }));
+      // A long name (KING AIR 350) is kept within the fin's chord, its height with it.
+      const dw0 = 3.0 * kf * Math.max(1, name.length / 5) * 0.8, dw = Math.min(dw0, 0.72 * c0);
+      const d = new THREE.Mesh(new THREE.PlaneGeometry(dw, 1.1 * kf * dw / dw0), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4 }));
       d.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
         new THREE.Vector3(-out, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, out, 0)));
       d.position.copy(mid).add(new THREE.Vector3(0, out * 0.27 * kf, 0));
@@ -425,6 +429,70 @@ export function buildJet(def) {
     fans.push(fan);
   }
 
+  // ---- Turboprops: wing-mounted tractor nacelles, spinner, four-blade propellers ----
+  // Each nacelle is lathed along its axis from the propeller hub
+  // (def.turboprops[*].position_m) aft: a round intake lip behind the
+  // spinner, the cowl at its radius over the engine, tapering behind the
+  // wing to the nacelle's tail (the main gear's well); two exhaust stacks
+  // a side. The propeller: blades on pitch pivots (the blade angle at 0.75 R
+  // from the governor: feathered, edge-on to the airflow), spun at Np.
+  const props = [];
+  const tps = def.turboprops || [];
+  if (tps.length) {
+    const nv = vis.nacelle || {}, Rn = nv.radius || 0.42, Ln = nv.length || 4.9, Rs = nv.spinner_radius || 0.21;
+    const pv = vis.propeller || {}, Rp = (pv.diameter_m || tps[0].propeller?.diameter_m || 2.6) / 2, nb = pv.blades || tps[0].propeller?.blades || 4, chord = pv.chord_m || 0.26;
+    const exhaust = new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.55, metalness: 0.7, side: THREE.DoubleSide });
+    const bladeMat = new THREE.MeshStandardMaterial({ color: 0x1e2023, roughness: 0.6, metalness: 0.2 });
+    const tipMat = new THREE.MeshStandardMaterial({ color: 0xf1c40f, roughness: 0.5 });
+    const cowlMat = paint.clone(); cowlMat.side = THREE.DoubleSide;
+    const lathe = (pts, mat, segs = 32) => {
+      const m = new THREE.Mesh(new THREE.LatheGeometry(pts.map(([r, x]) => new THREE.Vector2(Math.max(r, 0.001), x)), segs), mat);
+      m.rotation.z = -Math.PI / 2;  // lathe axis (y) -> local x (forward)
+      return m;
+    };
+    for (const e of tps) {
+      const hub = flu(e.position_m);
+      const nac = new THREE.Group(); nac.position.copy(hub); root.add(nac);
+      // Cowl profile [r, x] (x aft negative, from the propeller plane), aft to fore so the lathe faces out.
+      const prof = [];
+      const xs = [-Ln, -0.92 * Ln, -0.8 * Ln, -0.62 * Ln, -0.45 * Ln, -0.2 * Ln, -0.12 * Ln, -0.06 * Ln, -0.03 * Ln];
+      const rs = [0.18, 0.5, 0.78, 0.95, 1, 1, 0.97, 0.9, 0.82];
+      xs.forEach((x, k) => prof.push([rs[k] * Rn, x - 0.18]));
+      prof.push([0.7 * Rn, -0.16]);
+      add(lathe(prof, cowlMat), nac);
+      // The intake under the spinner: a dark lip scoop below the cowl's nose.
+      const scoop = add(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.34, 0.16), dark), nac);
+      scoop.position.set(-0.42, 0, -0.75 * Rn);
+      // Exhaust stacks: one each side, short stubs angled aft and out.
+      for (const side of [1, -1]) {
+        const a0 = new THREE.Vector3(-0.85, side * 0.7 * Rn, 0.05), a1 = new THREE.Vector3(-1.2, side * (Rn + 0.16), 0.0);
+        add(cylinderBetween(a0, a1, 0.085, exhaust), nac);
+      }
+      // Spinner.
+      const spin = new THREE.Group(); nac.add(spin);
+      add(lathe([[Rs, -0.16], [Rs * 0.98, -0.05], [Rs * 0.85, 0.12], [Rs * 0.55, 0.3], [0.02, 0.42]], cowlMat, 24), spin);
+      // Blades: each on a holder round the hub, a pitch pivot along its span.
+      const blades = new THREE.Group(); spin.add(blades);
+      const pitches = [];
+      for (let k = 0; k < nb; ++k) {
+        const holder = new THREE.Group(); holder.rotation.x = k / nb * 2 * Math.PI; blades.add(holder);
+        const pitch = new THREE.Group(); pitch.position.set(-0.02, 0, 0); holder.add(pitch);
+        const len = Rp - Rs * 0.8;
+        // Thin and wide: chord along y (the plane of rotation at zero pitch), span along z.
+        const g = new THREE.BoxGeometry(0.04, chord, len - 0.12);
+        g.translate(0, 0, Rs * 0.8 + (len - 0.12) / 2);
+        const b = new THREE.Mesh(g, bladeMat); b.castShadow = true; pitch.add(b);
+        const tg = new THREE.BoxGeometry(0.041, chord * 0.85, 0.12); tg.translate(0, 0, Rp - 0.06);
+        pitch.add(new THREE.Mesh(tg, tipMat));
+        pitches.push(pitch);
+      }
+      // The disc the eye sees at speed.
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(Rp, 48), new THREE.MeshBasicMaterial({ color: 0x202224, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+      disc.rotation.y = Math.PI / 2; disc.position.x = -0.02; spin.add(disc);
+      props.push({ blades, pitches, disc, angle: 0, dir: e.clockwise_from_behind === false ? -1 : 1 });
+    }
+  }
+
   // ---- Retractable landing gear ----
   const gears = [];
   for (const g of def.gear) {
@@ -440,7 +508,7 @@ export function buildJet(def) {
       const hub = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.5, r * 0.5, nose ? 0.21 : 0.27, 12), metal);
       hub.position.copy(w.position); pivot.add(hub);
     }
-    gears.push({ pivot, nose, side: Math.sign(a.y) });
+    gears.push({ pivot, nose, side: Math.sign(a.y), forward: nose || tps.length > 0 });
   }
 
   // ---- Lights ----
@@ -482,6 +550,18 @@ export function buildJet(def) {
     const rv = st.reverser || [];
     sleeves.forEach((s, i) => { s.sleeve.position.x = -s.travel * (rv[i] || 0); });
     fans.forEach((f, i) => { f.rotation.x = fanAngle * ((n1[i] || 0) / Math.max(n1[0] || 1, 1)); });
+    // Propellers (st.props [{ np rpm, blade deg }]): the blade angle on each
+    // pitch pivot; turning at Np, which the eye (and the frame rate) sees as
+    // a disc above ~600 rpm; in slow motion the blades at the slowed rate.
+    props.forEach((p, i) => {
+      const pr = st.props?.[i] || { np: 0, blade: 86 };
+      for (const q of p.pitches) q.rotation.z = p.dir * (pr.blade || 0) * DEG;  // the leading edge (the side going round) forward
+      const seen = pr.np / (st.slow || 1), fast = seen > 600;
+      p.angle = (p.angle + p.dir * pr.np / 60 * 2 * Math.PI * dt) % (2 * Math.PI);
+      p.blades.visible = !fast || seen < 900;
+      p.blades.rotation.x = fast ? p.angle * 0.02 + Math.random() * 6.28 : p.angle;  // + about x: clockwise seen from behind
+      p.disc.material.opacity = Math.min(0.32, Math.max(0, (seen - 500) / 1500) * 0.32) * (st.disc ?? 1);
+    });
     gears.forEach((g, i) => {
       // A collapsed leg (st.collapsed[i]) folds part-way the other way, broken.
       if (st.collapsed?.[i]) {
@@ -491,7 +571,8 @@ export function buildJet(def) {
         return;
       }
       const up = 1 - st.gear;
-      if (g.nose) g.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -up * 96 * DEG);
+      // The nose leg (and a turboprop's mains, into the nacelles) folds forward; a jet's mains inward.
+      if (g.forward) g.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -up * (g.nose ? 96 : 88) * DEG);
       else g.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -g.side * up * 86 * DEG);
       g.pivot.visible = st.gear > 0.03;
     });

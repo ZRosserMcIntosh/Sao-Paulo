@@ -214,3 +214,84 @@ export class JetAudio {
     this.horn.gain.setTargetAtTime(horn ? 0.06 : 0, t, 0.02);
   }
 }
+
+// The King Air: two PT6A turboprops. Each engine's turbine whine from its Ng
+// (the compressor's tones), and its four-blade propeller: the blade-passing
+// tone at 4 x Np / 60 Hz (113 Hz at 1,700 rpm) with its harmonics, louder
+// and buzzier with torque, a roar in beta and reverse; wind from the
+// airspeed, the stall warning, the airframe's sounds. The cabin muffles the engines.
+export class TurbopropAudio {
+  constructor() { this.ctx = null; this.on = false; this.vol = 0.8; }
+
+  start() {
+    if (this.ctx) { this.ctx.resume(); this.on = true; return; }
+    const ctx = (this.ctx = new (window.AudioContext || window.webkitAudioContext)());
+    const master = (this.master = ctx.createGain());
+    master.gain.value = this.vol;
+    master.connect(ctx.destination);
+    const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; ++i) d[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource(); noise.buffer = buf; noise.loop = true; noise.start();
+    this.muffle = ctx.createBiquadFilter(); this.muffle.type = 'lowpass'; this.muffle.frequency.value = 18000;
+    this.muffle.connect(master);
+    const gain = (v = 0) => { const g = ctx.createGain(); g.gain.value = v; return g; };
+    this.eng = [0, 1].map((i) => {
+      // Turbine: two sine tones (the compressor and its half), slightly detuned between the engines.
+      const whine = gain();
+      const whineOsc = [1, 0.5].map((m) => { const o = ctx.createOscillator(); o.type = 'sine'; o.connect(whine); o.start(); return { o, m }; });
+      whine.connect(this.muffle);
+      // Propeller: the blade-passing fundamental and harmonics through a body resonance.
+      const prop = gain();
+      const body = ctx.createBiquadFilter(); body.type = 'lowpass'; body.frequency.value = 700; body.Q.value = 0.9;
+      prop.connect(body).connect(this.muffle);
+      const propOsc = [1, 2, 3, 4].map((h, k) => {
+        const o = ctx.createOscillator(); o.type = k ? 'triangle' : 'sawtooth';
+        const g = gain([0.5, 0.25, 0.12, 0.06][k]); o.connect(g).connect(prop); o.start(); return { o, h };
+      });
+      // The blades' broadband buzz, and the roar of beta and reverse.
+      const buzz = gain(), buzzF = ctx.createBiquadFilter(); buzzF.type = 'bandpass'; buzzF.Q.value = 1.4;
+      noise.connect(buzzF).connect(buzz).connect(this.muffle);
+      const roar = gain(), roarF = ctx.createBiquadFilter(); roarF.type = 'lowpass'; roarF.frequency.value = 500;
+      noise.connect(roarF).connect(roar).connect(this.muffle);
+      return { whine, whineOsc, prop, propOsc, buzz, buzzF, roar, detune: 1 + i * 0.012 };
+    });
+    this.wind = gain();
+    const windF = (this.windF = ctx.createBiquadFilter()); windF.type = 'bandpass'; windF.Q.value = 0.5;
+    noise.connect(windF).connect(this.wind).connect(master);
+    this.horn = gain();
+    const ho = ctx.createOscillator(); ho.type = 'square'; ho.frequency.value = 1450; ho.start();
+    const trem = ctx.createOscillator(); trem.frequency.value = 9; const tg = gain(0.5);
+    const hb = gain(0.5); trem.connect(tg).connect(hb.gain); trem.start();
+    ho.connect(hb).connect(this.horn).connect(master);
+    this.airframe = new AirframeSound(ctx, master, noise, true);
+    this.on = true;
+  }
+
+  stop() { if (this.ctx) this.ctx.suspend(); this.on = false; }
+  setVolume(v) { this.vol = v; if (this.master) this.master.gain.value = v; }
+  extras(o) { if (this.ctx && this.on && this.airframe) this.airframe.update(o); }
+
+  // engines: [{ ng %, np rpm, torque %, beta }] (null: silent), tas kt, horn, cabin
+  update(engines, tas, horn, cabin) {
+    if (!this.ctx || !this.on) return;
+    const t = this.ctx.currentTime, k = 0.08;
+    this.eng.forEach((e, i) => {
+      const x = engines?.[i] || { ng: 0, np: 0, torque: 0, beta: false };
+      const spin = Math.min(x.ng / 60, 1), load = Math.min(Math.max(x.torque, 0) / 100, 1.1);
+      for (const { o, m } of e.whineOsc) o.frequency.setTargetAtTime((900 + x.ng * 42) * m * e.detune, t, k);
+      e.whine.gain.setTargetAtTime(0.016 * spin * (cabin ? 0.5 : 1), t, k);
+      const bp = Math.max(x.np / 60 * 4, 1) * e.detune;
+      for (const { o, h } of e.propOsc) o.frequency.setTargetAtTime(bp * h, t, 0.05);
+      const turning = Math.min(x.np / 900, 1);
+      e.prop.gain.setTargetAtTime(turning * (0.05 + 0.16 * load), t, k);
+      e.buzzF.frequency.setTargetAtTime(bp * 6, t, 0.1);
+      e.buzz.gain.setTargetAtTime(turning * 0.07 * load * load, t, k);
+      e.roar.gain.setTargetAtTime(x.beta ? 0.06 + 0.25 * Math.min(x.ng / 100, 1) ** 3 : 0.01 * turning, t, 0.15);
+    });
+    this.muffle.frequency.setTargetAtTime(cabin ? 1600 : 18000, t, 0.1);
+    const q = Math.min(tas / 200, 1.4);
+    this.windF.frequency.setTargetAtTime(300 + 1000 * q, t, 0.2);
+    this.wind.gain.setTargetAtTime(0.2 * q * q * (cabin ? 0.5 : 1), t, 0.2);
+    this.horn.gain.setTargetAtTime(horn ? 0.06 : 0, t, 0.02);
+  }
+}

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <base href="/sao-paulo/flying/">
 <title>Flight Test Bed</title>
-<meta name="description" content="Fly the 172 or the Top G business jet over São Paulo World in the browser: the Aviation Dynamics flight core compiled to WebAssembly, with real instruments, from Congonhas or Campo de Marte.">
+<meta name="description" content="Fly the 172, the King Air 350 or the Top G business jet over São Paulo World in the browser: the Aviation Dynamics flight core compiled to WebAssembly, with real instruments, from Congonhas or Campo de Marte.">
 <meta property="og:title" content="São Paulo World · Flight Test Bed">
 <meta property="og:description" content="Fly the 172 or the Top G jet over São Paulo, in your browser: take off from Congonhas or Campo de Marte and fly over the city.">
 <meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
@@ -46,12 +46,16 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #side h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px}
 #side h2:first-child{margin-top:0}
 .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.row[hidden]{display:none}
 .note{color:var(--mute);font-size:12px;margin:8px 0 0}
 .keys{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:12px;color:var(--mute);align-items:center}
 .keys span:nth-child(odd){white-space:nowrap}
 .ctl{display:grid;grid-template-columns:86px minmax(0,1fr) 64px;gap:8px;align-items:center;font-size:12px;color:var(--mute);margin-top:6px}
 .ctl output{font:500 11px var(--mono);color:var(--ink);text-align:right}
 .starts{display:grid;gap:5px}
+.apsel{display:grid;grid-template-columns:auto 28px 1fr 28px;gap:6px 8px;align-items:center;margin-top:8px;font:600 12px var(--mono);color:var(--mute)}
+.apsel b{text-align:center;color:var(--ink);font-weight:700}
+.apsel button{padding:2px 0}
 .ctl select{width:100%;min-width:0;background:rgba(255,255,255,.06);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 4px;font:inherit}
 #loadPanel .ctl{grid-template-columns:1fr auto;grid-template-areas:"name val" "bar bar";gap:2px 8px;margin-top:8px}
 #loadPanel .ctl span{grid-area:name}
@@ -94,6 +98,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .big div{font:900 40px/.85 var(--display);font-variant-numeric:tabular-nums}
 .big small{display:block;font:600 10px var(--mono);color:var(--mute);letter-spacing:.08em;margin-top:5px}
 .assist{font:800 13px/1 var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--hot)}
+.assist .fa{color:var(--good)}.assist .fw{color:#fff}
+.assist .mins{color:#1b1200;background:var(--warn);padding:1px 5px;border-radius:3px;animation:tawsFlash .7s steps(1) infinite}
 .levers{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font:600 10px var(--mono);color:var(--mute);text-align:center}
 .lev{height:56px;border-radius:4px;background:rgba(255,255,255,.08);position:relative;overflow:hidden;margin-bottom:3px}
 .lev i{position:absolute;left:0;right:0;bottom:0;background:var(--ink)}
@@ -105,6 +111,16 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #coreId{margin:14px 0 0;font:500 10px var(--mono);color:var(--mute);letter-spacing:.03em;opacity:.8}
 #warn{position:fixed;left:50%;top:70px;transform:translateX(-50%);font:900 26px/1 var(--display);letter-spacing:.06em;color:#fff;background:var(--bad);border-radius:6px;padding:6px 14px;z-index:2;display:none;pointer-events:none}
 #warn.on{display:block}
+/* TAWS: the top alert as a tag (the analog 172, or the jets with the panel hidden). */
+#taws{position:fixed;left:50%;top:112px;transform:translateX(-50%);font:900 24px/1 var(--display);letter-spacing:.06em;color:#fff;border:2px solid #fff;background:rgba(10,17,28,.72);border-radius:6px;padding:6px 14px;z-index:2;pointer-events:none}
+#taws[hidden]{display:none}
+/* Windshield frost (cockpit view): over the upper view, fading at the glareshield; opacity from the core's windshield ice. */
+#frost{position:fixed;left:0;right:0;top:0;height:72%;z-index:1;pointer-events:none;opacity:0;transition:opacity .4s;
+  background:radial-gradient(ellipse 60% 55% at 46% 42%,rgba(226,236,244,.35),rgba(232,240,247,.9) 70%),repeating-linear-gradient(115deg,rgba(255,255,255,.12) 0 2px,rgba(210,224,236,.1) 2px 5px);
+  -webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);-webkit-mask-image:linear-gradient(to bottom,#000 78%,transparent);mask-image:linear-gradient(to bottom,#000 78%,transparent)}
+#taws.caut{color:#1b1200;background:var(--warn);border-color:var(--warn)}
+#taws.warn{background:var(--bad);border-color:var(--bad);animation:tawsFlash .8s steps(1) infinite}
+@keyframes tawsFlash{50%{background:rgba(10,17,28,.72);color:var(--bad)}}
 #flowLegend{position:fixed;right:12px;bottom:calc(var(--instr-h,150px) + 24px);z-index:2;width:250px;display:grid;gap:7px;pointer-events:none}
 #flowLegend[hidden]{display:none}
 #flowLegend .lg{display:grid;gap:3px;font:500 11px var(--mono);color:var(--mute)}
@@ -135,6 +151,10 @@ body.jet{--instr-h:clamp(300px,37vh,420px)}
 body.jet #instr{width:min(1500px,calc(100% - 24px))}
 body.jet #hud .levers{display:none}
 @media (max-height:820px) and (pointer:fine){body.jet #hud .read{display:none}}
+/* The 172's G1000 (PFD and MFD, 4:3 each) is drawn from its height, like the jets' strip. */
+body.g1000{--instr-h:clamp(280px,36vh,400px)}
+body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
+@media (max-height:820px) and (pointer:fine){body.g1000 #hud .read{display:none}}
 #toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
 #toast.on{opacity:1}
 #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:5;background:var(--bg)}
@@ -157,22 +177,21 @@ body.jet #hud .levers{display:none}
   #tSpd{right:calc(156px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom))}
   #tRev{right:calc(156px + env(safe-area-inset-right));bottom:calc(120px + env(safe-area-inset-bottom))}
   .tb[hidden]{display:none}
-  .apsel{display:grid;grid-template-columns:auto 28px 1fr 28px;gap:6px 8px;align-items:center;margin-top:8px;font:600 12px var(--mono);color:var(--mute)}
-  .apsel b{text-align:center;color:var(--ink);font-weight:700}
-  .apsel button{padding:2px 0}
   #instr{bottom:auto;top:calc(60px + env(safe-area-inset-top));height:var(--instr-h,96px)}
   #instr .grip{top:auto;bottom:-7px}#instr .grip::before{border-top:0;border-bottom:3px solid var(--ink)}
   body.jet{--instr-h:min(192px,45vh)}
+  body.g1000{--instr-h:min(250px,40vh)}
   #hud{top:auto;bottom:calc(180px + env(safe-area-inset-bottom));left:calc(12px + env(safe-area-inset-left))}
   #hud .read,#hud .levers{display:none}
   .big div{font-size:30px}
   #side{width:min(310px,calc(100% - 24px));touch-action:pan-y}
 }
-@media (max-width:760px){#instr{height:var(--instr-h,110px)}body.jet{--instr-h:min(220px,45vh)}.read{display:none}}
+@media (max-width:760px){#instr{height:var(--instr-h,110px)}body.jet{--instr-h:min(220px,45vh)}body.g1000{--instr-h:min(250px,40vh)}.read{display:none}}
 /* Desktop: with a menu open, the strip and legend make room for it. */
 @media (min-width:900px) and (pointer:fine){
   body.side-open #instr{left:calc(50% - 161px);width:min(1000px,calc(100% - 358px))}
   body.jet.side-open #instr{width:min(1500px,calc(100% - 358px))}
+  body.g1000.side-open #instr{width:min(1100px,calc(100% - 358px))}
   body.side-open #flowLegend{right:334px}
 }
 /* Menus: one at a time in the side panel, chosen from the top bar (or the tabs at its head). */
@@ -216,7 +235,7 @@ body.jet #hud .levers{display:none}
     <span class="menus" role="group" aria-label="Menus">
       <button data-open="flight" aria-expanded="false" aria-controls="side" title="Aircraft, airport, destination and start">Flight</button>
       <button data-open="load" aria-expanded="false" aria-controls="side" title="Weight and fuel">Load</button>
-      <button data-open="weather" aria-expanded="false" aria-controls="side" title="Wind, visibility and fog, turbulence, runway">Weather</button>
+      <button data-open="weather" aria-expanded="false" aria-controls="side" title="Wind, visibility and fog, turbulence, rain, icing, fronts, runway">Weather</button>
       <button data-open="controls" aria-expanded="false" aria-controls="side" title="Keys, mouse and gamepad">Controls</button>
       <button data-open="options" aria-expanded="false" aria-controls="side" title="Assists, display, sound and failures">Options</button>
     </span>
@@ -243,8 +262,10 @@ body.jet #hud .levers{display:none}
     <button data-aircraft="learjet45" aria-pressed="false">Learjet 45 <small style="font-weight:500;opacity:.7">· mid-size jet</small></button>
     <button data-aircraft="crj700" aria-pressed="false">CRJ700 <small style="font-weight:500;opacity:.7">· regional jet</small></button>
     <button data-aircraft="b738" aria-pressed="false">737-800 <small style="font-weight:500;opacity:.7">· airliner</small></button>
+    <button data-aircraft="kingair" aria-pressed="false">King Air 350 <small style="font-weight:500;opacity:.7">· twin turboprop</small></button>
   </div>
-  <p class="note jetonly" hidden>The Top G flies on the G650ER's published figures: two 75 kN turbofans with thrust lapse and spool lag, a swept supercritical wing with Mach drag rise, Fowler flaps, speedbrakes and retractable gear. Mmo 0.925, Vmo 340 kt.</p>
+  <p class="note tponly" hidden>The King Air 350: two 1,050 shp PT6A-60A turboprops (torque and ITT limited at the power levers' forward stop), four-blade constant-speed propellers governed from 1,450 to 1,700 rpm, with feather, ground beta and reverse, autofeather, a T-tail and winglets. Power levers on the throttle keys, propeller levers ⇧, ⇧., condition levers ⇧1 ⇧2 ⇧3, beta ⇧N and reverse N on the ground.</p>
+  <p class="note fanonly" hidden>The Top G flies on the G650ER's published figures: two 75 kN turbofans with thrust lapse and spool lag, a swept supercritical wing with Mach drag rise, Fowler flaps, speedbrakes and retractable gear. Mmo 0.925, Vmo 340 kt.</p>
 
   <h2>Airport</h2>
   <div class="row" role="group" aria-label="Airport">
@@ -292,6 +313,15 @@ body.jet #hud .levers{display:none}
   <label class="ctl">Thermals <select id="thermals"><option value="0">none</option><option value="1.5">weak (w* 1.5 m/s)</option><option value="2.5">good (w* 2.5 m/s)</option><option value="3.5">strong (w* 3.5 m/s)</option></select><output></output></label>
   <label class="ctl">Hazard <select id="hazard"><option value="0">none</option><option value="1">microburst on final</option><option value="2">gust front from the SW</option></select><output></output></label>
   <label class="ctl">Runway <select id="rwyWater"><option value="0">dry</option><option value="1">wet</option><option value="6">standing water (6 mm)</option><option value="13">flooded (13 mm)</option></select><output></output></label>
+  <h2>Rain, ice and fronts</h2>
+  <label class="ctl">Rain <select id="rain"><option value="0">off</option><option value="1">light · 1 mm/h</option><option value="2.5">moderate · 2.5 mm/h</option><option value="10">heavy · 10 mm/h</option><option value="50">downpour · 50 mm/h</option></select><output></output></label>
+  <label class="ctl">Icing <select id="icing"><option value="0">none</option><option value="1">light · −5 °C, 0.2 g/m³</option><option value="2">moderate · −7 °C, 0.4 g/m³</option><option value="3">severe · −10 °C, 0.8 g/m³</option></select><output></output></label>
+  <label class="ctl">Front <select id="front"><option value="none">none</option><option value="cold">cold front</option><option value="warm">warm front</option></select><output></output></label>
+  <label class="ctl">Arriving in <input id="frontEta" type="range" min="1" max="30" step="1" value="10"><output id="frontEtaV">10 min</output></label>
+  <div class="row" id="iceSw" role="group" aria-label="Ice protection" style="margin-top:8px"></div>
+  <p class="note" id="iceNone" hidden>This aircraft has no ice protection to switch (its pitot heat is on the electrical panel).</p>
+  <p class="note" id="atis" aria-live="off">—</p>
+  <p class="note">Rain falls from the cloud's top to the ground: the visibility falls with it, and the runways wet over a few minutes (a water film, standing water in a downpour) and dry after. Icing puts a supercooled stratus 1,200 m deep round the altitude you are at when you choose it (choose again to move it): in it the airframe ices, the stall speed rises and the windshield frosts; below 0 °C rain is freezing rain. The jets' ice detector shows ICE DETECTED; their wing (and the CJ4's tail) anti-ice or boots are the buttons above, or <kbd>\</kbd> and <kbd>⇧\</kbd>. The 172 can ice its carburettor in humid air even when warm: the rpm sags, and carb heat (<kbd>\</kbd>) melts it. A front moves across the field at the minute set: behind a cold front it is 6 °C colder, the QNH 3 hPa higher and the wind 15 kt from 200°; behind a warm front 4 °C warmer, 2 hPa lower, 10 kt from 320°. An altimeter set ahead of it reads wrong behind it: the ATIS line has the field's QNH.</p>
   <p class="note">The wind is the airfield report: it grows and backs with height and brings its own gusts over the city. Turbulence follows MIL-HDBK-1797; a wet runway brakes like the certification wet-runway curve, and in standing water the tyres hydroplane above 9·√(tyre psi) kt (about 124 kt for the Top G, 55 kt for the 172).</p>
 
   </section>
@@ -306,7 +336,9 @@ body.jet #hud .levers{display:none}
     <span><kbd>U</kbd></span><span>Autoland: fly the approach to the destination and land, on / off (moving the stick takes over)</span>
     <span><kbd>Y</kbd></span><span>Autopilot on / off: holds the heading, altitude and (jets) speed; modes and selections in Options</span>
     <span><kbd>PgUp</kbd> <kbd>PgDn</kbd></span><span>Autopilot: selected altitude ±500 ft (Shift ±100), climbing or descending to it</span>
-    <span class="jetonly"><kbd>N</kbd></span><span class="jetonly">Reverse thrust (hold, throttles at idle, on the ground)</span>
+    <span><kbd>⇧Y</kbd></span><span>Autopilot APR: arm the approach (ILS or GPS, Options → Flying): the localizer, then the glideslope, to the DA, where the autopilot lets go</span>
+    <span class="fanonly"><kbd>N</kbd></span><span class="fanonly">Reverse thrust (hold, throttles at idle, on the ground)</span>
+    <span class="tponly" hidden><kbd>N</kbd> · <kbd>⇧N</kbd></span><span class="tponly" hidden>Reverse · ground beta (hold, power levers at idle, on the ground: the blades on the power levers below the flight-idle gate)</span>
   </div>
   <h2>Engines and configuration</h2>
   <div class="keys">
@@ -314,14 +346,18 @@ body.jet #hud .levers{display:none}
     <span class="jetonly" hidden><kbd>⇧X</kbd><kbd>⇧Z</kbd> · <kbd>Alt X</kbd><kbd>Alt Z</kbd></span><span class="jetonly" hidden>Engine 1 lever alone · engine 2 lever alone (split thrust: asymmetric, or differential taxi)</span>
     <span><kbd>,</kbd> <kbd>.</kbd></span><span>Flaps up / down a notch</span>
     <span class="jetonly" hidden><kbd>G</kbd></span><span class="jetonly" hidden>Landing gear</span>
-    <span class="jetonly" hidden><kbd>/</kbd></span><span class="jetonly" hidden>Speedbrake (RET, half, full)</span>
+    <span class="fanonly" hidden><kbd>/</kbd></span><span class="fanonly" hidden>Speedbrake (RET, half, full)</span>
+    <span class="tponly" hidden><kbd>⇧,</kbd> <kbd>⇧.</kbd></span><span class="tponly" hidden>Propeller levers back / forward (hold: 1,450 to 1,700 rpm, both engines)</span>
+    <span class="tponly" hidden><kbd>⇧1</kbd> <kbd>⇧2</kbd> <kbd>⇧3</kbd></span><span class="tponly" hidden>Condition levers: CUT-OFF, LOW IDLE, HIGH IDLE (both engines)</span>
     <span><kbd>B</kbd> · <kbd>P</kbd></span><span>Brakes · parking brake</span>
+    <span><kbd>\</kbd> · <kbd>⇧\</kbd></span><span>Ice protection: the 172's carburettor heat; the jets' wing anti-ice (or boots) · the tail's (Weather menu)</span>
   </div>
   <h2>Instruments</h2>
   <div class="keys">
-    <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level) · sync the heading to the compass</span>
+    <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level); AHRS RESET on the jets and the G1000 (ATT flag while it re-aligns, about 30 s) · sync the heading to the compass</span>
     <span><kbd>;</kbd> <kbd>'</kbd></span><span>Heading bug left / right (Shift: 1°)</span>
     <span><kbd>O</kbd></span><span>Altimeter +0.01 inHg (Shift: −)</span>
+    <span class="pistononly"><kbd>J</kbd></span><span class="pistononly">172 panel: analog six-pack or G1000 glass (Options → Display)</span>
   </div>
   <h2>View and simulation</h2>
   <div class="keys">
@@ -355,18 +391,35 @@ body.jet #hud .levers{display:none}
     <button id="apAlt" aria-pressed="false">ALT</button>
     <button id="apVs" aria-pressed="false">VS</button>
     <button id="apSpd" aria-pressed="false">SPD</button>
+    <button id="apApr" aria-pressed="false" title="Approach mode (Shift+Y): the localizer and glideslope, or the GPS final course and glidepath, to the DA">APR</button>
+    <button id="apSrc" title="The approach APR flies: the ILS on NAV 1, or the GPS approach">ILS</button>
   </div>
   <div class="apsel" aria-label="Autopilot selections">
     <span>ALT</span><button data-apsel="alt" data-step="-500" title="PgDn">−</button><b id="apAltV">—</b><button data-apsel="alt" data-step="500" title="PgUp">+</button>
     <span>VS</span><button data-apsel="vs" data-step="-100">−</button><b id="apVsV">—</b><button data-apsel="vs" data-step="100">+</button>
     <span>SPD</span><button data-apsel="ias" data-step="-5">−</button><b id="apIasV">—</b><button data-apsel="ias" data-step="5">+</button>
+    <span title="APR's decision altitude, on the altimeter (double-click: back to the field + 200 ft)">DA</span><button data-dastep="-50">−</button><b id="apDaV">—</b><button data-dastep="50">+</button>
   </div>
+  <div class="row" role="group" aria-label="Terrain awareness" style="margin-top:10px">
+    <button id="bTerrInh" aria-pressed="false" title="Terrain inhibit: the forward-looking terrain alerts off">TERR INHIB</button>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute)">DH <select id="tawsDh" aria-label="Decision height on the radio altimeter">
+      <option value="0">none</option><option value="50">50 ft</option><option value="100">100 ft</option><option value="150">150 ft</option><option value="200">200 ft</option><option value="250">250 ft</option><option value="300">300 ft</option><option value="400">400 ft</option><option value="500">500 ft</option>
+    </select></label>
+  </div>
+  <p class="note">Terrain awareness (TAWS: class A in the jets, B in the others) watches the region's terrain and buildings ahead and below: CAUTION TERRAIN, then TERRAIN AHEAD, PULL UP, and the GPWS calls (SINK RATE, DON'T SINK, TOO LOW GEAR / FLAPS, GLIDESLOPE, BANK ANGLE, the height callouts). The alert shows on the PFD (red PULL UP, amber TERRAIN), as a tag on the analog 172, and is spoken with the sound on (<kbd>M</kbd>). TERR INHIB turns the forward-looking terrain alerts off for flying low near hills on purpose; the GPWS modes stay. DH: the decision height on the radio altimeter, where MINIMUMS is called; the radio altitude shows on the PFD below 2,500 ft.</p>
   <p class="note">Assists only move the controls, as a skilled pilot would: Easy levels the wings, coordinates turns, trims and guards the stall; Simulation is the raw airplane. Lift, thrust and weight are identical in all three. Auto-trim (any mode): let go of the stick and it levels the wings, stops the climb or descent, then holds that heading and altitude and trims for you; near the stall it gives up height rather than speed. It never touches the throttle.</p>
   <p class="note">Autopilot (in the air, Y): the flight core's autopilot, flown from the instruments. Y engages it holding the present heading (HDG, on the heading bug: ; and ' turn it), altitude (ALT) and, on the jets, speed (SPD, the autothrottle). NAV follows the GPS route to the destination; VS climbs or descends at the selected rate to the selected altitude and levels off there (PgUp and PgDn move it by 500 ft; changing it starts the climb or descent). It runs the trim, banks at most 25°, and lets go on the ground; the stick or Y gives you the controls back.</p>
+  <p class="note">APR (<kbd>⇧Y</kbd>), the approach mode: ILS flies the heading bug to intercept the localizer on NAV 1 (set the bug to the intercept heading), captures it inside full scale (HDG | LOC armed, then LOC | GS armed), then the glideslope from level or below within a quarter dot (LOC | GS), and flies both down to the DA; GPS does the same on the GPS approach to the destination (LNAV, then LPV on its glidepath). At the DA the autopilot lets go: MINIMUMS — AP DISCONNECT flashes with a tone and you land the airplane; if SPD was on, the autothrottle stays in until you take it out (SPD or Y) for the flare. DA: the decision altitude on the altimeter, by default the destination's field elevation + 200 ft. Modes on the status line and the PFDs: active green, armed white.</p>
   <p class="note">Autoland (in the air, U): the blind-landing pilot of the flight core flies the GPS approach to the destination (the runway in use if none is picked) from the instruments alone. It joins the final where it can fly the 3° path from there, else it flies the whole procedure (the initial fix, the intermediate fix, level at the final approach fix's altitude); it lowers the gear, puts the flaps out as the speed allows, sets the altimeter to QNH, flares, lands and brakes to a stop on the centreline. Moving the stick, or U, gives you the controls back.</p>
 
   <h2>Display</h2>
-  <div class="row" role="group" aria-label="Speed units">
+  <div class="row pistononly" role="group" aria-label="172 instrument panel">
+    <span style="font-size:12px;color:var(--mute);margin-right:2px">172 panel</span>
+    <button data-panel172="analog" aria-pressed="true" title="J">Analog</button>
+    <button data-panel172="g1000" aria-pressed="false" title="J">G1000</button>
+  </div>
+  <p class="note pistononly">The six-pack, or the glass cockpit of a 172S NAV III: the PFD (attitude, speed and altitude tapes, HSI on NAV 1 or the GPS) and the MFD (moving map over the region's terrain, the engine indication system). Scroll the HDG, CRS, barometer and selected-altitude boxes or the map to turn their knobs; the softkeys click.</p>
+  <div class="row" role="group" aria-label="Speed units" style="margin-top:8px">
     <button data-units="kt" aria-pressed="true">Knots</button>
     <button data-units="kmh" aria-pressed="false">+ km/h</button>
     <button data-units="mph" aria-pressed="false">+ mph</button>
@@ -375,11 +428,27 @@ body.jet #hud .levers{display:none}
   <div class="row" style="margin-top:8px"><button id="bCity" aria-pressed="true">Buildings on</button></div>
   <p class="note">The city's buildings from OpenStreetMap, at their mapped heights, and where OpenStreetMap has none the footprints traced from imagery by Google and Microsoft, their heights estimated from the mapped buildings around them: every building within a few kilometres, the skyline (35 m and taller) beyond. Building data © <a href="https://www.openstreetmap.org/copyright" style="color:var(--ink)">OpenStreetMap contributors</a>, Microsoft, Google Open Buildings (ODbL), via the Overture Maps buildings theme.</p>
 
+  <h2>Graphics</h2>
+  <div class="row" role="group" aria-label="Quality">
+    <button data-quality="0" aria-pressed="false">Low</button>
+    <button data-quality="1" aria-pressed="false">Medium</button>
+    <button data-quality="2" aria-pressed="false">High</button>
+    <button data-quality="3" aria-pressed="false">Ultra</button>
+  </div>
+  <label class="ctl">Buildings in detail <input id="gDetail" type="range" min="1000" max="8000" step="250" value="2000"><output id="gDetailV">2 km</output></label>
+  <label class="ctl">Skyline <select id="gSkyline"><option value="0">off</option><option value="10000">10 km</option><option value="20000">20 km</option><option value="-1">all</option></select><output></output></label>
+  <label class="ctl">View distance <select id="gView"><option value="0">near</option><option value="1">normal</option><option value="2">far</option></select><output></output></label>
+  <label class="ctl">Shadows <select id="gShadows"><option value="0">off</option><option value="1">near the aircraft</option><option value="2">everywhere</option></select><output></output></label>
+  <label class="ctl">Resolution <select id="gRes"><option value="1">up to 1×</option><option value="1.5">up to 1.5×</option><option value="2">up to 2×</option></select><output></output></label>
+  <p class="note" id="gCost" aria-live="off">—</p>
+  <p class="note">Buildings in detail: every building within this distance of the aircraft (a little farther as you climb); beyond it the skyline, the buildings 35 m and taller, out to its distance. View distance: how far the haze lets you see, and the ground drawn to it. Shadows: the aircraft's shadow on the ground and the roofs near it, everywhere, or none. Resolution: the most pixels per screen pixel; it drops by itself when frames run slow. Low suits phones and older laptops; Medium most computers; High and Ultra a fast graphics card.</p>
+
   <h2>Sound</h2>
   <div class="row"><button id="bSound" aria-pressed="false" title="M">Sound off</button>
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)">Volume <input id="vol" type="range" min="0" max="100" value="80" style="width:110px"></label></div>
   <p class="note pistononly">Synthesized from the simulation: firing pulses at the engine rpm, louder with manifold pressure, wind from the airspeed, and the stall-warning reed horn.</p>
-  <p class="note jetonly" hidden>Synthesized from the simulation: fan tone and core whine from each engine's N1 and N2, roar with thrust, wind from the airspeed, and the stall warning.</p>
+  <p class="note fanonly" hidden>Synthesized from the simulation: fan tone and core whine from each engine's N1 and N2, roar with thrust, wind from the airspeed, and the stall warning.</p>
+  <p class="note tponly" hidden>Synthesized from the simulation: each turbine's whine from its Ng, each four-blade propeller's tone at the blade-passing frequency (4 × Np), buzzier with torque, the roar of beta and reverse, wind from the airspeed, and the stall warning.</p>
 
   <h2>Failures</h2>
   <div class="row">
@@ -391,6 +460,12 @@ body.jet #hud .levers{display:none}
     <button data-fail="4" class="jetonly" hidden aria-pressed="false" title="Engine 1's generator off line: the other carries the bus">GEN 1</button>
     <button data-fail="5" class="jetonly" hidden aria-pressed="false" title="Engine 2's generator off line: the other carries the bus">GEN 2</button>
   </div>
+  <div class="row tponly" role="group" aria-label="Propellers" style="margin-top:8px" hidden>
+    <button data-feather="0" aria-pressed="false" title="Propeller 1 to the feather detent">Feather 1</button>
+    <button data-feather="1" aria-pressed="false" title="Propeller 2 to the feather detent">Feather 2</button>
+    <button id="bAutofeather" aria-pressed="false" title="Autofeather switch: ARM">Autofeather</button>
+  </div>
+  <p class="note tponly" hidden>King Air: Engine 1 cut-off moves its condition lever to CUT-OFF; the propeller windmills on its governor (drag) until it is feathered (Feather 1), or the armed autofeather does it.</p>
   <p class="note">Failures act on the physical systems: with the fuel off the engine starves after the line fuel is used; a failed vacuum pump lets the gyros spin down; a blocked pitot bleeds the airspeed to zero<span class="jetonly" hidden>; with both generators off the battery carries the bus until it is flat</span>.</p>
 
   <h2>About</h2>
@@ -416,6 +491,8 @@ body.jet #hud .levers{display:none}
   </div>
 </div>
 <div id="warn">STALL</div>
+<div id="taws" role="alert" hidden></div>
+<div id="frost" aria-hidden="true"></div>
 <div id="osmCredit"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Buildings © OpenStreetMap contributors, Microsoft, Google Open Buildings</a> · <a href="https://www.earthdata.nasa.gov/data/instruments/srtm" target="_blank" rel="noopener">Terrain: SRTM (NASA, USGS)</a></div>
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>
@@ -437,7 +514,7 @@ body.jet #hud .levers{display:none}
   <div class="tb" id="tFd">FL+</div>
   <div class="tb" id="tBr">BRK</div>
   <div class="tb jetonly" id="tGear" hidden>GEAR</div>
-  <div class="tb jetonly" id="tSpd" hidden>SPD</div>
+  <div class="tb fanonly" id="tSpd" hidden>SPD</div>
   <div class="tb jetonly" id="tRev" hidden>REV</div>
 </div>
 
