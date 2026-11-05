@@ -18,6 +18,7 @@ import { buildFlow } from './flow.js';
 import { buildSmoke } from './smoke.js';
 import { mountLoadSheet } from './loadsheet.js';
 import { buildCity } from './buildings.js';
+import { buildGround } from './ground.js';
 import { buildCrash } from './crash.js';
 
 const $ = (id) => document.getElementById(id);
@@ -218,9 +219,11 @@ scene.add(skyDome);
 
 // ---------- Ground: the São Paulo World map on the core's ground ----------
 // The core's ground (avd_ground_height): each airport's field flat at its own
-// elevation, the region's real terrain between them (SRTM). One mesh out to ~100 km on a 1 km
-// grid aligned with the map, with a hole where the map is; the map itself on a
-// 500 m grid, both following the same heights.
+// elevation, the region's real terrain between them (SRTM, a 200 m grid).
+// Drawn by ground.js in chunks around the camera: at the core's own
+// resolution (and finer) near it, coarser farther out (there never below the
+// core's ground), out to ~100 km beyond the map, the map photo draped over its
+// area.
 const enu = (e, n, u) => new THREE.Vector3(e, u, -n);
 // Vertices relative to (ox, oy), the mesh placed there: far from the world
 // origin, 32-bit vertex positions would otherwise lose centimetres.
@@ -245,6 +248,9 @@ function heightMesh(x0, y0, nx, ny, step, skip, mat, drop, ox = 0, oy = 0) {
   m.position.set(ox, 0, -oy);
   return m;
 }
+const TN = 104;  // km of terrain beyond the map on each side
+const ground = buildGround({ groundAt, bounds: [MX0 - TN * 1000, MY0 - TN * 1000, MX1 + TN * 1000, MY1 + TN * 1000], map: [MX0, MY0, MX1, MY1] });
+scene.add(ground.group);
 // Rebuilt when a destination beyond the region joins the ground: it shifts
 // the blend everywhere a little, and gets ground of its own (a 1 km patch
 // around it, and a coarse corridor from the region to it).
@@ -252,16 +258,10 @@ const terrain = new THREE.Group();
 scene.add(terrain);
 const groundMat = new THREE.MeshLambertMaterial({ color: '#77796f' });
 const farMat = new THREE.MeshLambertMaterial({ color: '#77796f', polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-const mapMat = new THREE.MeshLambertMaterial({ color: '#ffffff', polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-const TN = 104;  // km of terrain beyond the map on each side
 const inMain = (e, n) => e > MX0 - TN * 1000 && e < MX1 + TN * 1000 && n > MY0 - TN * 1000 && n < MY1 + TN * 1000;
 function buildTerrain() {
   for (const m of [...terrain.children]) { m.geometry.dispose(); terrain.remove(m); }
-  const inMap = (e, n) => e > MX0 && e < MX1 && n > MY0 && n < MY1;
-  terrain.add(heightMesh(MX0 - TN * 1000, MY0 - TN * 1000, (MX1 - MX0) / 1000 + 2 * TN, (MY1 - MY0) / 1000 + 2 * TN, 1000, inMap, groundMat, 0.3));
-  const map = heightMesh(MX0, MY0, (MX1 - MX0) / 500, (MY1 - MY0) / 500, 500, null, mapMat, 0.05);
-  map.receiveShadow = true;
-  terrain.add(map);
+  ground.rebuild();
   for (let i = REGION_N; i < REGION.length; ++i) {
     const [ce, cn] = fieldCentre(REGION[i]);
     if (inMain(ce, cn)) continue;
@@ -296,7 +296,7 @@ city.group.visible = showCity;
 new THREE.TextureLoader().load(MOBILE ? '../img/mosaic_world_sm.jpg' : '../img/mosaic_world.jpg', (t) => {
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  mapMat.map = t; mapMat.needsUpdate = true;
+  ground.material.map = t; ground.material.needsUpdate = true;
 });
 
 // A runway: asphalt, threshold bars, numbers, centreline; from its paved
@@ -366,6 +366,7 @@ function drawFarFields() {
   for (let i = REGION_N; i < REGION.length; ++i) drawField(i, farFields);
 }
 buildTerrain();
+ground.update(RW[0], RW[1], 50, 30000, Infinity);  // the ground around the field before the first frame
 {
   // A tower and hangars on the south side, so the field reads at a glance.
   const box = (w, d, h, along, across, color) => {
@@ -872,6 +873,65 @@ function setCity(on) {
 }
 $('bCity').addEventListener('click', (e) => { setCity(!showCity); e.currentTarget.blur(); });
 setCity(showCity);
+// Graphics (Options): a quality preset sets the render distances, the
+// shadows and the resolution cap; each stays adjustable after. Kept across reloads.
+// Building detail: every building within it (m, more with height); skyline: the
+// tall buildings within it (m, -1 all); view: the fog and the ground's reach;
+// shadows 0 off, 1 near the aircraft, 2 everywhere; res: the pixel ratio cap.
+const VIEWS = [{ name: 'near', fog: 0.6 }, { name: 'normal', fog: 1 }, { name: 'far', fog: 1.5 }];
+const PRESETS = [
+  { name: 'Low', detail: 1250, skyline: 10000, view: 0, shadows: 0, res: 1 },
+  { name: 'Medium', detail: 2000, skyline: 20000, view: 1, shadows: 1, res: 1.5 },
+  { name: 'High', detail: 3500, skyline: -1, view: 1, shadows: 1, res: 2 },
+  { name: 'Ultra', detail: 6000, skyline: -1, view: 2, shadows: 2, res: 2 },
+];
+const gfx = { ...PRESETS[MOBILE ? 0 : 1] };
+{
+  const g = store.get('gfx', null);
+  if (g && typeof g === 'object') for (const k of ['detail', 'skyline', 'view', 'shadows', 'res']) if (Number.isFinite(g[k])) gfx[k] = g[k];
+  gfx.detail = clamp(gfx.detail, 1000, 8000); gfx.view = clamp(Math.round(gfx.view), 0, 2); gfx.shadows = clamp(Math.round(gfx.shadows), 0, 2); gfx.res = clamp(gfx.res, 0.5, 3);
+}
+const RES_MIN = RES.min;
+function applyGfx(save = true) {
+  city.setOptions({ detail: gfx.detail, skyline: gfx.skyline < 0 ? Infinity : gfx.skyline, shadows: gfx.shadows });
+  ground.setOptions({ shadows: gfx.shadows });
+  sun.castShadow = gfx.shadows > 0;
+  RES.max = Math.min(devicePixelRatio, gfx.res); RES.min = Math.min(RES_MIN, RES.max);
+  if (RES.cur > RES.max) { RES.cur = RES.max; renderer.setPixelRatio(RES.cur); if (save) resize(); }  // at start-up the first resize follows
+  $('gDetail').value = String(gfx.detail);
+  $('gDetailV').textContent = `${(gfx.detail / 1000).toFixed(gfx.detail % 1000 ? 2 : 0).replace(/0$/, '')} km`;
+  $('gSkyline').value = String(gfx.skyline);
+  $('gView').value = String(gfx.view);
+  $('gShadows').value = String(gfx.shadows);
+  $('gRes').value = String(gfx.res);
+  document.querySelectorAll('[data-quality]').forEach((b) => {
+    const p = PRESETS[+b.dataset.quality];
+    b.setAttribute('aria-pressed', String(['detail', 'skyline', 'view', 'shadows', 'res'].every((k) => p[k] === gfx[k])));
+  });
+  if (save) store.set('gfx', gfx);
+}
+document.querySelectorAll('[data-quality]').forEach((b) => b.addEventListener('click', () => {
+  const p = PRESETS[+b.dataset.quality];
+  for (const k of ['detail', 'skyline', 'view', 'shadows', 'res']) gfx[k] = p[k];
+  applyGfx(); b.blur();
+}));
+$('gDetail').addEventListener('input', (e) => { gfx.detail = +e.target.value; applyGfx(); });
+$('gDetail').addEventListener('change', (e) => e.target.blur());
+for (const [id, k] of [['gSkyline', 'skyline'], ['gView', 'view'], ['gShadows', 'shadows'], ['gRes', 'res']]) {
+  $(id).addEventListener('change', (e) => { gfx[k] = +e.target.value; applyGfx(); e.target.blur(); });
+}
+applyGfx(false);
+// What it costs, shown under the settings while the Options menu is open.
+const cost = { t: 0, n: 0 };
+function showCost(dt) {
+  cost.t += dt; cost.n++;
+  if (cost.t < 0.5) return;
+  const fps = cost.n / cost.t; cost.t = 0; cost.n = 0;
+  if ($('side').hidden || menu !== 'options') return;
+  const st = city.stats, ri = renderer.info.render, M = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(2)} M` : `${Math.round(v / 1000)} k`);
+  $('gCost').textContent = `${Math.round(fps)} fps · ${M(ri.triangles)} triangles in ${ri.calls} draw calls · buildings: ${st.tiles} km² in detail, `
+    + `${st.buildings.toLocaleString('en')} buildings, ${M(st.triangles)} triangles (skyline ${M(st.tallTriangles)}) · ground: ${ground.stats.chunks} chunks, ${M(ground.stats.triangles)} triangles`;
+}
 setUnits(ui.units);
 // A speed in knots, with the chosen extra unit.
 const spd = (kt) => (UNIT[ui.units] ? `${fmt(kt)} kt · ${fmt(kt * UNIT[ui.units][0])} ${UNIT[ui.units][1]}` : `${fmt(kt)} kt`);
@@ -1530,7 +1590,7 @@ function updateCamera(dt) {
   sun.position.copy(target).addScaledVector(SUN_DIR, agl / SUN_DIR.y + 60);
   sun.shadow.camera.far = agl / SUN_DIR.y + 120; sun.shadow.camera.updateProjectionMatrix();
   if (ui.flow === 2) { scene.fog.near = 1.5 * P.chase; scene.fog.far = 7 * P.chase; }
-  else { scene.fog.near = 2500 + agl * 3; scene.fog.far = 22000 + agl * 12; }
+  else { const f = VIEWS[gfx.view].fog; scene.fog.near = (2500 + agl * 3) * f; scene.fog.far = (22000 + agl * 12) * f; }
   updateFogLayer();
 }
 
@@ -1840,8 +1900,14 @@ function frame() {
   }
   acGroup.updateMatrixWorld(true);
   updateCamera(dt);
-  if (showCity && ui.flow !== 2) city.update(s[0], s[1], Math.max(0, s[14] * 0.3048));
+  if (showCity && ui.flow !== 2) city.update(s[0], s[1], Math.max(0, s[14] * 0.3048), scene.fog.far);
+  {
+    const ce = camera.position.x, cn = -camera.position.z;
+    // No ground past the fog: it would be all fog colour.
+    ground.update(ce, cn, Math.max(0, camera.position.y - groundAt(ce, cn)), Math.min(scene.fog.far, camera.far), 2, s[0], s[1]);
+  }
   renderer.render(scene, camera);
+  showCost(dt);
   drawLabels();
   $('warn').classList.toggle('on', c[K.stall] > 0.5 && !ui.crashed);
   hud();

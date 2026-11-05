@@ -389,6 +389,21 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   <div class="row" style="margin-top:8px"><button id="bCity" aria-pressed="true">Buildings on</button></div>
   <p class="note">The city's buildings from OpenStreetMap, at their mapped heights, and where OpenStreetMap has none the footprints traced from imagery by Google and Microsoft, their heights estimated from the mapped buildings around them: every building within a few kilometres, the skyline (35 m and taller) beyond. Building data © <a href="https://www.openstreetmap.org/copyright" style="color:var(--ink)">OpenStreetMap contributors</a>, Microsoft, Google Open Buildings (ODbL), via the Overture Maps buildings theme.</p>
 
+  <h2>Graphics</h2>
+  <div class="row" role="group" aria-label="Quality">
+    <button data-quality="0" aria-pressed="false">Low</button>
+    <button data-quality="1" aria-pressed="false">Medium</button>
+    <button data-quality="2" aria-pressed="false">High</button>
+    <button data-quality="3" aria-pressed="false">Ultra</button>
+  </div>
+  <label class="ctl">Buildings in detail <input id="gDetail" type="range" min="1000" max="8000" step="250" value="2000"><output id="gDetailV">2 km</output></label>
+  <label class="ctl">Skyline <select id="gSkyline"><option value="0">off</option><option value="10000">10 km</option><option value="20000">20 km</option><option value="-1">all</option></select><output></output></label>
+  <label class="ctl">View distance <select id="gView"><option value="0">near</option><option value="1">normal</option><option value="2">far</option></select><output></output></label>
+  <label class="ctl">Shadows <select id="gShadows"><option value="0">off</option><option value="1">near the aircraft</option><option value="2">everywhere</option></select><output></output></label>
+  <label class="ctl">Resolution <select id="gRes"><option value="1">up to 1×</option><option value="1.5">up to 1.5×</option><option value="2">up to 2×</option></select><output></output></label>
+  <p class="note" id="gCost" aria-live="off">—</p>
+  <p class="note">Buildings in detail: every building within this distance of the aircraft (a little farther as you climb); beyond it the skyline, the buildings 35 m and taller, out to its distance. View distance: how far the haze lets you see, and the ground drawn to it. Shadows: the aircraft's shadow on the ground and the roofs near it, everywhere, or none. Resolution: the most pixels per screen pixel; it drops by itself when frames run slow. Low suits phones and older laptops; Medium most computers; High and Ultra a fast graphics card.</p>
+
   <h2>Sound</h2>
   <div class="row"><button id="bSound" aria-pressed="false" title="M">Sound off</button>
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)">Volume <input id="vol" type="range" min="0" max="100" value="80" style="width:110px"></label></div>
