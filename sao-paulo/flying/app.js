@@ -9,6 +9,7 @@ import { buildAircraft } from './model.js';
 import { buildJet, skin as jetSkin } from './jetmodel.js';
 import { K, markingsFrom, drawPanel, PANEL_SPOTS } from './panel.js';
 import { drawJetStrip } from './glass.js';
+import { drawG1000, g1000Click, g1000Key, g1000WheelTarget, g1000Range, g1000Cursor, G1000_WHEEL, G1000_SPOTS } from './g1000.js';
 import { buildCabin } from './cabin.js';
 import { buildJetCabin } from './jetcabin.js';
 import { FlightAudio, JetAudio } from './audio.js';
@@ -78,12 +79,16 @@ const fetchDef = async (p) => {
 // Spawn airport: 1 Congonhas (runway 35L, the default) or 0 Campo de Marte
 // (runway 12). The world is built around it, so changing it reloads the page.
 const AIRPORT = store.get('airport', 1) === 0 ? 0 : 1;
-let A, def, M;
+let A, def, M, MK;
 function loadInto(json) {
   const errors = A.load(json);
   if (errors.length) throw new Error(errors.join('; '));
   def = JSON.parse(json);
   M = markingsFrom(A.markings());
+  // The G1000's engine gauge ranges (avd_markings: tachometer, oil, suction, fuel).
+  const R = A.markings();
+  MK = { tachGreen: [R[9], R[10]], tachRed: R[11], tachMax: Math.min(R[12], 3000), oilP: [R[13], R[14], R[15], R[16]], oilT: [R[17], R[18], R[19]],
+    vac: [R[20], R[21]], fuelFull: R[22] };
 }
 const hashFor = (p) => (p.id === 'c172' ? '#172' : `#${p.id}`);
 // The region's terrain between the airfields (the flight core's tools/terrain:
@@ -740,6 +745,7 @@ addEventListener('keydown', (e) => {
     case 'KeyI': toggleInstr(); break;
     case 'KeyR': restart(); break;
     case 'KeyH': togglePanel(); break;
+    case 'KeyJ': setGlass(!ui.glass, true); break;
     case 'KeyL': setLevel(!ui.level, true); break;
     case 'KeyU': setAutoland(!autoland); break;
     case 'KeyY': setAutopilot(!ap.on); break;
@@ -1023,6 +1029,19 @@ const CAMS = ['Chase', 'Cockpit', 'Orbit', 'Tower'];
 function cycleCam() { ui.cam = (ui.cam + 1) % CAMS.length; store.set('cam', ui.cam); snapCamera = true; look.yaw = look.pitch = 0; $('bCam').textContent = CAMS[ui.cam]; toast(`Camera: ${CAMS[ui.cam]}`, 1.5); requestAnimationFrame(sizePanel); }
 $('bCam').textContent = CAMS[ui.cam];
 $('bCam').addEventListener('click', (e) => { cycleCam(); e.currentTarget.blur(); });
+// The 172's panel: the analog six-pack (the default) or the G1000 glass
+// cockpit (g1000.js), as the 172S NAV III has. The jets keep their own deck.
+ui.glass = store.get('panel172', 'analog') === 'g1000';
+function setGlass(on, announce) {
+  ui.glass = !!on; store.set('panel172', ui.glass ? 'g1000' : 'analog');
+  document.querySelectorAll('[data-panel172]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.panel172 === 'g1000') === ui.glass)));
+  document.body.classList.toggle('g1000', ui.glass && !P.jet);
+  applyInstrSize();
+  if (announce) toast(P.jet ? `172 panel: ${ui.glass ? 'G1000' : 'analog'} (the jets keep their glass deck).` : !ui.glass ? '172 panel: analog six-pack.'
+    : MOBILE ? 'G1000: tap the softkeys (CDI, XPDR, STD BARO, TMR/REF; on the MFD, DCLTR and the range).'
+    : 'G1000: scroll the HDG, CRS, baro and ALT boxes or the map to turn their knobs; the softkeys click. J: back to the six-pack.', ui.glass ? 5 : 2);
+}
+document.querySelectorAll('[data-panel172]').forEach((b) => b.addEventListener('click', (e) => { setGlass(b.dataset.panel172 === 'g1000', true); e.currentTarget.blur(); }));
 function toggleInstr() { ui.instr = !ui.instr; store.set('instr', ui.instr); $('instr').hidden = !ui.instr; $('bInstr').setAttribute('aria-pressed', String(ui.instr)); sizePanel(); }
 $('instr').hidden = !ui.instr; $('bInstr').setAttribute('aria-pressed', String(ui.instr));
 $('bInstr').addEventListener('click', (e) => { toggleInstr(); e.currentTarget.blur(); });
@@ -1152,6 +1171,12 @@ function panelSpot(sp) {
       up() { if (act.starting) input.starter = 0; },
     };
     case 'cage': return { label: () => sp.label, down: () => { A.avd_ai_cage(); toast('Attitude indicator caged.', 1.5); } };
+    // The G1000's bezel knobs and softkeys (g1000.js G1000_SPOTS).
+    case 'hdgSync': return { label: () => `${sp.label}: heading bug ${String(Math.round(c[K.bug])).padStart(3, '0')}° · scroll to turn, click to sync it to the heading`,
+      wheel: (n) => A.avd_heading_bug((Math.round(c[K.bug]) + n + 360) % 360), down: () => A.avd_heading_bug(Math.round(((c[K.dg] % 360) + 360) % 360)) };
+    case 'altSel': return { label: () => `${sp.label}: selected altitude ${ap.alt ? `${fmt(ap.alt)} ft` : '—'} · scroll (100 ft)`, wheel: (n) => apSelect('alt', n * 100) };
+    case 'range': return { label: () => `${sp.label}: map range · scroll`, wheel: (n) => toast(g1000Range(-n), 1.2) };
+    case 'g1key': return { label: () => `${sp.label} · click`, down: () => g1000Act(g1000Key(sp.screen, sp.key)) };
     case 'baro': return { label: () => `Altimeter setting ${c[K.kollsman].toFixed(2)} inHg · scroll to set`, wheel: (n) => A.avd_altimeter_adjust(n) };
     case 'hdg': return { label: () => `Heading bug ${String(Math.round(c[K.bug])).padStart(3, '0')}° · scroll to turn; click: set the indicator to the compass`,
       wheel: (n) => A.avd_heading_bug((Math.round(c[K.bug]) + n + 360) % 360), down: () => { A.avd_dg_sync(); toast('Heading indicator set to the compass.', 1.5); } };
@@ -1172,6 +1197,9 @@ function panelSpot(sp) {
     default: return null;
   }
 }
+// The 172's panel face: the six-pack's places, or the G1000's with the same switch row.
+const G1000_PANEL = [...PANEL_SPOTS.filter((q) => q.kind === 'toggle' || q.kind === 'mags'), ...G1000_SPOTS];
+const cockpitSpots = () => (ui.glass ? G1000_PANEL : PANEL_SPOTS);
 function cockpitHover() {
   if (ui.cam !== 1 || !mouse.in || look.drag) { setHot(null); return; }
   if (spotsFor !== cabin) { spots = buildSpots(); spotsFor = cabin; }
@@ -1184,7 +1212,7 @@ function cockpitHover() {
     while (o && !found) { found = spots.find((x) => x.obj === o) || null; o = o.parent; }
     if (found && found.panel) {
       const uv = hits[0].uv, [pw, ph] = cabin.parts.size, u = uv.x * pw, v = (1 - uv.y) * ph;
-      const r = PANEL_SPOTS.find((q) => u >= q.u && u <= q.u + q.w && v >= q.v && v <= q.v + q.h);
+      const r = cockpitSpots().find((q) => u >= q.u && u <= q.u + q.w && v >= q.v && v <= q.v + q.h);
       found = r ? { ...panelSpot(r), rect: r, key: r } : null;
     }
   }
@@ -1240,8 +1268,10 @@ function sizePanel() {
 }
 // The instrument panel's size: drag a grip at its corner (double-click resets).
 // Kept per aircraft in this browser; the flow legend sits above it.
+// The jets' and the 172's panels, and the 172's G1000, each keep their own size.
+const sizeKey = () => 'instrSize.' + P.id + (!P.jet && ui.glass ? '.g1000' : '');
 function applyInstrSize() {
-  const el = $('instr'), z = store.get('instrSize.' + P.id, null);
+  const el = $('instr'), z = store.get(sizeKey(), null);
   if (z && z.w > 0 && z.h > 0) {
     el.style.width = `${Math.round(Math.min(z.w, innerWidth - 24))}px`;
     document.body.style.setProperty('--instr-h', `${Math.round(Math.min(z.h, innerHeight * 0.85))}px`);
@@ -1267,11 +1297,47 @@ for (const g of document.querySelectorAll('#instr .grip')) {
     if (!start) return;
     start = null;
     const r = $('instr').getBoundingClientRect();
-    store.set('instrSize.' + P.id, { w: Math.round(r.width), h: Math.round(r.height) });
+    store.set(sizeKey(), { w: Math.round(r.width), h: Math.round(r.height) });
   };
   g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
-  g.addEventListener('dblclick', () => { store.set('instrSize.' + P.id, null); applyInstrSize(); toast('Instrument panel: default size', 1.5); });
+  g.addEventListener('dblclick', () => { store.set(sizeKey(), null); applyInstrSize(); toast('Instrument panel: default size', 1.5); });
 }
+// The G1000's softkeys answer clicks; the wheel turns the knob of what it is
+// over (heading bug, course, barometer, selected altitude, map range).
+const glassOn = () => ui.glass && !P.jet;
+const panelXY = (e) => { const r = panelCv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+// A softkey's outcome (g1000Key): a message, or a setting of the simulation's.
+function g1000Act(r) {
+  if (!r) return;
+  if (r.msg) toast(r.msg, 2.5);
+  if (r.act === 'xpdr') {
+    const m = (((c[K.xpdrMode] | 0) % 3) + 1);  // STBY, ON, ALT
+    A.avd_xpdr_mode(m); toast(`Transponder ${['OFF', 'STBY', 'ON', 'ALT'][m]}`, 1.5);
+  } else if (r.act === 'stdbaro') {
+    A.avd_altimeter_adjust(Math.round((29.92 - c[K.kollsman]) * 100)); toast('Altimeter 29.92 inHg (standard)', 1.5);
+  }
+  panelT = 1;
+}
+panelCv.addEventListener('click', (e) => { if (glassOn()) g1000Act(g1000Click(...panelXY(e))); });
+panelCv.addEventListener('wheel', (e) => {
+  if (!glassOn()) return;
+  const what = g1000WheelTarget(...panelXY(e));
+  if (!what) return;
+  e.preventDefault();
+  const n = e.deltaY < 0 ? 1 : -1;
+  if (what === 'hdg') A.avd_heading_bug((Math.round(c[K.bug]) + n + 360) % 360);
+  else if (what === 'crs') A.avd_obs_adjust(n);
+  else if (what === 'baro') A.avd_altimeter_adjust(n);
+  else if (what === 'alt') apSelect('alt', n * 100);
+  else if (what === 'range') g1000Range(-n);
+  panelT = 1;
+}, { passive: false });
+panelCv.addEventListener('pointermove', (e) => {
+  const cur = glassOn() ? g1000Cursor(...panelXY(e)) : '';
+  panelCv.style.cursor = cur;
+  const w = glassOn() && cur === 'ns-resize' ? g1000WheelTarget(...panelXY(e)) : null;
+  panelCv.title = w ? `Scroll: ${G1000_WHEEL[w]}` : '';
+});
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
@@ -1388,6 +1454,35 @@ function jetData() {
     route: DEST ? A.route() : null, gps: DEST ? A.gps().slice() : null, dest: DEST,
     destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
     nav: { valid: !!c[K.navValid], loc: !!c[K.loc], cdi: c[K.cdi], gsValid: !!c[K.gsValid], gs: c[K.gs], mhz: c[K.navAct] },
+  };
+}
+
+// The G1000's readings: the instrument models (attitude, heading, air data),
+// the engine's sensors, NAV 1 and the GPS (g1000.js).
+function g1000Modes() {
+  if (autoland) return { on: true, lat: alStatus.phase >= 3 ? 'ROLLOUT' : 'GPS', vert: ['ALT', 'GP', 'FLARE', '', ''][alStatus.phase] || '', armed: 'AUTOLAND' };
+  if (!ap.on) return null;
+  const st = apStatus, alt = `${fmt(st.altFt)}FT`;
+  return { on: true, lat: ['', 'ROL', 'HDG', 'GPS'][st.lateral] || '', vert: ['', 'PIT', 'ALT', 'VS', 'ALTS'][st.vertical] || '',
+    ref: st.vertical === 3 ? `${st.vsFpm > 0 ? '+' : ''}${fmt(st.vsFpm)}FPM` : st.vertical === 2 || st.vertical === 4 ? alt : '',
+    armed: st.vertical === 3 ? 'ALTS' : '' };
+}
+function g1000Data() {
+  const g = A.gps(), bus = !!sw.bat && c[K.volts] > 10;
+  return {
+    ias: c[K.ias], alt: c[K.alt], baro: c[K.kollsman], vsi: c[K.vsi], pitch: c[K.aiPitch], roll: c[K.aiRoll], tumbled: c[K.aiTumbled] > 0.5,
+    hdg: c[K.dg], bug: c[K.bug], ball: c[K.ball], turnRate: c[K.tcRate], tas: s[11], gs: s[12], oat: c[K.oat], trend: iasAcc * 6,
+    wow: !!s[28], trueHdg: s[9], track: s[61], windDir: s[59], windKt: s[60], magVar: g[13], selAlt: ap.alt,
+    x: s[0], y: s[1], groundAt, runway: RW, airport: AP.icao, points: LANDMARKS,
+    route: DEST ? A.route() : null, gps: DEST ? g.slice() : null, dest: DEST, destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
+    nav: { valid: c[K.navValid] > 0.5, loc: c[K.loc] > 0.5, cdi: c[K.cdi], toFrom: c[K.toFrom], gsValid: c[K.gsValid] > 0.5, gs: c[K.gs],
+      mhz: c[K.navAct], stby: c[K.navStb], obs: c[K.obs] },
+    com: [c[K.comAct], c[K.comStb]], squawk: c[K.squawk], xpdrMode: c[K.xpdrMode], clock: c[K.clock], av: c[K.avPower] > 0.5,
+    m: M, mk: MK, afcs: g1000Modes(),
+    eng: { rpm: c[K.rpm], ff: c[K.ff], oilP: c[K.oilP], oilT: c[K.oilT], egt: c[K.egt], fuelL: c[K.fuelL], fuelR: c[K.fuelR],
+      amps: c[K.amps], volts: c[K.volts], suction: c[K.suction], ann: c[K.ann], hobbs: (s[42] || 0) / 3600 + 1287.4 },
+    // The PFD on the main bus with the master on, the MFD on the avionics bus too.
+    power: { pfd: bus, mfd: bus && c[K.avPower] > 0.5 },
   };
 }
 
@@ -1591,6 +1686,8 @@ function applyProfileUi() {
   document.querySelectorAll('.jetonly').forEach((el) => { el.hidden = !P.jet; });
   document.querySelectorAll('.pistononly').forEach((el) => { el.hidden = P.jet; });
   document.body.classList.toggle('jet', P.jet);
+  document.body.classList.toggle('g1000', ui.glass && !P.jet);
+  document.querySelectorAll('[data-panel172]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.panel172 === 'g1000') === ui.glass)));
   applyInstrSize();  // the jet's strip is taller; each aircraft keeps its own size
   $('plateSub').textContent = `Flight test bed · ${P.name}`;
   loadSheet = mountLoadSheet($('loadPanel'), { A, id: P.id, jet: P.jet, store, onApply: () => { restart(ui.start); toast('Restarted with the planned load.', 2); } });
@@ -1755,12 +1852,13 @@ function frame() {
     if (ui.cam === 1 && cabinT > 1 / 20) { cabinT = 0; cabin.redraw(jetData()); }
   } else {
     cabin.update({ elev: s[46], ail: s[45], rud: s[47], trim: s[27], thr: input.throttle, mix: input.mixture, flapLever: sw.flaps, fuelSel: sw.fuelSel, shutoff: sw.pos?.['fuel.shutoff'], park: s[49] });
-    if (ui.cam === 1 && cabinT > 1 / 30) { cabinT = 0; cabin.redraw(c, M, sw, s, c[K.compass]); }
+    if (ui.cam === 1 && cabinT > 1 / 30) { cabinT = 0; cabin.redraw(c, M, sw, s, c[K.compass], ui.glass ? g1000Data() : null); }
   }
   if (ui.instr && ui.cam !== 1 && panelT > 1 / 30) {
     panelT = 0;
     const r = panelCv.getBoundingClientRect();
     if (P.jet) drawJetStrip(pctx, r.width, r.height, jetData());
+    else if (ui.glass) drawG1000(pctx, r.width, r.height, g1000Data());
     else drawPanel(pctx, r.width, r.height, c, M, panelLayout);
   }
   if (P.jet) audio.update(ui.paused || S > 1 ? [0, 0] : [j[8], j[16]], ui.paused || S > 1 ? [0, 0] : [j[9], j[17]], (j[12] + j[20]) / 150, j[26], c[K.stall] > 0.5, ui.cam === 1);

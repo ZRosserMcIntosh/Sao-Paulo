@@ -46,6 +46,7 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #side h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px}
 #side h2:first-child{margin-top:0}
 .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.row[hidden]{display:none}
 .note{color:var(--mute);font-size:12px;margin:8px 0 0}
 .keys{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:12px;color:var(--mute);align-items:center}
 .keys span:nth-child(odd){white-space:nowrap}
@@ -135,6 +136,10 @@ body.jet{--instr-h:clamp(300px,37vh,420px)}
 body.jet #instr{width:min(1500px,calc(100% - 24px))}
 body.jet #hud .levers{display:none}
 @media (max-height:820px) and (pointer:fine){body.jet #hud .read{display:none}}
+/* The 172's G1000 (PFD and MFD, 4:3 each) is drawn from its height, like the jets' strip. */
+body.g1000{--instr-h:clamp(280px,36vh,400px)}
+body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
+@media (max-height:820px) and (pointer:fine){body.g1000 #hud .read{display:none}}
 #toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
 #toast.on{opacity:1}
 #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:5;background:var(--bg)}
@@ -163,16 +168,18 @@ body.jet #hud .levers{display:none}
   #instr{bottom:auto;top:calc(60px + env(safe-area-inset-top));height:var(--instr-h,96px)}
   #instr .grip{top:auto;bottom:-7px}#instr .grip::before{border-top:0;border-bottom:3px solid var(--ink)}
   body.jet{--instr-h:min(192px,45vh)}
+  body.g1000{--instr-h:min(250px,40vh)}
   #hud{top:auto;bottom:calc(180px + env(safe-area-inset-bottom));left:calc(12px + env(safe-area-inset-left))}
   #hud .read,#hud .levers{display:none}
   .big div{font-size:30px}
   #side{width:min(310px,calc(100% - 24px));touch-action:pan-y}
 }
-@media (max-width:760px){#instr{height:var(--instr-h,110px)}body.jet{--instr-h:min(220px,45vh)}.read{display:none}}
+@media (max-width:760px){#instr{height:var(--instr-h,110px)}body.jet{--instr-h:min(220px,45vh)}body.g1000{--instr-h:min(250px,40vh)}.read{display:none}}
 /* Desktop: with a menu open, the strip and legend make room for it. */
 @media (min-width:900px) and (pointer:fine){
   body.side-open #instr{left:calc(50% - 161px);width:min(1000px,calc(100% - 358px))}
   body.jet.side-open #instr{width:min(1500px,calc(100% - 358px))}
+  body.g1000.side-open #instr{width:min(1100px,calc(100% - 358px))}
   body.side-open #flowLegend{right:334px}
 }
 /* Menus: one at a time in the side panel, chosen from the top bar (or the tabs at its head). */
@@ -322,6 +329,7 @@ body.jet #hud .levers{display:none}
     <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level) · sync the heading to the compass</span>
     <span><kbd>;</kbd> <kbd>'</kbd></span><span>Heading bug left / right (Shift: 1°)</span>
     <span><kbd>O</kbd></span><span>Altimeter +0.01 inHg (Shift: −)</span>
+    <span class="pistononly"><kbd>J</kbd></span><span class="pistononly">172 panel: analog six-pack or G1000 glass (Options → Display)</span>
   </div>
   <h2>View and simulation</h2>
   <div class="keys">
@@ -366,7 +374,13 @@ body.jet #hud .levers{display:none}
   <p class="note">Autoland (in the air, U): the blind-landing pilot of the flight core flies the GPS approach to the destination (the runway in use if none is picked) from the instruments alone. It joins the final where it can fly the 3° path from there, else it flies the whole procedure (the initial fix, the intermediate fix, level at the final approach fix's altitude); it lowers the gear, puts the flaps out as the speed allows, sets the altimeter to QNH, flares, lands and brakes to a stop on the centreline. Moving the stick, or U, gives you the controls back.</p>
 
   <h2>Display</h2>
-  <div class="row" role="group" aria-label="Speed units">
+  <div class="row pistononly" role="group" aria-label="172 instrument panel">
+    <span style="font-size:12px;color:var(--mute);margin-right:2px">172 panel</span>
+    <button data-panel172="analog" aria-pressed="true" title="J">Analog</button>
+    <button data-panel172="g1000" aria-pressed="false" title="J">G1000</button>
+  </div>
+  <p class="note pistononly">The six-pack, or the glass cockpit of a 172S NAV III: the PFD (attitude, speed and altitude tapes, HSI on NAV 1 or the GPS) and the MFD (moving map over the region's terrain, the engine indication system). Scroll the HDG, CRS, barometer and selected-altitude boxes or the map to turn their knobs; the softkeys click.</p>
+  <div class="row" role="group" aria-label="Speed units" style="margin-top:8px">
     <button data-units="kt" aria-pressed="true">Knots</button>
     <button data-units="kmh" aria-pressed="false">+ km/h</button>
     <button data-units="mph" aria-pressed="false">+ mph</button>

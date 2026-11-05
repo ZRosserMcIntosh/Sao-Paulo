@@ -8,22 +8,22 @@ const DEG = Math.PI / 180;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const MONO = '"JetBrains Mono",ui-monospace,monospace';
 const SANS = '"Public Sans",system-ui,sans-serif';
-const C = {
+export const C = {
   sky: '#2f6fd1', ground: '#7a5230', white: '#f2f4f6', grey: '#8b95a3', dim: '#4b5563', black: '#000',
   green: '#38d26a', cyan: '#3fd6e6', magenta: '#e04fd8', amber: '#f2b33a', red: '#ff3b30', yellow: '#ffe14a',
 };
 const LB = 2.20462;
 
-function text(ctx, s, x, y, size, color = C.white, align = 'center', font = MONO, weight = 600) {
+export function text(ctx, s, x, y, size, color = C.white, align = 'center', font = MONO, weight = 600) {
   ctx.font = `${weight} ${size}px ${font}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle';
   ctx.fillText(s, x, y);
 }
-function box(ctx, x, y, w, h, stroke, fill, lw = 1.5) {
+export function box(ctx, x, y, w, h, stroke, fill, lw = 1.5) {
   if (fill) { ctx.fillStyle = fill; ctx.fillRect(x, y, w, h); }
   if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.strokeRect(x, y, w, h); }
 }
 // A line of differently coloured pieces, laid left to right from x (or ending at it).
-function runText(ctx, x, y, size, parts, align = 'left') {
+export function runText(ctx, x, y, size, parts, align = 'left') {
   ctx.font = `600 ${size}px ${MONO}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   const widths = parts.map(([s]) => ctx.measureText(s).width);
   let px = align === 'right' ? x - widths.reduce((a, b) => a + b, 0) : align === 'center' ? x - widths.reduce((a, b) => a + b, 0) / 2 : x;
@@ -104,16 +104,14 @@ export function casMessages(d) {
 }
 
 // ---------------------------------------------------------------- PFD ----
-export function drawPFD(ctx, x, y, w, h, d) {
-  ctx.save();
-  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
-  ctx.fillStyle = C.black; ctx.fillRect(x, y, w, h);
-  const u = h / 100;  // layout unit
-  const lim = speedLimits(d), vs = vSpeeds(d);
-  const airborne = !d.wow && d.tas > 40;
-  // Attitude.
-  const ax = x + w * 0.2, aw = w * 0.56, ay = y + 8 * u, ah = h * 0.64;
-  const cx = ax + aw / 2, cy = ay + ah * 0.48, ppd = ah / 42;
+// The attitude: sky, ground and horizon, the pitch ladder and the recovery
+// chevrons in the box (ax, ay, aw, ah) about (cx, cy), ppd pixels a degree;
+// o.ladder sets the ladder's width (the box's by default), o.span how far
+// it shows above and below the pitch (24°), o.hdgMarks the
+// heading marks on the horizon, o.fpv the flight path vector. Shared by the
+// jets' PFD and the 172's G1000 (g1000.js).
+export function attitudeScene(ctx, ax, ay, aw, ah, cx, cy, ppd, u, d, o = {}) {
+  const lw = o.ladder || aw;
   ctx.save();
   ctx.beginPath(); ctx.rect(ax, ay, aw, ah); ctx.clip();
   ctx.translate(cx, cy); ctx.rotate(-d.roll * DEG); ctx.translate(0, d.pitch * ppd);
@@ -127,16 +125,18 @@ export function drawPFD(ctx, x, y, w, h, d) {
   ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(1.5, u * 0.35);
   ctx.beginPath(); ctx.moveTo(-big, 0); ctx.lineTo(big, 0); ctx.stroke();
   // Heading marks along the horizon, every 10 degrees.
-  ctx.lineWidth = Math.max(1, u * 0.2);
-  for (let k = -40; k <= 40; k += 10) {
-    const hk = Math.round(d.hdg / 10) * 10 + k, xx = (hk - d.hdg) * ppd;
-    ctx.beginPath(); ctx.moveTo(xx, 0); ctx.lineTo(xx, u * 1.2); ctx.stroke();
+  if (o.hdgMarks) {
+    ctx.lineWidth = Math.max(1, u * 0.2);
+    for (let k = -40; k <= 40; k += 10) {
+      const hk = Math.round(d.hdg / 10) * 10 + k, xx = (hk - d.hdg) * ppd;
+      ctx.beginPath(); ctx.moveTo(xx, 0); ctx.lineTo(xx, u * 1.2); ctx.stroke();
+    }
   }
   for (let p = -90; p <= 90; p += 2.5) {
     if (!p) continue;
     const yy = -p * ppd, major = p % 10 === 0, mid = p % 5 === 0;
-    if (Math.abs(p - d.pitch) > 24) continue;
-    const l = major ? aw * 0.16 : mid ? aw * 0.08 : aw * 0.04;
+    if (Math.abs(p - d.pitch) > (o.span || 24)) continue;
+    const l = major ? lw * 0.16 : mid ? lw * 0.08 : lw * 0.04;
     ctx.strokeStyle = C.white; ctx.lineWidth = major ? Math.max(1.5, u * 0.3) : Math.max(1, u * 0.2);
     ctx.beginPath(); ctx.moveTo(-l, yy); ctx.lineTo(l, yy); ctx.stroke();
     if (major) { text(ctx, String(Math.abs(p)), -l - u * 3, yy, u * 3.2); text(ctx, String(Math.abs(p)), l + u * 3, yy, u * 3.2); }
@@ -145,11 +145,11 @@ export function drawPFD(ctx, x, y, w, h, d) {
   ctx.strokeStyle = C.red; ctx.lineWidth = Math.max(2, u * 0.6);
   for (const p of [-75, -60, -45, -30, 45, 60, 75]) {
     if (Math.abs(p - d.pitch) > 26) continue;
-    const yy = -p * ppd, dir = p > 0 ? 1 : -1, cw = aw * 0.11, ch = u * 5 * dir;
+    const yy = -p * ppd, dir = p > 0 ? 1 : -1, cw = lw * 0.11, ch = u * 5 * dir;
     ctx.beginPath(); ctx.moveTo(-cw, yy - ch); ctx.lineTo(0, yy + ch * 0.4); ctx.lineTo(cw, yy - ch); ctx.stroke();
   }
   // Flight path vector: where the airplane is actually going.
-  if (airborne) {
+  if (o.fpv) {
     const fx = clamp(d.drift, -18, 18) * ppd, fy = -d.fpa * ppd, r = u * 1.7;
     ctx.strokeStyle = C.green; ctx.lineWidth = Math.max(1.5, u * 0.45);
     ctx.beginPath(); ctx.arc(fx, fy, r, 0, 2 * Math.PI);
@@ -157,9 +157,12 @@ export function drawPFD(ctx, x, y, w, h, d) {
     ctx.moveTo(fx, fy - r); ctx.lineTo(fx, fy - r * 2); ctx.stroke();
   }
   ctx.restore();
-  // Roll scale and pointer.
+}
+
+// The roll scale (radius rr about the attitude centre), its pointer (amber past
+// 35° of bank) and the slip/skid trapezoid under it.
+export function rollScale(ctx, cx, cy, rr, u, d) {
   ctx.save(); ctx.translate(cx, cy);
-  const rr = ah * 0.42;
   ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(1.5, u * 0.3);
   ctx.beginPath(); ctx.arc(0, 0, rr, (-90 - 60) * DEG, (-90 + 60) * DEG); ctx.stroke();
   for (const b of [-60, -45, -30, -20, -10, 10, 20, 30, 45, 60]) {
@@ -175,6 +178,37 @@ export function drawPFD(ctx, x, y, w, h, d) {
   const sk = clamp(d.ball / 16, -1, 1) * u * 3;
   ctx.fillRect(-u * 1.8 + sk, -rr + u * 3.8, u * 3.6, u * 0.9);
   ctx.restore();
+}
+
+// The altitude window's digits: hundreds, and a rolling 20-foot drum for the
+// last two (window x, y, w, h; tcy its centre line).
+export function altDigits(ctx, wx, wy, ww, wh, tcy, alt, u) {
+  const altA = Math.abs(alt), neg = alt < 0;
+  const hundreds = Math.floor(altA / 100), rem = altA - hundreds * 100;
+  const drumX = wx + ww - u * 0.6, drumW = u * 5;
+  text(ctx, (neg ? '-' : '') + String(hundreds), drumX - drumW, tcy, u * 4.6, C.white, 'right');
+  ctx.save(); ctx.beginPath(); ctx.rect(drumX - drumW, wy + u * 0.3, drumW, wh - u * 0.6); ctx.clip();
+  const step = u * 3.4, base = Math.floor(rem / 20) * 20, frac = (rem - base) / 20;
+  for (let k = -2; k <= 2; ++k) {
+    const val = (base + k * 20 + 100) % 100;
+    text(ctx, String(val).padStart(2, '0'), drumX - drumW / 2, tcy - (k - frac) * step, u * 3.4, C.white);
+  }
+  ctx.restore();
+}
+
+export function drawPFD(ctx, x, y, w, h, d) {
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.fillStyle = C.black; ctx.fillRect(x, y, w, h);
+  const u = h / 100;  // layout unit
+  const lim = speedLimits(d), vs = vSpeeds(d);
+  const airborne = !d.wow && d.tas > 40;
+  // Attitude.
+  const ax = x + w * 0.2, aw = w * 0.56, ay = y + 8 * u, ah = h * 0.64;
+  const cx = ax + aw / 2, cy = ay + ah * 0.48, ppd = ah / 42;
+  attitudeScene(ctx, ax, ay, aw, ah, cx, cy, ppd, u, d, { fpv: airborne, hdgMarks: true });
+  // Roll scale and pointer.
+  rollScale(ctx, cx, cy, ah * 0.42, u, d);
   // Aircraft symbol.
   ctx.strokeStyle = C.yellow; ctx.fillStyle = C.black; ctx.lineWidth = Math.max(2, u * 0.7);
   for (const s of [-1, 1]) {
@@ -266,17 +300,7 @@ export function drawPFD(ctx, x, y, w, h, d) {
   const wx = tx + u * 0.5, wy = tcy - u * 3.6, ww = tw - u, wh = u * 7.2;
   ctx.fillStyle = C.black; ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(1.5, u * 0.3);
   ctx.beginPath(); ctx.rect(wx, wy, ww, wh); ctx.fill(); ctx.stroke();
-  const altA = Math.abs(d.alt), neg = d.alt < 0;
-  const hundreds = Math.floor(altA / 100), rem = altA - hundreds * 100;
-  const drumX = wx + ww - u * 0.6, drumW = u * 5;
-  text(ctx, (neg ? '-' : '') + String(hundreds), drumX - drumW, tcy, u * 4.6, C.white, 'right');
-  ctx.save(); ctx.beginPath(); ctx.rect(drumX - drumW, wy + u * 0.3, drumW, wh - u * 0.6); ctx.clip();
-  const step = u * 3.4, base = Math.floor(rem / 20) * 20, frac = (rem - base) / 20;
-  for (let k = -2; k <= 2; ++k) {
-    const val = (base + k * 20 + 100) % 100;
-    text(ctx, String(val).padStart(2, '0'), drumX - drumW / 2, tcy - (k - frac) * step, u * 3.4, C.white);
-  }
-  ctx.restore();
+  altDigits(ctx, wx, wy, ww, wh, tcy, d.alt, u);
   const std = Math.abs(d.baro - 29.92) < 0.005;
   text(ctx, std ? 'STD' : `${d.baro.toFixed(2)} IN`, tx + tw / 2, sy + sh + u * 4, u * 3.2, C.cyan);
   // Vertical speed.
@@ -476,6 +500,65 @@ export function drawEICAS(ctx, x, y, w, h, d) {
 }
 
 // --------------------------------------------------------------- map ----
+// The map's features, drawn about the own ship (the context translated to it;
+// put(east, north) gives [x, y, distance m]): the runway in use with its
+// extended centreline, the destination's runway, the GPS route (flown legs
+// gone, the active leg magenta) and the landmarks (those further than
+// o.behind below the own ship left out). Returns the runway's bearing and
+// distance line. Shared by the jets' map and the 172's G1000 MFD.
+export function mapFeatures(ctx, put, u, rangeM, d, o = {}) {
+  let rwInfo = '';
+  if (d.runway) {
+    const [e0, n0, , hdgRw, len] = d.runway;
+    const e1 = e0 + Math.sin(hdgRw * DEG) * len, n1 = n0 + Math.cos(hdgRw * DEG) * len;
+    const [ax, ay, dist] = put(e0, n0), [bx, by] = put(e1, n1);
+    ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(2, u * 0.8);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.strokeStyle = C.cyan; ctx.lineWidth = 1; ctx.setLineDash([u, u]);
+    const ex = e0 - Math.sin(hdgRw * DEG) * 10 * 1852, ny = n0 - Math.cos(hdgRw * DEG) * 10 * 1852;
+    const [fx, fy] = put(ex, ny);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(fx, fy); ctx.stroke(); ctx.setLineDash([]);
+    text(ctx, d.airport || 'SBMT', ax + u * 3, ay, u * 2.8, C.cyan, 'left');
+    const brg = (Math.atan2(e0 - d.x, n0 - d.y) / DEG - d.trueHdg + d.hdg + 720) % 360;
+    rwInfo = `${d.airport || 'SBMT'} ${String(Math.round(brg) % 360 || 360).padStart(3, '0')}° ${(dist / 1852).toFixed(1)} NM`;
+  }
+  // The destination's runway and the GPS route: flown legs dim, the active
+  // leg magenta, the rest white; constraint altitudes under the waypoints.
+  if (d.destRunway) {
+    const r = d.destRunway, e1 = r.east + Math.sin(r.heading * DEG) * r.length, n1 = r.north + Math.cos(r.heading * DEG) * r.length;
+    const [ax, ay] = put(r.east, r.north), [bx, by] = put(e1, n1);
+    ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(2, u * 0.8);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  }
+  if (d.route && d.route.wp.length > 1) {
+    const wp = d.route.wp, act = d.route.active, pts = wp.map((w) => put(w.east, w.north));
+    ctx.lineWidth = Math.max(1.5, u * 0.45);
+    for (let i = 1; i < wp.length; ++i) {
+      if (i < act) continue;
+      ctx.strokeStyle = i === act ? C.magenta : C.white;
+      ctx.beginPath(); ctx.moveTo(...(i === act ? [0, 0] : pts[i - 1].slice(0, 2))); ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke();
+    }
+    for (let i = Math.max(act, 1); i < wp.length; ++i) {
+      const [px, py, dist] = pts[i];
+      if (dist > rangeM * 1.3) continue;
+      const col = i === act ? C.magenta : C.white;
+      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, u * 0.35);
+      ctx.beginPath(); ctx.moveTo(px, py - u * 1.3); ctx.lineTo(px + u * 0.4, py - u * 0.4); ctx.lineTo(px + u * 1.3, py); ctx.lineTo(px + u * 0.4, py + u * 0.4);
+      ctx.lineTo(px, py + u * 1.3); ctx.lineTo(px - u * 0.4, py + u * 0.4); ctx.lineTo(px - u * 1.3, py); ctx.lineTo(px - u * 0.4, py - u * 0.4); ctx.closePath(); ctx.stroke();
+      text(ctx, wp[i].ident, px + u * 2, py - u * 0.6, u * 2.4, col, 'left');
+      if (wp[i].alt > 0) text(ctx, String(Math.round(wp[i].alt / 0.3048 / 10) * 10), px + u * 2, py + u * 2, u * 2.1, C.cyan, 'left');
+    }
+  }
+  for (const [name, e, n] of d.points || []) {
+    const [px, py, dist] = put(e, n);
+    if (dist > rangeM * 1.05 || py > (o.behind ?? u * 8)) continue;
+    ctx.strokeStyle = C.magenta; ctx.lineWidth = Math.max(1, u * 0.35);
+    ctx.beginPath(); ctx.moveTo(px, py - u); ctx.lineTo(px + u, py); ctx.lineTo(px, py + u); ctx.lineTo(px - u, py); ctx.closePath(); ctx.stroke();
+    text(ctx, name.toUpperCase().slice(0, 10), px + u * 1.8, py, u * 2.3, C.magenta, 'left');
+  }
+  return rwInfo;
+}
+
 export function drawND(ctx, x, y, w, h, d) {
   ctx.save();
   ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
@@ -512,55 +595,7 @@ export function drawND(ctx, x, y, w, h, d) {
     const right = de * Math.cos(th) - dn * Math.sin(th), fwd = de * Math.sin(th) + dn * Math.cos(th);
     return [right / rangeM * R, -fwd / rangeM * R, Math.hypot(right, fwd)];
   };
-  let rwInfo = '';
-  if (d.runway) {
-    const [e0, n0, , hdgRw, len] = d.runway;
-    const e1 = e0 + Math.sin(hdgRw * DEG) * len, n1 = n0 + Math.cos(hdgRw * DEG) * len;
-    const [ax, ay, dist] = put(e0, n0), [bx, by] = put(e1, n1);
-    ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(2, u * 0.8);
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-    ctx.strokeStyle = C.cyan; ctx.lineWidth = 1; ctx.setLineDash([u, u]);
-    const ex = e0 - Math.sin(hdgRw * DEG) * 10 * 1852, ny = n0 - Math.cos(hdgRw * DEG) * 10 * 1852;
-    const [fx, fy] = put(ex, ny);
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(fx, fy); ctx.stroke(); ctx.setLineDash([]);
-    text(ctx, d.airport || 'SBMT', ax + u * 3, ay, u * 2.8, C.cyan, 'left');
-    const brg = (Math.atan2(e0 - d.x, n0 - d.y) / DEG - d.trueHdg + hdg + 720) % 360;
-    rwInfo = `${d.airport || 'SBMT'} ${String(Math.round(brg) % 360 || 360).padStart(3, '0')}° ${(dist / 1852).toFixed(1)} NM`;
-  }
-  // The destination's runway and the GPS route: flown legs dim, the active
-  // leg magenta, the rest white; constraint altitudes under the waypoints.
-  if (d.destRunway) {
-    const r = d.destRunway, e1 = r.east + Math.sin(r.heading * DEG) * r.length, n1 = r.north + Math.cos(r.heading * DEG) * r.length;
-    const [ax, ay] = put(r.east, r.north), [bx, by] = put(e1, n1);
-    ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(2, u * 0.8);
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-  }
-  if (d.route && d.route.wp.length > 1) {
-    const wp = d.route.wp, act = d.route.active, pts = wp.map((w) => put(w.east, w.north));
-    ctx.lineWidth = Math.max(1.5, u * 0.45);
-    for (let i = 1; i < wp.length; ++i) {
-      if (i < act) continue;
-      ctx.strokeStyle = i === act ? C.magenta : C.white;
-      ctx.beginPath(); ctx.moveTo(...(i === act ? [0, 0] : pts[i - 1].slice(0, 2))); ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke();
-    }
-    for (let i = Math.max(act, 1); i < wp.length; ++i) {
-      const [px, py, dist] = pts[i];
-      if (dist > rangeM * 1.3) continue;
-      const col = i === act ? C.magenta : C.white;
-      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, u * 0.35);
-      ctx.beginPath(); ctx.moveTo(px, py - u * 1.3); ctx.lineTo(px + u * 0.4, py - u * 0.4); ctx.lineTo(px + u * 1.3, py); ctx.lineTo(px + u * 0.4, py + u * 0.4);
-      ctx.lineTo(px, py + u * 1.3); ctx.lineTo(px - u * 0.4, py + u * 0.4); ctx.lineTo(px - u * 1.3, py); ctx.lineTo(px - u * 0.4, py - u * 0.4); ctx.closePath(); ctx.stroke();
-      text(ctx, wp[i].ident, px + u * 2, py - u * 0.6, u * 2.4, col, 'left');
-      if (wp[i].alt > 0) text(ctx, String(Math.round(wp[i].alt / 0.3048 / 10) * 10), px + u * 2, py + u * 2, u * 2.1, C.cyan, 'left');
-    }
-  }
-  for (const [name, e, n] of d.points || []) {
-    const [px, py, dist] = put(e, n);
-    if (dist > rangeM * 1.05 || py > u * 8) continue;
-    ctx.strokeStyle = C.magenta; ctx.lineWidth = Math.max(1, u * 0.35);
-    ctx.beginPath(); ctx.moveTo(px, py - u); ctx.lineTo(px + u, py); ctx.lineTo(px, py + u); ctx.lineTo(px - u, py); ctx.closePath(); ctx.stroke();
-    text(ctx, name.toUpperCase().slice(0, 10), px + u * 1.8, py, u * 2.3, C.magenta, 'left');
-  }
+  let rwInfo = mapFeatures(ctx, put, u, rangeM, d);
   // Own ship.
   ctx.strokeStyle = C.white; ctx.lineWidth = Math.max(2, u * 0.5);
   ctx.beginPath(); ctx.moveTo(0, -u * 3); ctx.lineTo(0, u * 3); ctx.moveTo(-u * 2.5, 0); ctx.lineTo(u * 2.5, 0); ctx.moveTo(-u * 1.2, u * 2.6); ctx.lineTo(u * 1.2, u * 2.6); ctx.stroke();

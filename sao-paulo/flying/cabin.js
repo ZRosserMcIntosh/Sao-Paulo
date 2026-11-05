@@ -171,8 +171,9 @@ export function buildCabin({ mobile, maxAniso }) {
   // Hover ring on the panel face (a clickable place), in panel metres.
   let hover = null;
   function setHover(r) { hover = r; }
-  function redraw(c, m, sw, s, compass) {
-    drawCockpitPanel(ctx, W, H, c, m, sw, s);
+  // glass: the G1000's readings when the 172 has the glass panel (panel.js).
+  function redraw(c, m, sw, s, compass, glass) {
+    drawCockpitPanel(ctx, W, H, c, m, sw, s, glass);
     if (hover) {
       const k = W / PANEL_W;
       ctx.strokeStyle = 'rgba(80,200,255,.95)'; ctx.lineWidth = Math.max(2, k * 0.002);

@@ -14,6 +14,8 @@ const C = {
   sky: '#4e7fb4', earth: '#6d5435', amber: '#f0a830', flag: '#c8322b', accent: '#ffd36b', lcd: '#9fe3a8',
 };
 
+import { drawG1000Cockpit } from './g1000.js';
+
 // Cockpit-state buffer layout (Aviation Dynamics web/README.md).
 export const K = {
   ias: 0, alt: 1, kollsman: 2, vsi: 3, aiPitch: 4, aiRoll: 5, aiTumbled: 6, dg: 7, bug: 8, tcDefl: 9, tcRate: 10,
@@ -406,12 +408,22 @@ function drawBase(W, H, P) {
   return cv;
 }
 
-// sw: switch positions read from the cockpit registry; s: avd_state.
-export function drawCockpitPanel(ctx, W, H, c, m, sw, s) {
+// sw: switch positions read from the cockpit registry; s: avd_state; glass:
+// the G1000's readings (app.js g1000Data) when the 172 has the glass panel:
+// its two displays and the standby instruments in place of the six-pack,
+// the engine cluster and the radio stack.
+export function drawCockpitPanel(ctx, W, H, c, m, sw, s, glass) {
   const P = W / PANEL_W;
   if (!panelBase || panelBase.width !== W) panelBase = drawBase(W, H, P);
   ctx.drawImage(panelBase, 0, 0);
   const R = 0.04 * P, X = (u) => u * P;
+  if (glass) {
+    drawG1000Cockpit(ctx, X, glass);
+    // Standby airspeed, attitude and altimeter under the PFD.
+    asi(ctx, X(0.155), X(0.3), R * 0.72, c, m); ai(ctx, X(0.24), X(0.3), R * 0.72, c); alt(ctx, X(0.325), X(0.3), R * 0.72, c);
+    switches(ctx, X, c, sw);
+    return;
+  }
   // Annunciators above the six-pack.
   const ann = c[K.ann] | 0, cells = [['OIL PRESS', 1, C.red], ['LOW VAC', 2, C.amber], ['VOLTS', 4, C.red], ['L FUEL', 8, C.amber], ['R FUEL', 16, C.amber]];
   cells.forEach(([t, bit, col], i) => {
@@ -437,7 +449,12 @@ export function drawCockpitPanel(ctx, W, H, c, m, sw, s) {
   bar(ctx, ...bp(5), bw, bh, 'OIL PRESS', c[K.oilP], 0, 115, [[0, 20, C.red], [50, 90, C.green], [100, 115, C.red]], ['', '']);
   bar(ctx, ...bp(6), bw, bh, 'AMPS', c[K.amps], -60, 60, [], ['−', '+']);
   bar(ctx, ...bp(7), bw, bh, 'VOLTS', c[K.volts], 8, 32, [[24, 30, C.green]], ['', '']);
-  // Radio stack: audio panel, NAV/COM, transponder, hobbs.
+  radioStack(ctx, X, c, sw, s);
+  switches(ctx, X, c, sw);
+}
+
+// Radio stack: audio panel, NAV/COM, transponder, hobbs.
+function radioStack(ctx, X, c, sw, s) {
   const av = c[K.avPower] > 0.5 && sw.avionics && sw.bat;
   const rx = X(0.5), rw = X(0.2);
   ctx.fillStyle = '#0e0f10'; ctx.fillRect(rx, X(0.035), rw, X(0.03));
@@ -460,7 +477,10 @@ export function drawCockpitPanel(ctx, W, H, c, m, sw, s) {
   ctx.fillStyle = '#e8e6de'; ctx.font = `600 ${X(0.014)}px ${MONO}`;
   ctx.fillText(((s[42] || 0) / 3600 + 1287.4).toFixed(1).padStart(6, '0'), rx + X(0.1), X(0.228));
   ctx.fillStyle = '#9a9b97'; ctx.font = `700 ${X(0.007)}px ${FONT}`; ctx.fillText('HOURS', rx + X(0.1), X(0.248));
-  // Switch row: split master, then the light and avionics rockers.
+}
+
+// Switch row: split master, then the light and avionics rockers; the key, the flap indicator.
+function switches(ctx, X, c, sw) {
   const rocker = (u, label, on, red) => {
     const x = X(u), y = X(0.445), w = X(0.016), h = X(0.03);
     ctx.fillStyle = '#0a0a0b'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
