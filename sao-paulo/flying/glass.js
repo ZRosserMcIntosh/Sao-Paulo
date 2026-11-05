@@ -219,9 +219,16 @@ export function drawPFD(ctx, x, y, w, h, d) {
   // Attitude.
   const ax = x + w * 0.2, aw = w * 0.56, ay = y + 8 * u, ah = h * 0.64;
   const cx = ax + aw / 2, cy = ay + ah * 0.48, ppd = ah / 42;
-  attitudeScene(ctx, ax, ay, aw, ah, cx, cy, ppd, u, d, { fpv: airborne, hdgMarks: true });
-  // Roll scale and pointer.
-  rollScale(ctx, cx, cy, ah * 0.42, u, d);
+  // No valid attitude (the AHRS aligning or unpowered): the sphere goes, a red ATT flag in its place.
+  if (d.attFlag) {
+    box(ctx, ax, ay, aw, ah, null, '#06080a');
+    box(ctx, cx - u * 6, cy - ah * 0.2 - u * 3.5, u * 12, u * 7, null, C.red);
+    text(ctx, 'ATT', cx, cy - ah * 0.2, u * 5, C.white, 'center', SANS, 800);
+  } else {
+    attitudeScene(ctx, ax, ay, aw, ah, cx, cy, ppd, u, d, { fpv: airborne, hdgMarks: true });
+    // Roll scale and pointer.
+    rollScale(ctx, cx, cy, ah * 0.42, u, d);
+  }
   // Aircraft symbol.
   ctx.strokeStyle = C.yellow; ctx.fillStyle = C.black; ctx.lineWidth = Math.max(2, u * 0.7);
   for (const s of [-1, 1]) {
@@ -238,6 +245,11 @@ export function drawPFD(ctx, x, y, w, h, d) {
     if (tws?.dhFt > 0) text(ctx, `DH ${Math.round(tws.dhFt)}`, cx + u * 7.5, ay + ah * 0.84 + u * 2.9, u * 2.5, C.cyan, 'left');
   }
   tawsAnnunciator(ctx, cx, ay + ah * 0.3, u, d.taws);
+  // APR at the decision altitude: the autopilot has let go.
+  if (d.fma?.minimums && (performance.now() % 700) < 450) {
+    box(ctx, cx - u * 25, ay + ah * 0.44 - u * 3.2, u * 50, u * 6.4, null, C.amber);
+    text(ctx, 'MINIMUMS — AP DISCONNECT', cx, ay + ah * 0.44, u * 3.0, '#1b1200', 'center', SANS, 800);
+  }
   if (tws?.inhibit) text(ctx, 'TERR INHB', ax + u * 1.5, ay + ah - u * 2.5, u * 2.4, C.amber, 'left', MONO, 700);
   if (d.stall) { box(ctx, cx - u * 9, ay + ah * 0.62, u * 18, u * 6, null, C.red); text(ctx, 'STALL', cx, ay + ah * 0.62 + u * 3, u * 4.5, C.white, 'center', SANS, 800); }
   else if (!d.wow && d.ias > lim.vmax + 3) { box(ctx, cx - u * 13, ay + ah * 0.62, u * 26, u * 6, null, C.red); text(ctx, 'OVERSPEED', cx, ay + ah * 0.62 + u * 3, u * 4.2, C.white, 'center', SANS, 800); }
@@ -368,9 +380,21 @@ export function drawPFD(ctx, x, y, w, h, d) {
   ctx.strokeStyle = '#2b323b'; ctx.lineWidth = 1;
   for (const f of [0.38, 0.58]) { ctx.beginPath(); ctx.moveTo(x + w * f, y + u); ctx.lineTo(x + w * f, y + 6.2 * u); ctx.stroke(); }
   const thrMode = d.wow && d.thrLever > 0.9 ? 'TO' : d.thrLever > 0.9 ? 'MAX' : d.thrLever < 0.05 ? 'IDLE' : 'MAN';
-  text(ctx, thrMode, x + w * 0.29, y + 3.6 * u, u * 3.0, C.green);
-  text(ctx, d.assist.split(' · ')[0], x + w * 0.48, y + 3.6 * u, u * 3.0, C.green);
-  text(ctx, vs.phase === 'APP' ? 'APPR' : vs.phase === 'TO' ? 'TO' : d.assist.split(' · ')[1] || 'HDG', x + w * 0.67, y + 3.6 * u, u * 2.6, C.white);
+  const f = d.fma;
+  if (f) {
+    // The autopilot's modes: the thrust (SPD on the autothrottle), lateral, vertical; active green, armed white under them.
+    text(ctx, f.at ? 'SPD' : thrMode, x + w * 0.29, y + 3.6 * u, u * 3.0, C.green);
+    const col = (act, armed, xx) => {
+      if (armed) { text(ctx, act, xx, y + 2.6 * u, u * 2.5, C.green); text(ctx, armed, xx, y + 5.3 * u, u * 2.2, C.white); }
+      else text(ctx, act, xx, y + 3.6 * u, u * 2.7, C.green);
+    };
+    col(f.lat, f.latArmed, x + w * 0.48);
+    col(f.vert, f.vertArmed, x + w * 0.67);
+  } else {
+    text(ctx, thrMode, x + w * 0.29, y + 3.6 * u, u * 3.0, C.green);
+    text(ctx, d.assist.split(' · ')[0], x + w * 0.48, y + 3.6 * u, u * 3.0, C.green);
+    text(ctx, vs.phase === 'APP' ? 'APPR' : vs.phase === 'TO' ? 'TO' : d.assist.split(' · ')[1] || 'HDG', x + w * 0.67, y + 3.6 * u, u * 2.6, C.white);
+  }
   ctx.restore();
 }
 

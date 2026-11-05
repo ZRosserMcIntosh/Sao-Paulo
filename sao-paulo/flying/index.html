@@ -98,6 +98,8 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .big div{font:900 40px/.85 var(--display);font-variant-numeric:tabular-nums}
 .big small{display:block;font:600 10px var(--mono);color:var(--mute);letter-spacing:.08em;margin-top:5px}
 .assist{font:800 13px/1 var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--hot)}
+.assist .fa{color:var(--good)}.assist .fw{color:#fff}
+.assist .mins{color:#1b1200;background:var(--warn);padding:1px 5px;border-radius:3px;animation:tawsFlash .7s steps(1) infinite}
 .levers{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font:600 10px var(--mono);color:var(--mute);text-align:center}
 .lev{height:56px;border-radius:4px;background:rgba(255,255,255,.08);position:relative;overflow:hidden;margin-bottom:3px}
 .lev i{position:absolute;left:0;right:0;bottom:0;background:var(--ink)}
@@ -334,6 +336,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <span><kbd>U</kbd></span><span>Autoland: fly the approach to the destination and land, on / off (moving the stick takes over)</span>
     <span><kbd>Y</kbd></span><span>Autopilot on / off: holds the heading, altitude and (jets) speed; modes and selections in Options</span>
     <span><kbd>PgUp</kbd> <kbd>PgDn</kbd></span><span>Autopilot: selected altitude ±500 ft (Shift ±100), climbing or descending to it</span>
+    <span><kbd>⇧Y</kbd></span><span>Autopilot APR: arm the approach (ILS or GPS, Options → Flying): the localizer, then the glideslope, to the DA, where the autopilot lets go</span>
     <span class="fanonly"><kbd>N</kbd></span><span class="fanonly">Reverse thrust (hold, throttles at idle, on the ground)</span>
     <span class="tponly" hidden><kbd>N</kbd> · <kbd>⇧N</kbd></span><span class="tponly" hidden>Reverse · ground beta (hold, power levers at idle, on the ground: the blades on the power levers below the flight-idle gate)</span>
   </div>
@@ -351,7 +354,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   </div>
   <h2>Instruments</h2>
   <div class="keys">
-    <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level) · sync the heading to the compass</span>
+    <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level); AHRS RESET on the jets and the G1000 (ATT flag while it re-aligns, about 30 s) · sync the heading to the compass</span>
     <span><kbd>;</kbd> <kbd>'</kbd></span><span>Heading bug left / right (Shift: 1°)</span>
     <span><kbd>O</kbd></span><span>Altimeter +0.01 inHg (Shift: −)</span>
     <span class="pistononly"><kbd>J</kbd></span><span class="pistononly">172 panel: analog six-pack or G1000 glass (Options → Display)</span>
@@ -388,11 +391,14 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <button id="apAlt" aria-pressed="false">ALT</button>
     <button id="apVs" aria-pressed="false">VS</button>
     <button id="apSpd" aria-pressed="false">SPD</button>
+    <button id="apApr" aria-pressed="false" title="Approach mode (Shift+Y): the localizer and glideslope, or the GPS final course and glidepath, to the DA">APR</button>
+    <button id="apSrc" title="The approach APR flies: the ILS on NAV 1, or the GPS approach">ILS</button>
   </div>
   <div class="apsel" aria-label="Autopilot selections">
     <span>ALT</span><button data-apsel="alt" data-step="-500" title="PgDn">−</button><b id="apAltV">—</b><button data-apsel="alt" data-step="500" title="PgUp">+</button>
     <span>VS</span><button data-apsel="vs" data-step="-100">−</button><b id="apVsV">—</b><button data-apsel="vs" data-step="100">+</button>
     <span>SPD</span><button data-apsel="ias" data-step="-5">−</button><b id="apIasV">—</b><button data-apsel="ias" data-step="5">+</button>
+    <span title="APR's decision altitude, on the altimeter (double-click: back to the field + 200 ft)">DA</span><button data-dastep="-50">−</button><b id="apDaV">—</b><button data-dastep="50">+</button>
   </div>
   <div class="row" role="group" aria-label="Terrain awareness" style="margin-top:10px">
     <button id="bTerrInh" aria-pressed="false" title="Terrain inhibit: the forward-looking terrain alerts off">TERR INHIB</button>
@@ -403,6 +409,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   <p class="note">Terrain awareness (TAWS: class A in the jets, B in the others) watches the region's terrain and buildings ahead and below: CAUTION TERRAIN, then TERRAIN AHEAD, PULL UP, and the GPWS calls (SINK RATE, DON'T SINK, TOO LOW GEAR / FLAPS, GLIDESLOPE, BANK ANGLE, the height callouts). The alert shows on the PFD (red PULL UP, amber TERRAIN), as a tag on the analog 172, and is spoken with the sound on (<kbd>M</kbd>). TERR INHIB turns the forward-looking terrain alerts off for flying low near hills on purpose; the GPWS modes stay. DH: the decision height on the radio altimeter, where MINIMUMS is called; the radio altitude shows on the PFD below 2,500 ft.</p>
   <p class="note">Assists only move the controls, as a skilled pilot would: Easy levels the wings, coordinates turns, trims and guards the stall; Simulation is the raw airplane. Lift, thrust and weight are identical in all three. Auto-trim (any mode): let go of the stick and it levels the wings, stops the climb or descent, then holds that heading and altitude and trims for you; near the stall it gives up height rather than speed. It never touches the throttle.</p>
   <p class="note">Autopilot (in the air, Y): the flight core's autopilot, flown from the instruments. Y engages it holding the present heading (HDG, on the heading bug: ; and ' turn it), altitude (ALT) and, on the jets, speed (SPD, the autothrottle). NAV follows the GPS route to the destination; VS climbs or descends at the selected rate to the selected altitude and levels off there (PgUp and PgDn move it by 500 ft; changing it starts the climb or descent). It runs the trim, banks at most 25°, and lets go on the ground; the stick or Y gives you the controls back.</p>
+  <p class="note">APR (<kbd>⇧Y</kbd>), the approach mode: ILS flies the heading bug to intercept the localizer on NAV 1 (set the bug to the intercept heading), captures it inside full scale (HDG | LOC armed, then LOC | GS armed), then the glideslope from level or below within a quarter dot (LOC | GS), and flies both down to the DA; GPS does the same on the GPS approach to the destination (LNAV, then LPV on its glidepath). At the DA the autopilot lets go: MINIMUMS — AP DISCONNECT flashes with a tone and you land the airplane; if SPD was on, the autothrottle stays in until you take it out (SPD or Y) for the flare. DA: the decision altitude on the altimeter, by default the destination's field elevation + 200 ft. Modes on the status line and the PFDs: active green, armed white.</p>
   <p class="note">Autoland (in the air, U): the blind-landing pilot of the flight core flies the GPS approach to the destination (the runway in use if none is picked) from the instruments alone. It joins the final where it can fly the 3° path from there, else it flies the whole procedure (the initial fix, the intermediate fix, level at the final approach fix's altitude); it lowers the gear, puts the flaps out as the speed allows, sets the altimeter to QNH, flares, lands and brakes to a stop on the centreline. Moving the stick, or U, gives you the controls back.</p>
 
   <h2>Display</h2>

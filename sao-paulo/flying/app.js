@@ -487,6 +487,8 @@ const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.1, mixture: 1, brake: 0, 
 let tp = null;
 // The weather at the aircraft and the field (A.weather()) and the ice on it (A.icing()), each frame.
 let wx = null, icing = null;
+// The attitude reference's state (A.attitude(): AHRS or gyro, the ATT flag while it aligns), each frame.
+let att = null;
 // One engine's lever (splits them; `throttle` keeps their mean), and the lever as it stands.
 function setLever(i, v) {
   if (!input.levers) input.levers = [input.throttle, input.throttle];
@@ -787,6 +789,7 @@ function restart(i = ui.start) {
   smoke.reset();
   crashFx.clear();
   if (ap.on) { ap.on = false; apUi(); }  // the core's reset lets go of it
+  minimumsUntil = 0; apStatus = { on: false, lateral: 0, vertical: 0 };
   if (autoland) { A.autoland(false); autoland = false; $('bAutoland').setAttribute('aria-pressed', 'false'); }
   if (!STARTS[i]) ui.start = i = 0;
   const st = STARTS[i];
@@ -871,7 +874,7 @@ addEventListener('keydown', (e) => {
     case 'Slash': cycleSpeedbrake(); e.preventDefault(); break;
     case 'KeyV': cycleFlow(); break;
     case 'KeyT': setSlow(ui.slow + (e.shiftKey ? -1 : 1)); break;
-    case 'KeyK': A.avd_ai_cage(); toast(P.jet ? 'Attitude reference re-aligned (do it wings level).' : 'Attitude indicator caged (do it wings level).', 2); break;
+    case 'KeyK': A.avd_ai_cage(); toast(att?.ahrs ? 'AHRS RESET: the attitude reference re-aligns (ATT flag for about 30 s; hold the wings level).' : P.jet ? 'Attitude reference re-aligned (do it wings level).' : 'Attitude indicator caged (do it wings level).', 3); break;
     case 'KeyF': A.avd_dg_sync(); toast(P.jet ? 'Heading re-synced to the magnetometer.' : 'Heading indicator set to the compass.', 2); break;
     case 'Semicolon': case 'Quote': {
       const step = (e.code === 'Quote' ? 1 : -1) * (e.shiftKey ? 1 : 5);
@@ -885,7 +888,7 @@ addEventListener('keydown', (e) => {
     case 'KeyJ': setGlass(!ui.glass, true); break;
     case 'KeyL': setLevel(!ui.level, true); break;
     case 'KeyU': setAutoland(!autoland); break;
-    case 'KeyY': setAutopilot(!ap.on); break;
+    case 'KeyY': if (e.shiftKey) toggleApr(); else setAutopilot(!ap.on); break;
     case 'PageUp': case 'PageDown': apSelect('alt', (e.code === 'PageUp' ? 1 : -1) * (e.shiftKey ? 100 : 500)); e.preventDefault(); break;
     case 'KeyM': toggleSound(); break;
     case 'Backslash': { const x = iceCtl[e.shiftKey ? 1 : 0]; if (x) toggleIce(x.id); else toast('No ice protection to switch here.', 2); break; }
@@ -1128,8 +1131,13 @@ $('bAutoland').addEventListener('click', (e) => { setAutoland(!autoland); e.curr
 // HDG on the heading bug or NAV on the GPS route; ALT, or VS to the selected
 // altitude (captured, then held); SPD, the autothrottle. Y engages it on the
 // present heading, altitude and speed; the stick (or Y) gives the controls back.
-const AP_LAT = ['', 'ROL', 'HDG', 'NAV'], AP_VERT = ['', 'PIT', 'ALT', 'VS', 'ALT*'];
-const ap = { on: false, lat: 2, vert: 2, at: false, alt: 0, vs: 0, ias: 0 };
+// APR (lateral 4): the approach (A.autopilotApproach: the ILS on NAV 1 or the
+// GPS approach, to a decision altitude), armed on HDG (the ILS intercept on
+// the heading bug) or the GPS route, the localizer (final course) captured,
+// then the glideslope (glidepath), flown to the DA, where the AP lets go
+// (MINIMUMS) and the autothrottle, if on, stays in SPD for the pilot to take.
+const AP_LAT = ['', 'ROL', 'HDG', 'NAV', 'APR'], AP_VERT = ['', 'PIT', 'ALT', 'VS', 'ALT*', 'GS'];
+const ap = { on: false, lat: 2, vert: 2, at: false, alt: 0, vs: 0, ias: 0, src: store.get('aprSrc', 'ils') === 'gps' ? 'gps' : 'ils', da: 0 };
 let apStatus = { on: false, lateral: 0, vertical: 0 };
 function apUi() {
   $('apOn').setAttribute('aria-pressed', String(ap.on));
@@ -1138,6 +1146,9 @@ function apUi() {
   $('apAlt').setAttribute('aria-pressed', String(ap.on && ap.vert === 2));
   $('apVs').setAttribute('aria-pressed', String(ap.on && ap.vert === 3));
   $('apSpd').setAttribute('aria-pressed', String(ap.on && ap.at));
+  $('apApr').setAttribute('aria-pressed', String(ap.on && ap.lat === 4));
+  $('apSrc').textContent = ap.src === 'gps' ? 'GPS' : 'ILS';
+  $('apDaV').textContent = `${fmt(ap.da || defaultDa())} ft${ap.da ? '' : ' (auto)'}`;
   $('apAltV').textContent = ap.on || ap.alt ? `${fmt(ap.alt)} ft` : '—';
   $('apVsV').textContent = ap.on || ap.vs ? `${ap.vs > 0 ? '+' : ''}${fmt(ap.vs)} fpm` : '—';
   $('apIasV').textContent = ap.on || ap.ias ? `${fmt(ap.ias)} kt` : '—';
@@ -1147,6 +1158,10 @@ function apApply() {
   const hadThrottle = ap.on && ap.at;
   const r = A.autopilot({ lateral: ap.lat, vertical: ap.vert, autothrottle: ap.at, altFt: ap.alt, vsFpm: ap.vs, iasKt: ap.ias });
   if (r === -3) { toast('NAV needs a route: pick a destination (Flight menu). HDG kept.', 3); ap.lat = 2; return apApply(); }
+  if (r === -4) {
+    toast(ap.src === 'ils' ? 'APR: no ILS on NAV 1 (pick a destination with an ILS, or switch the source to GPS). HDG kept.' : 'APR: no GPS approach (pick a destination in the Flight menu). HDG kept.', 4);
+    ap.lat = 2; return apApply();
+  }
   if (r === -2) { toast('The autopilot engages in the air.', 2.5); ap.on = false; if (hadThrottle) handBackThrottle(); apUi(); return false; }
   ap.on = r === 1;
   if (ap.on && autoland) { autoland = false; $('bAutoland').setAttribute('aria-pressed', 'false'); }
@@ -1195,9 +1210,75 @@ $('apNav').addEventListener('click', apMode(() => { ap.lat = ap.lat === 3 ? 2 : 
 $('apAlt').addEventListener('click', apMode(() => { ap.vert = 2; ap.alt = Math.round(c[K.alt] / 100) * 100; }));
 $('apVs').addEventListener('click', apMode(() => { ap.vert = 3; if (!ap.vs) ap.vs = Math.round(c[K.vsi] / 100) * 100 || (ap.alt >= c[K.alt] ? 500 : -500); }));
 $('apSpd').addEventListener('click', apMode(() => { ap.at = !ap.at; if (ap.at) ap.ias = Math.round(c[K.ias]); }));
+// APR: the decision altitude (ft on the altimeter; 0: the core's threshold + 200 ft) and the source.
+const defaultDa = () => Math.round(((DEST ? REGION[DEST.ai]?.elevation ?? ELEV : ELEV) / 0.3048 + 200) / 10) * 10;
+function aprSetup() { return A.autopilotApproach ? A.autopilotApproach({ source: ap.src, daFt: ap.da }) : -1; }
+function toggleApr() {
+  if (!A.autopilotApproach) { toast('This flight core has no approach mode.', 3); return; }
+  if (ap.on && ap.lat === 4) { ap.lat = 2; apApply(); toast('APR off: HDG.', 2); return; }
+  if (!ap.on) { setAutopilot(true); if (!ap.on) return; }
+  aprSetup();
+  ap.lat = 4;
+  if (ap.vert !== 2 && ap.vert !== 3) ap.vert = 2;
+  if (apApply()) toast(`APR armed: ${ap.src === 'ils' ? 'fly the heading bug to intercept the localizer' : 'the GPS route to the final course'}, the ${ap.src === 'ils' ? 'glideslope' : 'glidepath'} captured from level or below; DA ${fmt(ap.da || defaultDa())} ft.`, 5);
+}
+$('apApr').addEventListener('click', (e) => { toggleApr(); e.currentTarget.blur(); });
+$('apSrc').addEventListener('click', (e) => {
+  ap.src = ap.src === 'ils' ? 'gps' : 'ils'; store.set('aprSrc', ap.src);
+  toast(`Approach source: ${ap.src === 'ils' ? 'the ILS on NAV 1' : 'the GPS approach (LNAV / LPV)'}.`, 2.5);
+  if (ap.on && ap.lat === 4) { aprSetup(); ap.lat = 4; apApply(); }  // re-armed on it (or refused, HDG kept)
+  apUi(); e.currentTarget.blur();
+});
+document.querySelectorAll('[data-dastep]').forEach((b) => b.addEventListener('click', (e) => {
+  ap.da = Math.max(0, Math.round(((ap.da || defaultDa()) + +b.dataset.dastep) / 10) * 10);
+  if (ap.on && ap.lat === 4 && (apStatus.apr || 0) <= 1) { aprSetup(); apApply(); }
+  apUi(); e.currentTarget.blur();
+}));
+$('apDaV').addEventListener('dblclick', () => { ap.da = 0; apUi(); });
+// The flight mode annunciation shared by the HUD, the jets' PFD and the G1000:
+// active modes (green) and armed ones (white); APR's at MINIMUMS.
+let minimumsUntil = 0;
+function fmaModes() {
+  const st = apStatus, gps = st.aprSource === 'gps', apr = st.lateral === 4;
+  const bug = String(Math.round(st.bugDeg) % 360).padStart(3, '0');
+  const m = { lat: '', latArmed: '', vert: '', vertArmed: '', at: st.autothrottle ? `SPD ${fmt(st.iasKt)}` : '', minimums: performance.now() < minimumsUntil, apr: st.apr || 0 };
+  if (apr) {
+    if ((st.apr || 0) <= 1) { m.lat = gps ? 'GPS' : `HDG ${bug}`; m.latArmed = gps ? 'LNAV' : 'LOC'; }
+    else m.lat = gps ? 'LNAV' : 'LOC';
+  } else m.lat = st.lateral ? AP_LAT[st.lateral] + (st.lateral === 2 ? ` ${bug}` : '') : '';
+  if (st.vertical === 5 || st.apr === 3) m.vert = gps ? 'LPV' : 'GS';
+  else {
+    m.vert = st.vertical === 3 ? `VS ${st.vsFpm > 0 ? '+' : ''}${fmt(st.vsFpm)}` : st.vertical === 4 ? `ALT* ${fmt(st.altFt)}` : st.vertical === 2 ? `ALT ${fmt(st.altFt)}` : AP_VERT[st.vertical] || '';
+    if (apr && st.apr === 2) m.vertArmed = gps ? 'LPV' : 'GS';
+    else if (st.vertical === 3) m.vertArmed = `ALT ${fmt(st.altFt)}`;
+  }
+  return m;
+}
+// MINIMUMS: the AP let go at the DA. A tone, a flashing annunciation, and the autothrottle's word.
+function alertTone() {
+  const ctx = audio.ctx;
+  if (!ui.sound || !ctx) return;
+  const t = ctx.currentTime, g = ctx.createGain(); g.gain.value = 0; g.connect(ctx.destination);
+  const o = ctx.createOscillator(); o.type = 'square'; o.connect(g);
+  for (let k = 0; k < 4; ++k) {
+    o.frequency.setValueAtTime(k % 2 ? 880 : 1175, t + k * 0.22);
+    g.gain.setValueAtTime(0.12 * ui.vol / 100, t + k * 0.22); g.gain.setValueAtTime(0, t + k * 0.22 + 0.17);
+  }
+  o.start(t); o.stop(t + 0.95);
+}
+function onMinimums(st) {
+  minimumsUntil = performance.now() + 9000;
+  alertTone();
+  toast(st.autothrottle ? 'MINIMUMS — AP DISCONNECT: you have the airplane. SPD is still on: disconnect the autothrottle (SPD, or Y) for the flare.' : 'MINIMUMS — AP DISCONNECT: you have the airplane.', 7);
+  ap.lat = 0; ap.vert = 0;
+}
 document.querySelectorAll('[data-apsel]').forEach((b) => b.addEventListener('click', (e) => { apSelect(b.dataset.apsel, +b.dataset.step); e.currentTarget.blur(); }));
 function apText() {
   const st = apStatus;
+  if (st.lateral === 4 || st.apr >= 2) {
+    const f = fmaModes();
+    return ['AP', f.lat + (f.latArmed ? ` | ${f.latArmed} armed` : ''), f.vert + (f.vertArmed ? ` | ${f.vertArmed} armed` : ''), f.at].filter(Boolean).join(' · ');
+  }
   const lat = AP_LAT[st.lateral] + (st.lateral === 2 ? ` ${String(Math.round(st.bugDeg) % 360).padStart(3, '0')}` : '');
   const vert = st.vertical === 3 ? `VS ${st.vsFpm > 0 ? '+' : ''}${fmt(st.vsFpm)} → ${fmt(st.altFt)}` : st.vertical === 4 ? `ALT* ${fmt(st.altFt)}` : st.vertical === 2 ? `ALT ${fmt(st.altFt)}` : AP_VERT[st.vertical];
   return ['AP', lat, vert, st.autothrottle ? `SPD ${fmt(st.iasKt)}` : ''].filter(Boolean).join(' · ');
@@ -1205,7 +1286,12 @@ function apText() {
 // Status after the assist mode: auto-trim state, and Q/E on the tiller.
 function assistStatus() {
   if (autoland) return `AUTOLAND · ${AL_PHASES[alStatus.phase] || ''}`;
-  if (ap.on) return apText();
+  if (performance.now() < minimumsUntil) return `<span class="mins">MINIMUMS — AP DISCONNECT</span>${ap.on && ap.at ? ` · SPD ${fmt(apStatus.iasKt)} (A/T ON)` : ''}`;
+  if (ap.on) {
+    // Active modes green, armed white.
+    const f = fmaModes(), g = (t) => (t ? `<span class="fa">${t}</span>` : ''), w = (t) => (t ? ` <span class="fw">${t}</span>` : '');
+    return ['AP', g(f.lat) + w(f.latArmed), g(f.vert) + w(f.vertArmed), f.at].filter(Boolean).join(' · ');
+  }
   const lvl = !ui.level ? '' : s[58] ? ' · TOO SLOW' : s[55] ? ' · HOLDING LEVEL' : ' · AUTO-TRIM';
   return ASSIST[ui.assist] + lvl + (s[56] ? ' · TILLER' : '');
 }
@@ -1258,8 +1344,13 @@ $('bCam').addEventListener('click', (e) => { cycleCam(); e.currentTarget.blur();
 // The 172's panel: the analog six-pack (the default) or the G1000 glass
 // cockpit (g1000.js), as the 172S NAV III has. The jets keep their own deck.
 ui.glass = store.get('panel172', 'analog') === 'g1000';
+// The G1000 172 flies on an AHRS and magnetometer (no vacuum-gyro errors, no
+// tumble); the analog panel on its vacuum gyros (the aircraft's data). A new
+// aircraft load starts on its data: applyProfileUi applies it again.
+function applyAttitudeRef() { if (!P.jet && A.setAttitudeReference) A.setAttitudeReference(ui.glass ? 'ahrs' : 'data'); }
 function setGlass(on, announce) {
   ui.glass = !!on; store.set('panel172', ui.glass ? 'g1000' : 'analog');
+  applyAttitudeRef();
   document.querySelectorAll('[data-panel172]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.panel172 === 'g1000') === ui.glass)));
   document.body.classList.toggle('g1000', ui.glass && !P.jet);
   applyInstrSize();
@@ -1649,7 +1740,7 @@ function navHud() {
   hNav.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
 }
 function hud() {
-  $('hAssist').textContent = assistStatus();
+  $('hAssist').innerHTML = assistStatus();
   navHud();
   if (P.jet) { jetHud(); return; }
   $('hIas').innerHTML = iasHtml();
@@ -1739,7 +1830,7 @@ function jetData() {
     route: DEST ? A.route() : null, gps: DEST ? A.gps().slice() : null, dest: DEST,
     destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
     nav: { valid: !!c[K.navValid], loc: !!c[K.loc], cdi: c[K.cdi], gsValid: !!c[K.gsValid], gs: c[K.gs], mhz: c[K.navAct] },
-    taws: tawsUi,
+    taws: tawsUi, fma: ap.on || performance.now() < minimumsUntil ? fmaModes() : null, attFlag: !!att?.attFlag,
     // Ice: the detector's ICE, and the protection switched on (WING A/I, TAIL A/I).
     ice: icing ? { detected: icing.iceDetected, protOn: icing.protectionMask > 0,
       on: iceCtl.filter((x, k) => (icing.protectionMask >> k) & 1).map((x) => (x.id === 'anti_ice.tail' ? 'TAIL A/I' : x.id === 'anti_ice.wing' ? 'WING A/I' : `${x.id.split('.')[1].toUpperCase()} A/I`)) } : null,
@@ -1762,11 +1853,13 @@ function tpData() {
 // the engine's sensors, NAV 1 and the GPS (g1000.js).
 function g1000Modes() {
   if (autoland) return { on: true, lat: alStatus.phase >= 3 ? 'ROLLOUT' : 'GPS', vert: ['ALT', 'GP', 'FLARE', '', ''][alStatus.phase] || '', armed: 'AUTOLAND' };
-  if (!ap.on) return null;
-  const st = apStatus, alt = `${fmt(st.altFt)}FT`;
-  return { on: true, lat: ['', 'ROL', 'HDG', 'GPS'][st.lateral] || '', vert: ['', 'PIT', 'ALT', 'VS', 'ALTS'][st.vertical] || '',
-    ref: st.vertical === 3 ? `${st.vsFpm > 0 ? '+' : ''}${fmt(st.vsFpm)}FPM` : st.vertical === 2 || st.vertical === 4 ? alt : '',
-    armed: st.vertical === 3 ? 'ALTS' : '' };
+  if (!ap.on) return performance.now() < minimumsUntil ? { on: false, minimums: true } : null;
+  const st = apStatus, alt = `${fmt(st.altFt)}FT`, f = fmaModes(), gps = st.aprSource === 'gps';
+  const glide = st.vertical === 5 || st.apr === 3;
+  return { on: true, lat: st.lateral === 4 ? f.lat.split(' ')[0] : ['', 'ROL', 'HDG', 'GPS'][st.lateral] || '', latArmed: f.latArmed,
+    vert: glide ? (gps ? 'GP' : 'GS') : ['', 'PIT', 'ALT', 'VS', 'ALTS'][st.vertical] || '',
+    ref: glide ? '' : st.vertical === 3 ? `${st.vsFpm > 0 ? '+' : ''}${fmt(st.vsFpm)}FPM` : st.vertical === 2 || st.vertical === 4 ? alt : '',
+    armed: st.lateral === 4 && st.apr === 2 ? (gps ? 'GP' : 'GS') : st.vertical === 3 ? 'ALTS' : '', minimums: f.minimums };
 }
 function g1000Data() {
   const g = A.gps(), bus = !!sw.bat && c[K.volts] > 10;
@@ -1779,7 +1872,7 @@ function g1000Data() {
     nav: { valid: c[K.navValid] > 0.5, loc: c[K.loc] > 0.5, cdi: c[K.cdi], toFrom: c[K.toFrom], gsValid: c[K.gsValid] > 0.5, gs: c[K.gs],
       mhz: c[K.navAct], stby: c[K.navStb], obs: c[K.obs] },
     com: [c[K.comAct], c[K.comStb]], squawk: c[K.squawk], xpdrMode: c[K.xpdrMode], clock: c[K.clock], av: c[K.avPower] > 0.5,
-    m: M, mk: MK, afcs: g1000Modes(), taws: tawsUi,
+    m: M, mk: MK, afcs: g1000Modes(), taws: tawsUi, attFlag: !!att?.attFlag, ahrs: !!att?.ahrs,
     eng: { rpm: c[K.rpm], ff: c[K.ff], oilP: c[K.oilP], oilT: c[K.oilT], egt: c[K.egt], fuelL: c[K.fuelL], fuelR: c[K.fuelR],
       amps: c[K.amps], volts: c[K.volts], suction: c[K.suction], ann: c[K.ann], hobbs: (s[42] || 0) / 3600 + 1287.4 },
     // The PFD on the main bus with the master on, the MFD on the avionics bus too.
@@ -2115,6 +2208,7 @@ function applyProfileUi() {
   document.querySelectorAll('.tponly').forEach((el) => { el.hidden = !P.turboprop; });
   document.querySelectorAll('.pistononly').forEach((el) => { el.hidden = P.jet; });
   document.body.classList.toggle('jet', P.jet);
+  applyAttitudeRef();
   document.body.classList.toggle('g1000', ui.glass && !P.jet);
   document.querySelectorAll('[data-panel172]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.panel172 === 'g1000') === ui.glass)));
   applyInstrSize();  // the jet's strip is taller; each aircraft keeps its own size
@@ -2220,12 +2314,17 @@ function frame() {
     if (input.levers) { A.setThrottle(0, input.levers[0]); A.setThrottle(1, input.levers[1]); }  // set_input rejoined them
     A.avd_advance(simDt);
     if (ap.on) {
-      const st = A.autopilotStatus();
-      if (!st.on) setAutopilot(false, s[28] ? 'Autopilot off: on the ground.' : 'Autopilot off.');
+      const st = A.autopilotStatus(), was = apStatus.apr || 0;
+      if (st.apr === 4 && was !== 4) onMinimums(st);
+      else if (st.lateral === 4 && st.apr === 2 && was < 2) toast(`${st.aprSource === 'gps' ? 'LNAV: the final course' : 'LOC'} captured; ${st.aprSource === 'gps' ? 'LPV glidepath' : 'glideslope'} armed.`, 3);
+      else if (st.lateral === 4 && st.apr === 3 && was < 3) toast(`${st.aprSource === 'gps' ? 'Glidepath' : 'Glideslope'} captured: down to the DA, ${fmt(st.daFt)} ft.`, 3);
+      if (!st.on) setAutopilot(false, st.apr === 4 ? 'MINIMUMS — AP DISCONNECT: you have the airplane.' : s[28] ? 'Autopilot off: on the ground.' : 'Autopilot off.');
       else {
         if (st.vertical === 2 && apStatus.vertical === 4) toast(`Autopilot: level at ${fmt(st.altFt)} ft.`, 2.5);
         apStatus = st;
-        ap.vert = st.vertical === 4 ? 3 : st.vertical;
+        // The glideslope coupled (5) keeps the mode the pilot gave (re-sending it keeps the capture).
+        if (st.vertical <= 4 && st.apr !== 4) ap.vert = st.vertical === 4 ? 3 : st.vertical;
+        if (st.apr === 4) { ap.lat = 0; ap.vert = 0; apUi(); }
       }
     }
     // The autoland or the autothrottle flies the throttle: the levers on screen follow it.
@@ -2241,7 +2340,7 @@ function frame() {
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
   tp = P.turboprop ? A.turboprop() : null;
-  wx = A.weather ? A.weather() : null; icing = A.icing ? A.icing() : null;
+  wx = A.weather ? A.weather() : null; icing = A.icing ? A.icing() : null; att = A.attitude ? A.attitude() : null;
   readTaws();
   if (P.jet) landingRollCallouts();
   // The propeller's blade angle (about the thrust axis, right-handed; the

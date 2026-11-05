@@ -306,7 +306,9 @@ function afcs(ctx, d) {
   for (const x of [330, 410, 490]) { ctx.beginPath(); ctx.moveTo(x, 38); ctx.lineTo(x, 60); ctx.stroke(); }
   const a = d.afcs;
   if (!a || !a.on) return;
-  t(ctx, a.lat, 250, 49, 20, G.green, 'center', 700);
+  // Lateral: active green, armed white beside it (HDG  LOC, GPS  LNAV).
+  if (a.latArmed) { t(ctx, a.lat, 215, 49, 20, G.green, 'center', 700); t(ctx, a.latArmed, 292, 49, 17, G.white, 'center', 700); }
+  else t(ctx, a.lat, 250, 49, 20, G.green, 'center', 700);
   t(ctx, a.label || 'AP', 370, 49, 20, G.green, 'center', 700);
   t(ctx, a.vert, 450, 49, 20, G.green, 'center', 700);
   if (a.ref) t(ctx, a.ref, 498, 49, 19, G.green, 'left', 600);
@@ -385,8 +387,14 @@ function pfd(ctx, d, withEis) {
   const src = cdi(d);
   // Attitude across the whole screen behind the tapes and the HSI.
   const cx = 456, cy = 300, ppd = 8.6;
-  attitudeScene(ctx, 0, 34, VW, 708, cx, cy, ppd, 7.68, d, { ladder: 330, span: 15 });
-  rollScale(ctx, cx, cy, 172, 6.4, d);
+  // The AHRS without a valid attitude (aligning after power-up or an AHRS reset): no sphere, a red ATT flag.
+  if (d.attFlag) {
+    rect(ctx, 0, 34, VW, 708, '#05070a');
+    rect(ctx, cx - 46, cy - 120, 92, 44, G.red); t(ctx, 'ATT', cx, cy - 98, 30, G.white, 'center', 800);
+  } else {
+    attitudeScene(ctx, 0, 34, VW, 708, cx, cy, ppd, 7.68, d, { ladder: 330, span: 15 });
+    rollScale(ctx, cx, cy, 172, 6.4, d);
+  }
   // Aircraft symbol (the single-cue delta).
   ctx.fillStyle = G.yellow; ctx.strokeStyle = G.black; ctx.lineWidth = 2;
   for (const s of [-1, 1]) {
@@ -406,6 +414,7 @@ function pfd(ctx, d, withEis) {
   boxes(ctx, d);
   alerts(ctx, d);
   tawsPfd(ctx, d);
+  if (d.afcs?.minimums && (performance.now() % 700) < 450) { rect(ctx, 270, 210, 372, 36, G.amber); t(ctx, 'MINIMUMS — AP DISCONNECT', 456, 229, 21, G.black, 'center', 800); }
   radios(ctx, d, src.src);
   navStatus(ctx, d);
   afcs(ctx, d);
