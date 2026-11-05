@@ -7,7 +7,7 @@
 // sensors, the course and deviation from NAV 1 or the GPS. The attitude, roll
 // scale, altitude drum and map features are the jets' (glass.js).
 // Each display is drawn in a 1024 x 768 screen of its own, scaled to fit.
-import { attitudeScene, rollScale, altDigits, mapFeatures } from './glass.js';
+import { attitudeScene, rollScale, altDigits, mapFeatures, tawsAnnunciator } from './glass.js';
 
 const DEG = Math.PI / 180;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -352,6 +352,22 @@ function alerts(ctx, d) {
   });
 }
 
+// The TAWS on the PFD: its annunciation over the attitude, the radio altitude
+// (0 to 2,500 ft) above the HSI with the decision height, TAWS INHIBIT.
+function tawsPfd(ctx, d) {
+  const tw = d.taws;
+  if (!tw) return;
+  tawsAnnunciator(ctx, 456, 150, 7.68, tw);
+  if (tw.raFt >= 0 && tw.raFt <= 2500) {
+    const below = tw.dhFt > 0 && tw.raFt < tw.dhFt, col = below ? G.amber : G.green;
+    rect(ctx, 520, 440, 118, 30, 'rgba(0,0,0,.72)', col, 1.5);
+    t(ctx, 'RA', 528, 456, 15, G.white);
+    t(ctx, String(tw.raFt < 10 ? Math.round(tw.raFt) : Math.round(tw.raFt / 10) * 10), 630, 456, 21, col, 'right', 600, MONO);
+    if (tw.dhFt > 0) { rect(ctx, 520, 472, 118, 24, 'rgba(0,0,0,.72)', G.line, 1); t(ctx, 'DH', 528, 485, 13, G.white); t(ctx, `${Math.round(tw.dhFt)}FT`, 630, 485, 16, G.cyan, 'right', 600, MONO); }
+  }
+  if (tw.inhibit) { rect(ctx, 520, 104, 132, 24, G.black, G.amber, 1.5); t(ctx, 'TAWS INHIBIT', 586, 117, 14, G.amber, 'center', 800); }
+}
+
 function softkeys(ctx, labels, lit = []) {
   rect(ctx, 0, 742, VW, 26, '#101317');
   const kw = VW / 12;
@@ -389,6 +405,7 @@ function pfd(ctx, d, withEis) {
   hsi(ctx, d, src);
   boxes(ctx, d);
   alerts(ctx, d);
+  tawsPfd(ctx, d);
   radios(ctx, d, src.src);
   navStatus(ctx, d);
   afcs(ctx, d);

@@ -216,12 +216,16 @@ export function drawPFD(ctx, x, y, w, h, d) {
   }
   ctx.fillStyle = C.yellow; ctx.fillRect(cx - u * 0.9, cy - u * 0.9, u * 1.8, u * 1.8);
   deviation(ctx, ax, ay, aw, ah, cx, cy, u, d);
-  // Radio altitude (over the terrain and buildings below).
-  if (d.ra < 2500) {
-    const col = d.ra < 200 ? C.amber : C.green;
+  // Radio altitude (the TAWS's: over the terrain and buildings below), with the decision height.
+  const tws = d.taws, ra = tws ? tws.raFt : d.ra < 2500 ? d.ra : -1;
+  if (ra >= 0 && ra <= 2500) {
+    const dh = tws?.dhFt > 0 ? tws.dhFt : 200, col = ra < dh ? C.amber : C.green;
     box(ctx, cx - u * 6.5, ay + ah * 0.84, u * 13, u * 5.6, col, C.black, 1);
-    text(ctx, String(d.ra < 10 ? Math.round(d.ra) : Math.round(d.ra / 10) * 10), cx, ay + ah * 0.84 + u * 2.9, u * 4.2, col);
+    text(ctx, String(ra < 10 ? Math.round(ra) : Math.round(ra / 10) * 10), cx, ay + ah * 0.84 + u * 2.9, u * 4.2, col);
+    if (tws?.dhFt > 0) text(ctx, `DH ${Math.round(tws.dhFt)}`, cx + u * 7.5, ay + ah * 0.84 + u * 2.9, u * 2.5, C.cyan, 'left');
   }
+  tawsAnnunciator(ctx, cx, ay + ah * 0.3, u, d.taws);
+  if (tws?.inhibit) text(ctx, 'TERR INHB', ax + u * 1.5, ay + ah - u * 2.5, u * 2.4, C.amber, 'left', MONO, 700);
   if (d.stall) { box(ctx, cx - u * 9, ay + ah * 0.62, u * 18, u * 6, null, C.red); text(ctx, 'STALL', cx, ay + ah * 0.62 + u * 3, u * 4.5, C.white, 'center', SANS, 800); }
   else if (!d.wow && d.ias > lim.vmax + 3) { box(ctx, cx - u * 13, ay + ah * 0.62, u * 26, u * 6, null, C.red); text(ctx, 'OVERSPEED', cx, ay + ah * 0.62 + u * 3, u * 4.2, C.white, 'center', SANS, 800); }
 
@@ -355,6 +359,19 @@ export function drawPFD(ctx, x, y, w, h, d) {
   text(ctx, d.assist.split(' · ')[0], x + w * 0.48, y + 3.6 * u, u * 3.0, C.green);
   text(ctx, vs.phase === 'APP' ? 'APPR' : vs.phase === 'TO' ? 'TO' : d.assist.split(' · ')[1] || 'HDG', x + w * 0.67, y + 3.6 * u, u * 2.6, C.white);
   ctx.restore();
+}
+
+// The TAWS's annunciation in the attitude (t: app.js tawsUi): a warning red,
+// flashing (PULL UP), a caution amber (TERRAIN, SINK RATE, GLIDESLOPE...),
+// an advisory white. Shared with the G1000 (g1000.js), u its layout unit.
+export function tawsAnnunciator(ctx, x, y, u, t) {
+  if (!t || !t.text) return;
+  const warn = t.level >= 3, flash = (performance.now() % 800) < 520;
+  const col = warn ? C.red : t.level === 2 ? C.amber : C.white;
+  ctx.font = `800 ${u * 4.6}px ${SANS}`;
+  const w = ctx.measureText(t.text).width + u * 4, h = u * 7;
+  if (warn && flash) { box(ctx, x - w / 2, y - h / 2, w, h, null, col); text(ctx, t.text, x, y + u * 0.2, u * 4.6, C.white, 'center', SANS, 800); }
+  else { box(ctx, x - w / 2, y - h / 2, w, h, col, 'rgba(0,0,0,.72)', Math.max(1.5, u * 0.4)); text(ctx, t.text, x, y + u * 0.2, u * 4.6, col, 'center', SANS, 800); }
 }
 
 // Approach deviation on the PFD: the localizer under the attitude and the

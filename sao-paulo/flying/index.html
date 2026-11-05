@@ -53,6 +53,9 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 .ctl{display:grid;grid-template-columns:86px minmax(0,1fr) 64px;gap:8px;align-items:center;font-size:12px;color:var(--mute);margin-top:6px}
 .ctl output{font:500 11px var(--mono);color:var(--ink);text-align:right}
 .starts{display:grid;gap:5px}
+.apsel{display:grid;grid-template-columns:auto 28px 1fr 28px;gap:6px 8px;align-items:center;margin-top:8px;font:600 12px var(--mono);color:var(--mute)}
+.apsel b{text-align:center;color:var(--ink);font-weight:700}
+.apsel button{padding:2px 0}
 .ctl select{width:100%;min-width:0;background:rgba(255,255,255,.06);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 4px;font:inherit}
 #loadPanel .ctl{grid-template-columns:1fr auto;grid-template-areas:"name val" "bar bar";gap:2px 8px;margin-top:8px}
 #loadPanel .ctl span{grid-area:name}
@@ -106,6 +109,12 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #coreId{margin:14px 0 0;font:500 10px var(--mono);color:var(--mute);letter-spacing:.03em;opacity:.8}
 #warn{position:fixed;left:50%;top:70px;transform:translateX(-50%);font:900 26px/1 var(--display);letter-spacing:.06em;color:#fff;background:var(--bad);border-radius:6px;padding:6px 14px;z-index:2;display:none;pointer-events:none}
 #warn.on{display:block}
+/* TAWS: the top alert as a tag (the analog 172, or the jets with the panel hidden). */
+#taws{position:fixed;left:50%;top:112px;transform:translateX(-50%);font:900 24px/1 var(--display);letter-spacing:.06em;color:#fff;border:2px solid #fff;background:rgba(10,17,28,.72);border-radius:6px;padding:6px 14px;z-index:2;pointer-events:none}
+#taws[hidden]{display:none}
+#taws.caut{color:#1b1200;background:var(--warn);border-color:var(--warn)}
+#taws.warn{background:var(--bad);border-color:var(--bad);animation:tawsFlash .8s steps(1) infinite}
+@keyframes tawsFlash{50%{background:rgba(10,17,28,.72);color:var(--bad)}}
 #flowLegend{position:fixed;right:12px;bottom:calc(var(--instr-h,150px) + 24px);z-index:2;width:250px;display:grid;gap:7px;pointer-events:none}
 #flowLegend[hidden]{display:none}
 #flowLegend .lg{display:grid;gap:3px;font:500 11px var(--mono);color:var(--mute)}
@@ -162,9 +171,6 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   #tSpd{right:calc(156px + env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom))}
   #tRev{right:calc(156px + env(safe-area-inset-right));bottom:calc(120px + env(safe-area-inset-bottom))}
   .tb[hidden]{display:none}
-  .apsel{display:grid;grid-template-columns:auto 28px 1fr 28px;gap:6px 8px;align-items:center;margin-top:8px;font:600 12px var(--mono);color:var(--mute)}
-  .apsel b{text-align:center;color:var(--ink);font-weight:700}
-  .apsel button{padding:2px 0}
   #instr{bottom:auto;top:calc(60px + env(safe-area-inset-top));height:var(--instr-h,96px)}
   #instr .grip{top:auto;bottom:-7px}#instr .grip::before{border-top:0;border-bottom:3px solid var(--ink)}
   body.jet{--instr-h:min(192px,45vh)}
@@ -369,6 +375,13 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <span>VS</span><button data-apsel="vs" data-step="-100">−</button><b id="apVsV">—</b><button data-apsel="vs" data-step="100">+</button>
     <span>SPD</span><button data-apsel="ias" data-step="-5">−</button><b id="apIasV">—</b><button data-apsel="ias" data-step="5">+</button>
   </div>
+  <div class="row" role="group" aria-label="Terrain awareness" style="margin-top:10px">
+    <button id="bTerrInh" aria-pressed="false" title="Terrain inhibit: the forward-looking terrain alerts off">TERR INHIB</button>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute)">DH <select id="tawsDh" aria-label="Decision height on the radio altimeter">
+      <option value="0">none</option><option value="50">50 ft</option><option value="100">100 ft</option><option value="150">150 ft</option><option value="200">200 ft</option><option value="250">250 ft</option><option value="300">300 ft</option><option value="400">400 ft</option><option value="500">500 ft</option>
+    </select></label>
+  </div>
+  <p class="note">Terrain awareness (TAWS: class A in the jets, B in the others) watches the region's terrain and buildings ahead and below: CAUTION TERRAIN, then TERRAIN AHEAD, PULL UP, and the GPWS calls (SINK RATE, DON'T SINK, TOO LOW GEAR / FLAPS, GLIDESLOPE, BANK ANGLE, the height callouts). The alert shows on the PFD (red PULL UP, amber TERRAIN), as a tag on the analog 172, and is spoken with the sound on (<kbd>M</kbd>). TERR INHIB turns the forward-looking terrain alerts off for flying low near hills on purpose; the GPWS modes stay. DH: the decision height on the radio altimeter, where MINIMUMS is called; the radio altitude shows on the PFD below 2,500 ft.</p>
   <p class="note">Assists only move the controls, as a skilled pilot would: Easy levels the wings, coordinates turns, trims and guards the stall; Simulation is the raw airplane. Lift, thrust and weight are identical in all three. Auto-trim (any mode): let go of the stick and it levels the wings, stops the climb or descent, then holds that heading and altitude and trims for you; near the stall it gives up height rather than speed. It never touches the throttle.</p>
   <p class="note">Autopilot (in the air, Y): the flight core's autopilot, flown from the instruments. Y engages it holding the present heading (HDG, on the heading bug: ; and ' turn it), altitude (ALT) and, on the jets, speed (SPD, the autothrottle). NAV follows the GPS route to the destination; VS climbs or descends at the selected rate to the selected altitude and levels off there (PgUp and PgDn move it by 500 ft; changing it starts the climb or descent). It runs the trim, banks at most 25°, and lets go on the ground; the stick or Y gives you the controls back.</p>
   <p class="note">Autoland (in the air, U): the blind-landing pilot of the flight core flies the GPS approach to the destination (the runway in use if none is picked) from the instruments alone. It joins the final where it can fly the 3° path from there, else it flies the whole procedure (the initial fix, the intermediate fix, level at the final approach fix's altitude); it lowers the gear, puts the flaps out as the speed allows, sets the altimeter to QNH, flares, lands and brakes to a stop on the centreline. Moving the stick, or U, gives you the controls back.</p>
@@ -445,6 +458,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   </div>
 </div>
 <div id="warn">STALL</div>
+<div id="taws" role="alert" hidden></div>
 <div id="osmCredit"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Buildings © OpenStreetMap contributors, Microsoft, Google Open Buildings</a> · <a href="https://www.earthdata.nasa.gov/data/instruments/srtm" target="_blank" rel="noopener">Terrain: SRTM (NASA, USGS)</a></div>
 <div id="flowLegend" class="panel" hidden>
   <div class="eyebrow">Airflow · from the physics</div>

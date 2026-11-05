@@ -1103,7 +1103,7 @@ $('vol').value = ui.vol;
 $('vol').addEventListener('input', (e) => { ui.vol = +e.target.value; for (const a of Object.values(audios)) a.setVolume(ui.vol / 100); store.set('vol', ui.vol); });
 function toggleSound() {
   ui.sound = !ui.sound;
-  if (ui.sound) audio.start(); else audio.stop();
+  if (ui.sound) audio.start(); else { audio.stop(); speech?.cancel(); }
   const b = $('bSound'); b.setAttribute('aria-pressed', String(ui.sound)); b.textContent = ui.sound ? 'Sound on' : 'Sound off';
 }
 $('bSound').addEventListener('click', (e) => { toggleSound(); e.currentTarget.blur(); });
@@ -1552,6 +1552,7 @@ function jetData() {
     route: DEST ? A.route() : null, gps: DEST ? A.gps().slice() : null, dest: DEST,
     destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
     nav: { valid: !!c[K.navValid], loc: !!c[K.loc], cdi: c[K.cdi], gsValid: !!c[K.gsValid], gs: c[K.gs], mhz: c[K.navAct] },
+    taws: tawsUi,
   };
 }
 
@@ -1576,13 +1577,79 @@ function g1000Data() {
     nav: { valid: c[K.navValid] > 0.5, loc: c[K.loc] > 0.5, cdi: c[K.cdi], toFrom: c[K.toFrom], gsValid: c[K.gsValid] > 0.5, gs: c[K.gs],
       mhz: c[K.navAct], stby: c[K.navStb], obs: c[K.obs] },
     com: [c[K.comAct], c[K.comStb]], squawk: c[K.squawk], xpdrMode: c[K.xpdrMode], clock: c[K.clock], av: c[K.avPower] > 0.5,
-    m: M, mk: MK, afcs: g1000Modes(),
+    m: M, mk: MK, afcs: g1000Modes(), taws: tawsUi,
     eng: { rpm: c[K.rpm], ff: c[K.ff], oilP: c[K.oilP], oilT: c[K.oilT], egt: c[K.egt], fuelL: c[K.fuelL], fuelR: c[K.fuelR],
       amps: c[K.amps], volts: c[K.volts], suction: c[K.suction], ann: c[K.ann], hobbs: (s[42] || 0) / 3600 + 1287.4 },
     // The PFD on the main bus with the master on, the MFD on the avionics bus too.
     power: { pfd: bus, mfd: bus && c[K.avPower] > 0.5 },
   };
 }
+
+// ---------- TAWS / GPWS ----------
+// The core's terrain awareness and warning system (avd_taws): class A in the
+// jets, B in the others. Its top alert on the PFDs (glass.js, g1000.js) and,
+// for the analog 172, as a tag on the screen; its phrases spoken.
+let taws = null, tawsUi = null;
+const TAWS_TERRAIN = new Set([4, 6, 7]);  // TERRAIN TERRAIN, CAUTION TERRAIN, TOO LOW TERRAIN
+function readTaws() {
+  if (!A.taws) return;
+  taws = A.taws();
+  const t = taws;
+  const text = !t.level || t.top === 8 ? '' : t.level >= 3 ? 'PULL UP' : t.level === 2 && TAWS_TERRAIN.has(t.top) ? 'TERRAIN' : t.alert;
+  tawsUi = { level: t.level, text, alert: t.alert, raFt: t.raFt, dhFt: t.dhFt, inhibit: t.inhibit, cls: t.cls };
+  speakTaws(t);
+  const tag = $('taws'), show = !!text && !ui.crashed && (!P.jet && !ui.glass || !ui.instr && ui.cam !== 1);
+  tag.hidden = !show;
+  if (show) { tag.textContent = text; tag.className = t.level >= 3 ? 'warn' : t.level === 2 ? 'caut' : ''; }
+}
+// The voice: each new phrase (a new voiceCount) spoken once, with the sound
+// on (M). The core sets the priority and the repeats, so nothing is queued: a
+// warning cuts a lesser phrase short; a lesser phrase does not interrupt a warning.
+const speech = typeof speechSynthesis !== 'undefined' ? speechSynthesis : null;
+let tawsSaid = null, sayingPri = 0, tawsVoice = null;
+// The phrase's urgency: 3 PULL UP, 2 the terrain, configuration and sink cautions, 1 MINIMUMS, GLIDESLOPE and the callouts.
+const voicePri = (v) => (v <= 2 ? 3 : v === 4 || v === 11 || v >= 13 ? 1 : 2);
+function pickVoice() {
+  if (tawsVoice || !speech) return tawsVoice;
+  const vs = speech.getVoices().filter((v) => /^en(-|_|$)/i.test(v.lang));
+  const like = ['Google US English', 'Samantha', 'Microsoft Aria', 'Microsoft Guy', 'Microsoft Zira', 'Daniel', 'Alex', 'Google UK English Male'];
+  tawsVoice = like.map((n) => vs.find((v) => v.name.startsWith(n))).find(Boolean) || vs.find((v) => /en-US/i.test(v.lang)) || vs[0] || null;
+  return tawsVoice;
+}
+if (speech) speech.addEventListener?.('voiceschanged', () => { tawsVoice = null; });
+function speakTaws(t) {
+  if (t.voiceCount === tawsSaid) return;
+  const first = tawsSaid === null;
+  tawsSaid = t.voiceCount;
+  if (first || !t.voice || !t.say || !ui.sound || !speech || ui.paused) return;
+  const pri = voicePri(t.voice);
+  if (speech.speaking || speech.pending) {
+    if (pri < sayingPri) return;  // a warning is being said: no queue behind it
+    speech.cancel();
+  }
+  const u = new SpeechSynthesisUtterance(t.say.toLowerCase());
+  u.lang = 'en-US';
+  const v = pickVoice(); if (v) u.voice = v;
+  u.rate = pri === 3 ? 1.25 : 1.1;
+  u.pitch = pri === 3 ? 1.1 : 1;
+  u.volume = clamp((pri === 3 ? 1 : t.voice === 11 && !t.gsLoud ? 0.45 : 0.85) * (0.4 + 0.6 * ui.vol / 100), 0, 1);
+  u.onend = u.onerror = () => { if (sayingPri === pri) sayingPri = 0; };
+  sayingPri = pri;
+  speech.speak(u);
+}
+// Options → Flying: terrain inhibit (FLTA off; the GPWS modes stay) and the
+// decision height for MINIMUMS. Kept across aircraft and reloads (the core keeps them too).
+const tawsCfg = { inhibit: !!store.get('tawsInhibit', false), dhFt: +store.get('tawsDh', 200) || 0 };
+function applyTawsCfg(announce) {
+  if (A.tawsConfig) A.tawsConfig({ inhibit: tawsCfg.inhibit, dhFt: tawsCfg.dhFt });
+  store.set('tawsInhibit', tawsCfg.inhibit); store.set('tawsDh', tawsCfg.dhFt);
+  $('bTerrInh').setAttribute('aria-pressed', String(tawsCfg.inhibit));
+  $('tawsDh').value = String(tawsCfg.dhFt);
+  if (announce) toast(tawsCfg.inhibit ? 'TERR INHIB: the forward-looking terrain alerts are off (the GPWS modes stay).' : 'Terrain alerts on.', 3);
+}
+$('bTerrInh').addEventListener('click', (e) => { tawsCfg.inhibit = !tawsCfg.inhibit; applyTawsCfg(true); e.currentTarget.blur(); });
+$('tawsDh').addEventListener('change', (e) => { tawsCfg.dhFt = +e.target.value; applyTawsCfg(false); toast(tawsCfg.dhFt ? `Decision height ${tawsCfg.dhFt} ft on the radio altimeter: MINIMUMS called there.` : 'No decision height: no MINIMUMS call.', 3); e.target.blur(); });
+applyTawsCfg(false);
 
 // ---------- Cameras ----------
 let snapCamera = true;
@@ -1892,6 +1959,7 @@ function frame() {
     }
   }
   s = A.state().slice(); c = A.cockpitState().slice(); j = A.jet().slice();
+  readTaws();
   if (P.jet) landingRollCallouts();
   // The propeller's blade angle (about the thrust axis, right-handed; the
   // flow view's blades and tip vortices use the same angle).
