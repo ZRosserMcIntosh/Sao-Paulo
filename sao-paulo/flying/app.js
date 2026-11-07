@@ -808,6 +808,7 @@ function restart(i = ui.start) {
   input.mixture = st.trim ? A.avd_trim_mixture() : 1;
   for (const k of Object.keys(failed)) failed[k] = false;
   document.querySelectorAll('[data-fail], [data-feather]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+  resetPrompts();
   ui.crashed = false; parkHint = false;
   A.events();  // drop the reset's own events
   s = A.state().slice();  // the new spawn's state (the old one's 'on the ground, parking brake set' would release it)
@@ -879,7 +880,9 @@ addEventListener('keydown', (e) => {
     case 'KeyV': cycleFlow(); break;
     case 'KeyT': setSlow(ui.slow + (e.shiftKey ? -1 : 1)); break;
     case 'KeyK': A.avd_ai_cage(); toast(att?.ahrs ? 'AHRS RESET: the attitude reference re-aligns (ATT flag for about 30 s; hold the wings level).' : P.jet ? 'Attitude reference re-aligned (do it wings level).' : 'Attitude indicator caged (do it wings level).', 3); break;
-    case 'KeyF': A.avd_dg_sync(); toast(P.jet ? 'Heading re-synced to the magnetometer.' : 'Heading indicator set to the compass.', 2); break;
+    // F: the prompt's action when one is up (Easy, Sport); else the heading sync. Esc puts the prompt away.
+    case 'KeyF': if (!promptAct()) { A.avd_dg_sync(); toast(P.jet ? 'Heading re-synced to the magnetometer.' : 'Heading indicator set to the compass.', 2); } break;
+    case 'Escape': promptDismiss(); break;
     case 'Semicolon': case 'Quote': {
       const step = (e.code === 'Quote' ? 1 : -1) * (e.shiftKey ? 1 : 5);
       A.avd_heading_bug((Math.round(c[K.bug]) + step + 360) % 360); break;
@@ -1947,6 +1950,271 @@ function applyTawsCfg(announce) {
   if (announce) toast(tawsCfg.inhibit ? 'TERR INHIB: the forward-looking terrain alerts are off (the GPWS modes stay).' : 'Terrain alerts on.', 3);
 }
 $('bTerrInh').addEventListener('click', (e) => { tawsCfg.inhibit = !tawsCfg.inhibit; applyTawsCfg(true); e.currentTarget.blur(); });
+// ---------- Prompts: what is wrong, and F to deal with it ----------
+// Easy and Sport only (Simulation leaves the pilot to the annunciators, the
+// EICAS and the TAWS): an abnormal condition read from the core (carburettor
+// or airframe ice, an engine out, the gear up near the ground, an overspeed, a
+// generator off line, the fuel) shows as one prompt, warnings first, then
+// cautions, then advisories: what is happening, its key number, and the action.
+// F (or a tap on it) does that action through the cockpit's own controls
+// (setControl, the feather detents, the starter): the physics stays honest, the
+// prompt only saves finding the switch. Esc puts a prompt away for 90 s. Each
+// condition has its own way in and out (hysteresis), must hold a moment
+// before it shows, and once acted on stays quiet until it has cleared.
+const PROMPT = { cur: null, st: new Map(), pending: null, carbClear: null, tried: new Set(), at: 0 };
+const LVL = ['', 'adv', 'caut', 'warn'];
+// The fuel the Failures menu shut off, opened again by a prompt: the menu's button follows.
+function fuelFailCleared() { failed.fuel = false; document.querySelector('[data-fail="fuel"]')?.setAttribute('aria-pressed', 'false'); }
+// The nearest of the region's fields to the aircraft: { icao, name, km }.
+function nearestField() {
+  let best = null;
+  for (let i = 0; i < REGION_N; ++i) {
+    const [ce, cn] = fieldCentre(REGION[i]), km = Math.hypot(ce - s[0], cn - s[1]) / 1000;
+    if (!best || km < best.km) best = { icao: DESTS[i].icao, name: DESTS[i].name, km };
+  }
+  return best;
+}
+// The GPS route to it (the runway into the wind, an ILS first), unless it is the destination already.
+function directTo(f) {
+  if (!f || DEST?.icao === f.icao) return null;
+  return { label: `GPS route to ${f.icao} ${f.name}, ${fmt(f.km, 1)} km`, act: () => chooseApproach({ icao: f.icao }, preferredApproach(approachesOf({ icao: f.icao }))) };
+}
+// The usable fuel (L) and the minutes it lasts at this burn (s[21]: US gal/h).
+function fuelLeft() {
+  const L = A.loadsheet(false), litres = L.fuelUsable / (L.density || 0.8), lph = s[21] * 3.785;
+  return { litres, min: lph > 1 ? litres / lph * 60 : Infinity, tanks: L.tanks };
+}
+// The conditions, in the order they rank within a level. Each gives the
+// prompts that hold now: { id, level 3 warning | 2 caution | 1 advisory,
+// title, detail, action (what F does, or none: F acknowledges), act(), say,
+// hold (s the condition must last), retry (s after an action that did not
+// clear it before it may come back) }. on(id): that prompt is up now (for the
+// way back out).
+function promptList(on) {
+  const out = [], p = sw.pos || {}, has = (id) => id in p, air = !s[28] && s[14] > 50;
+  const ias = c[K.ias], agl = Math.max(0, s[14]);
+  if (s[30]) PROMPT.tried.clear();  // running again: a later failure starts from the restart
+  // Engines.
+  if (!P.jet && air && !s[30]) {
+    // The 172 stopped in flight: why (as the core has it), the glide, the restart (POH: carb heat, fuel
+    // selector BOTH, mixture RICH, magnetos BOTH, the starter if the propeller has stopped).
+    const fl = fuelLeft(), sel = p['fuel.selector'], cause = !p['fuel.shutoff'] && has('fuel.shutoff') ? 'the fuel shutoff valve is closed'
+      : fl.litres < 2 ? 'out of fuel' : input.mixture < 0.2 ? 'the mixture is at cut-off' : p['engine1.ignition'] !== 3 ? `the magnetos are on ${['OFF', 'R', 'L'][p['engine1.ignition']]}`
+        : sel !== 1 && fl.tanks[sel === 0 ? 0 : 1] && fl.tanks[sel === 0 ? 0 : 1].litres < fl.tanks[sel === 0 ? 0 : 1].unusable + 1 ? `the ${sel === 0 ? 'left' : 'right'} tank it feeds from is empty`
+          : icing?.carbBlockage > 0.3 ? `${Math.round(icing.carbBlockage * 100)} % of the carburettor iced` : '';
+    // Best glide: 1.37 x the 1-g stall speed the core gives at this weight, flaps up (the POH's 68 KIAS at 2,550 lb).
+    const vbg = s[26] < 1 && icing ? Math.round(1.37 * icing.vsCleanKcas) : 0, nf = nearestField();
+    const where = `${vbg ? `glide at ${vbg} kt` : 'flaps up, glide'}${nf ? `; ${nf.name} ${fmt(nf.km, 1)} km` : ''}`;
+    const tried = PROMPT.tried.has('engine');
+    if (fl.litres < 2 || tried) {
+      const d = directTo(nf);
+      out.push({ id: tried ? 'glide' : 'engine', level: tried ? 1 : 3, title: tried ? 'Engine still out' : 'Engine failure', detail: `${cause ? `${cause[0].toUpperCase()}${cause.slice(1)}: ` : ''}${where}.`, action: d?.label, act: d?.act, say: tried ? '' : 'Engine failure. Glide.', hold: tried ? 12 : 1 });
+    } else {
+      const crank = s[19] < 400;
+      out.push({ id: 'engine', level: 3, title: 'Engine failure', detail: `${cause ? `${cause[0].toUpperCase()}${cause.slice(1)}` : `${fmt(s[19])} rpm, windmilling`}: ${where}.`,
+        action: `restart: ${has('fuel.shutoff') ? 'fuel ON, ' : ''}selector BOTH, mixture RICH, carb heat ON, magnetos BOTH${crank ? ', starter' : ''}`, say: 'Engine failure. Restart.',
+        act: () => {
+          PROMPT.tried.add('engine');
+          if (has('fuel.shutoff')) { setControl('fuel.shutoff', 1); fuelFailCleared(); }
+          setControl('fuel.selector', 1); setControl('engine1.carb_heat', 1); setControl('engine1.ignition', 3); input.mixture = 1;
+          if (crank) { input.starter = 1; setTimeout(() => { input.starter = 0; }, 3000); }
+        } });
+    }
+  } else if (!P.jet && air && has('fuel.shutoff') && !p['fuel.shutoff']) {
+    out.push({ id: 'shutoff', level: 3, title: 'Fuel shutoff closed', detail: `The engine is running on the fuel left in its lines (${fmt(s[19])} rpm).`, hold: 0.5,
+      action: 'fuel shutoff valve ON', say: 'Fuel off.', act: () => { setControl('fuel.shutoff', 1); fuelFailCleared(); } });
+  } else if (P.turboprop && air && tp) {
+    tp.engines.forEach((e, i) => {
+      const n = i + 1, other = tp.engines[1 - i];
+      if (!e.running && !e.feather && !e.feathered) {
+        out.push({ id: `eng${i}`, level: 3, title: `Engine ${n} failure`, detail: `Its propeller windmilling at ${fmt(e.np)} rpm: drag on the dead side${other?.running ? `; engine ${2 - i} carries the airplane, rudder toward it` : ''}.`,
+          action: `feather propeller ${n}`, say: `Engine ${n} failure. Feather.`, act: () => setFeather(i, true) });
+      } else if (!e.running && !e.starter) {
+        out.push({ id: `air${i}`, level: 1, title: `Engine ${n} secured`, detail: `Propeller ${n} feathered${e.condition ? '' : ', its condition lever at CUT-OFF'}.`, hold: 3,
+          action: `airstart: condition ${n} LOW IDLE, ignition and start ON`, act: () => {
+            setControl(`engine${n}.condition`, Math.max(1, controlPos(`engine${n}.condition`))); setControl(`engine${n}.starter`, 1); if (!i) fuelFailCleared();
+          } });
+      } else if (e.running && e.feather && !e.starter) {
+        out.push({ id: `unf${i}`, level: 1, title: `Engine ${n} running`, detail: `Ng ${fmt(e.ng)} %, its propeller still feathered.`, hold: 3,
+          action: `propeller ${n} out of feather`, act: () => setFeather(i, false) });
+      }
+    });
+  } else if (P.jet && air) {
+    for (const i of [0, 1]) {
+      const n = i + 1, id = `engine${n}.fuel`;
+      if (j[13 + 8 * i] || j[14 + 8 * i] || !has(id)) continue;
+      const cut = !p[id];
+      out.push({ id: `eng${i}`, level: 3, title: `Engine ${n} failure`, detail: `${cut ? 'Its fuel control switch at CUTOFF' : 'Flamed out'}: N1 ${fmt(j[8 + 8 * i])} %${j[13 + 8 * (1 - i)] ? `; engine ${2 - i} carries the airplane, rudder toward it` : ''}.`,
+        action: `relight: engine ${n} fuel switch ${cut ? 'RUN' : 'CUTOFF, then RUN'}`, say: `Engine ${n} failure. Relight.`, retry: 45,
+        act: () => { if (!cut) setControl(id, 0); setControl(id, 1); if (!i) fuelFailCleared(); } });
+    }
+  }
+  // Gear up close to the ground on the way down (the TAWS's TOO LOW GEAR, landing flaps, or sinking low).
+  if (P.jet && air && has('gear.lever') && !p['gear.lever'] && !autoland) {
+    const lastFlap = (A.cockpit().find((x) => x.id === 'flaps.lever')?.positions.length || 1) - 1;
+    const gearAlert = taws?.active.some((a) => /GEAR/.test(A.tawsAlertText(a)));
+    if (agl < (on('gear') ? 1500 : 1000) && (gearAlert || (p['flaps.lever'] === lastFlap && c[K.vsi] < 200) || (agl < 500 && c[K.vsi] < -300))) {
+      out.push({ id: 'gear', level: 3, title: 'Gear up', detail: `${fmt(agl)} ft above the ground${c[K.vsi] < -100 ? `, descending ${fmt(-c[K.vsi])} fpm` : ''}${p['flaps.lever'] === lastFlap ? ', landing flap' : ''}${ias > j[48] + 2 ? `; ${fmt(ias)} kt, over the ${fmt(j[48])} kt gear limit` : ''}.`,
+        action: 'gear DOWN', say: 'Too low. Gear.', hold: 0.5, act: () => { setControl('gear.lever', 1); toast('Gear down', 1.5); } });
+    }
+  }
+  // Overspeed: VMO (the jets' and the King Air's) or VNE (the 172's), MMO.
+  {
+    const lim = P.jet ? j[25] : M.vne, mmo = P.jet ? j[24] : 0, o = on('overspeed');
+    if (lim > 0 && !s[28] && (ias > lim + (o ? -3 : 1) || (mmo > 0 && j[5] > mmo + (o ? -0.01 : 0.004)))) {
+      const sb = has('speedbrake.lever') && controlPos('speedbrake.lever') < (A.cockpit().find((x) => x.id === 'speedbrake.lever').positions.length - 1);
+      const machOver = mmo > 0 && j[5] > mmo;
+      out.push({ id: 'overspeed', level: 3, title: 'Overspeed', detail: machOver ? `Mach ${fmt(j[5], 3)}, over MMO ${fmt(mmo, 3)}.` : `${fmt(ias)} kt, over ${P.jet ? 'VMO' : 'VNE'} ${fmt(lim)} kt.`,
+        action: `${P.turboprop ? 'power levers' : P.jet ? 'thrust' : 'throttle'} idle${sb ? ', speedbrake FULL' : ''}${ap.on && ap.at ? ', autothrottle off' : ''}`, say: 'Overspeed.', hold: 0.5,
+        act: () => {
+          if (ap.on && ap.at) { ap.at = false; apApply(); }
+          setThrottle(0);
+          if (sb) setControl('speedbrake.lever', 99);
+        } });
+    }
+  }
+  // Ice. The airframe: the detector's ICE (the jets), or ice a pilot sees on the leading edges.
+  if (icing && air) {
+    const mm = icing.surfaces.length ? Math.max(...icing.surfaces.map((q) => q.mm)) : 0, o = on('ice') || on('iceinfo');
+    const icy = icing.iceDetected || mm > (o ? 0.1 : 0.4) || (o && wx?.supercooledWater > 0);
+    const off = iceCtl.filter((x) => x.id.startsWith('anti_ice.') && !p[x.id]);
+    const sev = ['', 'trace', 'light', 'moderate', 'severe'][icing.intensity] || '';
+    const fact = `${icing.iceDetected ? 'ICE DETECTED, ' : ''}${fmt(mm, 1)} mm on the leading edges${sev ? `, ${sev} icing` : ''}${icing.vsKcas > icing.vsCleanKcas + 1 ? `; stall speed ${fmt(icing.vsKcas)} kt (${fmt(icing.vsCleanKcas)} clean)` : ''}`;
+    const name = (x) => (/Boots/i.test(x.label) ? `${x.id.split('.')[1]} boots` : `${x.id.split('.')[1]} anti-ice`);
+    if (icy && off.length) out.push({ id: 'ice', level: 2, title: 'Airframe icing', detail: `${fact}.`, action: `${off.map(name).join(', ')} ON`, say: 'Ice. Anti-ice on.',
+      act: () => { for (const x of off) setControl(x.id, 1); } });
+    else if (icy && !iceCtl.some((x) => x.id.startsWith('anti_ice.')) && mm > (o ? 0.3 : 1)) out.push({ id: 'iceinfo', level: 2, title: 'Airframe icing', detail: `${fact}. No ice protection: climb or descend out of the cloud, keep the speed up.`, say: 'Airframe ice.' });
+  }
+  // The pitot in visible moisture near or below freezing, or blocked in it, with its heat off.
+  if (has('electrical.load.pitot_heat') && !p['electrical.load.pitot_heat'] && air && wx) {
+    const wet = wx.inCloud || wx.rain > 0, cold = wx.oat < (on('pitot') ? 7 : 5);
+    if (wet && (cold || failed[0])) out.push({ id: 'pitot', level: 2, title: failed[0] ? 'Airspeed unreliable' : 'Pitot icing', detail: failed[0] ? `The pitot tube is blocked, in ${wx.inCloud ? 'cloud' : 'rain'} at ${fmt(wx.oat)} °C.` : `In ${wx.inCloud ? 'cloud' : 'rain'} at ${fmt(wx.oat)} °C: the pitot tube can ice and the airspeed fail.`,
+      action: `${P.jet ? 'probe' : 'pitot'} heat ON`, say: 'Pitot heat.', hold: 3, act: () => setControl('electrical.load.pitot_heat', 1) });
+  }
+  // The carburettor: ice in the throat (carb heat HOT), and the heat left on after it has gone.
+  if (icing?.carburettor && s[30] && has('engine1.carb_heat')) {
+    const hot = !!p['engine1.carb_heat'], b = icing.carbBlockage;
+    if (!hot && b > (on('carb') ? 0.05 : 0.12)) out.push({ id: 'carb', level: 2, title: 'Carburettor ice', detail: `${fmt(s[19])} rpm and falling: ${fmt(b * 100)} % of the carburettor throat iced.`,
+      action: 'carb heat ON', say: 'Carburettor ice. Carb heat on.', act: () => setControl('engine1.carb_heat', 1) });
+    if (hot && icing.carbIceG < 0.01 && input.throttle > 0.35 && s[42] - PROMPT.carbClear > 45) out.push({ id: 'carboff', level: 1, title: 'Carburettor clear', detail: 'The ice has melted; the hot air costs power (about 100 rpm).',
+      action: 'carb heat OFF (back ON if the rpm sags again)', act: () => setControl('engine1.carb_heat', 0) });
+  }
+  // Electrics: the 172's alternator; the generators of the jets and the King Air, each with its engine running.
+  if (air && !P.jet && s[30] && has('electrical.alternator')) {
+    const shed = has('electrical.load_shed') && !p['electrical.load_shed'];
+    if (!p['electrical.alternator']) out.push({ id: 'altsw', level: 2, title: 'Alternator off', detail: `The battery alone carries the bus (${fmt(s[31], 1)} V).`, action: 'alternator switch ON', hold: 3, act: () => setControl('electrical.alternator', 1) });
+    else if (!s[32] && shed) out.push({ id: 'alt', level: 2, title: 'Alternator failure', detail: `The battery alone carries the bus: ${fmt(s[31], 1)} V, ${fmt(s[34] * 100)} % charge left.`, hold: 3,
+      action: 'load shed (the essential bus only)', say: 'Alternator failure.', act: () => setControl('electrical.load_shed', 1) });
+  } else if (air && P.jet) {
+    const run = (i) => (tp ? tp.engines[i]?.running : j[13 + 8 * i]);
+    const gens = [0, 1].filter((i) => has(`electrical.generator${i + 1}`) && run(i));
+    const offSw = gens.filter((i) => !p[`electrical.generator${i + 1}`]), offLine = gens.filter((i) => p[`electrical.generator${i + 1}`] && !j[60 + i]);
+    const shed = has('electrical.load_shed') && !p['electrical.load_shed'] && !j[82];
+    if (offSw.length) out.push({ id: 'gensw', level: 2, title: `GEN ${offSw.map((i) => i + 1).join(' and ')} switch off`, detail: `Its engine running, the generator not on the bus.`, hold: 3,
+      action: `GEN ${offSw.map((i) => i + 1).join(', ')} ON`, act: () => { for (const i of offSw) setControl(`electrical.generator${i + 1}`, 1); } });
+    else if (offLine.length && !j[60] && !j[61] && shed) out.push({ id: 'gens', level: 2, title: 'Both generators off', detail: `The battery alone carries the bus: ${fmt(j[45], 1)} V, ${fmt(j[72] * 100)} % charge.`, hold: 3,
+      action: 'load shed (the essential bus only)', say: 'Generators off.', act: () => setControl('electrical.load_shed', 1) });
+    else for (const i of offLine) {
+      if (!j[60 + (1 - i)]) continue;
+      out.push({ id: `gen${i}`, level: 1, title: `GEN ${i + 1} off line`, detail: `Generator ${2 - i} carries the bus alone.`, hold: 3,
+        action: `GEN ${i + 1} reset (switch OFF, then ON)`, act: () => { setControl(`electrical.generator${i + 1}`, 0); setControl(`electrical.generator${i + 1}`, 1); } });
+    }
+  }
+  // Fuel: the 172 feeding from one tank (running it dry, or lopsided), and fuel for less than half an hour.
+  if (air && P.id === 'c172' && p['fuel.selector'] !== undefined && p['fuel.selector'] !== 1 && s[30]) {
+    const fl = fuelLeft(), k = p['fuel.selector'] === 0 ? 0 : 1, t = fl.tanks[k], u = fl.tanks[1 - k];
+    if (t && u) {
+      const left = t.litres - t.unusable, diff = (u.litres - u.unusable) - left;
+      if (left < (on('fuelsel') ? 12 : 8) || diff > (on('fuelsel') ? 30 : 40)) out.push({ id: 'fuelsel', level: 2, title: 'Fuel selector', detail: `Feeding from the ${k ? 'right' : 'left'} tank alone: ${fmt(left)} L usable in it, ${fmt(u.litres - u.unusable)} L in the other.`,
+        action: 'fuel selector BOTH', act: () => setControl('fuel.selector', 1) });
+    }
+  }
+  if (air && s[30]) {
+    const fl = fuelLeft();
+    if (fl.min < (on('fuellow') ? 35 : 30)) {
+      const d = directTo(nearestField());
+      out.push({ id: 'fuellow', level: 2, title: 'Low fuel', detail: `${fmt(fl.min)} minutes of fuel at this burn (${fmt(fl.litres)} L usable).`, action: d?.label, act: d?.act, say: 'Low fuel.', hold: 3 });
+    }
+  }
+  return out;
+}
+const promptEl = $('prompt');
+function showPrompt(pr) {
+  PROMPT.cur = pr;
+  promptEl.hidden = !pr;
+  if (!pr) return;
+  promptEl.className = LVL[pr.level];
+  $('promptTitle').textContent = pr.title;
+  $('promptDetail').textContent = pr.detail;
+  $('promptKey').textContent = MOBILE ? 'Tap' : 'F';
+  $('promptAction').textContent = pr.action || 'OK';
+}
+// Every 0.2 s: each prompt's condition held (or gone) for how long (wall-clock seconds); the one to show.
+function checkPrompts() {
+  const now = performance.now(), dt = clamp((now - (PROMPT.at || now)) / 1000, 0, 1);
+  PROMPT.at = now;
+  if (ui.assist === 2 || ui.crashed) { PROMPT.st.clear(); if (PROMPT.cur) showPrompt(null); return; }
+  // Since when (simulation time) the carburettor has been free of ice with the heat on.
+  PROMPT.carbClear = icing?.carburettor && controlPos('engine1.carb_heat') && icing.carbIceG < 0.01 ? PROMPT.carbClear ?? s[42] : null;
+  const st = PROMPT.st, list = promptList((id) => !!st.get(id)?.up);
+  const live = new Set(list.map((q) => q.id));
+  for (const [id, r] of st) if (!live.has(id)) {
+    r.held = 0; r.gone += dt;
+    // Cleared for a few seconds: forgotten (its action and snooze with it), ready to come back.
+    if (r.gone > 2) st.delete(id);
+  }
+  let best = null;
+  for (const q of list) {
+    const r = st.get(q.id) || { held: 0, gone: 0, up: false, done: 0, snooze: 0 };
+    st.set(q.id, r);
+    r.held += dt; r.gone = 0;
+    if (r.held >= (q.hold ?? 1)) r.up = true;
+    if (!r.up || now < r.snooze || (r.done && !(q.retry && now - r.done > q.retry * 1000))) continue;
+    if (!best || q.level > best.level) best = q;
+  }
+  if (best && PROMPT.cur?.id === best.id) { PROMPT.cur = best; promptEl.className = LVL[best.level]; $('promptDetail').textContent = best.detail; $('promptAction').textContent = best.action || 'OK'; }
+  else if (best || PROMPT.cur) {
+    showPrompt(best);
+    if (best) PROMPT.pending = { pr: best, until: now + 6000 };
+  }
+  sayPrompt(now);
+}
+// The prompt's words, once, with the sound on: not over a TAWS caution or warning (it waits for it).
+function sayPrompt(now) {
+  const q = PROMPT.pending;
+  if (!q) return;
+  if (!q.pr.say || now > q.until || PROMPT.cur?.id !== q.pr.id || !ui.sound || !speech || ui.paused) { PROMPT.pending = null; return; }
+  if ((taws && taws.level >= 2) || ((speech.speaking || speech.pending) && sayingPri >= 1)) return;
+  PROMPT.pending = null;
+  const u = new SpeechSynthesisUtterance(q.pr.say.toLowerCase());
+  u.lang = 'en-US';
+  const v = pickVoice(); if (v) u.voice = v;
+  u.rate = 1.1; u.volume = clamp(0.8 * (0.4 + 0.6 * ui.vol / 100), 0, 1);
+  u.onend = u.onerror = () => { if (sayingPri === 1) sayingPri = 0; };
+  sayingPri = 1;
+  speech.speak(u);
+}
+// F or a tap: the action (or, with none, the acknowledgement); Esc: away for 90 s.
+function promptAct() {
+  const pr = PROMPT.cur;
+  if (!pr) return false;
+  const r = PROMPT.st.get(pr.id);
+  if (pr.act) { toast(`${pr.title}: ${pr.action}.`, 2.5); pr.act(); if (r) r.done = performance.now(); }  // (an action with words of its own has the last one)
+  else if (r) r.snooze = Infinity;
+  showPrompt(null);
+  return true;
+}
+function promptDismiss() {
+  const pr = PROMPT.cur;
+  if (!pr) return false;
+  const r = PROMPT.st.get(pr.id);
+  if (r) r.snooze = performance.now() + 90000;
+  showPrompt(null);
+  return true;
+}
+function resetPrompts() { PROMPT.st.clear(); PROMPT.tried.clear(); PROMPT.pending = null; PROMPT.carbClear = null; showPrompt(null); }
+$('promptGo').addEventListener('click', (e) => { promptAct(); e.currentTarget.blur(); });
+$('promptX').addEventListener('click', (e) => { promptDismiss(); e.currentTarget.blur(); });
 $('tawsDh').addEventListener('change', (e) => { tawsCfg.dhFt = +e.target.value; applyTawsCfg(false); toast(tawsCfg.dhFt ? `Decision height ${tawsCfg.dhFt} ft on the radio altimeter: MINIMUMS called there.` : 'No decision height: no MINIMUMS call.', 3); e.target.blur(); });
 applyTawsCfg(false);
 
@@ -1960,6 +2228,7 @@ function updateCamera(dt) {
   cabin.root.visible = inside;
   aircraft.glass.opacity = inside ? 0.06 : 0.88;
   $('instr').hidden = !ui.instr || inside;
+  document.body.classList.toggle('noinstr', !ui.instr || inside);  // (a prompt moves up on a touch screen)
   $('hud').style.display = inside ? 'none' : '';
   // The chase view swings back behind the airplane; in the cockpit the head stays where you turned it.
   if (!look.held && ui.cam !== 2 && ui.cam !== 1) { look.yaw *= Math.exp(-dt * 1.5); look.pitch *= Math.exp(-dt * 1.5); }
@@ -2001,11 +2270,11 @@ function updateCamera(dt) {
 
 // ---------- The weather, seen ----------
 // Rain streaks round the camera; the ice on the leading edges; the runways'
-// wetness; frost on the windshield (cockpit view); the carburettor-ice hint;
-// the ATIS line in the Weather menu.
+// wetness; frost on the windshield (cockpit view); the ATIS line in the
+// Weather menu. (Carburettor ice: a prompt in Easy and Sport, checkPrompts.)
 const WX_GREY = new THREE.Color().setRGB(0.72, 0.74, 0.77);
 const vAc = new THREE.Vector3(), vWind = new THREE.Vector3();
-let carbHint = false, atisAt = 0;
+let atisAt = 0;
 function weatherFx(dt) {
   const tr = s[61] * DEG, gs = s[12] * 0.514444, wf = s[59] * DEG, wk = s[60] * 0.514444;
   vAc.set(gs * Math.sin(tr), s[15] * 0.00508, -gs * Math.cos(tr));
@@ -2014,12 +2283,6 @@ function weatherFx(dt) {
   aircraft.ice?.update(icing);
   setRunwayWet(s[63] || 0);
   $('frost').style.opacity = ui.cam === 1 && icing ? String(clamp(icing.windshieldOpacity, 0, 1)) : '0';
-  // The 172's carburettor ice: a word once it blocks a fifth of the throttle's area.
-  if (icing?.carburettor) {
-    const b = icing.carbBlockage;
-    if (b > 0.2 && !carbHint && !ui.crashed) { carbHint = true; toast(`Carburettor ice: ${Math.round(b * 100)} % of the throat blocked, the rpm falling. Carb heat on (\\ or Weather → CARB HEAT), expect it to run rough as the ice melts.`, 7); }
-    else if (b < 0.1) carbHint = false;
-  }
   // The ATIS once a second of wall time while the Weather menu shows.
   if (performance.now() - atisAt > 1000 && !$('side').hidden && menu === 'weather') { atisAt = performance.now(); $('atis').innerHTML = atisText(); }
 }
@@ -2412,7 +2675,7 @@ function frame() {
   $('warn').classList.toggle('on', c[K.stall] > 0.5 && !ui.crashed);
   hud();
   panelT += dt; cabinT += dt; swT += dt;
-  if (swT > 0.2) { swT = 0; readSwitches(); }
+  if (swT > 0.2) { swT = 0; readSwitches(); checkPrompts(); }
   if (P.jet) {
     cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, levers: P.turboprop ? [leverPos(0), leverPos(1)] : [j[58], j[59]], spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2], pos: sw.pos });
     if (ui.cam === 1 && cabinT > 1 / 20) { cabinT = 0; cabin.redraw(jetData()); }
@@ -2444,4 +2707,4 @@ function frame() {
 }
 requestAnimationFrame(frame);
 // For checks (?debug): the core, the drawn ground and the page's state.
-if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl };
+if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl, prompts: () => promptList(() => false) };

@@ -121,6 +121,22 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 #taws.caut{color:#1b1200;background:var(--warn);border-color:var(--warn)}
 #taws.warn{background:var(--bad);border-color:var(--bad);animation:tawsFlash .8s steps(1) infinite}
 @keyframes tawsFlash{50%{background:rgba(10,17,28,.72);color:var(--bad)}}
+/* Prompt (Easy and Sport): what is wrong and what F does, under the TAWS tag, clear of the PFD; on a touch screen under the instrument strip. */
+#prompt{position:fixed;left:50%;top:154px;transform:translateX(-50%);z-index:4;width:max-content;max-width:min(620px,calc(100% - 24px));display:flex;align-items:stretch;gap:0;
+  background:rgba(10,17,28,.86);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:2px solid #fff;border-left-width:8px;border-radius:8px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+#prompt[hidden]{display:none}
+#prompt .pt{padding:7px 12px 8px;min-width:0;flex:1 1 260px}
+#prompt .pt b{display:block;font:900 20px/1.05 var(--display);letter-spacing:.05em;text-transform:uppercase}
+#prompt .pt span{display:block;font:500 13px/1.35 var(--body);color:var(--ink);margin-top:3px}
+#prompt #promptGo{display:flex;align-items:center;gap:8px;text-align:left;border:0;border-left:1px solid var(--line);border-radius:0;background:rgba(255,255,255,.08);padding:6px 12px;font:700 13px/1.25 var(--body);flex:0 1 210px;min-width:150px}
+#prompt #promptGo:hover{background:rgba(255,255,255,.18)}
+#prompt #promptGo kbd{font:800 15px var(--mono);padding:2px 7px;background:#fff;color:#0a1830;border-color:#fff;flex:0 0 auto}
+#prompt #promptX{border:0;border-left:1px solid var(--line);border-radius:0;background:none;padding:4px 10px;font-size:14px;color:var(--mute)}
+#prompt.warn{border-color:var(--bad)}#prompt.warn .pt b{color:var(--bad)}
+#prompt.warn #promptGo kbd{background:var(--bad);border-color:var(--bad);color:#fff}
+#prompt.caut{border-color:var(--warn)}#prompt.caut .pt b{color:var(--warn)}
+#prompt.caut #promptGo kbd{background:var(--warn);border-color:var(--warn);color:#1b1200}
+#prompt.adv{border-color:#7fc8ff}#prompt.adv .pt b{color:#bfe3ff}
 #flowLegend{position:fixed;right:12px;bottom:calc(var(--instr-h,150px) + 24px);z-index:2;width:250px;display:grid;gap:7px;pointer-events:none}
 #flowLegend[hidden]{display:none}
 #flowLegend .lg{display:grid;gap:3px;font:500 11px var(--mono);color:var(--mute)}
@@ -185,7 +201,10 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   #hud .read,#hud .levers{display:none}
   .big div{font-size:30px}
   #side{width:min(310px,calc(100% - 24px));touch-action:pan-y}
+  #prompt{top:calc(70px + var(--instr-h,96px) + env(safe-area-inset-top))}
+  body.noinstr #prompt{top:calc(64px + env(safe-area-inset-top))}
 }
+@media (pointer:coarse) and (max-width:760px){#prompt{flex-wrap:wrap}#prompt .pt{flex:1 1 100%}#prompt .pt b{font-size:17px}#prompt .pt span{font-size:12px}#prompt #promptGo{flex:1 1 auto;max-width:none;border-left:0;border-top:1px solid var(--line);min-height:40px}#prompt #promptX{border-top:1px solid var(--line)}}
 @media (max-width:760px){#instr{height:var(--instr-h,110px)}body.jet{--instr-h:min(220px,45vh)}body.g1000{--instr-h:min(250px,40vh)}.read{display:none}}
 /* Desktop: with a menu open, the strip and legend make room for it. */
 @media (min-width:900px) and (pointer:fine){
@@ -193,6 +212,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   body.jet.side-open #instr{width:min(1500px,calc(100% - 358px))}
   body.g1000.side-open #instr{width:min(1100px,calc(100% - 358px))}
   body.side-open #flowLegend{right:334px}
+  body.side-open #prompt{left:calc(50% - 161px);max-width:min(560px,calc(100% - 370px))}
 }
 /* Menus: one at a time in the side panel, chosen from the top bar (or the tabs at its head). */
 .menus{display:inline-flex;gap:6px;padding-left:6px;border-left:1px solid var(--line)}
@@ -354,7 +374,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
   </div>
   <h2>Instruments</h2>
   <div class="keys">
-    <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level); AHRS RESET on the jets and the G1000 (ATT flag while it re-aligns, about 30 s) · sync the heading to the compass</span>
+    <span><kbd>K</kbd> · <kbd>F</kbd></span><span>Cage the attitude indicator (wings level); AHRS RESET on the jets and the G1000 (ATT flag while it re-aligns, about 30 s) · sync the heading to the compass (while a prompt is up, F does the prompt's action instead)</span>
     <span><kbd>;</kbd> <kbd>'</kbd></span><span>Heading bug left / right (Shift: 1°)</span>
     <span><kbd>O</kbd></span><span>Altimeter +0.01 inHg (Shift: −)</span>
     <span class="pistononly"><kbd>J</kbd></span><span class="pistononly">172 panel: analog six-pack or G1000 glass (Options → Display)</span>
@@ -366,6 +386,10 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     <span><kbd>T</kbd> <kbd>⇧T</kbd></span><span>Slow motion: slower / faster (real time to 1/5000×)</span>
     <span><kbd>R</kbd> · <kbd>Space</kbd></span><span>Restart · pause</span>
     <span><kbd>H</kbd> · <kbd>M</kbd></span><span>Menu · sound</span>
+  </div>
+  <h2>Prompts (Easy, Sport)</h2>
+  <div class="keys">
+    <span><kbd>F</kbd> · <kbd>Esc</kbd></span><span>Do what the prompt says (carb heat ON, feather, gear DOWN…; or tap it) · put it away for 90 s</span>
   </div>
   <h2>Mouse, cockpit and gamepad</h2>
   <div class="keys">
@@ -407,6 +431,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
     </select></label>
   </div>
   <p class="note">Terrain awareness (TAWS: class A in the jets, B in the others) watches the region's terrain and buildings ahead and below: CAUTION TERRAIN, then TERRAIN AHEAD, PULL UP, and the GPWS calls (SINK RATE, DON'T SINK, TOO LOW GEAR / FLAPS, GLIDESLOPE, BANK ANGLE, the height callouts). The alert shows on the PFD (red PULL UP, amber TERRAIN), as a tag on the analog 172, and is spoken with the sound on (<kbd>M</kbd>). TERR INHIB turns the forward-looking terrain alerts off for flying low near hills on purpose; the GPWS modes stay. DH: the decision height on the radio altimeter, where MINIMUMS is called; the radio altitude shows on the PFD below 2,500 ft.</p>
+  <p class="note">Prompts (Easy and Sport): when something goes wrong — carburettor or airframe ice, the pitot in freezing cloud, an engine out, the gear still up close to the ground, an overspeed, a generator or the alternator off line, a fuel tank running low — a box under the TAWS tag says what is happening, the number that shows it, and what to do: <kbd>F</kbd> (or a tap) does it with the cockpit's own switches and levers, exactly as if you had found them; <kbd>Esc</kbd> or ✕ puts it away for 90 s. Warnings (red) come before cautions (amber) and advisories (blue), one at a time, spoken once with the sound on. Simulation has none: there it is the annunciators, the EICAS and the TAWS.</p>
   <p class="note">Assists only move the controls, as a skilled pilot would: Easy levels the wings, coordinates turns, trims and guards the stall; Simulation is the raw airplane. Lift, thrust and weight are identical in all three. Auto-trim (any mode): let go of the stick and it levels the wings, stops the climb or descent, then holds that heading and altitude and trims for you; near the stall it gives up height rather than speed. It never touches the throttle.</p>
   <p class="note">Autopilot (in the air, Y): the flight core's autopilot, flown from the instruments. Y engages it holding the present heading (HDG, on the heading bug: ; and ' turn it), altitude (ALT) and, on the jets, speed (SPD, the autothrottle). NAV follows the GPS route to the destination; VS climbs or descends at the selected rate to the selected altitude and levels off there (PgUp and PgDn move it by 500 ft; changing it starts the climb or descent). It runs the trim, banks at most 25°, and lets go on the ground; the stick or Y gives you the controls back.</p>
   <p class="note">APR (<kbd>⇧Y</kbd>), the approach mode: ILS flies the heading bug to intercept the localizer on NAV 1 (set the bug to the intercept heading), captures it inside full scale (HDG | LOC armed, then LOC | GS armed), then the glideslope from level or below within a quarter dot (LOC | GS), and flies both down to the DA; GPS does the same on the GPS approach to the destination (LNAV, then LPV on its glidepath). At the DA the autopilot lets go: MINIMUMS — AP DISCONNECT flashes with a tone and you land the airplane; if SPD was on, the autothrottle stays in until you take it out (SPD or Y) for the flare. DA: the decision altitude on the altimeter, by default the destination's field elevation + 200 ft. Modes on the status line and the PFDs: active green, armed white.</p>
@@ -492,6 +517,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
 </div>
 <div id="warn">STALL</div>
 <div id="taws" role="alert" hidden></div>
+<div id="prompt" role="alert" hidden><div class="pt"><b id="promptTitle"></b><span id="promptDetail"></span></div><button id="promptGo" title="Do it (F)"><kbd id="promptKey">F</kbd><span id="promptAction"></span></button><button id="promptX" title="Not now (Esc): away for 90 s" aria-label="Dismiss the prompt">✕</button></div>
 <div id="frost" aria-hidden="true"></div>
 <div id="osmCredit"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Buildings © OpenStreetMap contributors, Microsoft, Google Open Buildings</a> · <a href="https://www.earthdata.nasa.gov/data/instruments/srtm" target="_blank" rel="noopener">Terrain: SRTM (NASA, USGS)</a></div>
 <div id="flowLegend" class="panel" hidden>
