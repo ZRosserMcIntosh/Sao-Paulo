@@ -137,6 +137,15 @@ function glazingOutlines() {
   return out;
 }
 const GLAZING = glazingOutlines();
+// The King Air's own glazing, in its metres (kingaircabin.js cuts the same
+// openings in its flight deck's lining): a two-piece windshield raked well
+// forward over the nose with a centre post, and a large side window beside
+// each pilot. [x, a deg] corners as PANES.
+const KA_PANES = [
+  [[-1.0, 34], [-1.25, 86.5], [-1.95, 86.5], [-1.86, 22]],
+  [[-2.05, 18], [-2.08, 55], [-2.74, 52], [-2.74, 16]],
+];
+export const KA_GLAZING = KA_PANES.flatMap((q) => [roundedQuad(q, 6), roundedQuad(q.map(([x, a]) => [x, 180 - a]), 6)]);
 
 function textTexture(text, w, h, font, color, bg) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -170,7 +179,9 @@ export function buildJet(def) {
   // ---- Fuselage, windshield, windows, livery ----
   add(new THREE.Mesh(loft(st, 40, SUPER), paint));
   // Flight-deck glazing: windshield, sliding and aft side windows a side, with posts.
-  for (const o of GLAZING) add(new THREE.Mesh(skinFill(o.map(([x, a]) => [x * ns, a]), 0.018 * ns, 10), glassMat));
+  // (The King Air, the turboprop: its own panes, in its own metres.)
+  const glazing = def.turboprops?.length ? KA_GLAZING : GLAZING.map((o) => o.map(([x, a]) => [x * ns, a]));
+  for (const o of glazing) add(new THREE.Mesh(skinFill(o, 0.018 * ns, 10), glassMat));
   // Cabin windows: rounded rectangles (the Top G's eight large ovals a side, or the type's own row).
   const W = vis.windows || { count: 8, first: -6.7, pitch: 1.42, half_w: 0.36, half_h: 0.2 * 1.32 };
   const oval = !vis.windows;

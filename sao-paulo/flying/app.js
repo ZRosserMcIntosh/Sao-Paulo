@@ -12,6 +12,7 @@ import { drawJetStrip } from './glass.js';
 import { drawG1000, g1000Click, g1000Key, g1000WheelTarget, g1000Range, g1000Cursor, G1000_WHEEL, G1000_SPOTS } from './g1000.js';
 import { buildCabin } from './cabin.js';
 import { buildJetCabin } from './jetcabin.js';
+import { buildKingAirCabin } from './kingaircabin.js';
 import { FlightAudio, JetAudio, TurbopropAudio } from './audio.js';
 import { buildIndex, searchAirports } from './airportsearch.js';
 import { buildFlow } from './flow.js';
@@ -57,9 +58,10 @@ const PROFILES = {
 // numbers come from the definition's visual block when it loads.
 const JETS = [['phenom300', 'Phenom 300E'], ['cj4', 'Citation CJ4'], ['learjet45', 'Learjet 45'], ['crj700', 'CRJ700'], ['b738', '737-800']];
 for (const [id, name] of JETS) PROFILES[id] = { id, name, file: `./${id}.json`, jet: true, fromVisual: true, fuse: { xNose: 0, xTail: -20, R: 1, z: 0 }, chase: 40, zoom: [15, 200], target: [-10, 0, 0.5], eye: [-3.4, 0.52, 0.42], tower: 40, shadow: 20 };
-// The King Air 350: twin PT6A turboprops. It takes the jets' glass deck, starts,
-// gear and split power levers (jet: true), its own engine page, propeller and
-// condition levers, beta and reverse (turboprop: true).
+// The King Air 350: twin PT6A turboprops. It takes the jets' glass displays,
+// starts, gear and split power levers (jet: true), its own flight deck
+// (kingaircabin.js), engine page, propeller and condition levers, beta and
+// reverse (turboprop: true).
 PROFILES.kingair = { id: 'kingair', name: 'King Air 350', file: './king_air_350.json', jet: true, turboprop: true, fromVisual: true, fuse: { xNose: 0, xTail: -14.2, R: 0.8, z: 0 }, chase: 26, zoom: [10, 130], target: [-6.5, 0, 0.3], eye: [-2.55, 0.42, 0.38], tower: 24, shadow: 14 };
 function applyVisual(p, d) {
   const v = d.visual;
@@ -434,8 +436,10 @@ function useRig(p) {
   if (!rigs[p.id]) {
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     const model = p.jet ? buildJet(def) : buildAircraft(def);
-    const cab = p.jet ? buildJetCabin({ mobile: MOBILE, maxAniso, skin: model.skin || jetSkin, scale: def.visual?.nose_scale || 1 })
-      : buildCabin({ mobile: MOBILE, maxAniso });
+    // The King Air: its own two-crew flight deck in its own metres; the jets: the Top G's, scaled to the nose.
+    const cab = p.turboprop ? buildKingAirCabin({ mobile: MOBILE, maxAniso, skin: model.skin || jetSkin, ids: A.cockpit().map((x) => x.id) })
+      : p.jet ? buildJetCabin({ mobile: MOBILE, maxAniso, skin: model.skin || jetSkin, scale: def.visual?.nose_scale || 1 })
+        : buildCabin({ mobile: MOBILE, maxAniso });
     // The ice the core grows on the leading edges (ice.js).
     model.ice = buildIce(def);
     model.root.add(model.ice.root);
@@ -1486,7 +1490,16 @@ function buildSpots() {
   const p = cabin.parts || {}, list = [];
   const mesh = (obj, spec) => obj && list.push({ obj, ...spec });
   if (P.jet) {
-    (p.throttles || []).forEach((t, i) => mesh(t, lever(() => leverPos(i), (v) => setLever(i, v), `Thrust lever ${i + 1} (alone: X / Z rejoin them)`)));
+    (p.throttles || []).forEach((t, i) => mesh(t, lever(() => leverPos(i), (v) => setLever(i, v), `${P.turboprop ? 'Power' : 'Thrust'} lever ${i + 1} (alone: X / Z rejoin them)`)));
+    // The King Air's propeller levers (both together, as the core has them; right-click: this one's feather detent) and condition levers.
+    (p.props || []).forEach((t, i) => mesh(t, {
+      label: () => `Propeller levers: ${fmt(tp?.npSelected)} rpm (drag or scroll, both; ⇧, ⇧.)${tp?.engines[i]?.feather ? ` · propeller ${i + 1} FEATHERED` : ''} · right-click: feather ${i + 1}`,
+      cursor: 'ns-resize',
+      down(dir) { if (dir < 0) setFeather(i, !tp?.engines[i]?.feather); else act.v0 = input.prop; },
+      drag: (dy) => { if (act.v0 === undefined) return; input.prop = clamp(act.v0 + dy / 220, 0, 1); A.setPropLever(input.prop); },
+      wheel: (n) => { input.prop = clamp(input.prop + n * 0.02, 0, 1); A.setPropLever(input.prop); },
+    }));
+    for (const w of p.conditions || []) mesh(w.g, stepper(w.id, '⇧1 ⇧2 ⇧3 all'));
     mesh(p.spd, stepper('speedbrake.lever'));
     mesh(p.flap, stepper('flaps.lever'));
     mesh(p.gear, { label: () => `${named('gear.lever')} · click to move the handle`, down: () => toggleGear() });
@@ -2677,7 +2690,7 @@ function frame() {
   panelT += dt; cabinT += dt; swT += dt;
   if (swT > 0.2) { swT = 0; readSwitches(); checkPrompts(); }
   if (P.jet) {
-    cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, levers: P.turboprop ? [leverPos(0), leverPos(1)] : [j[58], j[59]], spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2], pos: sw.pos });
+    cabin.update({ elev: s[46], ail: s[45], rud: s[47], thr: input.throttle, levers: P.turboprop ? [leverPos(0), leverPos(1)] : [j[58], j[59]], prop: input.prop, spd: j[4] / 2, flapLever: sw.flaps, gearDown: !!j[2], pos: sw.pos });
     if (ui.cam === 1 && cabinT > 1 / 20) { cabinT = 0; cabin.redraw(jetData()); }
   } else {
     cabin.update({ elev: s[46], ail: s[45], rud: s[47], trim: s[27], thr: input.throttle, mix: input.mixture, flapLever: sw.flaps, fuelSel: sw.fuelSel, shutoff: sw.pos?.['fuel.shutoff'], park: s[49] });
