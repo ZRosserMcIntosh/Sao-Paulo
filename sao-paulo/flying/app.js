@@ -2093,7 +2093,7 @@ function promptList(on) {
     const off = iceCtl.filter((x) => x.id.startsWith('anti_ice.') && !p[x.id]);
     const sev = ['', 'trace', 'light', 'moderate', 'severe'][icing.intensity] || '';
     const fact = `${icing.iceDetected ? 'ICE DETECTED, ' : ''}${fmt(mm, 1)} mm on the leading edges${sev ? `, ${sev} icing` : ''}${icing.vsKcas > icing.vsCleanKcas + 1 ? `; stall speed ${fmt(icing.vsKcas)} kt (${fmt(icing.vsCleanKcas)} clean)` : ''}`;
-    const name = (x) => (/Boots/i.test(x.label) ? `${x.id.split('.')[1]} boots` : `${x.id.split('.')[1]} anti-ice`);
+    const name = (x) => { const k = x.id.split('.')[1]; return /Boots/i.test(x.label) ? `${k} boots` : /de-?ice/i.test(x.label) ? `${k === 'prop' ? 'propeller' : k} de-ice` : `${k} anti-ice`; };
     if (icy && off.length) out.push({ id: 'ice', level: 2, title: 'Airframe icing', detail: `${fact}.`, action: `${off.map(name).join(', ')} ON`, say: 'Ice. Anti-ice on.',
       act: () => { for (const x of off) setControl(x.id, 1); } });
     else if (icy && !iceCtl.some((x) => x.id.startsWith('anti_ice.')) && mm > (o ? 0.3 : 1)) out.push({ id: 'iceinfo', level: 2, title: 'Airframe icing', detail: `${fact}. No ice protection: climb or descend out of the cloud, keep the speed up.`, say: 'Airframe ice.' });
