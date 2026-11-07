@@ -242,10 +242,11 @@ scene.add(skyDome);
 // ---------- Ground: the São Paulo World map on the core's ground ----------
 // The core's ground (avd_ground_height): each airport's field flat at its own
 // elevation, the region's real terrain between them (SRTM, a 200 m grid; over
-// the city a 50 m grid). Drawn by ground.js in chunks around the camera: at
-// the core's own resolution (and finer) near it, coarser farther out (there never below the
-// core's ground), out to ~100 km beyond the map, the map photo draped over its
-// area.
+// the city a 50 m grid). Drawn by ground.js in chunks around the camera and
+// the aircraft: at the core's own resolution (and finer) near them, coarser
+// farther out (under the city's buildings never below the core's ground,
+// elsewhere its mean), out to ~100 km beyond the map, the map photo draped
+// over its area.
 const enu = (e, n, u) => new THREE.Vector3(e, u, -n);
 // Vertices relative to (ox, oy), the mesh placed there: far from the world
 // origin, 32-bit vertex positions would otherwise lose centimetres.
@@ -273,6 +274,9 @@ function heightMesh(x0, y0, nx, ny, step, skip, mat, drop, ox = 0, oy = 0) {
 const TN = 104;  // km of terrain beyond the map on each side
 const ground = buildGround({ groundAt, bounds: [MX0 - TN * 1000, MY0 - TN * 1000, MX1 + TN * 1000, MY1 + TN * 1000], map: [MX0, MY0, MX1, MY1], fine: FINE });
 scene.add(ground.group);
+// Where the city has buildings (buildings.js's tile index): the drawn ground
+// keeps above the core's there (see ground.js).
+fetch('./buildings/index.json').then((r) => r.json()).then((ix) => ground.setBuilt(Object.keys(ix.tiles || {}))).catch(() => { /* buildings everywhere */ });
 // Rebuilt when a destination beyond the region joins the ground: it shifts
 // the blend everywhere a little, and gets ground of its own (a 1 km patch
 // around it, and a coarse corridor from the region to it).
@@ -2400,7 +2404,7 @@ function frame() {
   {
     const ce = camera.position.x, cn = -camera.position.z;
     // No ground past the fog: it would be all fog colour.
-    ground.update(ce, cn, Math.max(0, camera.position.y - groundAt(ce, cn)), Math.min(scene.fog.far, camera.far), 2, s[0], s[1]);
+    ground.update(ce, cn, Math.max(0, camera.position.y - groundAt(ce, cn)), Math.min(scene.fog.far, camera.far), 2, s[0], s[1], Math.max(0, s[14] * 0.3048));
   }
   renderer.render(scene, camera);
   showCost(dt);
