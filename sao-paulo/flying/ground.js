@@ -11,23 +11,30 @@
 // (50 m in the city; 50, 100 and 200 m outside it) every vertex is on the
 // core's ground, so what is drawn is what the aircraft hits; each cell is
 // split along the diagonal that keeps it above the core's (bilinear) ground.
-// Where the cells are coarser than the core's grid each vertex takes the
-// highest of the core's samples in the cells it is a corner of (a max
-// pyramid over the 200 m samples, and one over the 50 m samples of the city
-// and a margin round it), rather than the one under it, so every cell stands
-// on or above the ground it covers and a hill or a ridge is never shaved off:
-// the drawn ground is never more than the 5 cm `drop` under the core's (within
-// a few centimetres where the 50 m grid blends into the 200 m one); in the
-// distance it stands somewhat proud of it (tens of metres on steep slopes),
-// where that does not show. Over the city the 50 and 100 m cells reach
-// farther out than elsewhere, so the ground stays close to the core's there.
+// The quadtree refines round the camera and round the aircraft (the tower
+// view looks at it from kilometres away), so the ground under and around the
+// aircraft is always the core's own.
+// Over the city's buildings, where the cells are coarser than its 50 m grid
+// (100 and 200 m, from about 3 to 20 km out), each vertex takes the highest
+// of the core's samples in the cells it is a corner of (a max pyramid over the
+// 50 m samples of the city and a margin round it), so every cell stands on or
+// above the ground it covers and no building, set on the core's ground (less
+// 0.6 m), floats over it: there the drawn ground is never more than the 5 cm
+// `drop` under the core's (within a few centimetres where the 50 m grid blends
+// into the 200 m one). Everywhere else coarse (the city's parks and hills
+// without buildings, and the 400 to 1600 m cells 20 km and more away) a
+// maximum over the window would lift whole valleys toward the nearest ridge
+// (hundreds of metres round the Jaraguá and in the Serra do Mar): there each
+// vertex takes the mean of the samples round it instead (a [1 2 1] pyramid,
+// as a mipmap), within a few tens of metres of the core's ground either way.
 // Chunks of different resolution meet with skirts (a strip hanging down from
-// each edge) so no crack shows between them.
+// each edge, deeper for coarser cells) so no crack shows between them.
 import * as THREE from 'three';
 
 const N = 32;            // cells a chunk side
 const STEP0 = 50;        // m, the finest cells
-const LEVELS = 6;        // 50, 100, 200 m (on the core's samples), 400 to 1600 m (the highest of them)
+const LEVELS = 6;        // 50, 100, 200 m (on the core's samples; over the city 100, 200 m the highest of them), 400 to 1600 m (their mean)
+const MEAN_FROM = 400;   // m: cells this coarse and coarser take the mean of the samples, not the maximum
 const RES = 200;         // m, the core's region terrain grid
 const SPLIT = [0, 0.4, 1, 1.6, 1, 1];  // a chunk of level l splits when the camera is nearer than SPLIT[l] of its side (50 m cells only close by, the core's own 200 m out to ~20 km)
 const SPLIT_FINE = [0, 1, 1.2, 1.6, 1, 1];  // over the 50 m grid: 50 m cells out to ~3 km, 100 m to ~8 km
@@ -53,14 +60,25 @@ export function buildGround({ groundAt, bounds, map, drop = 0.05, fine = null })
       .replace('#include <map_fragment>', '#include <map_fragment>\nif ( vGroundXZ.x < mapBox.x || vGroundXZ.x > mapBox.z || vGroundXZ.y < mapBox.y || vGroundXZ.y > mapBox.w ) diffuseColor.rgb = outCol;');
   };
   const stats = { chunks: 0, triangles: 0, pending: 0, ms: 0 };
+  // The 1 km building tiles (setBuilt: their "i,j" keys), as numbers; null:
+  // not known yet, taken as buildings everywhere.
+  let built = null;
+  const tileKey = (i, j) => (i + 2048) * 4096 + (j + 2048);
+  const builtNear = (x, y, s) => {
+    if (!built) return true;
+    for (let i = Math.floor((x - s) / 1000); i <= Math.floor((x + s) / 1000); ++i)
+      for (let j = Math.floor((y - s) / 1000); j <= Math.floor((y + s) / 1000); ++j) if (built.has(tileKey(i, j))) return true;
+    return false;
+  };
   let opt = { shadows: 1 };
 
   // The highest of the core's samples within +-s of each node of an s grid
-  // (every cell the vertex is a corner of), built once from the samples at
-  // `res` spacing over [x0, x1] x [y0, y1] (and a margin): the region's from
-  // its 200 m samples (s = 400, 800, 1600 m), the city's from its 50 m ones
-  // (s = 100 to 1600 m) over the fine grid and a margin of two top cells, so a
-  // vertex whose window touches the fine grid finds its window inside it.
+  // (every cell the vertex is a corner of), and their [1 2 1]-weighted mean,
+  // built once from the samples at `res` spacing over [x0, x1] x [y0, y1]
+  // (and a margin): the region's from its 200 m samples (s = 400, 800, 1600
+  // m), the city's from its 50 m ones (s = 100 to 1600 m) over the fine grid
+  // and a margin of two top cells, so a vertex whose window touches the fine
+  // grid finds its window inside it.
   let pyr = null, pyrFine = null;
   function makePyramid(x0, y0, x1, y1, res) {
     const top = stepOf(LEVELS - 1), margin = 2 * top + res;
@@ -79,32 +97,46 @@ export function buildGround({ groundAt, bounds, map, drop = 0.05, fine = null })
       }
       return [out, w2, h2];
     };
+    // The same with the [1 2 1] / 4 weights for the mean (at the edges, the edge sample twice).
+    const tent3 = (src, w, h) => {
+      const tmp = new Float32Array(w * h);
+      for (let b = 0; b < h; ++b) for (let a = 0; a < w; ++a) { const k = b * w + a; tmp[k] = (2 * src[k] + src[a > 0 ? k - 1 : k] + src[a < w - 1 ? k + 1 : k]) / 4; }
+      const w2 = Math.floor((w - 1) / 2) + 1, h2 = Math.floor((h - 1) / 2) + 1, out = new Float32Array(w2 * h2);
+      for (let b = 0; b < h2; ++b) for (let a = 0; a < w2; ++a) {
+        const k = 2 * b * w + 2 * a;
+        out[b * w2 + a] = (2 * tmp[k] + tmp[2 * b > 0 ? k - w : k] + tmp[2 * b < h - 1 ? k + w : k]) / 4;
+      }
+      return out;
+    };
     // +-res at res spacing, then each step doubles the window and the spacing.
-    let [p, w, h] = max3(g, nx, ny, 1);
-    g = null;
+    let [p, w, h] = max3(g, nx, ny, 1), m = g;
     const out = { gx0, gy0, lv: {} };
     for (let s = 2 * res; s <= top; s *= 2) {
+      m = tent3(m, w, h);
       [p, w, h] = max3(p, w, h, 2);
-      out.lv[s] = { p, w, h, s };
+      out.lv[s] = { p, m, w, h, s };
     }
+    g = null;
     return out;
   }
   function buildPyramid() {
     pyr = makePyramid(bounds[0], bounds[1], bounds[2], bounds[3], RES);
     pyrFine = fine ? makePyramid(fine.e0, fine.n0, fine.e1, fine.n1, fine.step) : null;
   }
-  // A grid level's value at (x, y), a node of it (clamped to the grid).
-  const pyrAt = (P, L, x, y) => {
+  // A grid level's value at (x, y), a node of it (clamped to the grid): its
+  // samples' maximum, or (mean) their mean.
+  const pyrAt = (P, L, x, y, mean) => {
     const a = Math.min(L.w - 1, Math.max(0, Math.round((x - P.gx0) / L.s))), b = Math.min(L.h - 1, Math.max(0, Math.round((y - P.gy0) / L.s)));
-    return L.p[b * L.w + a];
+    return (mean ? L.m : L.p)[b * L.w + a];
   };
   // Does the window +-s round (x, y) (or a chunk's square) touch the fine grid?
   const nearFine = (x, y, s) => !!fine && x + s > fine.e0 && x - s < fine.e1 && y + s > fine.n0 && y - s < fine.n1;
   // A vertex of an s grid: on the core's ground where s is no coarser than its
-  // grid there, else the highest of its samples round the vertex.
+  // grid there, else the highest of its samples round the vertex (the city's
+  // 100 and 200 m cells by buildings), or their mean (elsewhere).
   const vertexHeight = (s, x, y) => {
-    if (nearFine(x, y, s)) return s > fine.step ? pyrAt(pyrFine, pyrFine.lv[s], x, y) : groundAt(x, y);
-    return s > RES ? pyrAt(pyr, pyr.lv[s], x, y) : groundAt(x, y);
+    if (nearFine(x, y, s)) return s > fine.step ? pyrAt(pyrFine, pyrFine.lv[s], x, y, s >= MEAN_FROM || !builtNear(x, y, s)) : groundAt(x, y);
+    return s > RES ? pyrAt(pyr, pyr.lv[s], x, y, s >= MEAN_FROM) : groundAt(x, y);
   };
 
   // One chunk: (N+1)^2 vertices, its normals from a ring of samples around it, skirts on its four edges.
@@ -165,31 +197,35 @@ export function buildGround({ groundAt, bounds, map, drop = 0.05, fine = null })
   let last = null, gen = 0;
   const trash = [];  // retired chunks' geometries, freed a few a frame
   const overlaps = (a, b) => a.x0 < b.x0 + b.S && b.x0 < a.x0 + a.S && a.y0 < b.y0 + b.S && b.y0 < a.y0 + a.S;
-  function select(ce, cn, agl, view) {
+  // The leaves for the camera at (ce, cn), agl m up, seeing `view` m, and the
+  // aircraft at (ae, an), aagl m up: a chunk splits when either is near it.
+  function select(ce, cn, agl, view, ae, an, aagl) {
     const out = new Map(), top = LEVELS - 1, S = sizeOf(top);
     const visit = (l, ix, iy) => {
       const s = sizeOf(l), x0 = ix * s, y0 = iy * s;
       if (x0 > bounds[2] || x0 + s < bounds[0] || y0 > bounds[3] || y0 + s < bounds[1]) return;
       const dh = rectDist(ce, cn, x0, y0, s);
       if (dh > view) return;
-      const d = Math.hypot(dh, agl);
+      const d = Math.min(Math.hypot(dh, agl), Math.hypot(rectDist(ae, an, x0, y0, s), aagl));
       const split = nearFine(x0 + s / 2, y0 + s / 2, s / 2) ? SPLIT_FINE : SPLIT;
       if (l > 0 && d < split[l] * s) { for (let q = 0; q < 4; ++q) visit(l - 1, 2 * ix + (q & 1), 2 * iy + (q >> 1)); return; }
-      out.set(`${gen}:${l},${ix},${iy}`, { l, ix, iy, x0, y0, S: s, d: dh });
+      out.set(`${gen}:${l},${ix},${iy}`, { l, ix, iy, x0, y0, S: s, d: Math.min(dh, rectDist(ae, an, x0, y0, s)) });
     };
     for (let iy = Math.floor(bounds[1] / S); iy <= Math.floor(bounds[3] / S); ++iy)
       for (let ix = Math.floor(bounds[0] / S); ix <= Math.floor(bounds[2] / S); ++ix) visit(top, ix, iy);
     return out;
   }
   // Each frame: choose the chunks for the camera at (east, north), agl m above
-  // the ground, seeing `view` m; build the missing ones (the nearest first)
-  // for at most `budget` ms; swap them in once an area's chunks are all there.
-  function update(ce, cn, agl, view, budget = 2, ae = ce, an = cn) {
+  // the ground, seeing `view` m, and the aircraft at (ae, an), aagl m up; build
+  // the missing ones (the nearest first) for at most `budget` ms; swap them in
+  // once an area's chunks are all there.
+  function update(ce, cn, agl, view, budget = 2, ae = ce, an = cn, aagl = agl) {
     const t0 = performance.now();
     if (!pyr) buildPyramid();
-    if (!last || Math.hypot(ce - last[0], cn - last[1]) > 100 || Math.abs(agl - last[2]) > 60 || Math.abs(view - last[3]) > 500) {
-      want = select(ce, cn, agl, view);
-      last = [ce, cn, agl, view];
+    if (!last || Math.hypot(ce - last[0], cn - last[1]) > 100 || Math.abs(agl - last[2]) > 60 || Math.abs(view - last[3]) > 500
+      || Math.hypot(ae - last[4], an - last[5]) > 100 || Math.abs(aagl - last[6]) > 60) {
+      want = select(ce, cn, agl, view, ae, an, aagl);
+      last = [ce, cn, agl, view, ae, an, aagl];
     }
     const todo = [];
     for (const [k, w] of want) if (!chunks.has(k)) todo.push([w.d, k, w]);
@@ -247,5 +283,11 @@ export function buildGround({ groundAt, bounds, map, drop = 0.05, fine = null })
     }
     return NaN;
   }
-  return { group, material, update, rebuild, heightAt, stats, setOptions: (o) => { opt = { ...opt, ...o }; } };
+  // The building tiles ("i,j" keys of buildings/index.json): the city's
+  // coarse cells away from them take the mean; everything again.
+  function setBuilt(keys) {
+    built = new Set([...keys].map((k) => { const [i, j] = String(k).split(',').map(Number); return tileKey(i, j); }));
+    rebuild();
+  }
+  return { group, material, update, rebuild, heightAt, setBuilt, stats, setOptions: (o) => { opt = { ...opt, ...o }; } };
 }
