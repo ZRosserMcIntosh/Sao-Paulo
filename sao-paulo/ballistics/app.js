@@ -13,12 +13,26 @@ const store = {
 };
 
 const DEG = Math.PI / 180, IN = 0.0254, YD = 0.9144, FT = 0.3048, KMH = 1 / 3.6, MPH = 0.44704;
-const ZERO = 100;          // m: every rifle is zeroed at 100 m
+// The zero: rifles at 100 m; pistols at 25 m and sub-machine guns at 50 m
+// (the P90 and its reflex sight at 100 m), the distances their sights are
+// usually set for. The shooter can change it.
+const ZERO_FOR = { pistol_9mm: 25, glock_17: 25, colt_1911: 25, sw_686: 25, fn_fiveseven: 25, mp5a3: 50, thompson_m1a1: 50, fn_p90: 100 };
+const ZEROS = [10, 15, 25, 50, 100, 200, 300];
+const defaultZero = (cid) => ZERO_FOR[RIFLE_FOR[cid]] ?? 100;
+const zero = () => S.zero ?? defaultZero(S.c);
 const BENCH = 1.2;         // m: the muzzle over the ground (a bench)
 const SCALES = [[1, '1×'], [0.1, '1/10'], [0.01, '1/100'], [1e-3, '1/1k']];
 const RIFLE_FOR = { fgmm_308_175: 'm24_sws', hornady_65cm_140: 'bolt_65cm', lapua_338lm_250: 'bolt_338lm',
   hornady_50bmg_750: 'm107_50bmg', federal_xm855: 'm16a2', speer_9mm_124gd: 'pistol_9mm',
-  cheytac_408_419: 'm200_408', hornady_65cm_147: 'bolt_65cm', ussr_762x54r_l: 'm9130_pu', ussr_762x54r_7n1: 'svd_pso1' };
+  cheytac_408_419: 'm200_408', hornady_65cm_147: 'bolt_65cm', ussr_762x54r_l: 'm9130_pu', ussr_762x54r_7n1: 'svd_pso1',
+  federal_9mm_115_fmj: 'glock_17', federal_9mm_124_fmj: 'glock_17', mp5_9mm_124_fmj: 'mp5a3', federal_45acp_230_fmj: 'colt_1911',
+  thompson_45acp_230: 'thompson_m1a1', federal_357mag_158_jsp: 'sw_686', fn_57_ss197sr: 'fn_fiveseven', fn_57_ss197sr_p90: 'fn_p90' };
+// What kind of gun: it sets the sights, the zero and the model on the bench.
+const HANDGUNS = new Set(['pistol_9mm', 'glock_17', 'colt_1911', 'sw_686', 'fn_fiveseven']);
+const SMGS = new Set(['mp5a3', 'fn_p90', 'thompson_m1a1']);
+// Fully automatic: holding Space keeps firing at the gun's cyclic rate.
+const AUTOMATIC = new Set(['mp5a3', 'fn_p90', 'thompson_m1a1']);
+const gunClass = (cid = S.c) => (HANDGUNS.has(RIFLE_FOR[cid]) ? 'handgun' : SMGS.has(RIFLE_FOR[cid]) ? 'smg' : 'rifle');
 // The scopes. Any of them goes on any rifle; by default each rifle wears its
 // own (the Mosin the PU, the SVD the PSO-1, the rest a mil scope). The Soviet
 // scopes are fixed power with a range drum in hundreds of metres, and read
@@ -36,8 +50,17 @@ const SCOPES = {
   acog: { kind: 'acog', mode: 'hold', name: 'ACOG', mag: 4, fov: 7, unit: MOA, unitName: 'MOA', click: MOA / 4 },
   pso1: { kind: 'pso1', mode: 'drum', name: 'PSO-1', mag: 4, fov: 6, drumMax: 10, unit: THOU, unitName: 'thousandths', click: THOU / 2 },
   pu: { kind: 'pu', mode: 'drum', name: 'PU', mag: 3.5, fov: 4.5, drumMax: 13, unit: THOU, unitName: 'thousandths', click: THOU / 2 },
+  // No magnification and no tube: the eye's own view, the sight drawn over
+  // it. Irons: a square post in a square notch, the target sitting on the
+  // post (the post covers about 1.1 deg; the notch shows a little light each
+  // side, estimated from service pistols). Red dot: a 2 MOA dot (as common
+  // pistol and carbine dots). Field shown: 20 deg (a reading of the scene,
+  // not a property of the sight).
+  iron: { kind: 'iron', mode: 'hold', name: 'Iron sights', mag: 1, fov: 20, tube: false, unit: MOA, unitName: 'MOA', click: MOA },
+  dot: { kind: 'dot', mode: 'hold', name: 'Red dot', mag: 1, fov: 20, tube: false, unit: MOA, unitName: 'MOA', click: MOA },
 };
-const RIFLE_SCOPE = { m9130_pu: 'pu', svd_pso1: 'pso1', m16a2: 'acog' };
+const RIFLE_SCOPE = { m9130_pu: 'pu', svd_pso1: 'pso1', m16a2: 'acog', pistol_9mm: 'iron', glock_17: 'iron', colt_1911: 'iron', sw_686: 'iron',
+  fn_fiveseven: 'iron', mp5a3: 'iron', thompson_m1a1: 'iron', fn_p90: 'dot' };
 const scopeKey = () => (S.scope && S.scope !== 'own' ? S.scope : RIFLE_SCOPE[RIFLE_FOR[S.c]] ?? 'mil');
 const scopeOf = () => SCOPES[scopeKey()];
 // Tracers: the colour is the shooter's choice; the trace lights a little way
@@ -45,7 +68,8 @@ const scopeOf = () => SCOPES[scopeKey()];
 // (published, RWS datasheet); the rest estimated.
 const TRACER_COLOURS = { red: 0xff3a24, green: 0x5dff4a, orange: 0xff9a1f, yellow: 0xffe14a, white: 0xf4f1ff };
 const TRACER_BURNOUT = { m855_224_62: 800, eldm_264_140: 900, eldm_264_147: 900, smk_308_175: 800, l_762x54r_148: 1000,
-  '7n1_762x54r_151': 1000, scenar_338_250: 1000, cheytac_408_419: 1200, amax_510_750: 1600, gdhp_355_124: 250 };
+  '7n1_762x54r_151': 1000, scenar_338_250: 1000, cheytac_408_419: 1200, amax_510_750: 1600, gdhp_355_124: 250,
+  fmj_355_115: 200, fmj_355_124: 200, fmj_452_230: 200, jsp_357_158: 200, vmax_224_40_57: 300 };
 const tracerBurnout = (p) => TRACER_BURNOUT[p.id] ?? 1000;
 const TRACER_LIGHTS = 30;  // m: where the trace becomes visible (M62: 13 to 140 m)
 
@@ -152,11 +176,40 @@ const SCENARIOS = [
   { id: 'm855', name: '600 m', sub: '5.56 M855 · M16A2',
     s: { c: 'federal_xm855', dist: 600, size: 0.5, temp: 25, alt: 0, rh: 50, lat: -23.55, az: 0,
       same: true, layers: [layer(15, 4, 4), layer(15, 4, 4), layer(15, 4, 4)], callTrue: true, call: layer(15, 4) } },
-  { id: '9mm', name: '100 m', sub: '9 mm · pistol',
-    s: { c: 'speer_9mm_124gd', dist: 100, size: 0.3, temp: 22, alt: 0, rh: 50, lat: -23.55, az: 0,
+  // Pistols and sub-machine guns (the second group of buttons).
+  { id: 'g17_7', short: true, feature: true, name: '7 m', sub: 'Glock 17 · 9 mm · it hits low up close',
+    s: { c: 'federal_9mm_124_fmj', zero: 25, dist: 7, size: 0.15, temp: 24, alt: 760, rh: 60, lat: -23.55, az: 0,
+      same: true, layers: [layer(5, 3, 1), layer(5, 3, 1), layer(5, 3, 1)], callTrue: true, call: layer(5, 3) } },
+  { id: 'g17_25', short: true, feature: true, name: '25 m', sub: 'Glock 17 · on the zero',
+    s: { c: 'federal_9mm_124_fmj', zero: 25, dist: 25, size: 0.15, temp: 24, alt: 760, rh: 60, lat: -23.55, az: 0,
+      same: true, layers: [layer(8, 3, 2), layer(8, 3, 2), layer(8, 3, 2)], callTrue: true, call: layer(8, 3) } },
+  { id: '1911_50', short: true, feature: true, name: '50 m', sub: '1911 · .45 ACP · left-hand twist',
+    s: { c: 'federal_45acp_230_fmj', zero: 25, dist: 50, size: 0.2, temp: 20, alt: 0, rh: 50, lat: 40.7, az: 0,
+      same: true, layers: [layer(12, 9, 2), layer(12, 9, 2), layer(12, 9, 2)], callTrue: true, call: layer(12, 9) } },
+  { id: '686_50', short: true, name: '50 m', sub: '.357 Magnum · S&W 686 revolver',
+    s: { c: 'federal_357mag_158_jsp', zero: 25, dist: 50, size: 0.2, temp: 22, alt: 0, rh: 50, lat: -23.55, az: 0,
+      same: true, layers: [layer(10, 3, 2), layer(10, 3, 2), layer(10, 3, 2)], callTrue: true, call: layer(10, 3) } },
+  { id: '57_100', short: true, name: '100 m', sub: 'Five-seveN · 5.7 mm · flat for a pistol',
+    s: { c: 'fn_57_ss197sr', zero: 25, dist: 100, size: 0.25, temp: 22, alt: 0, rh: 50, lat: -23.55, az: 0,
+      same: true, layers: [layer(10, 3, 2), layer(10, 3, 2), layer(10, 3, 2)], callTrue: true, call: layer(10, 3) } },
+  { id: 'g17_200', short: true, feature: true, name: '200 m', sub: 'Glock 17 · the pistol rainbow',
+    s: { c: 'federal_9mm_124_fmj', zero: 25, dist: 200, size: 0.5, temp: 24, alt: 760, rh: 60, lat: -23.55, az: 0,
+      same: true, layers: [layer(8, 3, 1), layer(8, 3, 1), layer(8, 3, 1)], callTrue: true, call: layer(8, 3) } },
+  { id: 'mp5_100', short: true, feature: true, name: '100 m', sub: 'MP5 · 9 mm · hold Space for full auto',
+    s: { c: 'mp5_9mm_124_fmj', zero: 50, dist: 100, size: 0.3, temp: 22, alt: 760, rh: 60, lat: -23.55, az: 0,
+      same: true, layers: [layer(10, 3, 3), layer(10, 3, 3), layer(10, 3, 3)], callTrue: true, call: layer(10, 3) } },
+  { id: 'p90_150', short: true, feature: true, name: '150 m', sub: 'P90 · 5.7 mm · red dot',
+    s: { c: 'fn_57_ss197sr_p90', zero: 100, dist: 150, size: 0.3, temp: 22, alt: 0, rh: 50, lat: 50.6, az: 90,
+      same: true, layers: [layer(15, 4, 3), layer(15, 4, 3), layer(15, 4, 3)], callTrue: true, call: layer(15, 4) } },
+  { id: 'tommy_100', short: true, name: '100 m', sub: 'Thompson · .45 ACP · the slow heavy ball',
+    s: { c: 'thompson_45acp_230', zero: 50, dist: 100, size: 0.4, temp: 10, alt: 0, rh: 70, lat: 49.3, az: 180,
+      same: true, layers: [layer(15, 3, 3), layer(15, 3, 3), layer(15, 3, 3)], callTrue: true, call: layer(15, 3) } },
+  { id: '9mm', short: true, name: '100 m', sub: '9 mm Gold Dot · service pistol',
+    s: { c: 'speer_9mm_124gd', zero: 25, dist: 100, size: 0.3, temp: 22, alt: 0, rh: 50, lat: -23.55, az: 0,
       same: true, layers: [layer(8, 3, 2), layer(8, 3, 2), layer(8, 3, 2)], callTrue: true, call: layer(8, 3) } },
 ];
 const S = structuredClone(SCENARIOS[0].s);
+S.zero = 100;
 Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen', markers: store.get('markers', 'hits'), tracer: store.get('tracer', 'off'), tracerToImpact: store.get('tracerToImpact', true),
   scope: store.get('scope', 'own'), aim: store.get('aim', 'assist'), hint: store.get('hint', true), turret: { el: 0, wd: 0 }, hold: { up: 0, right: 0 } });
 let metric = store.get('metric', true);
@@ -170,6 +223,7 @@ let autoFire = false;
   if (cartIndex(Q.get('c')) >= 0) S.c = Q.get('c');
   S.dist = n('d', S.dist); S.size = n('sz', S.size); S.temp = n('t', S.temp); S.alt = n('a', S.alt); S.rh = n('h', S.rh);
   S.lat = n('lat', S.lat); S.az = n('az', S.az); S.t0 = n('ts', S.t0);
+  S.zero = Q.has('zr') && ZEROS.includes(+Q.get('zr')) ? +Q.get('zr') : defaultZero(S.c);
   if (Q.has('w')) {
     const ls = Q.get('w').split(';').map((x) => x.split(',').map(Number));
     if (ls.length >= 1 && ls.every((l) => l.length === 3 && l.every(Number.isFinite))) {
@@ -244,6 +298,7 @@ function enu(d, r, u) {
 }
 const v3 = (p) => { const l = lof(p); return new THREE.Vector3(l.r, l.u, -l.d); };
 
+const dopeStep = (d) => (d <= 30 ? 5 : d <= 120 ? 10 : d <= 300 ? 25 : d <= 600 ? 50 : d <= 1200 ? 100 : 200);
 // The shooter's solution: holds for the called wind (and, if ticked, the
 // spin and the Earth), and a dope card.
 function solveDope() {
@@ -251,9 +306,11 @@ function solveDope() {
   station();
   setup(true);
   B.wind(S.az * DEG, callLayers());
-  const step = S.dist <= 600 ? 50 : S.dist <= 1200 ? 100 : 200;
-  const rows = B.table(ci(), ZERO, sightHeight(), Math.max(S.dist, step), step, S.az * DEG);
-  const at = B.table(ci(), ZERO, sightHeight(), S.dist, S.dist, S.az * DEG).at(-1);
+  const step = dopeStep(S.dist);
+  const rows = B.table(ci(), zero(), sightHeight(), Math.max(S.dist, step), step, S.az * DEG);
+  const at = B.table(ci(), zero(), sightHeight(), S.dist, S.dist, S.az * DEG).at(-1);
+  // The target's own row, when the steps pass it by (1 mile, 2 miles).
+  if (at && !rows.some((r) => Math.abs(r.range - S.dist) < 0.5)) { rows.push(at); rows.sort((a, b) => a.range - b.range); }
   const hold = at && at.range > 0 ? { up: -at.drop / S.dist, right: -at.windage / S.dist } : { up: 0, right: 0 };
   return { rows, hold };
 }
@@ -266,7 +323,7 @@ function breakdown(t0) {
     station();
     B.bd_setup(twist(), S.lat * DEG, flags);
     B.wind(S.az * DEG, wind ? trueLayers() : []);
-    return B.table(ci(), ZERO, sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1) ?? { drop: 0, windage: 0 };
+    return B.table(ci(), zero(), sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1) ?? { drop: 0, windage: 0 };
   };
   const base = at(0, false), wind = at(0, true);
   const out = [{ k: 'Gravity & drag', up: base.drop, right: 0 }, { k: 'Wind', up: wind.drop - base.drop, right: wind.windage }];
@@ -296,13 +353,17 @@ function dummyPart(o) {
   return null;
 }
 // The glass impactor nearest in calibre (Glass Dynamics' own bullets).
-const glassImpactor = (p) => (p.diameter_in >= 0.4 ? 'bmg_50' : p.diameter_in >= 0.3 && p.mass_gr < 140 ? 'pistol_9mm' : 'rifle_762');
+const glassImpactor = (cid) => {
+  const p = projRaw(cid), mv = cat.cartridges[cartIndex(cid)].muzzleVelocity;
+  if (mv < 600) return 'pistol_9mm';  // handgun and sub-machine-gun speeds
+  return p.diameter_in >= 0.4 ? 'bmg_50' : 'rifle_762';
+};
 function liquidsUrl(sh) {
   const p = projRaw(sh.S.c), at = sh.atTarget;
   const v = lof(at.velocity), speed = Math.hypot(...at.velocity);
   const q = new URLSearchParams({ from: 'ballistics', name: cat.cartridges[cartIndex(sh.S.c)].name.replace(/\s*\(.*\)$/, ''),
     range: Math.round(sh.S.dist), mass_g: (p.mass_gr * 0.06479891).toFixed(2), dia_mm: (p.diameter_in * 25.4).toFixed(2), v: speed.toFixed(1),
-    desc: (Math.atan2(-v.u, v.d) / DEG).toFixed(2), drift: (Math.atan2(v.r, v.d) / DEG).toFixed(2), gi: glassImpactor(p),
+    desc: (Math.atan2(-v.u, v.d) / DEG).toFixed(2), drift: (Math.atan2(v.r, v.d) / DEG).toFixed(2), gi: glassImpactor(sh.S.c),
     glazing: sh.S.glazing, pane: sh.S.glazing === 'none' ? 'none' : 'front', target: dummyPart(sh.impact) || 'chest', back: shareUrl(sh, false) });
   if (sh.S.tgt === 'v8' && sh.glass) {
     // Through the V8's windscreen already (Glass Dynamics here): the dummy gets what is left.
@@ -333,7 +394,7 @@ function strikeV8(impact, at) {
   if (!out.onGlass || !G) return out;
   const gi = gcat.glazings.findIndex((g) => g.id === V8.glazing);
   const p = projRaw(S.c);
-  const ii = Math.max(0, gcat.impactors.findIndex((x) => x.id === glassImpactor(p)));
+  const ii = Math.max(0, gcat.impactors.findIndex((x) => x.id === glassImpactor(S.c)));
   const dl = [dotp(d, X), dotp(d, Vv), dotp(d, N)], dp = [dl[0], dl[1], -dl[2]];
   out.yaw = Math.atan2(dp[0], dp[2]); out.pitch = Math.asin(Math.max(-1, Math.min(1, dp[1])));
   if (gi < 0 || !G.gls_new_pane(gi, 2, 1)) return out;
@@ -373,7 +434,7 @@ function fire(tFire) {
   station();
   setup(false);
   B.wind(S.az * DEG, trueLayers());
-  const e0 = B.bd_zero(ci(), ZERO, sightHeight());
+  const e0 = B.bd_zero(ci(), zero(), sightHeight());
   const aim = shotHold(dope);
   const el = e0 + aim.up, az = S.az * DEG + aim.right;
   const id = Number.isFinite(e0) ? B.bd_fire(ci(), 0, 0, 0, az, el, tFire) : 0;
@@ -414,7 +475,7 @@ function fire(tFire) {
   const air = B.air(0, 0, 0, t0);
   const sg = S.spin ? B.bd_stability(ci()) : 0;
   // Sg where the round meets the target (the flight goes on past it).
-  const sgTarget = S.spin && tTarget !== null ? B.table(ci(), ZERO, sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1)?.stability ?? 0 : 0;
+  const sgTarget = S.spin && tTarget !== null ? B.table(ci(), zero(), sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1)?.stability ?? 0 : 0;
   const atT = tTarget !== null ? B.stateAt(tTarget) : null;
   // The V8: where the round meets the raked windscreen, and what the glass does to it.
   let glass = null;
@@ -434,7 +495,7 @@ function fire(tFire) {
     bars: breakdown(t0),
   };
   shots.push(shot);
-  if (shots.length > 24) retire(shots[0]);
+  if (shots.length > 40) retire(shots[0]);  // a full 30-round magazine stays in the air
   return shot;
 }
 
@@ -531,24 +592,26 @@ function buildRange() {
   flags.length = 0;
   hitMarks = [];
   const D = S.dist;
-  // Distance boards on the left.
-  const unit = metric ? 1 : YD;
-  const every = (metric ? D : D / YD) <= 1200 ? 100 : 250;
-  for (let k = every; k * unit <= D + 600; k += every) {
-    const s = label(`${k} ${metric ? 'm' : 'yd'}`, 1.2 + (k * unit) / 900);
-    s.position.set(-14 - (k * unit) / 150, -BENCH + 2.2 + (k * unit) / 600, -k * unit);
+  // Distance boards on the left (closer in, smaller and more often on a short range).
+  const unit = metric ? 1 : YD, near = D < 150;
+  const DU = metric ? D : D / YD;
+  const every = DU <= 30 ? 5 : DU <= 120 ? 10 : DU <= 300 ? 25 : DU <= 1200 ? 100 : 250;
+  for (let k = every; k * unit <= D + (near ? Math.max(10, D * 0.5) : 600); k += every) {
+    const x = k * unit;
+    const s = label(`${k} ${metric ? 'm' : 'yd'}`, near ? 0.22 + x / 140 : 1.2 + x / 900);
+    s.position.set(near ? -1.6 - x * 0.07 : -14 - x / 150, near ? -BENCH + 1.0 + x / 200 : -BENCH + 2.2 + x / 600, -x);
     range.add(s);
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2, 6), wood);
     post.position.set(s.position.x, -BENCH + 1, s.position.z);
     range.add(post);
   }
-  // Wind flags on the right, every 100 m (200 m past 1 km).
-  const fe = D <= 1000 ? 100 : 200;
+  // Wind flags on the right, every 100 m (200 m past 1 km; closer on a short range).
+  const fe = D <= 30 ? 5 : D <= 150 ? 25 : D <= 1000 ? 100 : 200;
   for (let d = fe / 2; d < D; d += fe) {
     const g = new THREE.Group();
-    const x = 9 + d / 120;
+    const x = near ? 2 + d * 0.05 : 9 + d / 120;
     g.position.set(x, -BENCH, -d);
-    const scale = 1 + d / 1200;
+    const scale = near ? 0.45 : 1 + d / 1200;
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035 * scale, 0.05 * scale, 4 * scale, 6), poleMat);
     pole.position.y = 2 * scale;
     g.add(pole);
@@ -632,8 +695,8 @@ function buildRange() {
     target.add(plate);
     range.add(target);
     const bermD = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9a8a68 }));
-    bermD.scale.set(30 + D / 50, 3 + D / 1000, 12);
-    bermD.position.set(0, -BENCH, -D - 30);
+    bermD.scale.set(near ? 8 : 30 + D / 50, near ? 2.5 : 3 + D / 1000, near ? 3 : 12);
+    bermD.position.set(0, -BENCH, -D - (near ? 5 : 30));
     range.add(bermD);
     return;
   }
@@ -660,27 +723,48 @@ function buildRange() {
   target.add(bar);
   range.add(target);
   const berm = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9a8a68 }));
-  berm.scale.set(30 + D / 50, 3 + D / 1000, 12);
-  berm.position.set(0, -BENCH, -D - 30);
+  berm.scale.set(near ? 8 : 30 + D / 50, near ? 2.5 : 3 + D / 1000, near ? 3 : 12);
+  berm.position.set(0, -BENCH, -D - (near ? 5 : 30));
   range.add(berm);
 }
 
-// The rifle on its bench.
+// The gun on its bench (the muzzle at the origin, pointing down -z).
 const rifle = new THREE.Group();
+const gun = new THREE.Group();
+rifle.add(gun);
+const gunMetal = new THREE.MeshStandardMaterial({ color: 0x1d2024, metalness: 0.6, roughness: 0.5 });
+const gunTan = new THREE.MeshStandardMaterial({ color: 0x8a7a5c, roughness: 0.8 });
+const gunPoly = new THREE.MeshStandardMaterial({ color: 0x24272b, metalness: 0.1, roughness: 0.75 });
+function buildGun() {
+  gun.clear();
+  const r = rifleRaw(S.c), kind = gunClass(), bl = (r?.barrel_in ?? 24) * IN, sh = sightHeight();
+  const box = (w, h, d, x, y, z, m) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); gun.add(o); return o; };
+  const tube = (r0, r1, len, z, y, m, name) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, len, 16), m); o.rotation.x = Math.PI / 2; o.position.set(0, y, z); if (name) o.name = name; gun.add(o); return o; };
+  if (kind === 'handgun') {
+    // Slide over the barrel, the grip behind and below it, the sights on top.
+    box(0.03, 0.034, bl + 0.05, 0, 0.004, bl / 2 + 0.02, gunMetal);
+    box(0.03, 0.11, 0.05, 0, -0.07, bl + 0.01, gunPoly).rotation.x = -0.25;
+    box(0.006, sh - 0.017, 0.006, 0, (sh + 0.017) / 2, 0.012, gunMetal);
+    box(0.022, sh - 0.017, 0.008, 0, (sh + 0.017) / 2, bl + 0.03, gunMetal);
+    return;
+  }
+  tube(0.009, 0.012, bl, bl / 2, 0, gunMetal);
+  if (kind === 'smg') {
+    box(0.05, 0.07, 0.3, 0, -0.005, bl + 0.15, gunPoly);       // receiver
+    box(0.035, 0.12, 0.05, 0, -0.09, bl + 0.12, gunPoly);       // magazine
+    box(0.03, 0.06, 0.25, 0, -0.04, bl + 0.42, gunTan);        // stock
+    if (scopeKey() === 'dot') tube(0.016, 0.016, 0.07, bl + 0.12, sh, gunMetal, 'scope');
+    else { box(0.006, sh - 0.03, 0.006, 0, sh / 2 + 0.015, 0.03, gunMetal); box(0.02, sh - 0.03, 0.02, 0, sh / 2 + 0.015, bl + 0.25, gunMetal); }
+    return;
+  }
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.75), gunTan);
+  stock.position.set(0, -0.04, bl + 0.3);
+  gun.add(stock);
+  const sc = scopeOf();
+  if (sc.tube === false) { box(0.006, sh - 0.012, 0.006, 0, sh / 2, 0.02, gunMetal); box(0.02, sh - 0.012, 0.02, 0, sh / 2, bl * 0.8, gunMetal); }
+  else tube(0.017, 0.022, 0.36, bl + 0.1, sh, gunMetal, 'scope');
+}
 {
-  const metal = new THREE.MeshStandardMaterial({ color: 0x1d2024, metalness: 0.6, roughness: 0.5 });
-  const tan = new THREE.MeshStandardMaterial({ color: 0x8a7a5c, roughness: 0.8 });
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.65, 16), metal);
-  barrel.rotation.x = Math.PI / 2;
-  barrel.position.z = 0.325;
-  rifle.add(barrel);
-  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.75), tan);
-  stock.position.set(0, -0.04, 0.95);
-  rifle.add(stock);
-  const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.022, 0.36, 16), metal);
-  scope.rotation.x = Math.PI / 2;
-  scope.name = 'scope';
-  rifle.add(scope);
   const bench = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 1.6), wood);
   bench.position.set(0.1, -0.1, 0.9);
   rifle.add(bench);
@@ -691,7 +775,7 @@ const rifle = new THREE.Group();
   }
 }
 scene.add(rifle);
-function placeRifle() { rifle.getObjectByName('scope').position.set(0, sightHeight(), 0.75); }
+function placeRifle() { buildGun(); }
 
 // The bullet: true size, copper, with the rifling's engraving so the spin shows.
 const bullet = new THREE.Group();
@@ -855,27 +939,28 @@ const mirage = new THREE.ShaderMaterial({
 post.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mirage));
 const ret = $('reticle'), rg = ret.getContext('2d');
 let magnification = 20;
-const magFor = (d) => { const sc = scopeOf(); return sc.fov ? sc.mag : Math.max(6, Math.min(25, Math.round(d / 45))); };
+const magFor = (d) => { const sc = scopeOf(); return sc.fov ? sc.mag : Math.max(3, Math.min(25, Math.round(d / 45))); };
 const zoomBy = (k) => { if (!scopeOf().fov) magnification = Math.max(3, Math.min(32, magnification + k)); };
 // Degrees, vertical: a Soviet scope's own field, else a typical riflescope's.
 const scopeFov = () => { const sc = scopeOf(); return sc.fov ? sc.fov : 35 / magnification; };
 // The tube shows a circle 0.91 of the screen's height across, so the camera
 // sees a little more: the circle then spans the scope's stated field.
 const TUBE = 0.455;
-const scopeCamFov = () => scopeFov() / (2 * TUBE);
+const scopeCamFov = () => (scopeOf().tube === false ? scopeFov() : scopeFov() / (2 * TUBE));
 
-// The Soviet drum: the elevation (from the 100 m zero) each mark gives, worked
+// The Soviet drum: the elevation (from the zero) each mark gives, worked
 // out by the engine for this load in the tables' normal conditions (15 C,
 // 750 mmHg, still air): the drum is engraved once, and the day's air is a hold.
 const drumCache = {};
 function drumTable() {
-  if (drumCache[S.c]) return drumCache[S.c];
+  const key = `${S.c}@${zero()}`;
+  if (drumCache[key]) return drumCache[key];
   B.bd_station(99992, 288.15, 0.5, 0);
   B.bd_setup(twist(), 0, 0);
   B.wind(0, []);
   const el = [0, 0];
-  for (const r of B.table(ci(), ZERO, sightHeight(), 1300, 100, 0)) if (r.range > 0) el[Math.round(r.range / 100)] = -r.drop / r.range;
-  return (drumCache[S.c] = el);
+  for (const r of B.table(ci(), zero(), sightHeight(), 1300, 100, 0)) if (r.range > 0) el[Math.round(r.range / 100)] = -r.drop / r.range;
+  return (drumCache[key] = el);
 }
 // A hold (rad up) on a Soviet scope: the drum mark that comes nearest, and
 // what is left to hold (rad, + aim higher).
@@ -900,7 +985,8 @@ function bdcFor(up) {
 function plan(hold) {
   const sc = scopeOf();
   if (sc.mode === 'drum') { const d = drumFor(hold.up); return { drum: d.drum, dialUp: drumTable()[d.drum], holdUp: d.rest, holdRight: hold.right }; }
-  if (sc.mode === 'hold') { const b = bdcFor(hold.up); return { mark: b.mark, dialUp: 0, holdUp: hold.up, holdRight: hold.right }; }
+  if (sc.mode === 'hold' && sc.kind === 'acog') { const b = bdcFor(hold.up); return { mark: b.mark, dialUp: 0, holdUp: hold.up, holdRight: hold.right }; }
+  if (sc.mode === 'hold') return { dialUp: 0, holdUp: hold.up, holdRight: hold.right };
   return { dialUp: hold.up, holdUp: 0, holdRight: hold.right };
 }
 // Manual aim: the turrets (clicks; on a Soviet scope the elevation is the
@@ -908,7 +994,7 @@ function plan(hold) {
 const turretUp = () => { const sc = scopeOf(); return sc.mode === 'drum' ? drumTable()[Math.max(1, Math.min(sc.drumMax, S.turret.el))] : S.turret.el * sc.click; };
 const turretRight = () => S.turret.wd * scopeOf().click;
 function resetAim() {
-  S.turret = { el: scopeOf().mode === 'drum' ? 1 : 0, wd: 0 };
+  S.turret = { el: scopeOf().mode === 'drum' ? Math.max(1, Math.round(zero() / 100)) : 0, wd: 0 };
   S.hold = { up: 0, right: 0 };
 }
 // Where the scope looks (the crosshair, from the target's centre), and the
@@ -938,7 +1024,7 @@ function drawReticle(dope) {
   const tx = cx - sh.right * px, ty = cy + sh.up * px;
   rg.save();
   rg.beginPath();
-  rg.arc(cx, cy, R0, 0, Math.PI * 2);
+  if (sc.tube === false) rg.rect(0, 0, w, h); else rg.arc(cx, cy, R0, 0, Math.PI * 2);
   rg.clip();
   rg.strokeStyle = 'rgba(8,8,8,0.92)';
   rg.fillStyle = 'rgba(8,8,8,0.92)';
@@ -946,6 +1032,8 @@ function drawReticle(dope) {
   else if (sc.kind === 'moa') milReticle(cx, cy, R0, px * MOA, dpr, 40, 1, 10, 10);
   else if (sc.kind === 'acog') acogReticle(cx, cy, R0, px, dpr);
   else if (sc.kind === 'pu') puReticle(cx, cy, R0, px * THOU, dpr);
+  else if (sc.kind === 'iron') ironSights(cx, cy, h, px, dpr);
+  else if (sc.kind === 'dot') redDot(cx, cy, px, dpr);
   else pso1Reticle(cx, cy, R0, px * THOU, dpr);
   // The target's centre (a small ring: at a kilometre the plate is a few pixels).
   rg.strokeStyle = '#ff3b2f';
@@ -977,7 +1065,7 @@ function drawReticle(dope) {
   rg.fillStyle = 'rgba(231,236,242,0.95)';
   rg.font = `600 ${12 * dpr}px "JetBrains Mono", monospace`;
   rg.textAlign = 'center';
-  const head = `${sc.name} ${sc.fov ? sc.mag : magnification}×`;
+  const head = sc.tube === false ? sc.name : `${sc.name} ${sc.fov ? sc.mag : magnification}×`;
   const side = (r) => (r > 0 ? ' right' : ' left');
   let line = '';
   if (S.aim === 'manual') {
@@ -989,6 +1077,11 @@ function drawReticle(dope) {
     if (sc.mode === 'drum') {
       const over = sc.kind === 'pso1' && p.drum === 10 && p.holdUp > 0.2 * THOU ? ` (chevron ${pso1Chevron(dope.hold.up)})` : '';
       line = `${head}   drum ${p.drum}   hold ${rest(p.holdUp)}${over}   wind ${wd}`;
+    } else if (sc.mode === 'hold' && sc.kind !== 'acog') {
+      // Held on the target: how far above or below its centre, in its own size.
+      const cm = (r) => fmtLen(Math.abs(r) * S.dist);
+      const v = Math.abs(p.holdUp) < 0.05 * sc.unit ? 'on the centre' : `${cm(p.holdUp)} ${p.holdUp > 0 ? 'high' : 'low'} (${fmtU(p.holdUp)})`;
+      line = `${head}   hold ${v}   wind ${Math.abs(p.holdRight) < 0.05 * sc.unit ? 'centre' : cm(p.holdRight) + side(p.holdRight)}`;
     } else if (sc.mode === 'hold') {
       const b = bdcFor(dope.hold.up);
       line = `${head}   ${b.mark === 1 ? 'chevron tip' : b.mark * 100 + ' m bar'}, ${rest(b.rest)}   wind ${wd}`;
@@ -996,6 +1089,43 @@ function drawReticle(dope) {
   }
   if (line) rg.fillText(line, cx, cy + R0 + 20 * dpr);
   rg.textAlign = 'start';
+}
+// Iron sights, as the eye sees them with the front sight in focus: the rear
+// notch (blurred) and the front post, its top level with the notch's and
+// on the aim point (a centre hold: the post's top on the target's centre).
+// A pistol's 0.14 in post at arm's length (about 30 in) covers about 0.26
+// deg, its notch 0.4 deg and its rear blade about 2.2 by 0.6 deg; a carbine's
+// hooded post at half a metre is much the same (estimated; sights vary).
+function ironSights(cx, cy, h, px, dpr) {
+  const post = 0.26 * DEG * px, notch = 0.4 * DEG * px, rearW = 2.2 * DEG * px, rearH = 0.6 * DEG * px;
+  rg.save();
+  rg.filter = `blur(${(1.5 * dpr).toFixed(1)}px)`;
+  rg.fillStyle = 'rgba(14,14,16,0.88)';
+  // The rear sight: a blade with a square notch, its top at the aim line,
+  // and the slide below it.
+  rg.fillRect(cx - rearW / 2, cy, rearW / 2 - notch / 2, rearH);
+  rg.fillRect(cx + notch / 2, cy, rearW / 2 - notch / 2, rearH);
+  rg.fillRect(cx - rearW / 2, cy + rearH, rearW, h);
+  rg.restore();
+  // The front post, sharp, rising to the aim point; a white dot near its top.
+  rg.fillStyle = 'rgba(10,10,12,0.96)';
+  rg.fillRect(cx - post / 2, cy, post, rearH * 1.6);
+  rg.fillStyle = 'rgba(235,240,230,0.9)';
+  rg.beginPath();
+  rg.arc(cx, cy + post * 0.7, post * 0.25, 0, Math.PI * 2);
+  rg.fill();
+  rg.fillStyle = 'rgba(8,8,8,0.92)';
+}
+// A red dot: 2 MOA, lit, with a soft glow; the window's edge is not drawn.
+function redDot(cx, cy, px, dpr) {
+  const r = Math.max(1.5 * dpr, MOA * px);
+  const g = rg.createRadialGradient(cx, cy, 0, cx, cy, r * 3);
+  g.addColorStop(0, 'rgba(255,60,40,1)'); g.addColorStop(0.33, 'rgba(255,40,30,0.95)'); g.addColorStop(1, 'rgba(255,30,20,0)');
+  rg.fillStyle = g;
+  rg.beginPath();
+  rg.arc(cx, cy, r * 3, 0, Math.PI * 2);
+  rg.fill();
+  rg.fillStyle = 'rgba(8,8,8,0.92)';
 }
 // A mil or MOA reticle: fine crosshair, heavy outer posts from `span` units,
 // a tick every `step`, longer every `major`, numbered every `label`.
@@ -1210,14 +1340,14 @@ const fmtAlt = (m) => (metric ? `${m.toFixed(0)} m` : `${(m / FT).toFixed(0)} ft
 const clockName = (c) => `${Math.abs(c - Math.round(c)) < 0.05 ? Math.round(c) : c.toFixed(1)} o'clock`;
 
 function presetsUI() {
-  const box = $('presets');
-  box.innerHTML = '';
+  const box = $('presets'), shortBox = $('presetsShort');
+  box.innerHTML = shortBox.innerHTML = '';
   for (const p of SCENARIOS) {
     const b = document.createElement('button');
     if (p.feature) b.className = 'feature';
     b.innerHTML = `${p.name}<small>${p.sub}</small>`;
-    b.onclick = () => { Object.assign(S, { tgt: 'plate', glazing: 'windscreen' }, structuredClone(p.s)); S.t0 = 10; resetAim(); syncUI(); changed(true); refresh(); tNow = S.t0; fireNow(); };
-    box.appendChild(b);
+    b.onclick = () => { Object.assign(S, { tgt: 'plate', glazing: 'windscreen' }, structuredClone(p.s)); S.zero = p.s.zero ?? defaultZero(p.s.c); S.t0 = 10; resetAim(); syncUI(); changed(true); refresh(); tNow = S.t0; fireNow(); };
+    (p.short ? shortBox : box).appendChild(b);
   }
 }
 function layersUI() {
@@ -1257,6 +1387,7 @@ function syncUI() {
   $('manualBox').hidden = S.aim !== 'manual';
   turretUI();
   if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); }
+  $('zero').value = String(zero());
   $('dist').value = S.dist; $('size').value = S.size; $('temp').value = S.temp; $('alt').value = S.alt; $('rh').value = S.rh;
   $('lat').value = S.lat; $('az').value = S.az;
   $('sameWind').checked = S.same; $('callTrue').checked = S.callTrue; $('callBox').hidden = S.callTrue;
@@ -1269,7 +1400,9 @@ function syncUI() {
 function labels() {
   const r = raw.rifles.find((x) => x.id === RIFLE_FOR[S.c]);
   const c = cat.cartridges[ci()];
-  $('loadDesc').textContent = `${fmtV(c.muzzleVelocity)} from ${r ? r.name : 'its rifle'}, 1:${r ? r.twist_in : '?'} in ${r && r.twist_direction === 'left' ? 'left' : 'right'}-hand twist, scope ${fmtLen(sightHeight())} over the bore.`;
+  const sights = scopeOf().tube === false ? (scopeKey() === 'dot' ? 'red dot' : 'sights') : 'scope';
+  $('loadDesc').textContent = `${fmtV(c.muzzleVelocity)} from ${r ? r.name : 'its rifle'} (${r ? r.barrel_in : '?'} in barrel), 1:${r ? r.twist_in : '?'} in ${r && r.twist_direction === 'left' ? 'left' : 'right'}-hand twist, ${sights} ${fmtLen(sightHeight())} over the bore.`;
+  $('zeroNote').textContent = `${gunClass() === 'rifle' ? 'The rifle' : 'The gun'} is zeroed at ${zero()} m. ${scopeOf().mode === 'dial' ? 'The elevation from your dope is dialled; the wind is held on the reticle.' : scopeOf().tube === false ? 'Everything is held: put the sight where the dope says, above or beside the target.' : 'Set the marks your dope gives and hold the rest.'}`;
   $('vDist').textContent = fmtDist(S.dist);
   $('vSize').textContent = fmtLen(S.size) + ` · ${(S.size / S.dist * 1000).toFixed(2)} mil`;
   $('vTemp').textContent = fmtT(S.temp);
@@ -1311,19 +1444,21 @@ function refresh() {
 function dopeUI() {
   const t = $('dope');
   const sc = scopeOf(), u = sc.unit;
-  const what = { dial: `${sc.unitName}, dialled`, drum: `${sc.name} drum, holds in ${sc.unitName}`, hold: `${sc.name} marks, holds in ${sc.unitName}` }[sc.mode];
+  const plain = sc.mode === 'hold' && sc.kind !== 'acog';
+  const what = plain ? `${sc.name}: holds in ${sc.unitName}, zeroed at ${zero()} m` : { dial: `${sc.unitName}, dialled`, drum: `${sc.name} drum, holds in ${sc.unitName}`, hold: `${sc.name} marks, holds in ${sc.unitName}` }[sc.mode];
   $('dopeWhat').textContent = `${what} · call ${fmtSpeedW(call().spd)} from ${clockName(call().clock)}`;
-  const second = { dial: 'Elev', drum: 'Drum', hold: 'Mark' }[sc.mode];
+  const second = plain ? 'Hold' : { dial: 'Elev', drum: 'Drum', hold: 'Mark' }[sc.mode];
   const arrow = (r) => (Math.abs(r) < 0.05 ? '·' : Math.abs(r).toFixed(1) + (r > 0 ? '↑' : '↓'));
-  let h = `<tr><th>${metric ? 'm' : 'yd'}</th><th>${second}</th>${sc.mode === 'dial' ? '' : '<th>Hold</th>'}<th>Wind</th><th>${metric ? 'm/s' : 'ft/s'}</th><th>s</th></tr>`;
+  let h = `<tr><th>${metric ? 'm' : 'yd'}</th><th>${second}</th>${sc.mode === 'dial' || plain ? '' : '<th>Hold</th>'}${plain ? `<th>${metric ? 'cm' : 'in'}</th>` : ''}<th>Wind</th><th>${metric ? 'm/s' : 'ft/s'}</th><th>s</th></tr>`;
   for (const r of dope.rows) {
     if (r.range <= 0) continue;
     const up = -r.drop / r.range, wd = (-r.windage / r.range) / u;
     let cells;
     if (sc.mode === 'drum') { const d = drumFor(up); cells = `<td>${d.drum}</td><td>${arrow(d.rest / u)}</td>`; }
+    else if (plain) cells = `<td>${arrow(up / u)}</td><td>${arrow((up * r.range) / (metric ? 0.01 : IN))}</td>`;
     else if (sc.mode === 'hold') { const b = bdcFor(up); cells = `<td>${b.mark === 1 ? 'tip' : b.mark}</td><td>${arrow(b.rest / u)}</td>`; }
     else cells = `<td>${(up / u).toFixed(1)}</td>`;
-    h += `<tr class="${Math.abs(r.range - S.dist) < 1 ? 'at' : ''}"><td>${(metric ? r.range : r.range / YD).toFixed(0)}</td>${cells}<td>${Math.abs(wd).toFixed(1)}${wd > 0.05 ? 'R' : wd < -0.05 ? 'L' : ''}</td><td>${(metric ? r.speed : r.speed / FT).toFixed(0)}</td><td>${r.time.toFixed(2)}</td></tr>`;
+    h += `<tr class="${Math.abs(r.range - S.dist) < 1 ? 'at' : ''}"><td>${(metric ? r.range : r.range / YD).toFixed(r.range < 50 && !Number.isInteger(metric ? r.range : r.range / YD) ? 1 : 0)}</td>${cells}<td>${Math.abs(wd).toFixed(1)}${wd > 0.05 ? 'R' : wd < -0.05 ? 'L' : ''}</td><td>${(metric ? r.speed : r.speed / FT).toFixed(0)}</td><td>${r.time.toFixed(2)}</td></tr>`;
   }
   t.innerHTML = h;
 }
@@ -1380,7 +1515,8 @@ function resultsUI() {
     const unstable = sh.sg < 1 || (sh.sgTarget > 0 && sh.sgTarget < 1);
     kv.push(['Stability Sg', `${sh.sg.toFixed(2)}${sh.sgTarget > 0 ? ' → ' + sh.sgTarget.toFixed(2) : ''}${unstable ? ' · TUMBLED' : ''}`]);
   }
-  if (sh.round.subsonicTime > 0 && sh.round.subsonicTime <= tUntil) {
+  if (sh.muzzleSpeed < sh.air.speedOfSound) kv.push(['Subsonic', 'from the muzzle (no sonic crack)']);
+  else if (sh.round.subsonicTime > 0 && sh.round.subsonicTime <= tUntil) {
     const st = stateOf(sh, sh.t0 + sh.round.subsonicTime);
     kv.push(['Went subsonic at', fmtDist(lof(st.position).d)]);
   }
@@ -1389,6 +1525,9 @@ function resultsUI() {
     kv.push(['Aimed', sh.S.aim === 'manual' ? `by hand: ${fmtU(a.up)} ${a.up >= 0 ? 'up' : 'down'} · ${fmtU(a.right)} ${side(a.right)}`
       : `${fmtU(a.up)} ${a.up >= 0 ? 'up' : 'down'} · ${fmtU(a.right)} ${side(a.right)} (${sc.name})`]);
   }
+  // A real scope runs out of elevation long before 2 miles: say so when the dope asks for more.
+  if (sh.S.aim !== 'manual' && scopeOf().mode === 'dial' && Math.abs(sh.aim.up) > 0.03)
+    kv.push(['Turret', `${fmtU(sh.aim.up)}: past most scopes' ~30 mil of travel (a canted base and holdover)`]);
   kv.push(['Air', `${fmtT(S.temp)} · ${(isaPressure(S.alt) / 100).toFixed(0)} hPa · DA ${fmtAlt(sh.air.densityAltitude)}`]);
   $('kv').innerHTML = kv.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   // What moved it.
@@ -1454,7 +1593,11 @@ function banner(a, b) { $('bTitle').textContent = a; $('bSub').textContent = b; 
 // worked, a semi-automatic is ready as fast as the trigger. Estimated. A shot
 // asked for sooner waits its turn: in bullet time the rounds still leave the
 // muzzle at the rifle's true cadence.
-const RIFLE_CYCLE = { m24_sws: 1.2, bolt_65cm: 1.2, bolt_338lm: 1.4, m200_408: 1.6, m9130_pu: 1.3, m107_50bmg: 0.25, svd_pso1: 0.2, m16a2: 0.12, pistol_9mm: 0.12 };
+// The automatics fire at their cyclic rate (published: MP5 about 800 rounds a
+// minute, P90 about 900, Thompson M1A1 about 700); a revolver's double-action
+// pull is slower than a pistol's trigger (estimated).
+const RIFLE_CYCLE = { m24_sws: 1.2, bolt_65cm: 1.2, bolt_338lm: 1.4, m200_408: 1.6, m9130_pu: 1.3, m107_50bmg: 0.25, svd_pso1: 0.2, m16a2: 0.12, pistol_9mm: 0.12,
+  glock_17: 0.12, colt_1911: 0.15, sw_686: 0.3, fn_fiveseven: 0.12, mp5a3: 60 / 800, fn_p90: 60 / 900, thompson_m1a1: 60 / 700 };
 // A round arrives: the plate rings and swings, the glass breaks, the dust flies.
 function arrive(sh) {
   const T = sh.S;
@@ -1489,10 +1632,11 @@ function fireNow() {
   if (S.tgt === 'v8' && !G) { toast('Loading the glass engine for the windscreen…'); $('outcome').className = ''; $('outcome').textContent = 'Loading the glass engine…'; $('watch').hidden = true; ensureGlass().then(() => fireNow()).catch((e) => toast('Glass engine: ' + e.message)); return; }
   const cycle = RIFLE_CYCLE[RIFLE_FOR[S.c]] ?? 0.9;
   const prev = shots.at(-1), t0 = Math.max(tNow, prev ? prev.t0 + cycle : tNow);
-  if (t0 - tNow > 8 * cycle) { toast('Eight rounds are already waiting to go'); return; }
+  const queue = AUTOMATIC.has(RIFLE_FOR[S.c]) ? 30 : 8;
+  if (t0 - tNow > queue * cycle) { if (queue === 8) toast('Eight rounds are already waiting to go'); return; }
   if (dopeTimer) refresh();  // settings still pending: apply them first
   if (!fire(t0)) return;
-  if (t0 > tNow + 1e-6) toast(cycle > 0.5 ? 'Working the bolt…' : 'Next round');
+  if (t0 > tNow + 1e-6 && !AUTOMATIC.has(RIFLE_FOR[S.c])) toast(cycle > 0.5 ? 'Working the bolt…' : 'Next round');
   if (auto) setCam('bullet');
   resultsUI();
   // The dashed path of the whole flight, for the scope and shooter views.
@@ -1505,7 +1649,12 @@ function fireNow() {
   path.visible = false;
 }
 
-$('cartridge').onchange = (e) => { S.c = e.target.value; resetAim(); syncUI(); changed(true); };
+$('cartridge').onchange = (e) => { S.c = e.target.value; S.zero = defaultZero(S.c); resetAim(); syncUI(); changed(true); };
+{
+  const z = $('zero');
+  for (const m of ZEROS) { const o = document.createElement('option'); o.value = String(m); o.textContent = `${m} m`; z.appendChild(o); }
+  z.onchange = (e) => { S.zero = +e.target.value; resetAim(); syncUI(); changed(true); };
+}
 {
   const gsel = $('glazing');
   const none = document.createElement('option'); none.value = 'none'; none.textContent = 'No glass'; gsel.appendChild(none);
@@ -1579,7 +1728,7 @@ function shareUrl(sh, absolute = true) {
   const q = new URLSearchParams({ c: X.c, d: X.dist, sz: X.size, t: X.temp, a: X.alt, h: X.rh, lat: X.lat, az: X.az,
     w: (X.same ? X.layers.slice(0, 1) : X.layers).map((l) => [l.spd, l.clock, l.gust].join(',')).join(';'),
     cw: X.callTrue ? 'true' : [X.call.spd, X.call.clock].join(','),
-    f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : ''), ts: sh ? sh.t0 : X.t0, fire: 1 });
+    f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : ''), zr: X.zero ?? defaultZero(X.c), ts: sh ? sh.t0 : X.t0, fire: 1 });
   if (X.tgt === 'dummy') { q.set('tg', 'dummy'); q.set('gz', X.glazing); }
   if (X.tgt === 'v8') q.set('tg', 'v8');
   if (S.tracer !== 'off') q.set('tr', S.tracer + (S.tracerToImpact ? '' : '.real'));
@@ -1615,7 +1764,7 @@ $('tHide').onclick = () => { $('lab').hidden = $('res').hidden = true; $('tabs')
 if (window.innerWidth <= 860) $('res').hidden = true;
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  if (e.code === 'Space') { e.preventDefault(); fireNow(); }
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat || AUTOMATIC.has(RIFLE_FOR[S.c])) fireNow(); }
   else if (e.key === 'c' || e.key === 'C') setCam(CAMS[(CAMS.findIndex((x) => x[0] === cam) + 1) % CAMS.length][0]);
   else if (e.key === 'b' || e.key === 'B') $('bAuto').click();
   else if (e.key === 'z' || e.key === 'Z') $('bReplay').click();
@@ -1776,7 +1925,10 @@ function frame(now) {
     scopeCam.lookAt(ah.right * D, sightHeight() + ah.up * D, -D);
     scopeCam.updateProjectionMatrix();
     rifle.visible = false;
-    mirage.uniforms.scope.value = 1;
+    // The flash is a sphere 0.66 m out from the muzzle: through open sights'
+    // wide view it would hang in front of the eye all through bullet time.
+    flash.visible = false;
+    mirage.uniforms.scope.value = scopeOf().tube === false ? 0 : 1;
     updateTracer(false, scopeCam.fov);
     present(scopeCam, tEngine);
     drawReticle(dope);
@@ -1786,6 +1938,7 @@ function frame(now) {
   mirage.uniforms.scope.value = 0;
   mirage.uniforms.amp.value = 0;
   rifle.visible = true;
+  flash.visible = true;
   if (cam === 'bullet' && st) {
     const p = fs.mesh.position;
     const dir = v3(st.velocity).normalize();  // v3 is linear: it converts directions too
