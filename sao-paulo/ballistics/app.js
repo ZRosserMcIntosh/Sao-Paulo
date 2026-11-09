@@ -549,8 +549,8 @@ function grassTexture() {
   return t;
 }
 const gtex = grassTexture();
-gtex.repeat.set(160, 300);
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 7500), new THREE.MeshLambertMaterial({ map: gtex }));
+gtex.repeat.set(640, 640);  // 25 m tiles; wide enough that no edge shows from the bullet camera
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), new THREE.MeshLambertMaterial({ map: gtex }));
 ground.rotation.x = -Math.PI / 2;
 ground.position.set(0, -BENCH, -3500);
 scene.add(ground);
@@ -809,11 +809,8 @@ function buildBullet() {
 }
 bullet.visible = false;
 scene.add(bullet);
-// The shock cone (Mach angle) and the dashed path.
-const shock = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 32, 1, true), new THREE.MeshBasicMaterial({
-  color: 0xdbe8ff, transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false }));
-shock.visible = false;
-scene.add(shock);
+// The dashed path. (The shock cone is drawn into the trace's buffer below:
+// it bends the light, it does not glow.)
 const pathGeo = new THREE.BufferGeometry();
 const path = new THREE.Line(pathGeo, new THREE.LineDashedMaterial({ color: 0xffd36b, dashSize: 4, gapSize: 3, transparent: true, opacity: 0.55 }));
 path.frustumCulled = false;
@@ -884,51 +881,105 @@ const rt = new THREE.WebGLRenderTarget(1, 1, { samples: 4 });
 // it (a refractive tube along the path), into its own buffer.
 const wakeRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
 const wakeScene = new THREE.Scene();
-const MAX_WAKE = 4000;
+const MAX_WAKE = 6000;
 const wakeGeo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(2, 2));
 const wCenter = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE * 3), 3);
 const wRadius = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE), 1);
 const wStrength = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE), 1);
-wakeGeo.setAttribute('aCenter', wCenter); wakeGeo.setAttribute('aRadius', wRadius); wakeGeo.setAttribute('aStrength', wStrength);
+const wDir = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE * 4), 4);
+wakeGeo.setAttribute('aCenter', wCenter); wakeGeo.setAttribute('aRadius', wRadius); wakeGeo.setAttribute('aStrength', wStrength); wakeGeo.setAttribute('aDir', wDir);
 wakeGeo.instanceCount = 0;
+// Each stretch of wake bends the light that crosses it. Its index change
+// is the engine's `index` (in sea-level n - 1 = 2.9e-4), so a ray that runs
+// a length l through it, across a width r, turns by about
+// 2.9e-4 index l / r. Seen from the side l is its width (2r): next to
+// nothing. Seen end-on from behind the rifle, l is the stretch's length
+// along the path, and the stretches line up and add: a .308's trace then
+// turns the light by a few tenths of a milliradian, many times the mirage,
+// and a spotter sees it. The output is in pixels of the wake buffer.
 const wakeMat = new THREE.ShaderMaterial({
   uniforms: { pxScale: { value: 0.001 } },
-  vertexShader: `attribute vec3 aCenter; attribute float aRadius, aStrength; uniform float pxScale; varying vec2 vC; varying float vS;
+  vertexShader: `attribute vec3 aCenter; attribute vec4 aDir; attribute float aRadius, aStrength; uniform float pxScale;
+    varying vec2 vC; varying float vS, vH;
     void main(){ vec4 mv = viewMatrix * vec4(aCenter, 1.); float depth = max(0.01, -mv.z);
-      // A wake thinner than a few pixels is drawn a few pixels wide, keeping its integrated strength.
+      // The length a ray from the eye runs inside this stretch.
+      vec3 ray = normalize(aCenter - cameraPosition);
+      float c = abs(dot(ray, aDir.xyz)), s = sqrt(max(0., 1. - c * c));
+      float len = min(aDir.w / max(c, 1e-3), 2. * aRadius / max(s, 1e-3));
+      // Its turn (rad), capped where the near wake is not modelled anyway.
+      float turn = min(2.9e-4 * aStrength * len / aRadius, 2e-3);
+      // A wake thinner than a few pixels is drawn a few pixels wide, keeping its integrated turn.
       float r = max(aRadius, 2.5 * pxScale * depth);
       mv.xy += position.xy * r; vC = position.xy;
-      // Shown with a contrast curve (the square root of the deficit), as a spotter's eye and scope pick out a faint trace.
-      vS = sqrt(aStrength) * aRadius / r; gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `varying vec2 vC; varying float vS;
+      vS = turn / pxScale * aRadius / r;               // pixels
+      vH = sqrt(aStrength) * aRadius / r;              // for condensation haze only
+      gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `varying vec2 vC; varying float vS, vH;
     void main(){ float r2 = dot(vC, vC); if (r2 > 1.) discard; float f = exp(-3. * r2);
-      gl_FragColor = vec4(-vC * f * vS, f * vS, 1.); }`,
+      // Hot air has the lower index: light leaving the eye bends away from the
+      // wake's core, so the scene behind is fetched from further out.
+      gl_FragColor = vec4(vC * f * vS, f * vH, 1.); }`,
   transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
 });
 const wakeMesh = new THREE.Mesh(wakeGeo, wakeMat);
 wakeMesh.frustumCulled = false;
 wakeScene.add(wakeMesh);
+// The Mach cone, seen from the bullet camera: a thin shell where the air
+// jumps in density, so it bends light most where the eye looks along it
+// (its edge on the screen). Its apex at the nose, its axis along the round's
+// velocity through the air, its half-angle asin(1/M). The jump at the cone's
+// rim from Whitham's far-field rule for a projectile, dp/p = 0.53 (M^2 - 1)^(1/8)
+// d / (r^(3/4) l^(1/4)), and drho/rho = dp / (gamma p): a few per cent a
+// hand's width from a rifle bullet, falling as r^(-3/4) (the rule is a
+// far-field one, stretched here to tens of centimetres).
+// To the naked eye that jump turns light by only a few tenths of a
+// milliradian, at the cone's edge: invisible from the bullet camera. It is
+// drawn 20 times stronger, as a schlieren photograph shows it: presentation,
+// not physics (said so on How it works).
+const SCHLIEREN = 20;
+const shock = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 48, 1, true), new THREE.ShaderMaterial({
+  uniforms: { strength: { value: 0 }, pxScale: { value: 0.001 } },
+  vertexShader: `varying vec3 vN, vV; varying float vK; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.); vV = mv.xyz; vK = 0.5 - position.y; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform float strength, pxScale; varying vec3 vN, vV; varying float vK;
+    void main(){ float g = 1. - abs(dot(normalize(vN), normalize(-vV))); g = g * g * g;
+      // strength is the jump at the drawn rim (vK = 1); it grows toward the
+      // apex as r^(-3/4), and fades out before the drawn cone ends so its
+      // edge does not show (the real cone goes on, ever weaker).
+      g *= min(4., pow(max(vK, 0.02), -0.75)) * smoothstep(1., 0.45, vK);
+      g *= smoothstep(0.04, 0.12, length(vV));  // not where the shell passes the eye
+      gl_FragColor = vec4(normalize(vN).xy * g * strength / pxScale, 0., 1.); }`,
+  transparent: true, side: THREE.DoubleSide, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
+}));
+shock.frustumCulled = false;
+shock.visible = false;
+wakeScene.add(shock);
+// Condensation: the trace is refraction only, unless the air is near
+// saturation, when the cooling behind the round can fog it (photographs of
+// bullets in humid air show it). The white haze is kept for that case.
+const hazeFor = (rh) => Math.max(0, Math.min(1, (rh - 85) / 15));
 let showTrace = store.get('trace', true);
 const post = new THREE.Scene();
 const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const mirage = new THREE.ShaderMaterial({
   uniforms: { tex: { value: rt.texture }, wake: { value: wakeRT.texture }, wakeGain: { value: 0 }, scope: { value: 1 },
-    t: { value: 0 }, amp: { value: 0.0006 }, drift: { value: 0 }, aspect: { value: 1 } },
+    t: { value: 0 }, amp: { value: 0.0006 }, drift: { value: 0 }, aspect: { value: 1 }, haze: { value: 0 }, cell: { value: 1 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
   fragmentShader: `
-    uniform sampler2D tex, wake; uniform float t, amp, drift, aspect, wakeGain, scope; varying vec2 vUv;
+    uniform sampler2D tex, wake; uniform float t, amp, drift, aspect, wakeGain, scope, haze, cell; varying vec2 vUv;
     void main(){
       vec2 p = vUv;
       // The trace: the wake bends the light through it.
       vec3 wk = texture2D(wake, vUv).xyz;
-      p += wk.xy * wakeGain;
+      p += wk.xy * wakeGain * vec2(1. / aspect, 1.);  // pixels to the view's width and height
       // Heat shimmer: rising, boiling waves that lean and run with the crosswind.
-      float w1 = sin(p.y * 260. + t * 5.1 - p.x * 60. * drift + drift * t * 9.);
-      float w2 = sin(p.y * 170. - t * 3.7 + p.x * 90. + drift * t * 6.);
+      // (cell: the shimmer's cells have a fixed size in the sky, so they
+      // fill more of a narrower view.)
+      float w1 = sin(cell * (p.y * 260. - p.x * 60. * drift) + t * 5.1 + drift * t * 9.);
+      float w2 = sin(cell * (p.y * 170. + p.x * 90.) - t * 3.7 + drift * t * 6.);
       p.x += amp * (0.6 * w1 + 0.4 * w2);
-      p.y += amp * 0.5 * sin(p.x * 210. + t * 4.3);
+      p.y += amp * 0.5 * sin(cell * p.x * 210. + t * 4.3);
       vec3 c = texture2D(tex, p).rgb;
-      c = mix(c, vec3(0.92, 0.95, 1.0), min(0.45, wk.z * 0.9));
+      c = mix(c, vec3(0.92, 0.95, 1.0), min(0.45, wk.z * 0.9 * haze));
       vec2 q = (vUv - 0.5) * vec2(aspect, 1.);
       float r = length(q);
       float tube = mix(1., smoothstep(0.47, 0.455, r) * (1. - 0.25 * smoothstep(0.3, 0.46, r)), scope);
@@ -1836,6 +1887,7 @@ function updateFlags(tEngine, wall) {
 }
 
 let last = performance.now();
+let mirageAngle = 0;  // rad RMS, set each frame
 function frame(now) {
   requestAnimationFrame(frame);
   const wallDt = Math.min(0.1, (now - last) / 1000);
@@ -1866,8 +1918,13 @@ function frame(now) {
   {
     const pTarget = enu(S.dist * 0.7, 0, -BENCH + 0.5);
     const w = lof(B.air(pTarget[0], pTarget[1], pTarget[2], tEngine).wind);
+    // The image dances by an angle, not a share of the screen: about 30
+    // microradians RMS over a kilometre of sunny ground (the angle-of-arrival
+    // spread 2.91 Cn^2 L D^(-1/3) for Cn^2 near 1e-13 and a 5 cm objective),
+    // growing as the square root of the path. Heat stands in for the sun on
+    // the ground (estimated); a crosswind of 4 m/s or more washes it out.
     const heat = Math.max(0.15, Math.min(1.4, (S.temp + 5) / 30));
-    mirage.uniforms.amp.value = (0.00035 + 0.0011 * heat) / (1 + Math.abs(w.r) / 4) * Math.min(1.6, S.dist / 800);
+    mirageAngle = (2.4e-5 * (0.32 + heat)) / (1 + Math.abs(w.r) / 4) * Math.sqrt(Math.min(S.dist, 3000) / 1000);
     mirage.uniforms.drift.value = Math.max(-1.5, Math.min(1.5, w.r / 3));
   }
   // The rounds.
@@ -1885,16 +1942,23 @@ function frame(now) {
     st = stateOf(fs, fs.t0 + te);
     const p = v3(st.position);
     const nose = v3(B.noseAt(fs.t0 + te)).normalize();
-    const q = fs.mesh.quaternion;
     const a = B.air(st.position[0], st.position[1], st.position[2], tEngine);
     const u = Math.hypot(st.velocity[0] - a.wind[0], st.velocity[1] - a.wind[1], st.velocity[2] - a.wind[2]);
     const M = u / a.speedOfSound;
     shock.visible = M > 1.01 && phase === 'flight' && cam === 'bullet';
     if (shock.visible) {
-      const L = 0.35, half = Math.asin(1 / M);
-      shock.scale.set(L * Math.tan(half), L, L * Math.tan(half));
-      shock.quaternion.copy(q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
-      shock.position.copy(p).addScaledVector(nose, fs.len * 0.5 - L / 2);
+      // Close to Mach 1 the shock stands off the nose as a bow wave and its
+      // cone flattens: the half-angle is held to 75 deg there.
+      const L = 0.35, half = Math.min(75 * DEG, Math.asin(1 / M)), rim = L * Math.tan(half);
+      const air = v3([st.velocity[0] - a.wind[0], st.velocity[1] - a.wind[1], st.velocity[2] - a.wind[2]]).normalize();
+      shock.scale.set(rim, L, rim);
+      shock.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), air);  // the apex (+y) leads
+      shock.position.copy(p).addScaledVector(nose, fs.len * 0.5).addScaledVector(air, -L / 2);
+      const pr = projRaw(fs.S.c), d = pr.diameter_in * IN, l = pr.length_in * IN, r = Math.max(rim, 2 * d);
+      const jump = (0.53 * Math.pow(M * M - 1, 1 / 8) * d) / (Math.pow(r, 0.75) * Math.pow(l, 0.25)) / 1.4;
+      // The turn at grazing incidence: the index jump over the shell's own
+      // thickness, seen along a chord of the cone about 30 times as long (estimated).
+      shock.material.uniforms.strength.value = SCHLIEREN * 2.9e-4 * (a.density / 1.225) * jump * 30;
     }
     const inAir = shots.filter((x) => tNow >= x.t0 && tNow < x.tStop).length;
     const hud = `${fmtDist(lof(st.position).d)}<span>·</span>${fmtV(Math.hypot(...st.velocity))}<span>·</span>Mach ${M.toFixed(2)}<span>·</span>${(st.spin / (2 * Math.PI)).toFixed(0)} turns/s${inAir > 1 ? `<span>·</span>${inAir} rounds in the air` : ''}`;
@@ -1924,6 +1988,9 @@ function frame(now) {
     const ah = sightHold();
     scopeCam.lookAt(ah.right * D, sightHeight() + ah.up * D, -D);
     scopeCam.updateProjectionMatrix();
+    // The mirage in this view: its angle over the view's height, its cells at their size in the sky.
+    mirage.uniforms.amp.value = mirageAngle / (scopeCam.fov * DEG);
+    mirage.uniforms.cell.value = Math.max(0.25, Math.min(4, (scopeCam.fov * DEG) / 0.0244));
     rifle.visible = false;
     // The flash is a sphere 0.66 m out from the muzzle: through open sights'
     // wide view it would hang in front of the eye all through bullet time.
@@ -1982,27 +2049,39 @@ function present(cam, tEngine) {
       if (tNow < sh.t0 || n >= MAX_WAKE) continue;
       const p = projRaw(sh.S.c);
       B.bd_select(sh.id);
-      const w = B.wake(Math.min(tNow, sh.tStop), Math.max(0.25, sh.S.dist / 6000), 0.5, p.mass_gr * 6.479891e-5, p.diameter_in * IN);
-      for (let k = 0; k < w.length / 6 && n < MAX_WAKE; ++k, ++n) {
-        const q = v3([w[6 * k], w[6 * k + 1], w[6 * k + 2]]);
+      // Each stretch stands for `spacing` metres of path (the shader turns
+      // that into the length a ray runs inside it), so the trace does not
+      // change with how finely it is sampled.
+      const spacing = Math.max(0.25, sh.S.dist / 6000);
+      const w = B.wake(Math.min(tNow, sh.tStop), spacing, 0.5, p.mass_gr * 6.479891e-5, p.diameter_in * IN);
+      const m = w.length / 7;
+      for (let k = 0; k < m && n < MAX_WAKE; ++k, ++n) {
+        const q = v3([w[7 * k], w[7 * k + 1], w[7 * k + 2]]);
+        // The path's direction here, from the neighbouring stretches.
+        const i0 = Math.max(0, k - 1), i1 = Math.min(m - 1, k + 1);
+        const dv = v3([w[7 * i1] - w[7 * i0], w[7 * i1 + 1] - w[7 * i0 + 1], w[7 * i1 + 2] - w[7 * i0 + 2]]);
+        if (dv.lengthSq() > 0) dv.normalize(); else dv.set(0, 0, -1);
         wCenter.setXYZ(n, q.x, q.y, q.z);
-        wRadius.setX(n, w[6 * k + 3]);
-        wStrength.setX(n, w[6 * k + 4]);
+        wRadius.setX(n, w[7 * k + 3]);
+        wStrength.setX(n, w[7 * k + 6]);
+        wDir.setXYZW(n, dv.x, dv.y, dv.z, spacing);
       }
     }
-  if (n) wCenter.needsUpdate = wRadius.needsUpdate = wStrength.needsUpdate = true;
+  if (n) wCenter.needsUpdate = wRadius.needsUpdate = wStrength.needsUpdate = wDir.needsUpdate = true;
   wakeGeo.instanceCount = n;
+  const any = n > 0 || shock.visible;
   R.getClearColor(clearTmp);
   const ca = R.getClearAlpha();
   R.setRenderTarget(wakeRT);
   R.setClearColor(0x000000, 0);
   R.clear();
-  if (n) {
-    wakeMat.uniforms.pxScale.value = (2 * Math.tan((cam.fov * DEG) / 2)) / (wakeRT.height || 1);
+  if (any) {
+    wakeMat.uniforms.pxScale.value = shock.material.uniforms.pxScale.value = (2 * Math.tan((cam.fov * DEG) / 2)) / (wakeRT.height || 1);
     R.render(wakeScene, cam);
   }
   R.setClearColor(clearTmp, ca);
-  mirage.uniforms.wakeGain.value = n ? 0.012 : 0;
+  mirage.uniforms.wakeGain.value = any ? 1 / (wakeRT.height || 1) : 0;  // the buffer holds pixels
+  mirage.uniforms.haze.value = hazeFor(S.rh);
   R.setRenderTarget(null);
   R.render(post, postCam);
 }
@@ -2021,4 +2100,4 @@ if (autoFire) setTimeout(fireNow, 300);
 // The Glass engine (for the V8's windscreen) loads in the background.
 setTimeout(() => ensureGlass().catch(() => {}), 1500);
 // For the browser console: the engine and the current shot.
-window.ballisticsRange = { B, R, wakeRT, wakeGeo, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
+window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
