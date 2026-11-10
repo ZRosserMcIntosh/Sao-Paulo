@@ -160,6 +160,9 @@ const SCENARIOS = [
   { id: 'dummy', name: 'Through a windscreen', sub: '.308 at 600 m · the dummy behind it', feature: true,
     s: { c: 'fgmm_308_175', dist: 600, size: 0.5, temp: 22, alt: 760, rh: 60, lat: -23.55, az: 0, tgt: 'dummy', glazing: 'windscreen',
       same: true, layers: [layer(8, 3, 1), layer(8, 3, 1), layer(8, 3, 1)], callTrue: true, call: layer(8, 3) } },
+  { id: 'line', name: 'The dummy line', sub: '.308 · a dummy every 50 m, glass before, behind or none', feature: true,
+    s: { c: 'fgmm_308_175', dist: 300, size: 0.5, temp: 24, alt: 760, rh: 55, lat: -23.55, az: 0, tgt: 'line',
+      same: true, layers: [layer(6, 3, 1), layer(6, 3, 1), layer(6, 3, 1)], callTrue: true, call: layer(6, 3) } },
   { id: 'v8', name: 'The armoured V8', sub: '.338 at 800 m · dummy at the wheel', feature: true,
     s: { c: 'lapua_338lm_250', dist: 800, size: 0.5, temp: 24, alt: 760, rh: 55, lat: -23.55, az: 0, tgt: 'v8',
       same: true, layers: [layer(6, 3, 1), layer(6, 3, 1), layer(6, 3, 1)], callTrue: true, call: layer(6, 3) } },
@@ -250,6 +253,7 @@ let autoFire = false;
   if (Q.has('f')) { const f = Q.get('f'); S.spin = f.includes('s'); S.earth = f.includes('e'); S.solver = f.includes('k'); S.unique = f.includes('u'); }
   if (Q.has('sd') && Q.has('sk')) { const sd = Number(Q.get('sd')), sk = Number(Q.get('sk')); if (Number.isSafeInteger(sd) && Number.isSafeInteger(sk) && sd > 0 && sk >= 0) S.seedNext = { seed: sd, stream: sk }; }
   if (Q.get('tg') === 'v8') S.tgt = 'v8';
+  if (Q.get('tg') === 'line') S.tgt = 'line';
   if (Q.has('sc') && Q.get('sc') in SCOPES) S.scope = Q.get('sc');
   if (Q.get('am') === 'm') {
     S.aim = 'manual';
@@ -402,6 +406,25 @@ function dummyPart(o) {
   if (inCap(DUMMY.legs, true)) return 'thigh';
   return null;
 }
+// The dummy line: a crash dummy every 50 m out to the distance set, each a
+// little to one side of the last so none hides another, in turn behind a
+// pane of glass, in the open, and in front of one (a different glass each
+// time). The one at the set distance is the one your dope is for; any of
+// them can be hit, and the nearest one in the round's way stops it.
+const LINE_STEP = 50, LINE_MAX = 30;
+const LINE_GLASS = ['windscreen', 'annealed_6', 'tempered_6', 'car_side_tempered', 'laminated_6_38', 'storefront_tempered_10', 'picture_glass_2', 'annealed_4'];
+function lineDummies() {
+  const n = Math.max(1, Math.round(S.dist / LINE_STEP)), first = Math.max(1, n - LINE_MAX + 1), out = [];
+  // A funnel: the one your dope is for in the middle, each nearer one a lane further out, left and right in turn.
+  const lane = (k) => ((n - k) % 2 ? 1 : -1) * Math.ceil((n - k) / 2) * 1.7;
+  for (let k = first; k <= n; ++k)
+    out.push({ k, d: k * LINE_STEP, x: lane(k), pane: ['front', 'none', 'behind'][k % 3], glazing: LINE_GLASS[k % LINE_GLASS.length] });
+  return out;
+}
+const isDummy = (t) => t === 'dummy' || t === 'line';
+// The Liquids Lab's look for a hit from the range: tarantinoness 7, and a
+// bright red (185, 0, 12) in place of the dummy's green stage blood.
+const LIQUIDS_LOOK = { tn: 7, col: 'b9000c' };
 // The glass impactor nearest in calibre (Glass Dynamics' own bullets).
 const glassImpactor = (cid) => {
   const p = projRaw(cid), mv = cat.cartridges[cartIndex(cid)].muzzleVelocity;
@@ -412,9 +435,10 @@ function liquidsUrl(sh) {
   const p = projRaw(sh.S.c), at = sh.atTarget;
   const v = lof(at.velocity), speed = Math.hypot(...at.velocity);
   const q = new URLSearchParams({ from: 'ballistics', name: cat.cartridges[cartIndex(sh.S.c)].name.replace(/\s*\(.*\)$/, ''),
-    range: Math.round(sh.S.dist), mass_g: (p.mass_gr * 0.06479891).toFixed(2), dia_mm: (p.diameter_in * 25.4).toFixed(2), v: speed.toFixed(1),
+    range: Math.round(sh.line ? sh.line.d : sh.S.dist), mass_g: (p.mass_gr * 0.06479891).toFixed(2), dia_mm: (p.diameter_in * 25.4).toFixed(2), v: speed.toFixed(1),
     desc: (Math.atan2(-v.u, v.d) / DEG).toFixed(2), drift: (Math.atan2(v.r, v.d) / DEG).toFixed(2), gi: glassImpactor(sh.S.c),
-    glazing: sh.S.glazing, pane: sh.S.glazing === 'none' ? 'none' : 'front', target: dummyPart(sh.impact) || 'chest', back: shareUrl(sh, false) });
+    glazing: sh.line ? sh.line.glazing : sh.S.glazing, pane: sh.line ? sh.line.pane : sh.S.glazing === 'none' ? 'none' : 'front',
+    target: dummyPart(sh.impact) || 'chest', back: shareUrl(sh, false), ...LIQUIDS_LOOK });
   if (sh.S.tgt === 'v8' && sh.glass) {
     // Through the V8's windscreen already (Glass Dynamics here): the dummy gets what is left.
     q.set('v', sh.glass.vout.toFixed(1));
@@ -508,8 +532,17 @@ function fire(tFire) {
   const reaches = downrange(tEnd) >= S.dist;
   let tTarget = reaches ? bisect((tt) => downrange(tt) >= S.dist, t0, tEnd) : null;
   const sh = sightHeight();
-  let hit = false, impact = null;
-  if (tTarget !== null) {
+  let hit = false, impact = null, line = null;
+  if (S.tgt === 'line') {
+    // The nearest dummy in the round's way.
+    tTarget = null;
+    for (const dm of lineDummies()) {
+      if (downrange(tEnd) < dm.d) break;
+      const tt = bisect((x) => downrange(x) >= dm.d, t0, tEnd), p = lof(B.stateAt(tt).position), o = { right: p.r - dm.x, up: p.u - sh };
+      if (dm.d === Math.round(S.dist / LINE_STEP) * LINE_STEP) { impact = o; if (p.u > -BENCH) tTarget = tt; }
+      if (p.u > -BENCH && dummyPart(o) !== null) { hit = true; impact = o; tTarget = tt; line = dm; break; }
+    }
+  } else if (tTarget !== null) {
     const p = lof(B.stateAt(tTarget).position);
     impact = { right: p.r, up: p.u - sh };
     // Hit only if it reached the plane above the ground.
@@ -539,7 +572,7 @@ function fire(tFire) {
   mesh.visible = true;
   scene.add(mesh);
   shot = {
-    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az, seed, draw,
+    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az, seed, draw, line,
     part: S.tgt === 'duel' && hit && atT ? figurePart(lof(atT.position).r, lof(atT.position).u) : null,
     round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
     mesh, body: mesh.getObjectByName('body'), len: bullet.userData.length, done: false, doneWall: 0, left: false,
@@ -759,6 +792,38 @@ function buildRange() {
     range.add(target);
     return;
   }
+  if (S.tgt === 'line') {
+    const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.55 });
+    const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xcfe8f5, transparent: true, opacity: 0.25, roughness: 0.05, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
+    const frameMat = new THREE.MeshLambertMaterial({ color: 0x2a2f36 });
+    for (const dm of lineDummies()) {
+      const g = new THREE.Group();
+      g.position.set(dm.x, sightHeight(), -dm.d);
+      const cap = (r, len, x, y) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 5, 10), yellow); m.position.set(x, y, 0); g.add(m); };
+      cap(...DUMMY.torso); cap(...DUMMY.head);
+      { const [r, l, x, y] = DUMMY.arms; cap(r, l, -x, y); cap(r, l, x, y); }
+      { const [r, l, x, y] = DUMMY.legs; cap(r, l, -x, y); cap(r, l, x, y); }
+      if (dm.pane !== 'none') {
+        // In front: between you and the dummy. Behind: it catches what comes out the back.
+        const z = dm.pane === 'front' ? 0.6 : -0.6, pane = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 2.0), glassMat);
+        pane.position.set(0, -0.25, z);
+        g.add(pane);
+        for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.1, 0.05), frameMat); post.position.set(sx * 0.675, -0.25, z); g.add(post); }
+      }
+      const gl = glazings.find((x) => x.id === dm.glazing);
+      const tag = label(`${metric ? dm.d + ' m' : Math.round(dm.d / YD) + ' yd'}${dm.pane === 'none' ? '' : ' · ' + (dm.pane === 'front' ? 'behind ' : 'before ') + (gl ? gl.name.split(',')[0].toLowerCase() : 'glass')}`, 0.16 + dm.d / 2500);
+      tag.position.set(0, 1.05 + dm.d / 1500, 0);
+      g.add(tag);
+      range.add(g);
+    }
+    target = new THREE.Group();
+    target.position.set(0, sightHeight(), -D);
+    plate = new THREE.Group();
+    plate.add(new THREE.Group());
+    target.add(plate);
+    range.add(target);
+    return;
+  }
   if (S.tgt === 'dummy') {
     // A crash dummy (chest at the aim point) behind a pane of the chosen glass.
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.55 });
@@ -867,26 +932,153 @@ bulletBody.name = 'body';
 bullet.add(bulletBody);
 bullet.visible = false;  // the pattern each round's own copy is made from
 function buildBullet() { makeBullet(S.c, bullet, bulletBody); }
+// What each bullet looks like, in calibres: the nose's length, the boat
+// tail's length and angle (0: flat base), the meplat's diameter, what the tip
+// is, and the jacket. Proportions are estimated from the makers' drawings and
+// photographs; the diameter and overall length are the library's.
+const JACKET = { copper: 0xbd8058, tombac: 0xb07a4c, solid: 0xb98a52, lead: 0x6f7178 };
+const BULLET_LOOK = {
+  smk_308_175: { nose: 2.25, bt: 0.6, meplat: 0.2, tip: 'hollow' },
+  scenar_338_250: { nose: 2.6, bt: 0.75, meplat: 0.18, tip: 'hollow' },
+  eldm_264_140: { nose: 2.85, bt: 0.75, meplat: 0.34, tip: 'polymer', tipColour: 0xb8141c },
+  eldm_264_147: { nose: 3.0, bt: 0.8, meplat: 0.34, tip: 'polymer', tipColour: 0xb8141c },
+  amax_510_750: { nose: 2.7, bt: 0.7, meplat: 0.3, tip: 'polymer', tipColour: 0xb8141c },
+  vmax_224_40_57: { nose: 1.7, bt: 0.35, meplat: 0.36, tip: 'polymer', tipColour: 0x1f4fb0 },  // SS197SR's blue tip
+  m855_224_62: { nose: 2.3, bt: 0.5, meplat: 0.18, tip: 'paint', tipColour: 0x2f7a3a, cannelure: 0.55 },  // green tip
+  cheytac_408_419: { nose: 2.9, bt: 0.8, meplat: 0.12, tip: 'fmj', jacket: 'solid', bands: 3 },
+  l_762x54r_148: { nose: 2.5, bt: 0, meplat: 0.14, tip: 'fmj', jacket: 'tombac', cannelure: 0.5 },
+  '7n1_762x54r_151': { nose: 2.5, bt: 0.5, meplat: 0.14, tip: 'fmj', jacket: 'tombac', cannelure: 0.5 },
+  gdhp_355_124: { nose: 0.8, bt: 0, meplat: 0.62, tip: 'cavity' },
+  fmj_355_115: { nose: 0.85, bt: 0, meplat: 0.3, tip: 'fmj' },
+  fmj_355_124: { nose: 0.9, bt: 0, meplat: 0.3, tip: 'fmj' },
+  fmj_452_230: { nose: 0.75, bt: 0, meplat: 0.36, tip: 'fmj' },
+  jsp_357_158: { nose: 0.7, bt: 0, meplat: 0.56, tip: 'soft', cannelure: 0.6 },
+};
+// The sky and the ground as the bullet's metal reflects them.
+let bulletEnv = null;
+function bulletEnvMap() {
+  if (bulletEnv) return bulletEnv;
+  const env = new THREE.Scene();
+  env.add(sky.clone());
+  const g = new THREE.Mesh(new THREE.CircleGeometry(8000, 32), new THREE.MeshBasicMaterial({ color: 0x8a9a62 }));
+  g.rotation.x = -Math.PI / 2;
+  g.position.y = -1;
+  env.add(g);
+  const sunBall = new THREE.Mesh(new THREE.SphereGeometry(450, 16, 12), new THREE.MeshBasicMaterial({ color: 0xfff6e0 }));
+  sunBall.position.copy(sun.position).normalize().multiplyScalar(6000);
+  env.add(sunBall);
+  const pm = new THREE.PMREMGenerator(R);
+  bulletEnv = pm.fromScene(env, 0, 1, 9500).texture;
+  pm.dispose();
+  return bulletEnv;
+}
+// The bearing surface's skin: the barrel's lands pressed into the jacket as
+// shallow helical grooves at the rifling's own angle (one turn in `twist`),
+// and a knurled cannelure where the bullet has one. A colour map and a bump
+// map: the engraving is in the surface, it does not stand out of it.
+function engravingTextures(colour, lands, turns, cannelure) {
+  const W = 512, H = 128;
+  const mk = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; };
+  const cc = mk(), cb = mk(), gc = cc.getContext('2d'), gb = cb.getContext('2d');
+  const ic = gc.createImageData(W, H), ib = gb.createImageData(W, H);
+  const col = new THREE.Color(colour), r0 = col.r, g0 = col.g, b0 = col.b;  // linear
+  const toS = (x) => Math.round(255 * Math.pow(Math.max(0, Math.min(1, x)), 1 / 2.2));
+  let seed = 12345;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const streak = new Float32Array(W);  // drawing marks along the helix
+  for (let x = 0; x < W; ++x) streak[x] = 0.94 + 0.12 * rnd();
+  for (let y = 0; y < H; ++y) {
+    const v = 1 - y / (H - 1);  // 0 at the rear of the bearing, 1 at the front
+    for (let x = 0; x < W; ++x) {
+      const u = x / W, ph = ((lands * (u - turns * v)) % 1 + 1) % 1;
+      // A land's mark: 38 % of the pitch, with soft shoulders.
+      const edge = Math.min(ph, 0.38 - ph), inLand = Math.max(0, Math.min(1, edge / 0.03));
+      let depth = inLand, shade = 1 - 0.16 * inLand;
+      const sx = ((Math.round((u - turns * v) * W) % W) + W) % W;
+      shade *= streak[sx];
+      if (cannelure != null && Math.abs(v - cannelure) < 0.07) {
+        const k = 1 - Math.abs(v - cannelure) / 0.07, knurl = 0.5 + 0.5 * Math.sin(u * Math.PI * 2 * 64);
+        depth = Math.max(depth, k * (0.6 + 0.4 * knurl));
+        shade *= 1 - 0.35 * k * (0.5 + 0.5 * knurl);
+      }
+      const i = 4 * (y * W + x);
+      ic.data[i] = toS(r0 * shade); ic.data[i + 1] = toS(g0 * shade); ic.data[i + 2] = toS(b0 * shade); ic.data[i + 3] = 255;
+      const h = Math.round(255 * (1 - 0.8 * depth));
+      ib.data[i] = ib.data[i + 1] = ib.data[i + 2] = h; ib.data[i + 3] = 255;
+    }
+  }
+  gc.putImageData(ic, 0, 0); gb.putImageData(ib, 0, 0);
+  const map = new THREE.CanvasTexture(cc), bump = new THREE.CanvasTexture(cb);
+  map.colorSpace = THREE.SRGBColorSpace;
+  for (const t of [map, bump]) { t.wrapS = THREE.RepeatWrapping; t.anisotropy = 8; }
+  return { map, bump };
+}
 function makeBullet(cid, group, bodyGroup) {
   bodyGroup.clear();
-  const p = projRaw(cid);
-  const d = p.diameter_in * IN, L = p.length_in * IN;
-  const copper = new THREE.MeshStandardMaterial({ color: 0xc27a45, metalness: 0.85, roughness: 0.28 });
-  const groove = new THREE.MeshStandardMaterial({ color: 0x6b3a1c, metalness: 0.6, roughness: 0.5 });
-  const shank = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d * 0.42, L * 0.45, 24), copper);
-  shank.rotation.x = Math.PI / 2;
-  shank.position.z = -L * 0.05;
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(d / 2, L * 0.55, 24), copper);
-  nose.rotation.x = Math.PI / 2;
-  nose.position.z = L * 0.45;
-  bodyGroup.add(shank, nose);
-  const grooves = (RIFLE_FOR[cid] === 'm24_sws') ? 5 : 6;
-  for (let k = 0; k < grooves; ++k) {
-    const a = (k / grooves) * Math.PI * 2;
-    const m = new THREE.Mesh(new THREE.BoxGeometry(d * 0.12, d * 0.04, L * 0.42), groove);
-    m.position.set(Math.cos(a) * d * 0.5, Math.sin(a) * d * 0.5, -L * 0.05);
-    m.rotation.z = a;
+  const p = projRaw(cid), rifle = rifleRaw(cid), look = BULLET_LOOK[p.id] ?? { nose: Math.min(2.4, p.length_in / p.diameter_in * 0.55), bt: 0, meplat: 0.2, tip: 'fmj' };
+  const d = p.diameter_in * IN, L = p.length_in * IN, Rr = d / 2;
+  const env = bulletEnvMap();
+  const jacketColour = JACKET[look.jacket ?? 'copper'];
+  const metal = (colour, rough = 0.3) => new THREE.MeshStandardMaterial({ color: colour, metalness: 1, roughness: rough, envMap: env, envMapIntensity: 1.7, side: THREE.DoubleSide });
+  const jacket = metal(jacketColour);
+  // The profile, from the base (z = 0) to the tip (z = L), in metres.
+  const nose = look.nose * d, bt = look.bt * d, bear = Math.max(0.25 * d, L - nose - bt), z1 = bt, z2 = bt + bear;
+  const rm = (look.meplat * d) / 2;                     // the meplat's radius (where the tip, the hollow or the dome starts)
+  const tipLen = look.tip === 'polymer' ? 0.42 * d : 0;  // a polymer tip carries the ogive on to a point
+  const N = L - z2 - tipLen;                             // the metal ogive's length
+  const rho = (N * N + (Rr - rm) * (Rr - rm)) / (2 * (Rr - rm));  // tangent ogive through the shoulder and the meplat's rim
+  const ogive = (x) => Math.sqrt(Math.max(0, rho * rho - (N - x) * (N - x))) + Rr - rho;  // x from the meplat
+  const lathe = (pts, mat) => {
+    const g = new THREE.LatheGeometry(pts.map(([r, z]) => new THREE.Vector2(Math.max(r, 0), z - L / 2)), 64);
+    g.rotateX(Math.PI / 2);  // the lathe's axis (y) to the bullet's (z, nose forward)
+    const m = new THREE.Mesh(g, mat);
     bodyGroup.add(m);
+    return m;
+  };
+  // Base and boat tail: a slightly dished base, a 0.03-calibre heel radius.
+  const rb = bt > 0 ? Rr - bt * Math.tan(8.5 * DEG) : Rr - 0.03 * d;
+  lathe([[0, 0.02 * d], [rb * 0.8, 0], [rb, 0.012 * d], ...(bt > 0 ? [[Rr, z1]] : [[Rr, 0.04 * d], [Rr, z1 + 0.0001]])], jacket);
+  // The bearing surface, engraved by the rifling at its own angle.
+  const lands = rifle?.id === 'm24_sws' ? 5 : rifle?.id === 'svd_pso1' || rifle?.id === 'm9130_pu' ? 4 : rifle?.id === 'm200_408' ? 8 : 6;
+  const tw = rifle ? rifle.twist_in * IN * (rifle.twist_direction === 'left' ? -1 : 1) : 0;
+  const tex = engravingTextures(jacketColour, lands, tw ? bear / tw : 0, look.cannelure ?? null);
+  const skin = new THREE.MeshStandardMaterial({ map: tex.map, bumpMap: tex.bump, bumpScale: 1.4, metalness: 1, roughness: 0.34, envMap: env, envMapIntensity: 1.7, side: THREE.DoubleSide });
+  lathe([[Rr, z1], [Rr, z2]], skin);
+  if (look.bands) {  // a lathe-turned solid's relief grooves between its driving bands
+    const dark = metal(jacketColour, 0.5);
+    for (let k = 1; k <= look.bands; ++k) { const zc = z1 + (bear * k) / (look.bands + 1), w = 0.05 * d; lathe([[Rr * 1.002, zc - w], [Rr * 0.985, zc - w * 0.6], [Rr * 0.985, zc + w * 0.6], [Rr * 1.002, zc + w]], dark); }
+  }
+  // The ogive.
+  const og = [];
+  for (let k = 0; k <= 28; ++k) { const x = N * (k / 28); og.push([ogive(x), L - tipLen - x]); }
+  og.reverse();  // shoulder to meplat
+  const paintFrom = look.tip === 'paint' ? 0.22 * d : 0;  // a painted tip: the last 0.22 calibre
+  const softFrom = look.tip === 'soft' ? 0.28 * d : 0;    // exposed lead: the last 0.28 calibre
+  const cut = paintFrom || softFrom;
+  if (cut) {
+    const zc = L - cut, lower = og.filter(([, z]) => z <= zc), upper = og.filter(([, z]) => z > zc), rc = ogive(N - (zc - z2));
+    lathe([...lower, [rc, zc]], jacket);
+    const front = look.tip === 'paint' ? new THREE.MeshStandardMaterial({ color: look.tipColour, metalness: 0.1, roughness: 0.55, envMap: env, envMapIntensity: 0.5, side: THREE.DoubleSide })
+      : new THREE.MeshStandardMaterial({ color: JACKET.lead, metalness: 0.7, roughness: 0.6, envMap: env, envMapIntensity: 0.6, side: THREE.DoubleSide });
+    lathe([[rc, zc], ...upper, [rm * 0.7, L + 0.02 * d * (look.tip === 'soft' ? 0 : 1)], [0, L + 0.03 * d * (look.tip === 'soft' ? 0 : 1)]], front);
+  } else lathe(og, jacket);
+  // The tip.
+  if (look.tip === 'polymer') {
+    // The polymer tip carries the ogive on to a small rounded point.
+    const pts = [];
+    for (let k = 0; k <= 10; ++k) { const f = k / 10; pts.push([rm * Math.sqrt(1 - f * f) * (1 - 0.25 * f) + 0.0 * d, L - tipLen + tipLen * f]); }
+    lathe(pts, new THREE.MeshStandardMaterial({ color: look.tipColour, metalness: 0, roughness: 0.35, envMap: env, envMapIntensity: 0.6, side: THREE.DoubleSide }));
+  } else if (look.tip === 'hollow') {
+    // An open-tip match bullet: the jacket closed to a small ragged mouth.
+    lathe([[rm, L], [rm * 0.55, L - 0.01 * d], [rm * 0.45, L - 0.12 * d], [0, L - 0.14 * d]], new THREE.MeshStandardMaterial({ color: 0x1a1210, metalness: 0.5, roughness: 0.8, side: THREE.DoubleSide }));
+  } else if (look.tip === 'cavity') {
+    // A pistol hollow point: the jacket's rim, the cavity, its floor.
+    lathe([[rm, L], [rm * 0.86, L - 0.02 * d], [rm * 0.45, L - 0.42 * d], [0, L - 0.46 * d]], metal(JACKET.lead, 0.55));
+  } else if (look.tip === 'fmj') {
+    // A full metal jacket's small domed point.
+    const pts = [];
+    for (let k = 0; k <= 8; ++k) { const a = (k / 8) * Math.PI / 2; pts.push([rm * Math.cos(a), L + rm * 0.55 * Math.sin(a)]); }
+    lathe(pts, jacket);
   }
   group.userData.length = L;
   group.userData.diameter = d;
@@ -961,13 +1153,15 @@ function updateTracer(life, fov) {
       sp.visible = !!st && d >= TRACER_LIGHTS && d <= burn;
       if (!sp.visible) continue;
       sp.position.copy(v3(st.position));
-      if (k === 0 && life) sp.position.addScaledVector(v3(st.velocity).normalize(), -sh.len * 0.5);
+      // In the bullet camera the glow is life size and sits at the base, where the trace compound burns.
+      const dia = sh.mesh.userData.diameter ?? 0.008;
+      if (k === 0 && life) sp.position.addScaledVector(v3(st.velocity).normalize(), -(sh.len * 0.5 + dia * 0.4));
       const f = 1 - k / TRACER_N;
       // A white-hot core at the head, the colour along the streak.
       sp.material.color.setHex(col);
       if (k === 0) sp.material.color.lerp(new THREE.Color(0xffffff), life ? 0.35 : 0.12);
       sp.material.opacity = (k === 0 ? 1 : 0.45 * f * f) * fade;
-      const sz = life ? (k === 0 ? 0.03 : 0.02 * f) : screen * (k === 0 ? 0.022 : 0.012 * (0.4 + 0.6 * f));
+      const sz = life ? dia * (k === 0 ? 2.4 : 1.8 * f) : screen * (k === 0 ? 0.022 : 0.012 * (0.4 + 0.6 * f));
       sp.scale.set(sz, sz, 1);
     }
   }
@@ -1629,7 +1823,7 @@ function resultsUI() {
   const o = $('outcome');
   const sh = shot;
   const mil = (m) => ((m / S.dist) * 1e3).toFixed(2);
-  $('watch').hidden = !((sh.hit && S.tgt === 'dummy') || (S.tgt === 'v8' && sh.glass && sh.glass.penetrated));
+  $('watch').hidden = !((sh.hit && isDummy(S.tgt)) || (S.tgt === 'v8' && sh.glass && sh.glass.penetrated));
   if (S.tgt === 'v8' && sh.glass && sh.glass.onGlass) {
     const gl = sh.glass;
     if (gl.penetrated) { o.className = 'bad'; o.textContent = `Through the armoured windscreen: ${gl.vin.toFixed(0)} → ${gl.vout.toFixed(0)} m/s, on to the driver.`; $('watch').href = liquidsUrl(sh); }
@@ -1642,6 +1836,10 @@ function resultsUI() {
     o.className = sh.hit ? 'ok' : 'bad';
     o.textContent = sh.hit ? `Hit: your friend's ${sh.part} (${sh.part === 'head' ? 2 : 1} ${sh.part === 'head' ? 'points' : 'point'}).`
       : `Miss: ${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'} of the head.`;
+  } else if (sh.hit && sh.line) {
+    o.className = 'ok';
+    o.textContent = `Hit the dummy at ${fmtDist(sh.line.d)} (${dummyPart(sh.impact)})${sh.line.pane === 'front' ? ', through its glass' : sh.line.pane === 'behind' ? ', glass behind it' : ', in the open'}: watch it in the Liquids Lab.`;
+    $('watch').href = liquidsUrl(sh);
   } else if (sh.hit && S.tgt === 'dummy') {
     o.className = 'ok';
     o.textContent = `Hit the dummy (${dummyPart(sh.impact)}) through ${sh.S.glazing === 'none' ? 'the open air' : 'the glass'}: watch it in the Liquids Lab.`;
@@ -1738,7 +1936,7 @@ function hitFeedback(sh) {
     void m.offsetWidth;
     m.classList.add('on');
     // Red when it reached the dummy (through the V8's glass, or the dummy target).
-    if (T.tgt === 'dummy' || (T.tgt === 'v8' && sh.glass && sh.glass.penetrated)) m.classList.add('kill');
+    if (isDummy(T.tgt) || (T.tgt === 'v8' && sh.glass && sh.glass.penetrated)) m.classList.add('kill');
     tick();
   }
   if (isHit || S.markers === 'all') {
@@ -1791,6 +1989,8 @@ function arrive(sh) {
     drawV8Cracks(sh.glass);
     noiseBurst(0.35, 3000, 0.4);
     banner(sh.glass.penetrated ? 'Through the glass' : 'Stopped', sh.glass.penetrated ? `${sh.glass.vin.toFixed(0)} → ${sh.glass.vout.toFixed(0)} m/s: watch it in the Liquids Lab` : 'the armoured windscreen held');
+  } else if (sh.hit && sh.line) {
+    banner('Hit', `the dummy at ${fmtDist(sh.line.d)}, ${dummyPart(sh.impact)}: watch it in the Liquids Lab`);
   } else if (sh.hit && T.tgt === 'dummy') {
     banner('Hit', `the dummy's ${dummyPart(sh.impact)} at ${fmtDist(T.dist)}: watch it in the Liquids Lab`);
   } else if (sh.hit) {
@@ -1852,7 +2052,7 @@ $('cartridge').onchange = (e) => { S.c = e.target.value; S.zero = defaultZero(S.
     const o = document.createElement('option'); o.value = g.id; o.textContent = g.name; groups[g.category].appendChild(o);
   }
 }
-$('tgt').onchange = (e) => { S.tgt = e.target.value; if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); } syncUI(); changed(true); };
+$('tgt').onchange = (e) => { S.tgt = e.target.value; if (S.tgt === 'line') S.dist = Math.max(LINE_STEP, Math.round(S.dist / LINE_STEP) * LINE_STEP); if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); } syncUI(); changed(true); };
 $('markers').onchange = (e) => { S.markers = e.target.value; store.set('markers', S.markers); };
 $('tracer').onchange = (e) => { S.tracer = e.target.value; store.set('tracer', S.tracer); };
 $('tracerToImpact').onchange = (e) => { S.tracerToImpact = e.target.checked; store.set('tracerToImpact', S.tracerToImpact); };
@@ -1950,7 +2150,7 @@ $('bTrace').onclick = () => { showTrace = !showTrace; store.set('trace', showTra
 $('bTrace').setAttribute('aria-pressed', String(showTrace));
 $('glazing').onchange = (e) => { S.glazing = e.target.value; changed(true); };
 for (const [id, k, rebuild] of [['dist', 'dist', true], ['size', 'size', true], ['temp', 'temp'], ['alt', 'alt'], ['rh', 'rh'], ['lat', 'lat'], ['az', 'az']])
-  $(id).oninput = (e) => { S[k] = +e.target.value; changed(!!rebuild); };
+  $(id).oninput = (e) => { S[k] = +e.target.value; if (k === 'dist' && S.tgt === 'line') S.dist = Math.max(LINE_STEP, Math.round(S.dist / LINE_STEP) * LINE_STEP); changed(!!rebuild); };
 $('sameWind').onchange = (e) => { S.same = e.target.checked; if (S.same) for (const l of S.layers) Object.assign(l, S.layers[0]); layersUI(); changed(); };
 $('callTrue').onchange = (e) => { S.callTrue = e.target.checked; if (!S.callTrue) S.call = averageWind(); syncUI(); changed(); };
 $('callSpd').oninput = (e) => { S.call.spd = +e.target.value; changed(); };
@@ -1976,6 +2176,7 @@ function shareUrl(sh, absolute = true) {
     f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : '') + (X.unique ? 'u' : ''), zr: X.zero ?? defaultZero(X.c), ts: sh ? sh.t0 : X.t0, fire: 1 });
   if (sh?.seed) { q.set('sd', String(sh.seed.seed)); q.set('sk', String(sh.seed.stream)); }
   if (X.tgt === 'dummy') { q.set('tg', 'dummy'); q.set('gz', X.glazing); }
+  if (X.tgt === 'line') q.set('tg', 'line');
   if (X.tgt === 'v8') q.set('tg', 'v8');
   if (S.tracer !== 'off') q.set('tr', S.tracer + (S.tracerToImpact ? '' : '.real'));
   if (X.scope && X.scope !== 'own') q.set('sc', X.scope);
@@ -2223,13 +2424,14 @@ function frame(now) {
     const dir = v3(st.velocity).normalize();  // v3 is linear: it converts directions too
     const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
     // Behind and beside the round, orbiting it slowly (drag to swing round it).
-    const a = 0.4 + orbit.yaw + 0.12 * Math.sin(wall * 0.3);
-    const dist = 0.22;
+    // Its distance follows the bullet's size, so a 9 mm fills the view as a .50 does.
+    const a = 1.05 + orbit.yaw + 0.12 * Math.sin(wall * 0.3);
+    const dist = Math.max(0.05, 4.2 * fs.len);
     camera.position.copy(p).addScaledVector(dir, -dist * Math.cos(a)).addScaledVector(side, dist * Math.sin(a))
-      .add(new THREE.Vector3(0, 0.035 + orbit.pitch * 0.2, 0));
+      .add(new THREE.Vector3(0, dist * (0.2 + orbit.pitch), 0));
     camera.near = 0.002;
-    camera.fov = 40;
-    camera.lookAt(p.clone().addScaledVector(dir, 0.04));
+    camera.fov = 32;
+    camera.lookAt(p.clone().addScaledVector(dir, fs.len * 0.3));
   } else if (cam === 'target') {
     const tp = target.position;
     camera.near = 0.05;
