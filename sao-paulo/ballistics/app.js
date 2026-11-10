@@ -5,7 +5,7 @@
 // reads input: every drop, drift, spin and wobble comes from the core.
 import * as THREE from 'three';
 import createBallisticModule from './ballistic.mjs';
-import { hostRtc, joinRtc, deliverAnswer, localLink, meetLink, newDuelId } from './duel-net.js';
+import { hostRtc, joinRtc, deliverAnswer, localLink, meetLink, newDuelId, pack as packDuel, unpack as unpackDuel } from './duel-net.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -229,6 +229,10 @@ let pendingSway = null;
 let duel = null;
 const seat = () => (duel ? duel.seat : 'A');
 const myAzDeg = () => S.az + (seat() === 'B' ? 180 : 0);
+// Where the other shooter is, to my right of the range's axis (m): the same
+// number from both ends. 0 unless the duel hides you both.
+const oppRight = () => duel?.lat ?? 0;
+const hunting = () => !!duel?.hunt;
 
 // From the URL: a shared shot.
 const Q = new URLSearchParams(location.search);
@@ -342,10 +346,10 @@ function lof(p) {
   const s = Math.sin(S.az * DEG), c = Math.cos(S.az * DEG);
   const d = p[0] * s + p[1] * c, r = p[0] * c - p[1] * s;
   // From seat B the range runs the other way: downrange from the far end.
-  return seat() === 'B' ? { d: S.dist - d, r: -r, u: p[2] } : { d, r, u: p[2] };
+  return seat() === 'B' ? { d: S.dist - d, r: oppRight() - r, u: p[2] } : { d, r, u: p[2] };
 }
 function enu(d, r, u) {
-  if (seat() === 'B') { d = S.dist - d; r = -r; }
+  if (seat() === 'B') { d = S.dist - d; r = oppRight() - r; }
   const s = Math.sin(S.az * DEG), c = Math.cos(S.az * DEG);
   return [d * s + r * c, d * c - r * s, u];
 }
@@ -359,14 +363,14 @@ function solveDope() {
   station();
   setup(true);
   B.wind(S.az * DEG, callLayers());
-  const step = dopeStep(S.dist);
-  const rows = B.table(ci(), zero(), sightHeight(), Math.max(S.dist, step), step, myAzDeg() * DEG);
+  const cardTo = hunting() ? duel.base : S.dist, step = dopeStep(cardTo);
+  const rows = B.table(ci(), zero(), sightHeight(), Math.max(cardTo, step), step, myAzDeg() * DEG);
   const at = B.table(ci(), zero(), sightHeight(), S.dist, S.dist, myAzDeg() * DEG).at(-1);
   // The target's own row, when the steps pass it by (1 mile, 2 miles).
-  if (at && !rows.some((r) => Math.abs(r.range - S.dist) < 0.5)) { rows.push(at); rows.sort((a, b) => a.range - b.range); }
+  if (at && !hunting() && !rows.some((r) => Math.abs(r.range - S.dist) < 0.5)) { rows.push(at); rows.sort((a, b) => a.range - b.range); }
   const hold = at && at.range > 0 ? { up: -at.drop / S.dist, right: -at.windage / S.dist } : { up: 0, right: 0 };
   // How far apart the rounds land at the target (with this dope's powder).
-  const spread = S.unique ? B.spread(ci(), zero(), sightHeight(), S.dist, myAzDeg() * DEG) : null;
+  const spread = S.unique && !hunting() ? B.spread(ci(), zero(), sightHeight(), S.dist, myAzDeg() * DEG) : null;
   return { rows, hold, spread };
 }
 
@@ -551,10 +555,10 @@ function fire(tFire) {
     }
   } else if (tTarget !== null) {
     const p = lof(B.stateAt(tTarget).position);
-    impact = { right: p.r, up: p.u - sh };
+    impact = { right: p.r - oppRight(), up: p.u - sh };
     // Hit only if it reached the plane above the ground.
     const above = p.u > -BENCH;
-    hit = above && (S.tgt === 'duel' ? figurePart(p.r, p.u) !== null : S.tgt === 'dummy' ? dummyPart(impact) !== null : S.tgt === 'v8' ? true : Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2);
+    hit = above && (S.tgt === 'duel' ? figurePart(p.r - oppRight(), p.u) !== null : S.tgt === 'dummy' ? dummyPart(impact) !== null : S.tgt === 'v8' ? true : Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2);
     if (!above) tTarget = null;
   }
   // Where it lands if it misses: the ground.
@@ -580,7 +584,7 @@ function fire(tFire) {
   scene.add(mesh);
   shot = {
     id, S: structuredClone(S), dope, aim, sway, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az, seed, draw, line,
-    part: S.tgt === 'duel' && hit && atT ? figurePart(lof(atT.position).r, lof(atT.position).u) : null,
+    part: S.tgt === 'duel' && hit && atT ? figurePart(lof(atT.position).r - oppRight(), lof(atT.position).u) : null,
     round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
     mesh, body: mesh.getObjectByName('body'), len: bullet.userData.length, done: false, doneWall: 0, left: false,
     // The engine keeps the round in the air it was fired into, so the
@@ -688,8 +692,9 @@ function buildRange() {
   // Distance boards on the left (closer in, smaller and more often on a short range).
   const unit = metric ? 1 : YD, near = D < 150;
   const DU = metric ? D : D / YD;
+  const Dshow = hunting() ? duel.base * 1.15 : D;  // hidden range: the furniture must not give it away
   const every = DU <= 30 ? 5 : DU <= 120 ? 10 : DU <= 300 ? 25 : DU <= 1200 ? 100 : 250;
-  for (let k = every; k * unit <= D + (near ? Math.max(10, D * 0.5) : 600); k += every) {
+  for (let k = every; !hunting() && k * unit <= D + (near ? Math.max(10, D * 0.5) : 600); k += every) {
     const x = k * unit;
     const s = label(`${k} ${metric ? 'm' : 'yd'}`, near ? 0.22 + x / 140 : 1.2 + x / 900);
     s.position.set(near ? -1.6 - x * 0.07 : -14 - x / 150, near ? -BENCH + 1.0 + x / 200 : -BENCH + 2.2 + x / 600, -x);
@@ -700,7 +705,7 @@ function buildRange() {
   }
   // Wind flags on the right, every 100 m (200 m past 1 km; closer on a short range).
   const fe = D <= 30 ? 5 : D <= 150 ? 25 : D <= 1000 ? 100 : 200;
-  for (let d = fe / 2; d < D; d += fe) {
+  for (let d = fe / 2; d < Dshow; d += fe) {
     const g = new THREE.Group();
     const x = near ? 2 + d * 0.05 : 9 + d / 120;
     g.position.set(x, -BENCH, -d);
@@ -774,7 +779,7 @@ function buildRange() {
     // the head and shoulders over the cover are all there is to hit (the same
     // FIGURE the hit test uses), the muzzle at the bore line.
     const fig = new THREE.Group();
-    fig.position.set(0, 0, -D);
+    fig.position.set(oppRight(), 0, -D);
     const camo = new THREE.MeshStandardMaterial({ color: 0x5b5d3a, roughness: 0.9 });
     const skin = new THREE.MeshStandardMaterial({ color: 0x4a4a32, roughness: 0.8 });
     const bags = new THREE.MeshStandardMaterial({ color: 0x8c7b57, roughness: 1 });
@@ -790,7 +795,16 @@ function buildRange() {
     fig.add(head, torso, wall, gun);
     oppFlash.position.set(0, 0, 0.66);
     fig.add(oppFlash);
+    glint.material.map = glowTex;
+    glint.position.set(0, FIGURE.head.z + 0.02, 0.1);
+    fig.add(glint);
     range.add(fig);
+    // Hidden: empty emplacements around theirs (the same ones in both browsers).
+    if (hunting()) for (const [dd, dr] of duel.decoys[duel.seat === 'A' ? 'B' : 'A']) {
+      const w = new THREE.Mesh(wall.geometry, bags);
+      w.position.set(oppRight() - dr, wall.position.y, -(D - dd) + 0.1);
+      range.add(w);
+    }
     target = new THREE.Group();
     target.position.set(0, sightHeight(), -D);
     plate = new THREE.Group();
@@ -1059,7 +1073,7 @@ function makeBullet(cid, group, bodyGroup) {
   const og = [];
   for (let k = 0; k <= 28; ++k) { const x = N * (k / 28); og.push([ogive(x), L - tipLen - x]); }
   og.reverse();  // shoulder to meplat
-  const paintFrom = look.tip === 'paint' ? 0.22 * d : 0;  // a painted tip: the last 0.22 calibre
+  const paintFrom = look.tip === 'paint' ? 0.5 * d : 0;   // a painted tip: the last half calibre
   const softFrom = look.tip === 'soft' ? 0.28 * d : 0;    // exposed lead: the last 0.28 calibre
   const cut = paintFrom || softFrom;
   if (cut) {
@@ -1104,6 +1118,9 @@ const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.Me
 scene.add(flash);
 const dust = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), new THREE.MeshLambertMaterial({ color: 0xb59a74, transparent: true, opacity: 0 }));
 scene.add(dust);
+// Their scope's glint: seen when their scope points your way.
+const glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: null, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: false, blending: THREE.AdditiveBlending }));
+glint.scale.set(0.012, 0.012, 1);
 // The opponent's muzzle flash (parented to their figure in a duel).
 const oppFlash = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0 }));
 // What can be hit of a shooter in a duel, from their own muzzle (m: right,
@@ -1451,10 +1468,10 @@ function drawReticle(dope) {
   rg.strokeStyle = '#ff3b2f';
   rg.lineWidth = 2 * dpr;
   rg.beginPath();
-  rg.arc(tx, ty, 5 * dpr, 0, Math.PI * 2);
+  if (!hunting()) rg.arc(tx, ty, 5 * dpr, 0, Math.PI * 2);
   rg.stroke();
   // Manual: where the crosshair should go for the call, with the turrets as set.
-  if (dope && S.aim === 'manual' && S.hint) {
+  if (dope && S.aim === 'manual' && S.hint && !hunting()) {
     const nx = tx + (dope.hold.right - turretRight()) * px, ny = ty - (dope.hold.up - turretUp()) * px;
     rg.setLineDash([3 * dpr, 3 * dpr]);
     rg.strokeStyle = '#ffd36b';
@@ -1464,7 +1481,7 @@ function drawReticle(dope) {
     rg.setLineDash([]);
   }
   // Where the last shots went, as the spotter saw them.
-  if (S.markers !== 'off')
+  if (S.markers !== 'off' && !hunting())
     for (const im of impacts) {
       const x = tx + (im.right / S.dist) * px, y = ty - (im.up / S.dist) * px, k = 5 * dpr;
       rg.strokeStyle = im.hit ? 'rgba(255,255,255,0.95)' : '#ff3b2f';
@@ -1702,6 +1719,7 @@ const CAMS = [['scope', 'Scope'], ['shooter', 'Shooter'], ['bullet', 'Bullet'], 
 let cam = 'scope';
 let orbit = { yaw: 0, pitch: 0 };
 function setCam(c) {
+  if (c === 'target' && hunting()) c = 'scope';  // it would show where they are
   cam = c;
   for (const b of $('cams').children) b.setAttribute('aria-pressed', String(b.dataset.c === c));
   ret.style.display = c === 'scope' ? 'block' : 'none';
@@ -1828,7 +1846,7 @@ function labels() {
   const sights = scopeOf().tube === false ? (scopeKey() === 'dot' ? 'red dot' : 'sights') : 'scope';
   $('loadDesc').textContent = `${fmtV(c.muzzleVelocity)} from ${r ? r.name : 'its rifle'} (${r ? r.barrel_in : '?'} in barrel), 1:${r ? r.twist_in : '?'} in ${r && r.twist_direction === 'left' ? 'left' : 'right'}-hand twist, ${sights} ${fmtLen(sightHeight())} over the bore.`;
   $('zeroNote').textContent = `${gunClass() === 'rifle' ? 'The rifle' : 'The gun'} is zeroed at ${zero()} m. ${scopeOf().mode === 'dial' ? 'The elevation from your dope is dialled; the wind is held on the reticle.' : scopeOf().tube === false ? 'Everything is held: put the sight where the dope says, above or beside the target.' : 'Set the marks your dope gives and hold the rest.'}`;
-  $('vDist').textContent = fmtDist(S.dist);
+  $('vDist').textContent = hunting() ? 'hidden: range them on the reticle' : fmtDist(S.dist);
   $('vSize').textContent = fmtLen(S.size) + ` · ${(S.size / S.dist * 1000).toFixed(2)} mil`;
   $('vTemp').textContent = fmtT(S.temp);
   $('vAlt').textContent = `${fmtAlt(S.alt)} · ${(isaPressure(S.alt) / 100).toFixed(0)} hPa`;
@@ -1848,7 +1866,7 @@ function changed(rebuild = false) {
   labels();
   clearTimeout(dopeTimer);
   dopeTimer = setTimeout(refresh, rebuild ? 0 : 90);
-  if (rebuild) { retireAll(); shot = null; path.visible = false; impacts = []; missMarks = []; buildRange(); buildBullet(); placeRifle(); magnification = magFor(S.dist); }
+  if (rebuild) { retireAll(); shot = null; path.visible = false; impacts = []; missMarks = []; buildRange(); buildBullet(); placeRifle(); magnification = hunting() ? 8 : magFor(S.dist); }
 }
 // The dope for the call, then the true air back in the engine for the flags.
 function refresh() {
@@ -1891,7 +1909,7 @@ function dopeUI() {
     else if (plain) cells = `<td>${arrow(up / u)}</td><td>${arrow((up * r.range) / (metric ? 0.01 : IN))}</td>`;
     else if (sc.mode === 'hold') { const b = bdcFor(up); cells = `<td>${b.mark === 1 ? 'tip' : b.mark}</td><td>${arrow(b.rest / u)}</td>`; }
     else cells = `<td>${((Math.round(up / sc.click) * sc.click) / u).toFixed(unitDigits(sc))}</td>`;  // to the click you would dial
-    h += `<tr class="${Math.abs(r.range - S.dist) < 1 ? 'at' : ''}"><td>${(metric ? r.range : r.range / YD).toFixed(r.range < 50 && !Number.isInteger(metric ? r.range : r.range / YD) ? 1 : 0)}</td>${cells}<td>${Math.abs(wd).toFixed(1)}${wd > 0.05 ? 'R' : wd < -0.05 ? 'L' : ''}</td><td>${(metric ? r.speed : r.speed / FT).toFixed(0)}</td><td>${r.time.toFixed(2)}</td></tr>`;
+    h += `<tr class="${Math.abs(r.range - S.dist) < 1 && !hunting() ? 'at' : ''}"><td>${(metric ? r.range : r.range / YD).toFixed(r.range < 50 && !Number.isInteger(metric ? r.range : r.range / YD) ? 1 : 0)}</td>${cells}<td>${Math.abs(wd).toFixed(1)}${wd > 0.05 ? 'R' : wd < -0.05 ? 'L' : ''}</td><td>${(metric ? r.speed : r.speed / FT).toFixed(0)}</td><td>${r.time.toFixed(2)}</td></tr>`;
   }
   t.innerHTML = h;
 }
@@ -1932,7 +1950,8 @@ function resultsUI() {
     o.className = 'bad';
     o.textContent = 'The round never reached the target: it hit the ground short.';
   }
-  $('rWhat').textContent = `${fmtDist(S.dist)}`;
+  $('rWhat').textContent = hunting() ? '' : `${fmtDist(S.dist)}`;
+  if (hunting() && !sh.hit) { o.className = 'bad'; o.textContent = 'No hit. Watch where it struck, find them, range them, and try again.'; $('kv').innerHTML = ''; $('bars').innerHTML = ''; return; }
   const at = sh.atTarget;
   const kv = [];
   if (sh.impact) kv.push(['Off centre', `${mil(sh.impact.right)} R, ${mil(sh.impact.up)} U mil`]);
@@ -2152,7 +2171,7 @@ function turretUI() {
   $('tWdUnit').textContent = `${sc.unitName} ${turretRight() >= 0 ? 'R' : 'L'}`;
   // Clicks, the turn of the turret, and how far the card is from the dial.
   const turns = (clicks) => { if (!sc.rev) return ''; const per = Math.round(sc.rev / sc.click), n = Math.floor(Math.abs(clicks) / per); return n ? ` · turn ${n + 1}` : ''; };
-  const need = dope && !drum ? { el: Math.round(dope.hold.up / sc.click), wd: Math.round(dope.hold.right / sc.click) } : null;
+  const need = dope && !drum && !hunting() ? { el: Math.round(dope.hold.up / sc.click), wd: Math.round(dope.hold.right / sc.click) } : null;
   const diff = (have, want, up, down) => (want === have ? '<b class="ok">on the card</b>' : `${Math.abs(want - have)} clicks ${want > have ? up : down} to the card`);
   $('tElSub').innerHTML = drum ? `${t.el}${dope ? ` · the card says drum ${plan(dope.hold).drum}` : ''}`
     : `${Math.abs(S.turret.el)} clicks${turns(S.turret.el)}${need ? ' · ' + diff(S.turret.el, need.el, 'up', 'down') : ''}${Math.abs(turretUp()) > (sc.travel ?? Infinity) ? ' · <b class="warn">past this scope\'s travel: hold the rest</b>' : ''}`;
@@ -2387,7 +2406,7 @@ function frame(now) {
   let s = 1;
   const replay = duel?.replay;
   const lead = replay ? (tNow < replay.tStop ? replay : null) : [...shots].reverse().find((x) => !x.remote && tNow < x.tStop && tNow >= x.t0);
-  if (duel && duel.live && !replay) tNow = duelNow();  // a duel runs on the shared clock, at 1x
+  if (duel && duel.live && !duel.mail && !replay) tNow = duelNow();  // a duel runs on the shared clock, at 1x
   else {
     if (lead) s = auto ? autoScale(lead) : scale;
     if (replay) s = Math.max(s, 0.03);  // a killcam: bullet time, but done in seconds
@@ -2609,6 +2628,13 @@ const libHash = (() => { let h = 2166136261; for (let i = 0; i < raw.__text.leng
 const engineId = () => B.determinism().join('.');
 const duelNow = () => (duel.seat === 'A' ? 10 + performance.now() / 1000 - duel.epoch : performance.now() / 1000 + duel.offset);
 function duelMayFire() {
+  if (duel.mail) {
+    if (duel.replay) return false;
+    if (duel.over) { toast('The duel is over'); return false; }
+    if (!duel.myTurn) { toast("It is your friend's turn: send them the link"); return false; }
+    if (duel.incoming && !duel.incoming.done) { toast('Their round is still on its way'); return false; }
+    return true;
+  }
   if (!duel.live) { toast(duel.link?.open ? 'Waiting for the clocks to agree…' : 'Waiting for your friend to connect'); return false; }
   if (duel.replay) return false;
   if (duel.over) { toast('The duel is over: press Rematch'); return false; }
@@ -2620,20 +2646,32 @@ function duelMayFire() {
 function lockForDuel(on) {
   for (const id of DUEL_KEYS) { const el = $(id); if (el) el.disabled = on; }
   for (const b of document.querySelectorAll('#presets button, #presetsShort button')) b.disabled = on;
+  $('aim').disabled = on && hunting(); $('bDial').disabled = $('bDialWd').disabled = on && hunting(); $('hint').disabled = on && hunting();
+  $('duelHunt').disabled = on; $('bDuelMail').hidden = on;
   $('layers').hidden = on;
   $('duelWindNote').hidden = !on;
 }
-// A random wind for the duel, in the challenger's frame: 0 to 25 km/h from
-// any clock, gusts of 5 to 20 % of it (both see only its flags).
-function rollWind() {
-  const r = crypto.getRandomValues(new Uint16Array(3)), u = (k) => r[k] / 65535;
-  const spd = Math.round(u(0) * 50) / 2, clock = Math.round(u(1) * 24) / 2, gust = Math.round(spd * (0.05 + 0.15 * u(2)) * 2) / 2;
-  S.same = true;
-  S.layers = [0, 1, 2].map(() => layer(spd, clock, gust));
+// The duel's world, from its id alone (so nothing about it is in the link):
+// the wind (0 to 25 km/h from any clock, gusts of 5 to 20 % of it), and for
+// a hidden duel the true distance (65 to 100 % of the one set), how far to
+// one side the other shooter is, and nine empty emplacements around each.
+function duelWorld(id, base) {
+  let x = parseInt(id.slice(0, 8), 16) >>> 0;
+  const u = () => { x = (x + 0x6d2b79f5) >>> 0; let t = Math.imul(x ^ (x >>> 15), 1 | x); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const spd = Math.round(u() * 50) / 2, clock = Math.round(u() * 24) / 2, gust = Math.round(spd * (0.05 + 0.15 * u()) * 2) / 2;
+  const dist = Math.round(base * (0.65 + 0.35 * u())), half = Math.min(70, 0.09 * dist), lat = Math.round((u() * 2 - 1) * half * 10) / 10;
+  const decoys = {};
+  for (const seatName of ['A', 'B']) {
+    // Around the shooter, but not centred on them (in their own frame: toward the other end, to their right).
+    const cd = (u() - 0.5) * 0.12 * dist, cr = (u() - 0.5) * half;
+    decoys[seatName] = Array.from({ length: 9 }, () => [Math.round(cd + (u() - 0.5) * 0.3 * dist), Math.round((cr + (u() * 2 - 1) * half) * 10) / 10]).filter(([dd, dr]) => Math.hypot(dd, dr) > 4);
+  }
+  return { wind: layer(spd, clock, gust), dist, lat, decoys };
 }
 function duelUrl(extra) {
   const q = new URLSearchParams(new URL(shareUrl(null)).search);
-  q.delete('fire'); q.delete('cw'); q.delete('am'); q.delete('tu'); q.delete('ho'); q.delete('tr'); q.delete('sc');
+  q.delete('fire'); q.delete('w'); q.delete('sw'); q.delete('ps'); q.delete('sd'); q.delete('sk'); q.delete('cw');
+  if (duel?.hunt) { q.set('d', String(duel.base)); q.set('hunt', '1'); } q.delete('am'); q.delete('tu'); q.delete('ho'); q.delete('tr'); q.delete('sc');
   for (const [k, v] of Object.entries(extra)) q.set(k, v);
   return `${location.origin}/sao-paulo/ballistics/?${q}`;
 }
@@ -2641,22 +2679,28 @@ function duelUI() {
   const st = $('duelState'), sc = $('duelScore');
   if (!duel) { st.textContent = 'challenge a friend'; sc.hidden = true; $('bDuel').hidden = false; $('bDuelEnd').hidden = true; $('bRematch').hidden = true; return; }
   $('bDuel').hidden = true; $('bDuelEnd').hidden = false;
-  st.textContent = duel.link?.open ? (duel.live ? `connected · ${duel.rtt != null ? Math.round(duel.rtt * 1000) + ' ms' : ''}` : 'connected · syncing clocks') : duel.state;
+  st.textContent = duel.mail ? (duel.over ? 'over' : duel.myTurn ? 'your shot' : 'their turn: send the link')
+    : duel.link?.open ? (duel.live ? `connected · ${duel.rtt != null ? Math.round(duel.rtt * 1000) + ' ms' : ''}` : 'connected · syncing clocks') : duel.state;
   sc.hidden = false;
   const me = duel.score[duel.seat], them = duel.score[duel.seat === 'A' ? 'B' : 'A'];
   let line = `You <b>${me}</b> · <b>${them}</b> Friend`;
   if (duel.over) line += ` · ${me > them ? 'you win' : 'your friend wins'}`;
+  else if (duel.mail) line += duel.myTurn ? ' · your shot' : ' · their turn';
   else if (duel.live && tNow < duel.startAt) line += ` · fire at will in ${Math.max(0, Math.ceil(duel.startAt - tNow))}`;
   else if (duel.live && tNow < duel.ceaseUntil) line += ' · cease fire';
   sc.innerHTML = line;
-  $('bRematch').hidden = !duel.over;
+  $('bRematch').hidden = !duel.over || duel.mail;
   $('bMic').hidden = !duel.link?.mic;
   $('bMic').setAttribute('aria-pressed', String(!!duel.micOn));
 }
-function startDuelCommon(seatName, id) {
-  duel = { id, seed: parseInt(id.slice(0, 12), 16) + 1, seat: seatName, link: null, live: false, epoch: performance.now() / 1000, offset: 0, rtt: null, startAt: Infinity, ceaseUntil: 0,
+function startDuelCommon(seatName, id, opt = {}) {
+  const world = duelWorld(id, S.dist);
+  S.same = true;
+  S.layers = [0, 1, 2].map(() => ({ ...world.wind }));
+  duel = { id, hunt: !!opt.hunt, mail: !!opt.mail, base: S.dist, lat: opt.hunt ? world.lat : 0, decoys: world.decoys, log: [], myTurn: seatName === 'A', incoming: null, seed: parseInt(id.slice(0, 12), 16) + 1, seat: seatName, link: null, live: false, epoch: performance.now() / 1000, offset: 0, rtt: null, startAt: Infinity, ceaseUntil: 0,
     score: { A: 0, B: 0 }, over: false, sent: 0, mine: new Map(), theirs: new Map(), state: 'connecting', replay: null, last: null, lastPing: 0, best: Infinity };
   S.tgt = 'duel'; S.callTrue = false; S.call = layer(0, 12);
+  if (duel.hunt) { S.dist = world.dist; S.aim = 'manual'; S.hint = false; }
   auto = false; $('bAuto').setAttribute('aria-pressed', 'false');
   retireAll(); shot = null;
   resetAim(); syncUI(); changed(true); refresh();
@@ -2679,8 +2723,7 @@ function wireLink(link) {
 }
 async function challenge(kind = 'rtc') {
   const id = newDuelId();
-  rollWind();
-  startDuelCommon('A', id);
+  startDuelCommon('A', id, { hunt: $('duelHunt').checked });
   duel.state = 'making the link…';
   duelUI();
   if (kind === 'local') {
@@ -2709,7 +2752,7 @@ async function challenge(kind = 'rtc') {
   duelUI();
 }
 async function acceptChallenge(id, offer, net) {
-  startDuelCommon('B', id);
+  startDuelCommon('B', id, { hunt: Q.get('hunt') === '1' });
   if (net === 'local') { wireLink(localLink(id, 'B')); duelUI(); return; }
   if (net === 'meet') {
     try {
@@ -2739,6 +2782,7 @@ function showDuelLink(url, note) {
 }
 function endDuel() {
   duel?.link?.close?.();
+  if (duel?.hunt) S.dist = duel.base;
   duel = null;
   lockForDuel(false);
   $('duelShare').hidden = true;
@@ -2769,6 +2813,7 @@ function onDuelMessage(m) {
   if (m.t === 'ready' && duel.seat === 'A') { goLive(duelNow() + 5); L.send({ t: 'start', at: duel.startAt }); return; }
   if (m.t === 'start' && duel.seat === 'B') { goLive(m.at); return; }
   if (m.t === 'shot') { fireRemote(m); return; }
+  if (m.t === 'look' && Number.isFinite(m.r) && Number.isFinite(m.u)) { duel.look = { r: m.r, u: m.u, at: performance.now() }; return; }
   if (m.t === 'outcome') { checkOutcome(m); return; }
   if (m.t === 'rematch') { rematch(false); return; }
 }
@@ -2780,6 +2825,18 @@ function goLive(at) {
   banner('Duel', `${fmtDist(S.dist)} · fire at will in ${Math.round(at - tNow)} s`);
 }
 function duelFrame() {
+  // Hidden duels: tell them where my scope points (5 times a second), for the glint.
+  if (duel.hunt && duel.live && !duel.mail && duel.link?.open && performance.now() - (duel.lastLook ?? 0) > 200) {
+    duel.lastLook = performance.now();
+    const h = sightHold();
+    duel.link.send({ t: 'look', r: h.right, u: h.up });
+  }
+  // Their glint: bright when their scope is within 12 mil of me, gone after a second without news.
+  {
+    const lk = duel.look, fresh = lk && performance.now() - lk.at < 1000;
+    const off = fresh ? Math.hypot(lk.r - Math.atan2(oppRight(), S.dist), lk.u) : 1;
+    glint.material.opacity = fresh ? Math.max(0, 1 - off / 0.012) * (0.75 + 0.25 * Math.sin(performance.now() / 60)) : 0;
+  }
   if (duel.seat === 'B' && duel.link?.open && performance.now() - duel.lastPing > (duel.live ? 3000 : 250)) duelPing();
   if (Math.floor(performance.now() / 250) !== duel.uiTick) { duel.uiTick = Math.floor(performance.now() / 250); duelUI(); }
 }
@@ -2788,7 +2845,8 @@ function duelSent(sh) {
   const k = ++duel.sent;
   sh.k = k;
   duel.mine.set(k, sh);
-  duel.link.send({ t: 'shot', k, c: sh.S.c, el: sh.el, az: sh.az, t0: sh.t0, ...(sh.seed ? { seed: sh.seed.seed, stream: sh.seed.stream } : {}) });
+  sh.msg = { t: 'shot', k, c: sh.S.c, el: sh.el, az: sh.az, t0: sh.t0, ...(sh.seed ? { seed: sh.seed.seed, stream: sh.seed.stream } : {}) };
+  if (duel.mail) duel.myTurn = false; else duel.link.send(sh.msg);
 }
 // The other shooter's round, flown here from their muzzle at the far end
 // toward mine: the same call, so the same round as in their browser.
@@ -2804,7 +2862,7 @@ function fireRemote(m) {
   B.bd_powder(m.seed ? S.temp + 273.15 : 0);
   B.bd_group(m.seed ? r?.group_moa ?? 0 : 0);
   B.wind(S.az * DEG, trueLayers());
-  const o = enu(S.dist, 0, 0);
+  const o = enu(S.dist, oppRight(), 0);
   const id = m.seed ? B.bd_fire_round(k, o[0], o[1], o[2], m.az, m.el, m.t0, m.seed, m.stream) : B.bd_fire(k, o[0], o[1], o[2], m.az, m.el, m.t0);
   if (!id) return;
   let t = m.t0, rr = B.round();
@@ -2848,6 +2906,7 @@ function fireRemote(m) {
   // Back to my rifle in the engine.
   setup(false);
   if (duel.pendingOutcome?.has(m.k)) checkOutcome(duel.pendingOutcome.get(m.k));
+  return sh;
 }
 // Both browsers flew it; the shooter's says what it found, the other checks.
 function checkOutcome(m) {
@@ -2871,10 +2930,12 @@ function duelArrive(sh) {
       ping(); tick();
       const m = $('hitmark'); m.classList.remove('on', 'kill'); void m.offsetWidth; m.classList.add('on', 'kill');
       banner(sh.part === 'head' ? 'Headshot' : 'Hit', duel.over ? 'you win the duel · K for the killcam' : `your friend's ${sh.part} · K for the killcam`);
-    } else if (sh.impact) {
+    } else if (duel.hunt) banner('Miss', 'no hit');
+    else if (sh.impact) {
       banner('Miss', `${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'} of the head`);
       impacts.push({ right: sh.impact.right, up: sh.impact.up, hit: false }); if (impacts.length > 6) impacts.shift();
     } else banner('Miss', 'short of your friend');
+    if (duel.mail && sh.msg) mailLink(sh.msg);
     duelUI();
     return true;
   }
@@ -2884,6 +2945,7 @@ function duelArrive(sh) {
     ceaseFrom(sh);
     noiseBurst(0.3, 500, 0.6);
     $('hurt').classList.remove('on'); void $('hurt').offsetWidth; $('hurt').classList.add('on');
+    if (duel.mail && duel.over) duel.myTurn = false;
     banner(sh.part === 'head' ? 'Headshot' : 'You are hit', duel.over ? 'your friend wins the duel · K for the killcam' : `in the ${sh.part} · K to see it`);
   } else if (sh.pass) {
     // A supersonic round passing close cracks; a subsonic one only hisses.
@@ -2904,9 +2966,10 @@ function killcam() {
   setCam('bullet');
 }
 function endKillcam() {
+  const was = duel.replay;
   duel.replay = null;
   auto = false;
-  tNow = duel.live ? duelNow() : tNow;
+  tNow = duel.live && !duel.mail ? duelNow() : was ? was.tStop + 1 : tNow;
   setCam('scope');
 }
 function rematch(tell) {
@@ -2918,6 +2981,82 @@ function rematch(tell) {
   banner('Rematch', 'fire at will in 5 s');
   duelUI();
 }
+
+// ---------- A duel by message ----------
+// No connection at all: a shot is a handful of numbers, and both browsers
+// fly it the same, so the duel travels as a link. You shoot; the link you
+// send carries every shot so far; your friend opens it, watches your round
+// come in, shoots back, and sends you the next link. The score is worked
+// out again from the shots each time, so a link cannot claim a hit it did
+// not make.
+const packShots = (log) => log.map((m) => [m.c, m.el, m.az, m.t0, m.seed ?? 0, m.stream ?? 0]);
+async function mailLink(msg) {
+  duel.log.push(msg);
+  const code = await packDuel(packShots(duel.log));
+  if (!duel) return;
+  showDuelLink(duelUrl({ duel: duel.id, mail: code }), duel.over ? 'You won. Send this link so your friend can watch it.' : 'Your shot is in this link. Send it to your friend: they watch it come in, shoot back, and send you theirs.');
+  duelUI();
+}
+function challengeByMail() {
+  startDuelCommon('A', newDuelId(), { hunt: $('duelHunt').checked, mail: true });
+  duel.live = true; duel.startAt = 0; duel.state = 'your shot';
+  banner('Duel by message', 'take your shot: the link to send appears when it lands');
+  duelUI();
+}
+// My own earlier shot, flown again without drawing it: what it hit.
+function judgeMine(m) {
+  const k = cartIndex(m.c), r = raw.rifles.find((x) => x.id === RIFLE_FOR[m.c]);
+  if (k < 0) return null;
+  station();
+  B.bd_setup(r ? r.twist_in * IN * (r.twist_direction === 'left' ? -1 : 1) : 0, S.lat * DEG, (S.spin ? 1 : 0) | (S.earth ? 2 : 0));
+  B.bd_powder(m.seed ? S.temp + 273.15 : 0);
+  B.bd_group(m.seed ? r?.group_moa ?? 0 : 0);
+  B.wind(S.az * DEG, trueLayers());
+  const o = enu(0, 0, 0);
+  const id = m.seed ? B.bd_fire_round(k, o[0], o[1], o[2], m.az, m.el, m.t0, m.seed, m.stream) : B.bd_fire(k, o[0], o[1], o[2], m.az, m.el, m.t0);
+  if (!id) return null;
+  let t = m.t0, rr = B.round();
+  while (!rr.stopped && t - m.t0 < 25 && lof(rr.position).d < S.dist) { t += 0.05; B.bd_advance(t, 0); rr = B.round(); }
+  let part = null;
+  if (lof(rr.position).d >= S.dist) {
+    let a = m.t0, b = rr.time;
+    for (let i = 0; i < 60; ++i) { const c = 0.5 * (a + b); if (lof(B.stateAt(c).position).d >= S.dist) b = c; else a = c; }
+    const p = lof(B.stateAt(b).position);
+    if (p.u > -BENCH) part = figurePart(p.r - oppRight(), p.u);
+  }
+  B.bd_release(id);
+  setup(false);
+  return part;
+}
+async function openMail(id, code, hunt) {
+  let rows;
+  try { rows = await unpackDuel(code); } catch { rows = null; }
+  if (!Array.isArray(rows) || !rows.length || rows.length > 200) { toast('This duel link is damaged'); return; }
+  const log = rows.map((r, i) => ({ t: 'shot', k: i + 1, c: String(r[0]), el: +r[1], az: +r[2], t0: +r[3], ...(r[4] ? { seed: +r[4], stream: +r[5] } : {}) }));
+  if (!log.every((m) => cartIndex(m.c) >= 0 && [m.el, m.az, m.t0].every(Number.isFinite))) { toast('This duel link is damaged'); return; }
+  // The challenger shot first, then in turn: whoever opens the link shoots next.
+  const me = log.length % 2 === 1 ? 'B' : 'A', them = me === 'A' ? 'B' : 'A';
+  startDuelCommon(me, id, { hunt, mail: true });
+  duel.live = true; duel.startAt = 0; duel.log = log;
+  duel.sent = log.filter((_, i) => (i % 2 === 0 ? 'A' : 'B') === me).length;
+  // The score so far, from the shots themselves.
+  for (let i = 0; i < log.length - 1 && !duel.over; ++i) {
+    const by = i % 2 === 0 ? 'A' : 'B';
+    let part;
+    if (by === me) part = judgeMine(log[i]);
+    else { const sh = fireRemote(log[i]); part = sh?.hit ? sh.part : null; if (sh) retire(sh); }
+    if (part) score(by, part);
+  }
+  // Their last shot, coming in now.
+  const last = log.at(-1);
+  tNow = last.t0 - 2.5;
+  duel.incoming = duel.over ? null : fireRemote(last);
+  duel.myTurn = true;
+  banner(`Your friend's shot ${Math.ceil(log.length / 2)}`, 'it is on its way: then it is your turn');
+  duelUI();
+  void them;
+}
+$('bDuelMail').onclick = () => challengeByMail();
 $('bDuel').onclick = () => challenge(Q.get('net') === 'local' ? 'local' : 'rtc');
 $('bDuelEnd').onclick = () => endDuel();
 $('duelLink').onfocus = (e) => e.target.select();
@@ -2956,10 +3095,11 @@ if (Q.has('duel') && Q.has('answer')) {
     $('duelNote').textContent = ok ? 'Your friend is connecting: go back to your duel tab.' : 'No duel tab took this reply. Open it in the browser where you made the challenge, or paste it into that tab.';
     banner(ok ? 'Reply delivered' : 'Reply not delivered', ok ? 'go back to your duel tab' : 'open it in the browser with the duel');
   });
-} else if (Q.has('duel')) acceptChallenge(Q.get('duel').replace(/[^0-9a-f]/g, '').slice(0, 24), Q.get('offer') || '', Q.get('net') || 'rtc');
+} else if (Q.has('duel') && Q.has('mail')) openMail(Q.get('duel').replace(/[^0-9a-f]/g, '').slice(0, 24), Q.get('mail'), Q.get('hunt') === '1');
+else if (Q.has('duel')) acceptChallenge(Q.get('duel').replace(/[^0-9a-f]/g, '').slice(0, 24), Q.get('offer') || '', Q.get('net') || 'rtc');
 else if (autoFire) setTimeout(() => { fixedSway = pendingSway; tNow = S.t0; fireNow(); }, 300);  // at the shot's own instant: the same gusts
 duelUI();
 // The Glass engine (for the V8's windscreen) loads in the background.
 setTimeout(() => ensureGlass().catch(() => {}), 1500);
 // For the browser console: the engine and the current shot.
-window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, sway: () => swayNow(), shareUrl, get duel() { return duel; }, challenge, killcam, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
+window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, glint, sway: () => swayNow(), shareUrl, get duel() { return duel; }, challenge, killcam, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
