@@ -15,6 +15,13 @@
 //  - 'local': two tabs of one browser through a BroadcastChannel (testing,
 //    or a duel against yourself).
 //
+//  - 'meet': a Railgun Meet hostless voice channel `duel-<id>` (LiveKit). One
+//    link, no reply: both players join the channel; the shots go on its data
+//    topic `rg.duel.v1`, and you can talk. LiveKit's servers relay it, so it
+//    connects through any network. Needs meet.railgun.chat to answer this
+//    site's join (its MEET_CROSS_ORIGIN_VOICE); until then the challenge
+//    falls back to 'rtc' by itself.
+//
 // Messages are small JSON objects; `send` drops them until the link is open.
 
 const STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
@@ -142,3 +149,56 @@ export function localLink(id, seat) {
 }
 
 export { pack, unpack };
+
+// Railgun Meet: a voice channel for two. The other player is the remote
+// participant named for the other seat (anyone else who wanders into the
+// channel, from Meet itself, is ignored).
+const MEET = 'https://meet.railgun.chat';
+const TOPIC = 'rg.duel.v1';
+export async function meetLink(id, seat, timeoutMs = 6000) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), timeoutMs);
+  let j;
+  try {
+    const res = await fetch(`${MEET}/api/rooms/duel-${id}/join`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
+      body: JSON.stringify({ displayName: 'duel:' + seat, voice: true, audio: true, video: false }),
+    });
+    j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.livekitUrl || !j.token) throw new Error(j.error || 'HTTP ' + res.status);
+  } finally { clearTimeout(t); }
+  const { Room, RoomEvent, ConnectionState, Track } = await import('./vendor/livekit-client-2.22.1.esm.min.mjs');
+  const room = new Room();
+  const link = new Link();
+  link.kind = 'meet';
+  link.room = room;
+  const other = 'duel:' + (seat === 'A' ? 'B' : 'A');
+  let peer = null;
+  const enc = new TextEncoder(), dec = new TextDecoder();
+  const pick = () => {
+    if (peer) return;
+    for (const p of room.remoteParticipants.values()) if (p.name === other) { peer = p.identity; link._opened(); return; }
+  };
+  room.on(RoomEvent.ParticipantConnected, pick);
+  room.on(RoomEvent.ParticipantDisconnected, (p) => { if (p.identity === peer) { peer = null; link._closed(); } });
+  room.on(RoomEvent.DataReceived, (payload, p, _kind, topic) => { if (topic === TOPIC && p?.identity === peer) link._recv(dec.decode(payload)); });
+  room.on(RoomEvent.TrackSubscribed, (track, _pub, p) => {
+    if (track.kind !== Track.Kind.Audio || p?.identity !== peer) return;
+    const el = track.attach();
+    el.dataset.duel = '1';
+    document.body.appendChild(el);
+  });
+  room.on(RoomEvent.TrackUnsubscribed, (track) => { for (const el of track.detach()) el.remove(); });
+  room.on(RoomEvent.Disconnected, () => link._closed());
+  await room.connect(j.livekitUrl, j.token);
+  pick();
+  // Nothing is sent before the room is Connected (Meet's send rule, §0 of
+  // its wire protocols: livekit-client 2.22 poisons a send made earlier).
+  link.send = (m) => {
+    if (!link.open || room.state !== ConnectionState.Connected) return;
+    room.localParticipant.publishData(enc.encode(JSON.stringify(m)), { reliable: true, topic: TOPIC }).catch(() => {});
+  };
+  link.mic = (on) => room.localParticipant.setMicrophoneEnabled(on);
+  link.startAudio = () => room.startAudio().catch(() => {});
+  link.close = () => { room.disconnect(); link._closed(); };
+  return link;
+}

@@ -5,7 +5,7 @@
 // reads input: every drop, drift, spin and wobble comes from the core.
 import * as THREE from 'three';
 import createBallisticModule from './ballistic.mjs';
-import { hostRtc, joinRtc, deliverAnswer, localLink, newDuelId } from './duel-net.js';
+import { hostRtc, joinRtc, deliverAnswer, localLink, meetLink, newDuelId } from './duel-net.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -1953,6 +1953,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'u' || e.key === 'U') $('bUnits').click();
   else if (e.key === 'h' || e.key === 'H') $('help').classList.toggle('on');
   else if (duel && (e.key === 'k' || e.key === 'K')) killcam();
+  else if (duel && (e.key === 'v' || e.key === 'V')) setMic(!duel.micOn);
   else if (S.aim === 'manual' && e.key.startsWith('Arrow')) {
     e.preventDefault();
     const k = e.shiftKey ? 0.5 : 0.1;
@@ -2288,6 +2289,8 @@ function duelUI() {
   else if (duel.live && tNow < duel.ceaseUntil) line += ' · cease fire';
   sc.innerHTML = line;
   $('bRematch').hidden = !duel.over;
+  $('bMic').hidden = !duel.link?.mic;
+  $('bMic').setAttribute('aria-pressed', String(!!duel.micOn));
 }
 function startDuelCommon(seatName, id) {
   duel = { id, seat: seatName, link: null, live: false, epoch: performance.now() / 1000, offset: 0, rtt: null, startAt: Infinity, ceaseUntil: 0,
@@ -2324,6 +2327,18 @@ async function challenge(kind = 'rtc') {
     showDuelLink(duelUrl({ duel: id, net: 'local' }), 'Open this link in another tab of this browser.');
     return;
   }
+  // Railgun Meet first (one link, voice, any network); if it does not
+  // answer, a direct browser-to-browser link with a reply.
+  try {
+    duel.state = 'opening a voice channel…';
+    duelUI();
+    const link = await meetLink(id, 'A');
+    wireLink(link);
+    duel.state = 'waiting for your friend';
+    showDuelLink(duelUrl({ duel: id, net: 'meet' }), 'Send this link to your friend: the duel starts when they open it. You can talk to each other (Mic).');
+    duelUI();
+    return;
+  } catch { /* Meet is not reachable from here: the direct link */ }
   try {
     const link = await hostRtc(id);
     wireLink(link);
@@ -2335,6 +2350,16 @@ async function challenge(kind = 'rtc') {
 async function acceptChallenge(id, offer, net) {
   startDuelCommon('B', id);
   if (net === 'local') { wireLink(localLink(id, 'B')); duelUI(); return; }
+  if (net === 'meet') {
+    try {
+      duel.state = 'joining the voice channel…';
+      duelUI();
+      wireLink(await meetLink(id, 'B', 10000));
+      duel.state = 'waiting for your friend';
+    } catch (e) { duel.state = 'could not join: ' + e.message; }
+    duelUI();
+    return;
+  }
   try {
     duel.state = 'answering…';
     duelUI();
@@ -2532,6 +2557,15 @@ $('bDuel').onclick = () => challenge(Q.get('net') === 'local' ? 'local' : 'rtc')
 $('bDuelEnd').onclick = () => endDuel();
 $('duelLink').onfocus = (e) => e.target.select();
 $('bRematch').onclick = () => rematch(true);
+// Voice (Railgun Meet duels): the microphone is off until you turn it on.
+async function setMic(on) {
+  if (!duel?.link?.mic) return;
+  try { await duel.link.mic(on); duel.micOn = on; } catch (e) { toast('Microphone: ' + e.message); duel.micOn = false; }
+  duelUI();
+}
+$('bMic').onclick = () => setMic(!duel?.micOn);
+// Browsers start remote audio only after a gesture.
+window.addEventListener('pointerdown', () => duel?.link?.startAudio?.(), { capture: true });
 $('bDuelCopy').onclick = async () => { try { await navigator.clipboard.writeText($('duelLink').value); toast('Link copied'); } catch { $('duelLink').select(); } };
 $('bDuelShare').onclick = async () => { try { await navigator.share({ title: 'Sniper duel', text: 'A sniper duel on the São Paulo World range', url: $('duelLink').value }); } catch { $('bDuelCopy').click(); } };
 $('duelReply').onchange = async (e) => {
