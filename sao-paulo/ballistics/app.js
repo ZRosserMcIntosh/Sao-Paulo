@@ -5,6 +5,7 @@
 // reads input: every drop, drift, spin and wobble comes from the core.
 import * as THREE from 'three';
 import createBallisticModule from './ballistic.mjs';
+import { hostRtc, joinRtc, deliverAnswer, localLink, newDuelId } from './duel-net.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -45,8 +46,11 @@ const THOU = (2 * Math.PI) / 6000, MOA = Math.PI / 10800;
 // bullet-drop marks). The ACOG: Trijicon TA31 class, 4x32, 7 deg field
 // (published); its clicks are estimated at 1/4 MOA.
 const SCOPES = {
-  mil: { kind: 'mil', mode: 'dial', name: 'Mil-dot', unit: 1e-3, unitName: 'mil', click: 1e-4 },
-  moa: { kind: 'moa', mode: 'dial', name: 'MOA', unit: MOA, unitName: 'MOA', click: MOA / 4 },
+  // Travel and a turn of the turret: typical of 3-32x long-range scopes
+  // (estimated): about 30 mil (100 MOA) of elevation, 10 mil (35 MOA) of
+  // windage each way, 10 mil or 15 MOA a turn.
+  mil: { kind: 'mil', mode: 'dial', name: 'Mil-dot', unit: 1e-3, unitName: 'mil', click: 1e-4, travel: 0.030, wTravel: 0.010, rev: 0.010 },
+  moa: { kind: 'moa', mode: 'dial', name: 'MOA', unit: MOA, unitName: 'MOA', click: MOA / 4, travel: 100 * MOA, wTravel: 35 * MOA, rev: 15 * MOA },
   acog: { kind: 'acog', mode: 'hold', name: 'ACOG', mag: 4, fov: 7, unit: MOA, unitName: 'MOA', click: MOA / 4 },
   pso1: { kind: 'pso1', mode: 'drum', name: 'PSO-1', mag: 4, fov: 6, drumMax: 10, unit: THOU, unitName: 'thousandths', click: THOU / 2 },
   pu: { kind: 'pu', mode: 'drum', name: 'PU', mag: 3.5, fov: 4.5, drumMax: 13, unit: THOU, unitName: 'thousandths', click: THOU / 2 },
@@ -83,6 +87,7 @@ try {
   if (errs.length) throw new Error(errs.join('; '));
   cat = B.catalog();
   raw = JSON.parse(text);
+  Object.defineProperty(raw, '__text', { value: text });
 } catch (e) {
   $('loadMsg').textContent = 'Could not start the ballistics engine in this browser: ' + e.message;
   throw e;
@@ -213,6 +218,12 @@ S.zero = 100;
 Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen', markers: store.get('markers', 'hits'), tracer: store.get('tracer', 'off'), tracerToImpact: store.get('tracerToImpact', true),
   scope: store.get('scope', 'own'), aim: store.get('aim', 'assist'), hint: store.get('hint', true), turret: { el: 0, wd: 0 }, hold: { up: 0, right: 0 } });
 let metric = store.get('metric', true);
+// The duel (see the Duel section): null when shooting alone. Seat A is the
+// challenger at the range's origin, seat B the friend at the far end, facing
+// back down the same range; each draws the range from their own seat.
+let duel = null;
+const seat = () => (duel ? duel.seat : 'A');
+const myAzDeg = () => S.az + (seat() === 'B' ? 180 : 0);
 
 // From the URL: a shared shot.
 const Q = new URLSearchParams(location.search);
@@ -280,19 +291,23 @@ function averageWind() {
     x += (L.spd * Math.sin(L.clock * 30 * DEG)) / n;  // across: + from the right
     y += (L.spd * Math.cos(L.clock * 30 * DEG)) / n;  // along: + head wind
   }
-  let clock = Math.atan2(x, y) / DEG / 30;
+  let clock = Math.atan2(x, y) / DEG / 30 + (seat() === 'B' ? 6 : 0);  // the layers are in seat A's frame
   if (clock <= 0) clock += 12;
+  if (clock > 12) clock -= 12;
   return layer(Math.hypot(x, y), clock);  // exact; shown to a tenth of an hour
 }
 const call = () => (S.callTrue ? averageWind() : S.call);
-const callLayers = () => { const c = call(); return [{ fromRange: 0, speed: c.spd * KMH, fromBearing: (S.az + c.clock * 30) * DEG, gust: 0 }]; };
+const callLayers = () => { const c = call(); return [{ fromRange: 0, speed: c.spd * KMH, fromBearing: (myAzDeg() + c.clock * 30) * DEG, gust: 0 }]; };
 
 // ENU <-> the line of fire (downrange d, right r, up u) <-> three.js (x right, y up, -z downrange).
 function lof(p) {
   const s = Math.sin(S.az * DEG), c = Math.cos(S.az * DEG);
-  return { d: p[0] * s + p[1] * c, r: p[0] * c - p[1] * s, u: p[2] };
+  const d = p[0] * s + p[1] * c, r = p[0] * c - p[1] * s;
+  // From seat B the range runs the other way: downrange from the far end.
+  return seat() === 'B' ? { d: S.dist - d, r: -r, u: p[2] } : { d, r, u: p[2] };
 }
 function enu(d, r, u) {
+  if (seat() === 'B') { d = S.dist - d; r = -r; }
   const s = Math.sin(S.az * DEG), c = Math.cos(S.az * DEG);
   return [d * s + r * c, d * c - r * s, u];
 }
@@ -307,8 +322,8 @@ function solveDope() {
   setup(true);
   B.wind(S.az * DEG, callLayers());
   const step = dopeStep(S.dist);
-  const rows = B.table(ci(), zero(), sightHeight(), Math.max(S.dist, step), step, S.az * DEG);
-  const at = B.table(ci(), zero(), sightHeight(), S.dist, S.dist, S.az * DEG).at(-1);
+  const rows = B.table(ci(), zero(), sightHeight(), Math.max(S.dist, step), step, myAzDeg() * DEG);
+  const at = B.table(ci(), zero(), sightHeight(), S.dist, S.dist, myAzDeg() * DEG).at(-1);
   // The target's own row, when the steps pass it by (1 mile, 2 miles).
   if (at && !rows.some((r) => Math.abs(r.range - S.dist) < 0.5)) { rows.push(at); rows.sort((a, b) => a.range - b.range); }
   const hold = at && at.range > 0 ? { up: -at.drop / S.dist, right: -at.windage / S.dist } : { up: 0, right: 0 };
@@ -323,7 +338,7 @@ function breakdown(t0) {
     station();
     B.bd_setup(twist(), S.lat * DEG, flags);
     B.wind(S.az * DEG, wind ? trueLayers() : []);
-    return B.table(ci(), zero(), sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1) ?? { drop: 0, windage: 0 };
+    return B.table(ci(), zero(), sightHeight(), S.dist, S.dist, myAzDeg() * DEG, t0).at(-1) ?? { drop: 0, windage: 0 };
   };
   const base = at(0, false), wind = at(0, true);
   const out = [{ k: 'Gravity & drag', up: base.drop, right: 0 }, { k: 'Wind', up: wind.drop - base.drop, right: wind.windage }];
@@ -436,8 +451,8 @@ function fire(tFire) {
   B.wind(S.az * DEG, trueLayers());
   const e0 = B.bd_zero(ci(), zero(), sightHeight());
   const aim = shotHold(dope);
-  const el = e0 + aim.up, az = S.az * DEG + aim.right;
-  const id = Number.isFinite(e0) ? B.bd_fire(ci(), 0, 0, 0, az, el, tFire) : 0;
+  const el = e0 + aim.up, az = myAzDeg() * DEG + aim.right, o = enu(0, 0, 0);
+  const id = Number.isFinite(e0) ? B.bd_fire(ci(), o[0], o[1], o[2], az, el, tFire) : 0;
   if (!id) { toast('This load cannot reach the zero.'); return null; }
   // Fly to the target plane, then on to the ground.
   const t0 = tFire;
@@ -462,7 +477,7 @@ function fire(tFire) {
     impact = { right: p.r, up: p.u - sh };
     // Hit only if it reached the plane above the ground.
     const above = p.u > -BENCH;
-    hit = above && (S.tgt === 'dummy' ? dummyPart(impact) !== null : S.tgt === 'v8' ? true : Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2);
+    hit = above && (S.tgt === 'duel' ? figurePart(p.r, p.u) !== null : S.tgt === 'dummy' ? dummyPart(impact) !== null : S.tgt === 'v8' ? true : Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2);
     if (!above) tTarget = null;
   }
   // Where it lands if it misses: the ground.
@@ -475,7 +490,7 @@ function fire(tFire) {
   const air = B.air(0, 0, 0, t0);
   const sg = S.spin ? B.bd_stability(ci()) : 0;
   // Sg where the round meets the target (the flight goes on past it).
-  const sgTarget = S.spin && tTarget !== null ? B.table(ci(), zero(), sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1)?.stability ?? 0 : 0;
+  const sgTarget = S.spin && tTarget !== null ? B.table(ci(), zero(), sightHeight(), S.dist, S.dist, myAzDeg() * DEG, t0).at(-1)?.stability ?? 0 : 0;
   const atT = tTarget !== null ? B.stateAt(tTarget) : null;
   // The V8: where the round meets the raked windscreen, and what the glass does to it.
   let glass = null;
@@ -487,7 +502,8 @@ function fire(tFire) {
   mesh.visible = true;
   scene.add(mesh);
   shot = {
-    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget,
+    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az,
+    part: S.tgt === 'duel' && hit && atT ? figurePart(lof(atT.position).r, lof(atT.position).u) : null,
     round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
     mesh, body: mesh.getObjectByName('body'), len: bullet.userData.length, done: false, doneWall: 0, left: false,
     // The engine keeps the round in the air it was fired into, so the
@@ -676,6 +692,36 @@ function buildRange() {
     range.add(target);
     return;
   }
+  if (S.tgt === 'duel') {
+    // The other shooter, prone behind sandbags at the far end, facing you:
+    // the head and shoulders over the cover are all there is to hit (the same
+    // FIGURE the hit test uses), the muzzle at the bore line.
+    const fig = new THREE.Group();
+    fig.position.set(0, 0, -D);
+    const camo = new THREE.MeshStandardMaterial({ color: 0x5b5d3a, roughness: 0.9 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0x4a4a32, roughness: 0.8 });
+    const bags = new THREE.MeshStandardMaterial({ color: 0x8c7b57, roughness: 1 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(FIGURE.head.r, 20, 14), skin);
+    head.position.set(0, FIGURE.head.z, -0.25);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(FIGURE.torso.w, FIGURE.torso.z1 - FIGURE.torso.z0, 0.5), camo);
+    torso.position.set(0, (FIGURE.torso.z0 + FIGURE.torso.z1) / 2, -0.45);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(1.6, BENCH + FIGURE.cover, 0.6), bags);
+    wall.position.set(0, (-BENCH + FIGURE.cover) / 2, 0.1);
+    const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.7, 10), gunMetal);
+    gun.rotation.x = Math.PI / 2;
+    gun.position.set(0, 0, 0.05);
+    fig.add(head, torso, wall, gun);
+    oppFlash.position.set(0, 0, 0.66);
+    fig.add(oppFlash);
+    range.add(fig);
+    target = new THREE.Group();
+    target.position.set(0, sightHeight(), -D);
+    plate = new THREE.Group();
+    plate.add(new THREE.Group());
+    target.add(plate);
+    range.add(target);
+    return;
+  }
   if (S.tgt === 'dummy') {
     // A crash dummy (chest at the aim point) behind a pane of the chosen glass.
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.55 });
@@ -783,9 +829,10 @@ const bulletBody = new THREE.Group();
 bulletBody.name = 'body';
 bullet.add(bulletBody);
 bullet.visible = false;  // the pattern each round's own copy is made from
-function buildBullet() {
-  bulletBody.clear();
-  const p = projRaw(S.c);
+function buildBullet() { makeBullet(S.c, bullet, bulletBody); }
+function makeBullet(cid, group, bodyGroup) {
+  bodyGroup.clear();
+  const p = projRaw(cid);
   const d = p.diameter_in * IN, L = p.length_in * IN;
   const copper = new THREE.MeshStandardMaterial({ color: 0xc27a45, metalness: 0.85, roughness: 0.28 });
   const groove = new THREE.MeshStandardMaterial({ color: 0x6b3a1c, metalness: 0.6, roughness: 0.5 });
@@ -795,17 +842,18 @@ function buildBullet() {
   const nose = new THREE.Mesh(new THREE.ConeGeometry(d / 2, L * 0.55, 24), copper);
   nose.rotation.x = Math.PI / 2;
   nose.position.z = L * 0.45;
-  bulletBody.add(shank, nose);
-  const grooves = (RIFLE_FOR[S.c] === 'm24_sws') ? 5 : 6;
+  bodyGroup.add(shank, nose);
+  const grooves = (RIFLE_FOR[cid] === 'm24_sws') ? 5 : 6;
   for (let k = 0; k < grooves; ++k) {
     const a = (k / grooves) * Math.PI * 2;
     const m = new THREE.Mesh(new THREE.BoxGeometry(d * 0.12, d * 0.04, L * 0.42), groove);
     m.position.set(Math.cos(a) * d * 0.5, Math.sin(a) * d * 0.5, -L * 0.05);
     m.rotation.z = a;
-    bulletBody.add(m);
+    bodyGroup.add(m);
   }
-  bullet.userData.length = L;
-  bullet.userData.diameter = d;
+  group.userData.length = L;
+  group.userData.diameter = d;
+  return group;
 }
 bullet.visible = false;
 scene.add(bullet);
@@ -820,6 +868,18 @@ const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.Me
 scene.add(flash);
 const dust = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), new THREE.MeshLambertMaterial({ color: 0xb59a74, transparent: true, opacity: 0 }));
 scene.add(dust);
+// The opponent's muzzle flash (parented to their figure in a duel).
+const oppFlash = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0 }));
+// What can be hit of a shooter in a duel, from their own muzzle (m: right,
+// up): a head over the sights and the shoulders above the sandbags. The
+// head is a 22 cm sphere, the shoulders 44 cm wide; everything below the
+// cover's top is behind it. Both browsers test against these same numbers.
+const FIGURE = { head: { z: 0.06, r: 0.11 }, torso: { w: 0.44, z0: -0.3, z1: -0.04 }, cover: -0.3 };
+function figurePart(right, z) {
+  if (Math.hypot(right, z - FIGURE.head.z) <= FIGURE.head.r) return 'head';
+  if (Math.abs(right) <= FIGURE.torso.w / 2 && z >= FIGURE.torso.z0 && z <= FIGURE.torso.z1) return 'shoulder';
+  return null;
+}
 // The tracer: the burning base of the round, and the streak the eye keeps
 // behind it. Two sets of glows: a fixed size on screen (seen from the rifle
 // or through the scope) and life size (the bullet camera).
@@ -860,7 +920,7 @@ function updateTracer(life, fov) {
     B.bd_select(sh.id);
     for (let k = 0; k < TRACER_N; ++k) {
       const sp = grp.children[k], t = tE - k * TRACER_DT;
-      const st = t >= sh.t0 ? B.stateAt(t) : null, d = st ? lof(st.position).d : -1;
+      const st = t >= sh.t0 ? B.stateAt(t) : null, d = st ? (sh.remote ? S.dist - lof(st.position).d : lof(st.position).d) : -1;
       sp.visible = !!st && d >= TRACER_LIGHTS && d <= burn;
       if (!sp.visible) continue;
       sp.position.copy(v3(st.position));
@@ -1057,7 +1117,9 @@ function sightHold() {
   return { up: p.holdUp, right: p.holdRight };
 }
 const shotHold = (d) => (S.aim === 'manual' ? { up: turretUp() + S.hold.up, right: turretRight() + S.hold.right } : d.hold);
-const fmtU = (rad, sc = scopeOf()) => `${(Math.abs(rad) / sc.unit).toFixed(sc.unit === MOA ? 1 : 1)} ${sc.unitName}`;
+// A value in the scope's unit, to its click: quarter MOA shows two decimals.
+const unitDigits = (sc = scopeOf()) => (sc.click / sc.unit < 0.1 - 1e-9 || Math.abs((sc.click / sc.unit) * 10 - Math.round((sc.click / sc.unit) * 10)) > 1e-6 ? 2 : 1);
+const fmtU = (rad, sc = scopeOf()) => `${(Math.abs(rad) / sc.unit).toFixed(unitDigits(sc))} ${sc.unitName}`;
 function turretText() {
   const sc = scopeOf();
   const el = sc.mode === 'drum' ? `drum ${Math.max(1, Math.min(sc.drumMax, S.turret.el))}` : `${turretUp() >= 0 ? 'up' : 'down'} ${fmtU(turretUp())}`;
@@ -1345,9 +1407,11 @@ let afterWall = 0;
 function autoScale(sh) {
   const tof = (sh.tStop - sh.t0);
   const cruise = Math.min(1, Math.max(0.01, tof / 7));
+  // Downrange from whoever fired it (an opponent's round comes from the far end).
+  const along = (p) => (sh.remote ? sh.S.dist - lof(p).d : lof(p).d);
   const st = stateOf(sh, Math.min(tNow, sh.tStop));
-  const d = lof(st.position).d;
-  const rem = Math.max(0, (sh.hit ? sh.S.dist : lof(B.stateAt(sh.tStop).position).d) - d);
+  const d = along(st.position);
+  const rem = Math.max(0, (sh.hit ? sh.S.dist : along(B.stateAt(sh.tStop).position)) - d);
   const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
   const fromMuzzle = 0.003 + (cruise - 0.003) * sm(1, 40, d);
   const toEnd = 0.0004 + (cruise - 0.0004) * sm(0.5, 35, rem);
@@ -1466,7 +1530,7 @@ function labels() {
   $('vCallSpd').textContent = fmtSpeedW(S.call.spd);
   $('vCallDir').textContent = clockName(S.call.clock);
   if (S.callTrue) $('callBox').hidden = true;
-  $('callTrue').nextSibling.textContent = ` Call the average true wind exactly (${fmtSpeedW(cw.spd)} from ${clockName(cw.clock)})`;
+  $('callTrue').nextSibling.textContent = duel ? ' Call the average true wind exactly (not in a duel)' : ` Call the average true wind exactly (${fmtSpeedW(cw.spd)} from ${clockName(cw.clock)})`;
 }
 
 let dope = null, dopeTimer = 0;
@@ -1493,6 +1557,7 @@ function refresh() {
   }
 }
 function dopeUI() {
+  turretUI();
   const t = $('dope');
   const sc = scopeOf(), u = sc.unit;
   const plain = sc.mode === 'hold' && sc.kind !== 'acog';
@@ -1508,7 +1573,7 @@ function dopeUI() {
     if (sc.mode === 'drum') { const d = drumFor(up); cells = `<td>${d.drum}</td><td>${arrow(d.rest / u)}</td>`; }
     else if (plain) cells = `<td>${arrow(up / u)}</td><td>${arrow((up * r.range) / (metric ? 0.01 : IN))}</td>`;
     else if (sc.mode === 'hold') { const b = bdcFor(up); cells = `<td>${b.mark === 1 ? 'tip' : b.mark}</td><td>${arrow(b.rest / u)}</td>`; }
-    else cells = `<td>${(up / u).toFixed(1)}</td>`;
+    else cells = `<td>${((Math.round(up / sc.click) * sc.click) / u).toFixed(unitDigits(sc))}</td>`;  // to the click you would dial
     h += `<tr class="${Math.abs(r.range - S.dist) < 1 ? 'at' : ''}"><td>${(metric ? r.range : r.range / YD).toFixed(r.range < 50 && !Number.isInteger(metric ? r.range : r.range / YD) ? 1 : 0)}</td>${cells}<td>${Math.abs(wd).toFixed(1)}${wd > 0.05 ? 'R' : wd < -0.05 ? 'L' : ''}</td><td>${(metric ? r.speed : r.speed / FT).toFixed(0)}</td><td>${r.time.toFixed(2)}</td></tr>`;
   }
   t.innerHTML = h;
@@ -1528,6 +1593,10 @@ function resultsUI() {
   } else if (S.tgt === 'v8') {
     o.className = 'warn';
     o.textContent = sh.impact ? `It missed the windscreen: ${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'} (bodywork or past).` : 'It never reached the car.';
+  } else if (S.tgt === 'duel' && sh.impact) {
+    o.className = sh.hit ? 'ok' : 'bad';
+    o.textContent = sh.hit ? `Hit: your friend's ${sh.part} (${sh.part === 'head' ? 2 : 1} ${sh.part === 'head' ? 'points' : 'point'}).`
+      : `Miss: ${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'} of the head.`;
   } else if (sh.hit && S.tgt === 'dummy') {
     o.className = 'ok';
     o.textContent = `Hit the dummy (${dummyPart(sh.impact)}) through ${sh.S.glazing === 'none' ? 'the open air' : 'the glass'}: watch it in the Liquids Lab.`;
@@ -1651,6 +1720,7 @@ const RIFLE_CYCLE = { m24_sws: 1.2, bolt_65cm: 1.2, bolt_338lm: 1.4, m200_408: 1
   glock_17: 0.12, colt_1911: 0.15, sw_686: 0.3, fn_fiveseven: 0.12, mp5a3: 60 / 800, fn_p90: 60 / 900, thompson_m1a1: 60 / 700 };
 // A round arrives: the plate rings and swings, the glass breaks, the dust flies.
 function arrive(sh) {
+  if (duel && duelArrive(sh)) return;
   const T = sh.S;
   hitFeedback(sh);
   if (T.tgt === 'v8' && sh.glass && sh.glass.onGlass) {
@@ -1681,14 +1751,16 @@ function arrive(sh) {
 
 function fireNow() {
   if (S.tgt === 'v8' && !G) { toast('Loading the glass engine for the windscreen…'); $('outcome').className = ''; $('outcome').textContent = 'Loading the glass engine…'; $('watch').hidden = true; ensureGlass().then(() => fireNow()).catch((e) => toast('Glass engine: ' + e.message)); return; }
+  if (duel && !duelMayFire()) return;
   const cycle = RIFLE_CYCLE[RIFLE_FOR[S.c]] ?? 0.9;
-  const prev = shots.at(-1), t0 = Math.max(tNow, prev ? prev.t0 + cycle : tNow);
+  const prev = shots.filter((x) => !x.remote).at(-1), t0 = Math.max(tNow, prev ? prev.t0 + cycle : tNow);
   const queue = AUTOMATIC.has(RIFLE_FOR[S.c]) ? 30 : 8;
   if (t0 - tNow > queue * cycle) { if (queue === 8) toast('Eight rounds are already waiting to go'); return; }
   if (dopeTimer) refresh();  // settings still pending: apply them first
   if (!fire(t0)) return;
+  if (duel) duelSent(shot);
   if (t0 > tNow + 1e-6 && !AUTOMATIC.has(RIFLE_FOR[S.c])) toast(cycle > 0.5 ? 'Working the bolt…' : 'Next round');
-  if (auto) setCam('bullet');
+  if (auto && !duel) setCam('bullet');
   resultsUI();
   // The dashed path of the whole flight, for the scope and shooter views.
   const pts = [];
@@ -1722,17 +1794,35 @@ $('tracer').onchange = (e) => { S.tracer = e.target.value; store.set('tracer', S
 $('tracerToImpact').onchange = (e) => { S.tracerToImpact = e.target.checked; store.set('tracerToImpact', S.tracerToImpact); };
 // Scope and aim.
 function turretUI() {
+  const sc = scopeOf(), drum = sc.mode === 'drum', hold = sc.mode === 'hold';
+  // Sights with nothing to dial for range (irons, a red dot, the ACOG's
+  // marks): everything is held, so the turrets are not offered.
+  $('turrets').hidden = hold;
+  $('holdOnly').hidden = !hold;
+  if (hold) return;
   const t = turretText();
-  $('tEl').textContent = t.el;
-  $('tWd').textContent = t.wd;
+  const elIn = $('tElIn'), wdIn = $('tWdIn');
+  elIn.step = drum ? 1 : String(sc.click / sc.unit);
+  wdIn.step = String(sc.click / sc.unit);
+  if (document.activeElement !== elIn) elIn.value = drum ? String(Math.max(1, Math.min(sc.drumMax, S.turret.el))) : ((S.turret.el * sc.click) / sc.unit).toFixed(unitDigits(sc));
+  if (document.activeElement !== wdIn) wdIn.value = ((S.turret.wd * sc.click) / sc.unit).toFixed(unitDigits(sc));
+  $('tElUnit').textContent = drum ? 'drum (×100 m)' : `${sc.unitName} ${turretUp() >= 0 ? 'up' : 'down'}`;
+  $('tWdUnit').textContent = `${sc.unitName} ${turretRight() >= 0 ? 'R' : 'L'}`;
+  // Clicks, the turn of the turret, and how far the card is from the dial.
+  const turns = (clicks) => { if (!sc.rev) return ''; const per = Math.round(sc.rev / sc.click), n = Math.floor(Math.abs(clicks) / per); return n ? ` · turn ${n + 1}` : ''; };
+  const need = dope && !drum ? { el: Math.round(dope.hold.up / sc.click), wd: Math.round(dope.hold.right / sc.click) } : null;
+  const diff = (have, want, up, down) => (want === have ? '<b class="ok">on the card</b>' : `${Math.abs(want - have)} clicks ${want > have ? up : down} to the card`);
+  $('tElSub').innerHTML = drum ? `${t.el}${dope ? ` · the card says drum ${plan(dope.hold).drum}` : ''}`
+    : `${Math.abs(S.turret.el)} clicks${turns(S.turret.el)}${need ? ' · ' + diff(S.turret.el, need.el, 'up', 'down') : ''}${Math.abs(turretUp()) > (sc.travel ?? Infinity) ? ' · <b class="warn">past this scope\'s travel: hold the rest</b>' : ''}`;
+  $('tWdSub').innerHTML = `${Math.abs(S.turret.wd)} clicks${need ? ' · ' + diff(S.turret.wd, need.wd, 'R', 'L') : ''}${Math.abs(turretRight()) > (sc.wTravel ?? Infinity) ? ' · <b class="warn">past this scope\'s travel</b>' : ''}`;
 }
 const click = () => noiseBurst(0.012, 5200, 0.1, 4);  // a turret detent
-function turn(which, k) {
+function turn(which, k, sound = true) {
   const sc = scopeOf();
   if (which === 'el') S.turret.el = sc.mode === 'drum' ? Math.max(1, Math.min(sc.drumMax, S.turret.el + k)) : S.turret.el + k;
   else S.turret.wd += k;
   turretUI();
-  click();
+  if (sound) click();
 }
 function nudge(up, right) {
   const u = scopeOf().unit;
@@ -1742,15 +1832,54 @@ function nudge(up, right) {
 $('scope').onchange = (e) => { S.scope = e.target.value; store.set('scope', S.scope); resetAim(); syncUI(); changed(true); };
 $('aim').onchange = (e) => { S.aim = e.target.value; store.set('aim', S.aim); resetAim(); syncUI(); };
 $('hint').onchange = (e) => { S.hint = e.target.checked; store.set('hint', S.hint); };
-$('tElUp').onclick = () => turn('el', 1);
-$('tElDn').onclick = () => turn('el', -1);
-$('tWdR').onclick = () => turn('wd', 1);
-$('tWdL').onclick = () => turn('wd', -1);
+// Hold a turret button to keep turning it: a click, then after 0.35 s ten
+// clicks a second, then after 1.2 s a hundred (a fast spin, a mil-scope turn
+// a second); Shift-click turns ten clicks at once.
+function holdToTurn(btn, which, dir) {
+  let timer = 0, started = 0;
+  const stop = () => { clearTimeout(timer); timer = 0; };
+  const step = () => {
+    const held = performance.now() - started;
+    turn(which, dir * (held > 1200 ? 10 : 1), true);
+    timer = setTimeout(step, 100);
+  };
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    started = performance.now();
+    turn(which, dir * (e.shiftKey ? 10 : 1));
+    stop();
+    timer = setTimeout(step, 350);
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel', 'blur']) btn.addEventListener(ev, stop);
+  btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); turn(which, dir * (e.shiftKey ? 10 : 1)); } });
+}
+holdToTurn($('tElUp'), 'el', 1);
+holdToTurn($('tElDn'), 'el', -1);
+holdToTurn($('tWdR'), 'wd', 1);
+holdToTurn($('tWdL'), 'wd', -1);
+// Or type the value: it goes to the nearest click (or drum mark).
+$('tElIn').onchange = (e) => {
+  const sc = scopeOf(), v = parseFloat(e.target.value);
+  if (Number.isFinite(v)) S.turret.el = sc.mode === 'drum' ? Math.max(1, Math.min(sc.drumMax, Math.round(v))) : Math.round((v * sc.unit) / sc.click);
+  e.target.blur(); turretUI(); click();  // shown back at the click it went to
+};
+$('tWdIn').onchange = (e) => {
+  const sc = scopeOf(), v = parseFloat(e.target.value);
+  if (Number.isFinite(v)) S.turret.wd = Math.round((v * sc.unit) / sc.click);
+  e.target.blur(); turretUI(); click();
+};
 $('bDial').onclick = () => {
   const sc = scopeOf(), p = plan(dope.hold);
   S.turret.el = sc.mode === 'drum' ? p.drum : sc.mode === 'hold' ? 0 : Math.round(dope.hold.up / sc.click);
-  S.turret.wd = 0;
-  turretUI();
+  turretUI(); click();
+};
+// The wind on the turret too (many shooters dial it on a steady wind and
+// keep the reticle for the gusts).
+$('bDialWd').onclick = () => {
+  const sc = scopeOf();
+  S.turret.wd = Math.round(dope.hold.right / sc.click);
+  S.hold.right = 0;
+  turretUI(); click();
 };
 $('bCentre').onclick = () => { S.hold = { up: 0, right: 0 }; };
 $('bTrace').onclick = () => { showTrace = !showTrace; store.set('trace', showTrace); $('bTrace').setAttribute('aria-pressed', String(showTrace)); };
@@ -1766,7 +1895,7 @@ $('fSpin').onchange = (e) => { S.spin = e.target.checked; changed(); };
 $('fEarth').onchange = (e) => { S.earth = e.target.checked; changed(); };
 $('fSolver').onchange = (e) => { S.solver = e.target.checked; changed(); };
 $('fire').onclick = () => fireNow();
-$('bReplay').onclick = () => { if (!shot) return; retireAll(shot); tNow = shot.t0; shot.done = false; shot.left = false; plate.rotation.x = 0; if (auto) setCam('bullet'); };
+$('bReplay').onclick = () => { if (duel) { killcam(); return; } if (!shot) return; retireAll(shot); tNow = shot.t0; shot.done = false; shot.left = false; plate.rotation.x = 0; if (auto) setCam('bullet'); };
 $('bAuto').onclick = () => { auto = !auto; $('bAuto').setAttribute('aria-pressed', String(auto)); };
 $('bSound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); $('bSound').setAttribute('aria-pressed', String(soundOn)); };
 $('bSound').setAttribute('aria-pressed', String(soundOn));
@@ -1823,15 +1952,16 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 't' || e.key === 'T') $('bTrace').click();
   else if (e.key === 'u' || e.key === 'U') $('bUnits').click();
   else if (e.key === 'h' || e.key === 'H') $('help').classList.toggle('on');
+  else if (duel && (e.key === 'k' || e.key === 'K')) killcam();
   else if (S.aim === 'manual' && e.key.startsWith('Arrow')) {
     e.preventDefault();
     const k = e.shiftKey ? 0.5 : 0.1;
     nudge(e.key === 'ArrowUp' ? k : e.key === 'ArrowDown' ? -k : 0, e.key === 'ArrowRight' ? k : e.key === 'ArrowLeft' ? -k : 0);
   }
-  else if (S.aim === 'manual' && (e.key === 'r' || e.key === 'R')) turn('el', 1);
-  else if (S.aim === 'manual' && (e.key === 'f' || e.key === 'F')) turn('el', -1);
-  else if (S.aim === 'manual' && (e.key === 'e' || e.key === 'E')) turn('wd', 1);
-  else if (S.aim === 'manual' && (e.key === 'q' || e.key === 'Q')) turn('wd', -1);
+  else if (S.aim === 'manual' && scopeOf().mode !== 'hold' && 'rRfFeEqQ'.includes(e.key)) {
+    const k = e.shiftKey ? 10 : 1, key = e.key.toLowerCase();
+    turn(key === 'r' || key === 'f' ? 'el' : 'wd', key === 'r' || key === 'e' ? k : -k);
+  }
   else if (e.key === '+' || e.key === '=') zoomBy(1);
   else if (e.key === '-') zoomBy(-1);
 });
@@ -1896,17 +2026,30 @@ function frame(now) {
   nowWall = wall;
   // The range's clock. Bullet time follows the latest round still flying.
   let s = 1;
-  const lead = [...shots].reverse().find((x) => tNow < x.tStop && tNow >= x.t0);
-  if (lead) s = auto ? autoScale(lead) : scale;
-  tNow += wallDt * s;
-  // Rounds leaving the muzzle: the flash and the report.
-  for (const sh of shots) if (!sh.left && tNow >= sh.t0) { sh.left = true; flash.material.opacity = 1; dust.material.opacity = 0; noiseBurst(0.5, 2200, 0.5); }
+  const replay = duel?.replay;
+  const lead = replay ? (tNow < replay.tStop ? replay : null) : [...shots].reverse().find((x) => !x.remote && tNow < x.tStop && tNow >= x.t0);
+  if (duel && duel.live && !replay) tNow = duelNow();  // a duel runs on the shared clock, at 1x
+  else {
+    if (lead) s = auto ? autoScale(lead) : scale;
+    if (replay) s = Math.max(s, 0.03);  // a killcam: bullet time, but done in seconds
+    tNow += wallDt * s;
+  }
+  if (replay && tNow >= replay.tStop + 0.8) endKillcam();
+  // Rounds leaving the muzzle: the flash and the report (the opponent's
+  // flash is seen at once; its report arrives at the speed of sound).
+  for (const sh of shots) if (!sh.left && tNow >= sh.t0) {
+    sh.left = true;
+    if (sh.remote) { oppFlash.material.opacity = 1; continue; }
+    flash.material.opacity = 1; dust.material.opacity = 0; noiseBurst(0.5, 2200, 0.5);
+  }
+  for (const sh of shots) if (sh.remote && !sh.heard && tNow >= sh.t0 + sh.reportDelay) { sh.heard = true; if (!replay) noiseBurst(0.6, 900 + 1300 * Math.exp(-S.dist / 800), 0.35); }
   // Rounds arriving: what each does at the end of its flight.
   for (const sh of shots) if (!sh.done && tNow >= sh.tStop && tNow >= sh.t0) { sh.done = true; sh.doneWall = wall; arrive(sh); }
   // Rounds long since landed go (the latest stays, for replay and the results).
-  for (const sh of [...shots]) if (sh !== shot && sh.done && wall - sh.doneWall > 4) retire(sh);
-  // The round the cameras and the HUD follow: the latest to have left the muzzle.
-  const fs = [...shots].reverse().find((x) => tNow >= x.t0) ?? shot;
+  for (const sh of [...shots]) if (sh !== shot && sh !== duel?.last && sh !== replay && sh.done && wall - sh.doneWall > 4) retire(sh);
+  // The round the cameras and the HUD follow: the latest of mine to have
+  // left the muzzle (in a killcam, the round replayed).
+  const fs = replay ?? [...shots].reverse().find((x) => !x.remote && tNow >= x.t0) ?? shot;
   phase = !fs ? 'idle' : tNow < fs.tStop ? 'flight' : 'after';
   te = fs ? Math.max(0, Math.min(tNow, fs.tStop) - fs.t0) : 0;
   afterWall = fs && fs.done ? wall - fs.doneWall : 0;
@@ -1970,6 +2113,8 @@ function frame(now) {
   // Muzzle flash, dust, the plate swinging.
   flash.position.set(0, 0, -0.66);
   flash.material.opacity *= Math.pow(0.02, wallDt * (phase === 'flight' ? Math.max(0.02, s) * 40 : 6));
+  oppFlash.material.opacity *= Math.pow(0.02, wallDt * 12);
+  if (duel) duelFrame(wall);
   if (dust.material.opacity > 0) { dust.scale.multiplyScalar(1 + wallDt * 1.5); dust.material.opacity *= Math.pow(0.4, wallDt); }
   if (plate.userData.swing) {
     plate.userData.phase = (plate.userData.phase || 0) + wallDt * 5;
@@ -2086,6 +2231,314 @@ function present(cam, tEngine) {
   R.render(post, postCam);
 }
 
+
+// ---------- Duel ----------
+// Two shooters, one range: you at one end, your friend at the other, each
+// shooting at the other's head and shoulders over the sandbags. Every round
+// is flown by both browsers from the same inputs (the rifle, the bore's
+// elevation and azimuth, the instant it left), so both see the same flight
+// and agree on every hit without a server deciding. Conditions come from
+// the challenger's link and are locked; the wind is rolled at random and
+// hidden from both: read it off the flags and the mirage. Body 1, head 2,
+// first to 3. A hit calls a 4 s cease-fire; K replays the last hit in
+// bullet time.
+const DUEL_TO = 3, CEASE = 4, DUEL_KEYS = ['dist', 'size', 'temp', 'alt', 'rh', 'lat', 'az', 'tgt', 'sameWind', 'callTrue', 'fSpin', 'fEarth', 'glazing'];
+const libHash = (() => { let h = 2166136261; for (let i = 0; i < raw.__text.length; ++i) h = Math.imul(h ^ raw.__text.charCodeAt(i), 16777619); return (h >>> 0).toString(16); })();
+const engineId = () => B.determinism().join('.');
+const duelNow = () => (duel.seat === 'A' ? 10 + performance.now() / 1000 - duel.epoch : performance.now() / 1000 + duel.offset);
+function duelMayFire() {
+  if (!duel.live) { toast(duel.link?.open ? 'Waiting for the clocks to agree…' : 'Waiting for your friend to connect'); return false; }
+  if (duel.replay) return false;
+  if (duel.over) { toast('The duel is over: press Rematch'); return false; }
+  if (tNow < duel.startAt) { toast(`Fire at will in ${Math.ceil(duel.startAt - tNow)} s`); return false; }
+  if (tNow < duel.ceaseUntil) { toast('Cease fire'); return false; }
+  return true;
+}
+// The settings both browsers must share: locked for the duel.
+function lockForDuel(on) {
+  for (const id of DUEL_KEYS) { const el = $(id); if (el) el.disabled = on; }
+  for (const b of document.querySelectorAll('#presets button, #presetsShort button')) b.disabled = on;
+  $('layers').hidden = on;
+  $('duelWindNote').hidden = !on;
+}
+// A random wind for the duel, in the challenger's frame: 0 to 25 km/h from
+// any clock, gusts of 5 to 20 % of it (both see only its flags).
+function rollWind() {
+  const r = crypto.getRandomValues(new Uint16Array(3)), u = (k) => r[k] / 65535;
+  const spd = Math.round(u(0) * 50) / 2, clock = Math.round(u(1) * 24) / 2, gust = Math.round(spd * (0.05 + 0.15 * u(2)) * 2) / 2;
+  S.same = true;
+  S.layers = [0, 1, 2].map(() => layer(spd, clock, gust));
+}
+function duelUrl(extra) {
+  const q = new URLSearchParams(new URL(shareUrl(null)).search);
+  q.delete('fire'); q.delete('cw'); q.delete('am'); q.delete('tu'); q.delete('ho'); q.delete('tr'); q.delete('sc');
+  for (const [k, v] of Object.entries(extra)) q.set(k, v);
+  return `${location.origin}/sao-paulo/ballistics/?${q}`;
+}
+function duelUI() {
+  const st = $('duelState'), sc = $('duelScore');
+  if (!duel) { st.textContent = 'challenge a friend'; sc.hidden = true; $('bDuel').hidden = false; $('bDuelEnd').hidden = true; $('bRematch').hidden = true; return; }
+  $('bDuel').hidden = true; $('bDuelEnd').hidden = false;
+  st.textContent = duel.link?.open ? (duel.live ? `connected · ${duel.rtt != null ? Math.round(duel.rtt * 1000) + ' ms' : ''}` : 'connected · syncing clocks') : duel.state;
+  sc.hidden = false;
+  const me = duel.score[duel.seat], them = duel.score[duel.seat === 'A' ? 'B' : 'A'];
+  let line = `You <b>${me}</b> · <b>${them}</b> Friend`;
+  if (duel.over) line += ` · ${me > them ? 'you win' : 'your friend wins'}`;
+  else if (duel.live && tNow < duel.startAt) line += ` · fire at will in ${Math.max(0, Math.ceil(duel.startAt - tNow))}`;
+  else if (duel.live && tNow < duel.ceaseUntil) line += ' · cease fire';
+  sc.innerHTML = line;
+  $('bRematch').hidden = !duel.over;
+}
+function startDuelCommon(seatName, id) {
+  duel = { id, seat: seatName, link: null, live: false, epoch: performance.now() / 1000, offset: 0, rtt: null, startAt: Infinity, ceaseUntil: 0,
+    score: { A: 0, B: 0 }, over: false, sent: 0, mine: new Map(), theirs: new Map(), state: 'connecting', replay: null, last: null, lastPing: 0, best: Infinity };
+  S.tgt = 'duel'; S.callTrue = false; S.call = layer(0, 12);
+  auto = false; $('bAuto').setAttribute('aria-pressed', 'false');
+  retireAll(); shot = null;
+  resetAim(); syncUI(); changed(true); refresh();
+  lockForDuel(true);
+  setCam('scope');
+  duelUI();
+}
+function wireLink(link) {
+  duel.link = link;
+  link.onopen = () => {
+    duel.state = 'connected';
+    link.send({ t: 'hello', v: 1, seat: duel.seat, engine: engineId(), lib: libHash });
+    if (duel.seat === 'B') duelPing();
+    $('duelShare').hidden = true;
+    toast('Connected to your friend');
+    duelUI();
+  };
+  link.onclose = () => { if (!duel) return; duel.state = 'disconnected'; duel.live = false; toast('Your friend disconnected'); duelUI(); };
+  link.onmessage = onDuelMessage;
+}
+async function challenge(kind = 'rtc') {
+  const id = newDuelId();
+  rollWind();
+  startDuelCommon('A', id);
+  duel.state = 'making the link…';
+  duelUI();
+  if (kind === 'local') {
+    wireLink(localLink(id, 'A'));
+    showDuelLink(duelUrl({ duel: id, net: 'local' }), 'Open this link in another tab of this browser.');
+    return;
+  }
+  try {
+    const link = await hostRtc(id);
+    wireLink(link);
+    duel.state = 'waiting for your friend';
+    showDuelLink(duelUrl({ duel: id, offer: link.offer }), 'Send this link to your friend. When they send you their reply link, open it in this browser (or paste it below).');
+  } catch (e) { duel.state = 'could not start: ' + e.message; }
+  duelUI();
+}
+async function acceptChallenge(id, offer, net) {
+  startDuelCommon('B', id);
+  if (net === 'local') { wireLink(localLink(id, 'B')); duelUI(); return; }
+  try {
+    duel.state = 'answering…';
+    duelUI();
+    const link = await joinRtc(offer);
+    wireLink(link);
+    duel.state = 'waiting for your friend to open your reply';
+    showDuelLink(`${location.origin}/sao-paulo/ballistics/?duel=${id}&answer=${link.answer}`, 'Send this reply link back to your friend: the duel starts when they open it.');
+  } catch (e) { duel.state = 'could not answer: ' + e.message; }
+  duelUI();
+}
+function showDuelLink(url, note) {
+  $('duelShare').hidden = false;
+  $('duelLink').value = url;
+  $('duelNote').textContent = note;
+  $('duelPaste').hidden = duel.seat !== 'A' || duel.link?.kind !== 'rtc';
+}
+function endDuel() {
+  duel?.link?.close?.();
+  duel = null;
+  lockForDuel(false);
+  $('duelShare').hidden = true;
+  S.tgt = 'plate';
+  retireAll(); shot = null;
+  syncUI(); changed(true); refresh();
+  duelUI();
+}
+// Clock: the challenger's is the duel's. The friend pings; the reply with
+// the shortest round trip sets the offset (half the trip each way).
+function duelPing() { duel.lastPing = performance.now(); duel.link.send({ t: 'ping', a: performance.now() / 1000 }); }
+function onDuelMessage(m) {
+  if (!duel) return;
+  const L = duel.link;
+  if (m.t === 'hello') {
+    if (m.engine !== engineId() || m.lib !== libHash) toast('Your friend runs another version of the range: reload both pages');
+    return;
+  }
+  if (m.t === 'ping' && duel.seat === 'A') { L.send({ t: 'pong', a: m.a, h: duelNow() }); return; }
+  if (m.t === 'pong' && duel.seat === 'B') {
+    const b = performance.now() / 1000, rtt = b - m.a;
+    if (rtt < duel.best) { duel.best = rtt; duel.offset = m.h + rtt / 2 - b; }
+    duel.rtt = rtt;
+    duel.pings = (duel.pings ?? 0) + 1;
+    if (duel.pings === 5 && !duel.live) L.send({ t: 'ready' });
+    return;
+  }
+  if (m.t === 'ready' && duel.seat === 'A') { goLive(duelNow() + 5); L.send({ t: 'start', at: duel.startAt }); return; }
+  if (m.t === 'start' && duel.seat === 'B') { goLive(m.at); return; }
+  if (m.t === 'shot') { fireRemote(m); return; }
+  if (m.t === 'outcome') { checkOutcome(m); return; }
+  if (m.t === 'rematch') { rematch(false); return; }
+}
+function goLive(at) {
+  duel.live = true;
+  duel.startAt = at;
+  tNow = duelNow();
+  duelUI();
+  banner('Duel', `${fmtDist(S.dist)} · fire at will in ${Math.round(at - tNow)} s`);
+}
+function duelFrame() {
+  if (duel.seat === 'B' && duel.link?.open && performance.now() - duel.lastPing > (duel.live ? 3000 : 250)) duelPing();
+  if (Math.floor(performance.now() / 250) !== duel.uiTick) { duel.uiTick = Math.floor(performance.now() / 250); duelUI(); }
+}
+// My shot leaves: tell the other browser exactly what left the muzzle.
+function duelSent(sh) {
+  const k = ++duel.sent;
+  sh.k = k;
+  duel.mine.set(k, sh);
+  duel.link.send({ t: 'shot', k, c: sh.S.c, el: sh.el, az: sh.az, t0: sh.t0 });
+}
+// The other shooter's round, flown here from their muzzle at the far end
+// toward mine: the same call, so the same round as in their browser.
+function fireRemote(m) {
+  if (!duel || duel.theirs.has(m.k)) return;
+  const k = cartIndex(m.c);
+  if (k < 0) return;
+  const r = raw.rifles.find((x) => x.id === RIFLE_FOR[m.c]);
+  station();
+  B.bd_setup(r ? r.twist_in * IN * (r.twist_direction === 'left' ? -1 : 1) : 0, S.lat * DEG, (S.spin ? 1 : 0) | (S.earth ? 2 : 0));
+  B.wind(S.az * DEG, trueLayers());
+  const o = enu(S.dist, 0, 0);
+  const id = B.bd_fire(k, o[0], o[1], o[2], m.az, m.el, m.t0);
+  if (!id) return;
+  let t = m.t0, rr = B.round();
+  while (!rr.stopped && t - m.t0 < 25) {
+    t += 0.05;
+    B.bd_advance(t, 0);
+    rr = B.round();
+    const l = lof(rr.position);
+    if (l.d < -1 && l.u < -BENCH) break;
+    if (l.d < -(S.dist * 0.6 + 50)) break;
+  }
+  const tEnd = rr.time;
+  const toMe = (tt) => lof(B.stateAt(tt).position).d;  // my distance from it: 0 at my muzzle
+  const bisect = (f, a, b) => { for (let i = 0; i < 60; ++i) { const c = 0.5 * (a + b); if (f(c)) b = c; else a = c; } return 0.5 * (a + b); };
+  let tTarget = toMe(tEnd) <= 0 ? bisect((tt) => toMe(tt) <= 0, m.t0, tEnd) : null;
+  let hit = false, part = null, impact = null, pass = null;
+  if (tTarget !== null) {
+    const p = lof(B.stateAt(tTarget).position);
+    // In their frame right is my left; the figure is symmetric, so the test is the same.
+    if (p.u > -BENCH) {
+      part = figurePart(-p.r, p.u);
+      hit = part !== null;
+      impact = { right: p.r, up: p.u - FIGURE.head.z };  // as I see it
+      const st = B.stateAt(tTarget), a = B.air(st.position[0], st.position[1], st.position[2], tTarget);
+      pass = { miss: Math.hypot(p.r, p.u - FIGURE.head.z), mach: Math.hypot(st.velocity[0] - a.wind[0], st.velocity[1] - a.wind[1], st.velocity[2] - a.wind[2]) / a.speedOfSound };
+    } else tTarget = null;
+  }
+  let tGround = null;
+  if (!hit) { const below = (tt) => B.stateAt(tt).position[2] <= -BENCH; if (below(tEnd)) tGround = bisect(below, m.t0, tEnd); }
+  const mesh = new THREE.Group(), body = new THREE.Group();
+  body.name = 'body';
+  mesh.add(body);
+  makeBullet(m.c, mesh, body);
+  scene.add(mesh);
+  const air = B.air(0, 0, 0, m.t0);
+  const sh = { id, remote: true, k: m.k, S: { ...structuredClone(S), c: m.c }, t0: m.t0, tEnd, tTarget, tGround, tStop: hit ? tTarget : tGround ?? (tTarget ?? tEnd),
+    hit, part, impact, pass, mesh, body, len: mesh.userData.length, done: false, doneWall: 0, left: false, heard: false, reportDelay: S.dist / air.speedOfSound };
+  shots.push(sh);
+  duel.theirs.set(m.k, sh);
+  if (shots.length > 40) retire(shots.find((x) => x !== shot));
+  // Back to my rifle in the engine.
+  setup(false);
+  if (duel.pendingOutcome?.has(m.k)) checkOutcome(duel.pendingOutcome.get(m.k));
+}
+// Both browsers flew it; the shooter's says what it found, the other checks.
+function checkOutcome(m) {
+  const sh = duel.theirs.get(m.k);
+  if (!sh) { (duel.pendingOutcome ??= new Map()).set(m.k, m); return; }
+  if (sh.hit !== m.hit || sh.part !== m.part) { duel.mismatch = true; toast(`Our two browsers disagree about shot ${m.k}: please report it`); }
+}
+function score(seatName, part) {
+  duel.score[seatName] += part === 'head' ? 2 : 1;
+  if (duel.score[seatName] >= DUEL_TO) duel.over = true;
+}
+// A round ends its flight: score it the same way in both browsers.
+function duelArrive(sh) {
+  if (S.tgt !== 'duel') return false;
+  const ceaseFrom = (x) => { duel.ceaseUntil = Math.max(duel.ceaseUntil, x.tStop + CEASE); duel.last = x; };
+  if (!sh.remote) {
+    duel.link?.send({ t: 'outcome', k: sh.k, hit: sh.hit, part: sh.part });
+    if (sh.hit) {
+      score(duel.seat, sh.part);
+      ceaseFrom(sh);
+      ping(); tick();
+      const m = $('hitmark'); m.classList.remove('on', 'kill'); void m.offsetWidth; m.classList.add('on', 'kill');
+      banner(sh.part === 'head' ? 'Headshot' : 'Hit', duel.over ? 'you win the duel · K for the killcam' : `your friend's ${sh.part} · K for the killcam`);
+    } else if (sh.impact) {
+      banner('Miss', `${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'} of the head`);
+      impacts.push({ right: sh.impact.right, up: sh.impact.up, hit: false }); if (impacts.length > 6) impacts.shift();
+    } else banner('Miss', 'short of your friend');
+    duelUI();
+    return true;
+  }
+  // Theirs, at me.
+  if (sh.hit) {
+    score(duel.seat === 'A' ? 'B' : 'A', sh.part);
+    ceaseFrom(sh);
+    noiseBurst(0.3, 500, 0.6);
+    $('hurt').classList.remove('on'); void $('hurt').offsetWidth; $('hurt').classList.add('on');
+    banner(sh.part === 'head' ? 'Headshot' : 'You are hit', duel.over ? 'your friend wins the duel · K for the killcam' : `in the ${sh.part} · K to see it`);
+  } else if (sh.pass) {
+    // A supersonic round passing close cracks; a subsonic one only hisses.
+    if (sh.pass.miss < 4) noiseBurst(sh.pass.mach > 1 ? 0.06 : 0.25, sh.pass.mach > 1 ? 5200 : 1800, sh.pass.mach > 1 ? 0.7 : 0.15, 1.5);
+    banner(sh.pass.mach > 1 && sh.pass.miss < 4 ? 'Snap' : 'Incoming', `${fmtLen(sh.pass.miss)} from your head (${Math.abs(sh.impact.right) > Math.abs(sh.impact.up) ? (sh.impact.right > 0 ? 'right' : 'left') : sh.impact.up > 0 ? 'high' : 'low'})`);
+  } else banner('Incoming', 'it landed short of you');
+  duelUI();
+  return true;
+}
+// K: the last hit again, in bullet time, from behind the round.
+function killcam() {
+  // The last hit, or else my last round.
+  const sh = duel?.last ?? shot;
+  if (!duel || !sh || duel.replay) return;
+  duel.replay = sh;
+  tNow = sh.t0;
+  auto = true;
+  setCam('bullet');
+}
+function endKillcam() {
+  duel.replay = null;
+  auto = false;
+  tNow = duel.live ? duelNow() : tNow;
+  setCam('scope');
+}
+function rematch(tell) {
+  duel.score = { A: 0, B: 0 };
+  duel.over = false;
+  duel.ceaseUntil = 0;
+  duel.startAt = duelNow() + 5;
+  if (tell) duel.link?.send({ t: 'rematch' });
+  banner('Rematch', 'fire at will in 5 s');
+  duelUI();
+}
+$('bDuel').onclick = () => challenge(Q.get('net') === 'local' ? 'local' : 'rtc');
+$('bDuelEnd').onclick = () => endDuel();
+$('duelLink').onfocus = (e) => e.target.select();
+$('bRematch').onclick = () => rematch(true);
+$('bDuelCopy').onclick = async () => { try { await navigator.clipboard.writeText($('duelLink').value); toast('Link copied'); } catch { $('duelLink').select(); } };
+$('bDuelShare').onclick = async () => { try { await navigator.share({ title: 'Sniper duel', text: 'A sniper duel on the São Paulo World range', url: $('duelLink').value }); } catch { $('bDuelCopy').click(); } };
+$('duelReply').onchange = async (e) => {
+  const v = e.target.value.trim(), code = v.includes('answer=') ? new URL(v, location.origin).searchParams.get('answer') : v;
+  if (duel?.link?.accept && code && (await duel.link.accept(code).catch(() => false))) toast('Connecting…'); else toast('That is not a reply to this duel');
+};
+
 // ---------- Start ----------
 presetsUI();
 syncUI();
@@ -2096,8 +2549,18 @@ dope = solveDope();
 dopeUI();
 $('loading').remove();
 requestAnimationFrame(frame);
-if (autoFire) setTimeout(fireNow, 300);
+if (Q.has('duel') && Q.has('answer')) {
+  // A reply link: hand the answer to the duel tab in this browser.
+  deliverAnswer(Q.get('duel'), Q.get('answer')).then((ok) => {
+    $('duelShare').hidden = false;
+    $('duelLink').value = '';
+    $('duelNote').textContent = ok ? 'Your friend is connecting: go back to your duel tab.' : 'No duel tab took this reply. Open it in the browser where you made the challenge, or paste it into that tab.';
+    banner(ok ? 'Reply delivered' : 'Reply not delivered', ok ? 'go back to your duel tab' : 'open it in the browser with the duel');
+  });
+} else if (Q.has('duel')) acceptChallenge(Q.get('duel').replace(/[^0-9a-f]/g, '').slice(0, 24), Q.get('offer') || '', Q.get('net') || 'rtc');
+else if (autoFire) setTimeout(fireNow, 300);
+duelUI();
 // The Glass engine (for the V8's windscreen) loads in the background.
 setTimeout(() => ensureGlass().catch(() => {}), 1500);
 // For the browser console: the engine and the current shot.
-window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
+window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, get duel() { return duel; }, challenge, killcam, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
