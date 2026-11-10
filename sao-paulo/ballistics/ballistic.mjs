@@ -32,6 +32,9 @@ export default async function createBallisticModule(wasmBytes) {
   const ex = instance.exports;
   memory = ex.memory;
   ex._initialize?.();
+  // A view of memory at a pointer an export returned. The export runs first:
+  // if it grew the memory, the buffer read before it would be detached.
+  const view = (T, ptr, n) => new T(memory.buffer, ptr, n);
   const B = { ...Object.fromEntries(Object.entries(ex).filter(([k]) => k.startsWith('bd_'))) };
   const enc = new TextEncoder(), dec = new TextDecoder();
   B.text = (ptr) => {
@@ -42,7 +45,7 @@ export default async function createBallisticModule(wasmBytes) {
   // Loads a JSON library document; returns the error strings (empty when fine).
   B.load = (json) => {
     const b = enc.encode(json);
-    new Uint8Array(memory.buffer, ex.bd_text(b.length + 1), b.length).set(b);
+    view(Uint8Array, ex.bd_text(b.length + 1), b.length).set(b);
     ex.bd_load(b.length);
     const n = ex.bd_resolve();
     const errors = [];
@@ -52,7 +55,7 @@ export default async function createBallisticModule(wasmBytes) {
   B.catalog = () => JSON.parse(B.text(ex.bd_catalog()));
   // {pressure, temperature, density, speedOfSound, relativeHumidity, densityAltitude, wind: [e, n, u]}
   B.air = (x, y, z, t = 0) => {
-    const a = new Float64Array(memory.buffer, ex.bd_air(x, y, z, t), 9);
+    const a = view(Float64Array, ex.bd_air(x, y, z, t), 9);
     return { pressure: a[0], temperature: a[1], density: a[2], speedOfSound: a[3], relativeHumidity: a[4],
       densityAltitude: a[5], wind: [a[6], a[7], a[8]] };
   };
@@ -60,12 +63,12 @@ export default async function createBallisticModule(wasmBytes) {
   B.determinism = () => B.text(ex.bd_determinism()).split(' ');
   // Wind layers along the line of fire: [{fromRange, speed, fromBearing, gust}], rad and m/s.
   B.wind = (azimuth, layers) => {
-    const v = new Float64Array(memory.buffer, ex.bd_text(layers.length * 32 + 1), layers.length * 4);
+    const v = view(Float64Array, ex.bd_text(layers.length * 32 + 1), layers.length * 4);
     layers.forEach((l, i) => v.set([l.fromRange ?? 0, l.speed ?? 0, l.fromBearing ?? 0, l.gust ?? 0], 4 * i));
     ex.bd_wind(azimuth, layers.length);
   };
   B.round = () => {
-    const a = new Float64Array(memory.buffer, ex.bd_round(), 16);
+    const a = view(Float64Array, ex.bd_round(), 16);
     return { time: a[0], position: [a[1], a[2], a[3]], velocity: [a[4], a[5], a[6]], stopped: a[7] !== 0,
       spin: a[8], roll: a[9], stability: a[10], tumbling: a[11] !== 0, jump: a[12], minStability: a[13],
       transonicStart: a[14], subsonicTime: a[15] };
@@ -76,10 +79,16 @@ export default async function createBallisticModule(wasmBytes) {
     const a = new Float32Array(memory.buffer, p + 4, n * 7).slice();
     return a;
   };
-  B.noseAt = (t) => Array.from(new Float64Array(memory.buffer, ex.bd_nose_at(t), 3));
+  // Milestone 4: the last round's draw, and the spread of impacts at a range.
+  B.lastDraw = () => { const a = view(Float64Array, ex.bd_last_draw(), 5); return { speed: a[0], velocityOffset: a[1], bcFactor: a[2], up: a[3], right: a[4] }; };
+  B.spread = (cartridge, zeroRange, sightHeight, range, azimuth = 0) => {
+    const a = view(Float64Array, ex.bd_spread(cartridge, zeroRange, sightHeight, range, azimuth), 5);
+    return { vertical: a[0], horizontal: a[1], fromVelocity: a[2], fromBc: a[3], fromBarrel: a[4] };
+  };
+  B.noseAt = (t) => Array.from(view(Float64Array, ex.bd_nose_at(t), 3));
   // Bullet time: the round at any engine time it has already flown, smooth between steps.
   B.stateAt = (t) => {
-    const a = new Float64Array(memory.buffer, ex.bd_state_at(t), 9);
+    const a = view(Float64Array, ex.bd_state_at(t), 9);
     return { time: a[0], position: [a[1], a[2], a[3]], velocity: [a[4], a[5], a[6]], spin: a[7], roll: a[8] };
   };
   // [{range, drop, windage, time, speed, energy, mach, stability}] (SI)

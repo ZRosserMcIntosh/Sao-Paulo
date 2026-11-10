@@ -234,7 +234,8 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   <div class="slider"><span>Firing toward</span><b id="vAz"></b><input id="az" type="range" min="0" max="359" step="1" aria-label="Direction of fire"></div>
   <label class="check"><input type="checkbox" id="fSpin" checked> Spin: stability, spin drift, aerodynamic jump</label>
   <label class="check"><input type="checkbox" id="fEarth" checked> Earth's rotation: Coriolis and Eötvös</label>
-  <label class="check"><input type="checkbox" id="fSolver" checked> My dope accounts for spin and Coriolis</label>
+  <label class="check"><input type="checkbox" id="fUnique" checked> Every round unique: velocity spread, powder temperature, BC, the rifle's own group</label>
+  <label class="check"><input type="checkbox" id="fSolver" checked> My dope accounts for spin, Coriolis and the powder's temperature</label>
 
   <button id="fire" title="Fire with your dope (Space)">Fire</button>
   <p class="note" id="zeroNote">The rifle is zeroed at 100 m. The elevation from your dope is dialled; the wind is held on the reticle.</p>
@@ -248,6 +249,7 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   <h2>What moved it <small>at the target</small></h2>
   <div class="bars" id="bars"></div>
   <h2>Dope card <small id="dopeWhat"></small></h2>
+  <p class="note" id="spreadInfo"></p>
   <table class="dope" id="dope"></table>
 </aside>
 
@@ -295,7 +297,7 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
       <li><b>The Earth:</b> Coriolis (right in the northern hemisphere, left in the southern) and Eötvös (a round fired east rises, one fired west drops).</li>
     </ul>
     <h3>Honest limits</h3>
-    <p>Every round of a load is the same round: muzzle-velocity spread, powder temperature and group size come in the next milestone, so the temperature here changes the air, not the powder. Spin-drift coefficients are estimated per bullet class and land within about 20 % of Litz's measured formula. Transonic dynamic instability is not modelled yet. The range is flat. Full details on the <a href="how/" style="color:var(--ice)">How it works</a> page.</p>
+    <p>With <b>Every round unique</b> on, each round draws its own muzzle velocity, ballistic coefficient and barrel throw (from the load's spread and the rifle's group, all estimated figures) and the powder sits at the air's temperature; the rifle was zeroed at the published velocity, so cold ammunition hits low. Under the dope card: how far the rounds scatter at the target and your chance of a hit with a perfect wind call. Off, every round of a load is the same round. Spin-drift coefficients are estimated per bullet class and land within about 20 % of Litz's measured formula. Transonic dynamic instability is not modelled yet. The range is flat. Full details on the <a href="how/" style="color:var(--ice)">How it works</a> page.</p>
   </div>
 </div>
 

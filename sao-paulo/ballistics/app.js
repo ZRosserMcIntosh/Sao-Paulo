@@ -216,7 +216,8 @@ const SCENARIOS = [
 const S = structuredClone(SCENARIOS[0].s);
 S.zero = 100;
 Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen', markers: store.get('markers', 'hits'), tracer: store.get('tracer', 'off'), tracerToImpact: store.get('tracerToImpact', true),
-  scope: store.get('scope', 'own'), aim: store.get('aim', 'assist'), hint: store.get('hint', true), turret: { el: 0, wd: 0 }, hold: { up: 0, right: 0 } });
+  scope: store.get('scope', 'own'), aim: store.get('aim', 'assist'), hint: store.get('hint', true), turret: { el: 0, wd: 0 }, hold: { up: 0, right: 0 },
+  unique: store.get('unique', true), seedNext: null });
 let metric = store.get('metric', true);
 // The duel (see the Duel section): null when shooting alone. Seat A is the
 // challenger at the range's origin, seat B the friend at the far end, facing
@@ -246,7 +247,8 @@ let autoFire = false;
     const v = Q.get('cw').split(',').map(Number);
     if (v.length === 2 && v.every(Number.isFinite)) { S.callTrue = false; S.call = layer(v[0], v[1]); } else S.callTrue = true;
   }
-  if (Q.has('f')) { const f = Q.get('f'); S.spin = f.includes('s'); S.earth = f.includes('e'); S.solver = f.includes('k'); }
+  if (Q.has('f')) { const f = Q.get('f'); S.spin = f.includes('s'); S.earth = f.includes('e'); S.solver = f.includes('k'); S.unique = f.includes('u'); }
+  if (Q.has('sd') && Q.has('sk')) { const sd = Number(Q.get('sd')), sk = Number(Q.get('sk')); if (Number.isSafeInteger(sd) && Number.isSafeInteger(sk) && sd > 0 && sk >= 0) S.seedNext = { seed: sd, stream: sk }; }
   if (Q.get('tg') === 'v8') S.tgt = 'v8';
   if (Q.has('sc') && Q.get('sc') in SCOPES) S.scope = Q.get('sc');
   if (Q.get('am') === 'm') {
@@ -272,12 +274,41 @@ const sightHeight = () => (rifleRaw(S.c)?.sight_height_in ?? 1.5) * IN;
 const twist = () => { const r = rifleRaw(S.c); return r ? r.twist_in * IN * (r.twist_direction === 'left' ? -1 : 1) : 0; };
 
 function station() { B.bd_station(isaPressure(S.alt), S.temp + 273.15, S.rh / 100, S.alt); }
+// Every round unique (the engine's Milestone 4). The ammunition is at the
+// air's temperature (it has sat out on the bench); the rifle was zeroed at
+// the published velocity, so cold powder hits low and hot powder high. The
+// dope knows the powder's temperature when "my dope accounts for…" is on (a
+// shooter with a chronograph or a temperature table).
+const powderK = () => (S.unique ? S.temp + 273.15 : 0);
+const groupOf = (cid) => (S.unique ? rifleRaw(cid)?.group_moa ?? 0 : 0);
 function setup(forDope) {
   let f = 0;
   if (S.spin && (!forDope || S.solver)) f |= 1;
   if (S.earth && (!forDope || S.solver)) f |= 2;
   B.bd_setup(twist(), S.lat * DEG, f);
+  B.bd_powder(forDope && !S.solver ? 0 : powderK());
+  B.bd_group(groupOf(S.c));
 }
+// Each round's draw: its own stream of a seed. A shared link replays its
+// shot's (seed, stream); in a duel both browsers use the shooter's.
+const sessionSeed = Number(crypto.getRandomValues(new Uint32Array(1))[0]) * 1024 + 1;
+let streamCount = 0;
+function nextSeed() {
+  if (!S.unique) return null;
+  if (S.seedNext) { const x = S.seedNext; S.seedNext = null; return x; }
+  if (duel) return { seed: duel.seed, stream: (duel.seat === 'A' ? 1 : 2) * 1e6 + duel.sent + 1 };
+  return { seed: sessionSeed, stream: ++streamCount };
+}
+// The chance that a round lands inside a centred w x h box, or a circle of
+// radius r, for normal spreads sh (across) and sv (vertical): perfect call.
+function erf(x) {  // Abramowitz and Stegun 7.1.26, to 1.5e-7
+  const t = 1 / (1 + 0.3275911 * Math.abs(x)), y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return x >= 0 ? y : -y;
+}
+const chanceBox = (w, h, sh, sv) => erf(w / 2 / (Math.SQRT2 * sh)) * erf(h / 2 / (Math.SQRT2 * sv));
+const chanceCircle = (r, sh, sv) => 1 - Math.exp(-(r * r) / (2 * sh * sv));
+// My last shots at these settings, for the group they make.
+let groupLog = [];
 const trueLayers = () => {
   const n = S.same ? 1 : 3;
   return S.layers.slice(0, n).map((L, i) => ({ fromRange: (i * S.dist) / 3, speed: L.spd * KMH, fromBearing: (S.az + L.clock * 30) * DEG, gust: L.gust * KMH }));
@@ -327,21 +358,25 @@ function solveDope() {
   // The target's own row, when the steps pass it by (1 mile, 2 miles).
   if (at && !rows.some((r) => Math.abs(r.range - S.dist) < 0.5)) { rows.push(at); rows.sort((a, b) => a.range - b.range); }
   const hold = at && at.range > 0 ? { up: -at.drop / S.dist, right: -at.windage / S.dist } : { up: 0, right: 0 };
-  return { rows, hold };
+  // How far apart the rounds land at the target (with this dope's powder).
+  const spread = S.unique ? B.spread(ci(), zero(), sightHeight(), S.dist, myAzDeg() * DEG) : null;
+  return { rows, hold, spread };
 }
 
 // What each effect does at the target, from separate flights in the true air.
 // Each flown at the shot's own moment (t0), so the wind bars meet the same
 // gusts the round did.
 function breakdown(t0) {
-  const at = (flags, wind) => {
+  const at = (flags, wind, powder = powderK()) => {
     station();
     B.bd_setup(twist(), S.lat * DEG, flags);
+    B.bd_powder(powder);
     B.wind(S.az * DEG, wind ? trueLayers() : []);
     return B.table(ci(), zero(), sightHeight(), S.dist, S.dist, myAzDeg() * DEG, t0).at(-1) ?? { drop: 0, windage: 0 };
   };
   const base = at(0, false), wind = at(0, true);
   const out = [{ k: 'Gravity & drag', up: base.drop, right: 0 }, { k: 'Wind', up: wind.drop - base.drop, right: wind.windage }];
+  if (powderK()) out.push({ k: 'Powder temp', up: base.drop - at(0, false, 0).drop, right: 0 });
   if (S.spin) {
     const spin = at(1, false), spinWind = at(1, true);
     out.push({ k: 'Spin drift', up: spin.drop - base.drop, right: spin.windage });
@@ -452,7 +487,9 @@ function fire(tFire) {
   const e0 = B.bd_zero(ci(), zero(), sightHeight());
   const aim = shotHold(dope);
   const el = e0 + aim.up, az = myAzDeg() * DEG + aim.right, o = enu(0, 0, 0);
-  const id = Number.isFinite(e0) ? B.bd_fire(ci(), o[0], o[1], o[2], az, el, tFire) : 0;
+  const seed = Number.isFinite(e0) ? nextSeed() : null;
+  const id = !Number.isFinite(e0) ? 0 : seed ? B.bd_fire_round(ci(), o[0], o[1], o[2], az, el, tFire, seed.seed, seed.stream) : B.bd_fire(ci(), o[0], o[1], o[2], az, el, tFire);
+  const draw = id ? B.lastDraw() : null;
   if (!id) { toast('This load cannot reach the zero.'); return null; }
   // Fly to the target plane, then on to the ground.
   const t0 = tFire;
@@ -502,7 +539,7 @@ function fire(tFire) {
   mesh.visible = true;
   scene.add(mesh);
   shot = {
-    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az,
+    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az, seed, draw,
     part: S.tgt === 'duel' && hit && atT ? figurePart(lof(atT.position).r, lof(atT.position).u) : null,
     round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
     mesh, body: mesh.getObjectByName('body'), len: bullet.userData.length, done: false, doneWall: 0, left: false,
@@ -1068,6 +1105,7 @@ function drumTable() {
   if (drumCache[key]) return drumCache[key];
   B.bd_station(99992, 288.15, 0.5, 0);
   B.bd_setup(twist(), 0, 0);
+  B.bd_powder(0);  // the tables' normal conditions: the published velocity
   B.wind(0, []);
   const el = [0, 0];
   for (const r of B.table(ci(), zero(), sightHeight(), 1300, 100, 0)) if (r.range > 0) el[Math.round(r.range / 100)] = -r.drop / r.range;
@@ -1507,7 +1545,7 @@ function syncUI() {
   $('lat').value = S.lat; $('az').value = S.az;
   $('sameWind').checked = S.same; $('callTrue').checked = S.callTrue; $('callBox').hidden = S.callTrue;
   $('callSpd').value = S.call.spd; $('callDir').value = S.call.clock;
-  $('fSpin').checked = S.spin; $('fEarth').checked = S.earth; $('fSolver').checked = S.solver;
+  $('fSpin').checked = S.spin; $('fEarth').checked = S.earth; $('fSolver').checked = S.solver; $('fUnique').checked = S.unique;
   $('bUnits').textContent = metric ? 'Metric' : 'Imperial';
   layersUI();
   labels();
@@ -1558,6 +1596,13 @@ function refresh() {
 }
 function dopeUI() {
   turretUI();
+  const sp = dope?.spread, el = $('spreadInfo');
+  if (!sp || !(sp.vertical > 0)) el.textContent = S.unique ? '' : 'Every round the same: switch on "Every round unique" for their spread.';
+  else {
+    const what = S.tgt === 'plate' ? `hit chance on this plate ${Math.round(100 * chanceBox(S.size, S.size, sp.horizontal, sp.vertical))} %`
+      : S.tgt === 'duel' ? `a head at this range ${Math.round(100 * chanceCircle(FIGURE.head.r, sp.horizontal, sp.vertical))} % of the time` : '';
+    el.textContent = `Rounds scatter ${fmtLen(sp.vertical)} up and down, ${fmtLen(sp.horizontal)} across (1 SD) at the target${what ? ': ' + what : ''}, if the wind call is right.`;
+  }
   const t = $('dope');
   const sc = scopeOf(), u = sc.unit;
   const plain = sc.mode === 'hold' && sc.kind !== 'acog';
@@ -1629,6 +1674,16 @@ function resultsUI() {
   }
   if (sh.glass && sh.glass.onGlass) kv.push(['Glass Dynamics', `${sh.glass.outcome} · struck at ${(90 - Math.abs(sh.glass.pitch) / DEG).toFixed(0)}° to the glass`]);
   kv.push(['Muzzle', `${fmtV(sh.muzzleSpeed)} · Mach ${(sh.muzzleSpeed / sh.air.speedOfSound).toFixed(2)}`]);
+  if (sh.draw && sh.seed) {
+    const d = sh.draw, dv = d.velocityOffset, sc = scopeOf();
+    const dvs = metric ? `${Math.abs(dv).toFixed(1)} m/s` : `${(Math.abs(dv) / FT).toFixed(0)} ft/s`;
+    kv.push(['This round', `${dv >= 0 ? '+' : '−'}${dvs} · BC ${d.bcFactor >= 1 ? '+' : '−'}${(Math.abs(d.bcFactor - 1) * 100).toFixed(1)} % · barrel ${fmtU(d.up, sc)} ${d.up >= 0 ? 'up' : 'down'}, ${fmtU(d.right, sc)} ${d.right >= 0 ? 'R' : 'L'}`]);
+  }
+  if (groupLog.length >= 2) {
+    let es = 0;
+    for (let i = 0; i < groupLog.length; ++i) for (let j = i + 1; j < groupLog.length; ++j) es = Math.max(es, Math.hypot(groupLog[i].right - groupLog[j].right, groupLog[i].up - groupLog[j].up));
+    kv.push([`Group, last ${groupLog.length}`, `${fmtLen(es)} · ${(es / S.dist / MOA).toFixed(2)} MOA`]);
+  }
   // Muzzle to target (not the flight on past it).
   const tUntil = (sh.tTarget ?? sh.tStop) - sh.t0;
   if (S.spin) {
@@ -1648,7 +1703,7 @@ function resultsUI() {
   // A real scope runs out of elevation long before 2 miles: say so when the dope asks for more.
   if (sh.S.aim !== 'manual' && scopeOf().mode === 'dial' && Math.abs(sh.aim.up) > 0.03)
     kv.push(['Turret', `${fmtU(sh.aim.up)}: past most scopes' ~30 mil of travel (a canted base and holdover)`]);
-  kv.push(['Air', `${fmtT(S.temp)} · ${(isaPressure(S.alt) / 100).toFixed(0)} hPa · DA ${fmtAlt(sh.air.densityAltitude)}`]);
+  kv.push(['Air', `${fmtT(S.temp)} · ${(isaPressure(S.alt) / 100).toFixed(0)} hPa · DA ${fmtAlt(sh.air.densityAltitude)}${S.unique ? ' · powder at the air' : ''}`]);
   $('kv').innerHTML = kv.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   // What moved it.
   const all = sh.bars.flatMap((b) => [Math.abs(b.up), Math.abs(b.right)]);
@@ -1719,7 +1774,16 @@ function banner(a, b) { $('bTitle').textContent = a; $('bSub').textContent = b; 
 const RIFLE_CYCLE = { m24_sws: 1.2, bolt_65cm: 1.2, bolt_338lm: 1.4, m200_408: 1.6, m9130_pu: 1.3, m107_50bmg: 0.25, svd_pso1: 0.2, m16a2: 0.12, pistol_9mm: 0.12,
   glock_17: 0.12, colt_1911: 0.15, sw_686: 0.3, fn_fiveseven: 0.12, mp5a3: 60 / 800, fn_p90: 60 / 900, thompson_m1a1: 60 / 700 };
 // A round arrives: the plate rings and swings, the glass breaks, the dust flies.
+function logGroup(sh) {
+  if (sh.remote || !sh.impact) return;
+  const key = `${sh.S.c}|${sh.S.dist}|${zero()}|${sh.S.aim}`;
+  if (groupLog.key !== key) { groupLog = []; groupLog.key = key; }
+  groupLog.push({ right: sh.impact.right, up: sh.impact.up });
+  if (groupLog.length > 5) groupLog.shift();
+  if (sh === shot) resultsUI();
+}
 function arrive(sh) {
+  logGroup(sh);
   if (duel && duelArrive(sh)) return;
   const T = sh.S;
   hitFeedback(sh);
@@ -1894,6 +1958,7 @@ $('callDir').oninput = (e) => { S.call.clock = +e.target.value; changed(); };
 $('fSpin').onchange = (e) => { S.spin = e.target.checked; changed(); };
 $('fEarth').onchange = (e) => { S.earth = e.target.checked; changed(); };
 $('fSolver').onchange = (e) => { S.solver = e.target.checked; changed(); };
+$('fUnique').onchange = (e) => { S.unique = e.target.checked; store.set('unique', S.unique); changed(); };
 $('fire').onclick = () => fireNow();
 $('bReplay').onclick = () => { if (duel) { killcam(); return; } if (!shot) return; retireAll(shot); tNow = shot.t0; shot.done = false; shot.left = false; plate.rotation.x = 0; if (auto) setCam('bullet'); };
 $('bAuto').onclick = () => { auto = !auto; $('bAuto').setAttribute('aria-pressed', String(auto)); };
@@ -1908,7 +1973,8 @@ function shareUrl(sh, absolute = true) {
   const q = new URLSearchParams({ c: X.c, d: X.dist, sz: X.size, t: X.temp, a: X.alt, h: X.rh, lat: X.lat, az: X.az,
     w: (X.same ? X.layers.slice(0, 1) : X.layers).map((l) => [l.spd, l.clock, l.gust].join(',')).join(';'),
     cw: X.callTrue ? 'true' : [X.call.spd, X.call.clock].join(','),
-    f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : ''), zr: X.zero ?? defaultZero(X.c), ts: sh ? sh.t0 : X.t0, fire: 1 });
+    f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : '') + (X.unique ? 'u' : ''), zr: X.zero ?? defaultZero(X.c), ts: sh ? sh.t0 : X.t0, fire: 1 });
+  if (sh?.seed) { q.set('sd', String(sh.seed.seed)); q.set('sk', String(sh.seed.stream)); }
   if (X.tgt === 'dummy') { q.set('tg', 'dummy'); q.set('gz', X.glazing); }
   if (X.tgt === 'v8') q.set('tg', 'v8');
   if (S.tracer !== 'off') q.set('tr', S.tracer + (S.tracerToImpact ? '' : '.real'));
@@ -2293,7 +2359,7 @@ function duelUI() {
   $('bMic').setAttribute('aria-pressed', String(!!duel.micOn));
 }
 function startDuelCommon(seatName, id) {
-  duel = { id, seat: seatName, link: null, live: false, epoch: performance.now() / 1000, offset: 0, rtt: null, startAt: Infinity, ceaseUntil: 0,
+  duel = { id, seed: parseInt(id.slice(0, 12), 16) + 1, seat: seatName, link: null, live: false, epoch: performance.now() / 1000, offset: 0, rtt: null, startAt: Infinity, ceaseUntil: 0,
     score: { A: 0, B: 0 }, over: false, sent: 0, mine: new Map(), theirs: new Map(), state: 'connecting', replay: null, last: null, lastPing: 0, best: Infinity };
   S.tgt = 'duel'; S.callTrue = false; S.call = layer(0, 12);
   auto = false; $('bAuto').setAttribute('aria-pressed', 'false');
@@ -2427,7 +2493,7 @@ function duelSent(sh) {
   const k = ++duel.sent;
   sh.k = k;
   duel.mine.set(k, sh);
-  duel.link.send({ t: 'shot', k, c: sh.S.c, el: sh.el, az: sh.az, t0: sh.t0 });
+  duel.link.send({ t: 'shot', k, c: sh.S.c, el: sh.el, az: sh.az, t0: sh.t0, ...(sh.seed ? { seed: sh.seed.seed, stream: sh.seed.stream } : {}) });
 }
 // The other shooter's round, flown here from their muzzle at the far end
 // toward mine: the same call, so the same round as in their browser.
@@ -2438,9 +2504,13 @@ function fireRemote(m) {
   const r = raw.rifles.find((x) => x.id === RIFLE_FOR[m.c]);
   station();
   B.bd_setup(r ? r.twist_in * IN * (r.twist_direction === 'left' ? -1 : 1) : 0, S.lat * DEG, (S.spin ? 1 : 0) | (S.earth ? 2 : 0));
+  // Their round's own draw: their rifle's group, the powder at this air (a
+  // shot without a seed is a round of the published load).
+  B.bd_powder(m.seed ? S.temp + 273.15 : 0);
+  B.bd_group(m.seed ? r?.group_moa ?? 0 : 0);
   B.wind(S.az * DEG, trueLayers());
   const o = enu(S.dist, 0, 0);
-  const id = B.bd_fire(k, o[0], o[1], o[2], m.az, m.el, m.t0);
+  const id = m.seed ? B.bd_fire_round(k, o[0], o[1], o[2], m.az, m.el, m.t0, m.seed, m.stream) : B.bd_fire(k, o[0], o[1], o[2], m.az, m.el, m.t0);
   if (!id) return;
   let t = m.t0, rr = B.round();
   while (!rr.stopped && t - m.t0 < 25) {
