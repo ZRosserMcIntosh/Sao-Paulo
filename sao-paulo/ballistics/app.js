@@ -220,8 +220,9 @@ const S = structuredClone(SCENARIOS[0].s);
 S.zero = 100;
 Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen', markers: store.get('markers', 'hits'), tracer: store.get('tracer', 'off'), tracerToImpact: store.get('tracerToImpact', true),
   scope: store.get('scope', 'own'), aim: store.get('aim', 'assist'), hint: store.get('hint', true), turret: { el: 0, wd: 0 }, hold: { up: 0, right: 0 },
-  unique: store.get('unique', true), seedNext: null });
+  unique: store.get('unique', true), seedNext: null, position: store.get('position', 'bench') });
 let metric = store.get('metric', true);
+let pendingSway = null;
 // The duel (see the Duel section): null when shooting alone. Seat A is the
 // challenger at the range's origin, seat B the friend at the far end, facing
 // back down the same range; each draws the range from their own seat.
@@ -266,6 +267,8 @@ let autoFire = false;
     S.tracer = c in TRACER_COLOURS ? c : 'off';
     S.tracerToImpact = burn !== 'real';
   }
+  if (['bench', 'prone', 'sling', 'sitting', 'kneeling', 'standing'].includes(Q.get('ps'))) S.position = Q.get('ps');
+  if (Q.has('sw')) { const v = Q.get('sw').split(',').map(Number); if (v.length === 2 && v.every(Number.isFinite)) pendingSway = { up: v[0] / 1e7, right: v[1] / 1e7 }; }
   if (Q.has('hm')) S.markers = ['off', 'hits', 'all'].includes(Q.get('hm')) ? Q.get('hm') : 'hits';
   if (Q.get('tg') === 'dummy') { S.tgt = 'dummy'; S.glazing = (Q.get('gz') || 'windscreen').replace(/[^a-z0-9_]/g, ''); }
   autoFire = Q.has('fire');
@@ -509,7 +512,11 @@ function fire(tFire) {
   setup(false);
   B.wind(S.az * DEG, trueLayers());
   const e0 = B.bd_zero(ci(), zero(), sightHeight());
-  const aim = shotHold(dope);
+  // The shot leaves where the wobble has the crosshair at that instant.
+  const sway = swayNow();
+  fixedSway = null;
+  const aim0 = shotHold(dope), aim = { up: aim0.up + sway.up, right: aim0.right + sway.right };
+  { const pr = projRaw(S.c), mom = pr.mass_gr * 6.479891e-5 * cat.cartridges[ci()].muzzleVelocity; lastShotWall = nowWall; lastShotKick = Math.min(0.03, 0.0012 * mom * positionOf().recoil); }
   const el = e0 + aim.up, az = myAzDeg() * DEG + aim.right, o = enu(0, 0, 0);
   const seed = Number.isFinite(e0) ? nextSeed() : null;
   const id = !Number.isFinite(e0) ? 0 : seed ? B.bd_fire_round(ci(), o[0], o[1], o[2], az, el, tFire, seed.seed, seed.stream) : B.bd_fire(ci(), o[0], o[1], o[2], az, el, tFire);
@@ -572,7 +579,7 @@ function fire(tFire) {
   mesh.visible = true;
   scene.add(mesh);
   shot = {
-    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az, seed, draw, line,
+    id, S: structuredClone(S), dope, aim, sway, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az, seed, draw, line,
     part: S.tgt === 'duel' && hit && atT ? figurePart(lof(atT.position).r, lof(atT.position).u) : null,
     round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
     mesh, body: mesh.getObjectByName('body'), len: bullet.userData.length, done: false, doneWall: 0, left: false,
@@ -1342,11 +1349,71 @@ function resetAim() {
 }
 // Where the scope looks (the crosshair, from the target's centre), and the
 // angles the shot leaves at (from the zero).
+// ---------- The shooter: position, wobble, breath, pulse, recoil ----------
+// Nobody holds a rifle still. The crosshair wanders over a wobble area set
+// by the position, rises and falls with the breath, and jumps with the
+// pulse; the shot leaves wherever it is at that instant. Figures (1 SD of
+// the wobble, the breath's swing and the pulse's kick, in MOA) are estimated
+// from marksmanship manuals' wobble areas: a benched rifle is nearly still,
+// a good prone shooter holds about 1 MOA, standing 6 to 10.
+const POSITIONS = {
+  bench: { name: 'Bench rest', sway: 0.06, breath: 0.25, pulse: 0.03, recoil: 0.5 },
+  prone: { name: 'Prone, bipod and rear bag', sway: 0.3, breath: 1.2, pulse: 0.12, recoil: 0.8 },
+  sling: { name: 'Prone, sling', sway: 0.7, breath: 2.5, pulse: 0.25, recoil: 1 },
+  sitting: { name: 'Sitting', sway: 1.8, breath: 3.5, pulse: 0.45, recoil: 1.2 },
+  kneeling: { name: 'Kneeling', sway: 3.0, breath: 5, pulse: 0.6, recoil: 1.4 },
+  standing: { name: 'Standing, offhand', sway: 6.5, breath: 7, pulse: 0.9, recoil: 1.8 },
+};
+const positionOf = () => POSITIONS[duel ? 'prone' : S.position] ?? POSITIONS.bench;
+// Breath: in and out every 4 s. Holding it (Shift, or the button) settles
+// the rifle at the natural pause and steadies the wobble for about 6 s; held
+// longer the wobble grows as the oxygen runs down, and at 12 s you must
+// breathe. Air comes back at half the rate it was spent.
+const breath = { holding: false, held: 0, debt: 0, level: 0, phase: 0, lastT: 0, gasp: 0 };
+let fixedSway = null;      // a shared link's shot: the wobble it left with
+let lastShotWall = -1e9, lastShotKick = 0;
+function updateShooter(wall) {
+  const dt = Math.min(0.1, Math.max(0, wall - breath.lastT));
+  breath.lastT = wall;
+  const want = breath.holding && breath.gasp <= 0 && breath.held < 12;
+  if (want) { breath.held += dt; breath.debt = Math.min(12, breath.debt + dt); }
+  else {
+    if (breath.holding && breath.held >= 12) breath.gasp = 2.5;  // out of air
+    breath.held = 0;
+    breath.debt = Math.max(0, breath.debt - dt * 0.5);
+    breath.gasp = Math.max(0, breath.gasp - dt);
+    breath.phase += (dt / (breath.debt > 6 ? 2.2 : 4)) * 2 * Math.PI;  // breathing harder after a long hold
+  }
+  // The breath's swing eases out when held, and back in after.
+  breath.level += ((want ? 0 : 1) - breath.level) * Math.min(1, dt * (want ? 5 : 2.5));
+}
+function swayNow(wall = nowWall) {
+  if (fixedSway) return fixedSway;
+  const P = positionOf(), t = wall;
+  // A wander of three slow sines an axis (RMS 1), a faster tremor on top.
+  const wx = (Math.sin(t * 1.93 + 1.1) + Math.sin(t * 3.17 + 4.2) * 0.7 + Math.sin(t * 6.4 + 2.2) * 0.35) / 0.93;
+  const wy = (Math.sin(t * 2.31 + 0.4) + Math.sin(t * 3.77 + 5.6) * 0.7 + Math.sin(t * 7.1 + 0.9) * 0.35) / 0.93;
+  // Steadier while the breath is held, worse once the air runs down.
+  const steady = (breath.holding && breath.held > 0 && breath.held < 12 ? 0.55 : 1) * (1 + Math.max(0, breath.debt - 6) * 0.45) * (breath.gasp > 0 ? 2 : 1);
+  const b = Math.sin(breath.phase) * P.breath * breath.level * (breath.debt > 6 ? 1.4 : 1);
+  // The pulse: 66 beats a minute at rest, a short kick up and a little left.
+  const beat = (t * (1.1 + breath.debt * 0.03)) % 1, kick = Math.exp(-beat * 9) * Math.sin(beat * 30);
+  return { up: (wy * P.sway * steady + b + kick * P.pulse) * MOA, right: (wx * P.sway * steady * 1.15 - kick * P.pulse * 0.4) * MOA };
+}
+// Recoil, as the scope shows it: the muzzle jumps and settles (the look
+// only: the round has left). A third of a mil per kg m/s of the bullet's
+// momentum at the bench, more in less steady positions (estimated).
+function recoilNow(wall = nowWall) {
+  const t = wall - lastShotWall;
+  if (t < 0 || t > 1.5) return 0;
+  return lastShotKick * Math.exp(-t / 0.16) * Math.cos(t * 9);
+}
 function sightHold() {
-  if (S.aim === 'manual') return S.hold;
-  if (!dope) return { up: 0, right: 0 };
+  const sw = swayNow(), rc = recoilNow();
+  if (S.aim === 'manual') return { up: S.hold.up + sw.up + rc, right: S.hold.right + sw.right };
+  if (!dope) return { up: sw.up + rc, right: sw.right };
   const p = plan(dope.hold);
-  return { up: p.holdUp, right: p.holdRight };
+  return { up: p.holdUp + sw.up + rc, right: p.holdRight + sw.right };
 }
 const shotHold = (d) => (S.aim === 'manual' ? { up: turretUp() + S.hold.up, right: turretRight() + S.hold.right } : d.hold);
 // A value in the scope's unit, to its click: quarter MOA shows two decimals.
@@ -1433,6 +1500,16 @@ function drawReticle(dope) {
     } else line = `${head}   dialled ${dope.hold.up >= 0 ? 'up' : 'down'} ${fmtU(dope.hold.up)}   hold ${wd}`;
   }
   if (line) rg.fillText(line, cx, cy + R0 + 20 * dpr);
+  // The breath: a bar that empties while it is held (amber when the air runs down).
+  if (positionOf() !== POSITIONS.bench || breath.holding) {
+    const w0 = 120 * dpr, x0 = cx - w0 / 2, y0 = cy + R0 + 30 * dpr, left = Math.max(0, 1 - breath.debt / 12);
+    rg.fillStyle = 'rgba(255,255,255,0.18)'; rg.fillRect(x0, y0, w0, 4 * dpr);
+    rg.fillStyle = breath.gasp > 0 ? '#ef5d4f' : breath.debt > 6 ? '#f0b43a' : breath.holding ? '#36c483' : 'rgba(231,236,242,0.7)';
+    rg.fillRect(x0, y0, w0 * left, 4 * dpr);
+    rg.fillStyle = 'rgba(231,236,242,0.8)';
+    rg.font = `600 ${10 * dpr}px "JetBrains Mono", monospace`;
+    rg.fillText(breath.gasp > 0 ? 'out of breath' : breath.holding ? 'holding your breath' : 'hold Shift to hold your breath', cx, y0 + 16 * dpr);
+  }
   rg.textAlign = 'start';
 }
 // Iron sights, as the eye sees them with the front sight in focus: the rear
@@ -1730,6 +1807,7 @@ function syncUI() {
   $('markers').value = S.markers;
   $('tracer').value = S.tracer;
   $('tracerToImpact').checked = S.tracerToImpact;
+  $('position').value = duel ? 'prone' : S.position; $('position').disabled = !!duel;
   $('scope').value = S.scope; $('aim').value = S.aim; $('hint').checked = S.hint;
   $('manualBox').hidden = S.aim !== 'manual';
   turretUI();
@@ -2185,6 +2263,8 @@ function shareUrl(sh, absolute = true) {
     q.set('tu', `${X.turret.el},${X.turret.wd}`);
     q.set('ho', `${Math.round(X.hold.up * 1e6)},${Math.round(X.hold.right * 1e6)}`);
   }
+  if (X.position && X.position !== 'bench') q.set('ps', X.position);
+  if (sh?.sway) q.set('sw', `${Math.round(sh.sway.up * 1e7)},${Math.round(sh.sway.right * 1e7)}`);
   return `${absolute ? location.origin : ''}/sao-paulo/ballistics/?${q}`;
 }
 $('bShare').onclick = async () => {
@@ -2209,6 +2289,17 @@ const tabs = { tLab: 'lab', tRes: 'res' };
 for (const [t, p] of Object.entries(tabs)) $(t).onclick = () => { for (const [u, q] of Object.entries(tabs)) { $(q).hidden = u !== t; $(u).setAttribute('aria-pressed', String(u === t)); } $('tabs').classList.remove('closed'); };
 $('tHide').onclick = () => { $('lab').hidden = $('res').hidden = true; $('tabs').classList.add('closed'); };
 if (window.innerWidth <= 860) $('res').hidden = true;
+window.addEventListener('keydown', (e) => { if (e.key === 'Shift') breath.holding = true; });
+window.addEventListener('keyup', (e) => { if (e.key === 'Shift') breath.holding = false; });
+window.addEventListener('blur', () => { breath.holding = false; });
+{
+  const bb = $('bBreath');
+  bb.addEventListener('pointerdown', (e) => { e.preventDefault(); breath.holding = true; bb.setAttribute('aria-pressed', 'true'); });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) bb.addEventListener(ev, () => { breath.holding = false; bb.setAttribute('aria-pressed', 'false'); });
+  const ps = $('position');
+  for (const [k, v] of Object.entries(POSITIONS)) { const o = document.createElement('option'); o.value = k; o.textContent = `${v.name} · wobble ${v.sway < 1 ? v.sway.toFixed(2) : v.sway.toFixed(1)} MOA`; ps.appendChild(o); }
+  ps.onchange = (e) => { S.position = e.target.value; store.set('position', S.position); };
+}
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat || AUTOMATIC.has(RIFLE_FOR[S.c])) fireNow(); }
@@ -2325,6 +2416,7 @@ function frame(now) {
   const tEngine = tNow;
   updateFlags(tNow, wall);
   mirage.uniforms.t.value = wall;
+  updateShooter(wall);
   // Mirage: stronger in heat and still air, leaning with the crosswind at the target.
   {
     const pTarget = enu(S.dist * 0.7, 0, -BENCH + 0.5);
@@ -2399,7 +2491,8 @@ function frame(now) {
     scopeCam.fov = scopeCamFov();
     scopeCam.position.set(0, sightHeight(), 0);
     const ah = sightHold();
-    scopeCam.lookAt(ah.right * D, sightHeight() + ah.up * D, -D);
+    // The angles as the bore turns by them (not their tangents: 0.3 mil of difference at 100 mil).
+    scopeCam.lookAt(Math.sin(ah.right) * Math.cos(ah.up) * D, sightHeight() + Math.sin(ah.up) * D, -Math.cos(ah.right) * Math.cos(ah.up) * D);
     scopeCam.updateProjectionMatrix();
     // The mirage in this view: its angle over the view's height, its cells at their size in the sky.
     mirage.uniforms.amp.value = mirageAngle / (scopeCam.fov * DEG);
@@ -2864,9 +2957,9 @@ if (Q.has('duel') && Q.has('answer')) {
     banner(ok ? 'Reply delivered' : 'Reply not delivered', ok ? 'go back to your duel tab' : 'open it in the browser with the duel');
   });
 } else if (Q.has('duel')) acceptChallenge(Q.get('duel').replace(/[^0-9a-f]/g, '').slice(0, 24), Q.get('offer') || '', Q.get('net') || 'rtc');
-else if (autoFire) setTimeout(fireNow, 300);
+else if (autoFire) setTimeout(() => { fixedSway = pendingSway; tNow = S.t0; fireNow(); }, 300);  // at the shot's own instant: the same gusts
 duelUI();
 // The Glass engine (for the V8's windscreen) loads in the background.
 setTimeout(() => ensureGlass().catch(() => {}), 1500);
 // For the browser console: the engine and the current shot.
-window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, get duel() { return duel; }, challenge, killcam, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
+window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, sway: () => swayNow(), shareUrl, get duel() { return duel; }, challenge, killcam, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
