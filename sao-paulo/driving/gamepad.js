@@ -88,7 +88,7 @@ export class GamePad {
     [this.lx, this.ly] = this.stick(ax(0), ax(1));
     [this.rx, this.ry] = this.stick(ax(2), ax(3));
     const val = (i) => cur.buttons[i]?.value ?? 0;
-    this.lt = val(BTN.LT); this.rt = val(BTN.RT);
+    this.lt = this.trigger(val(BTN.LT)); this.rt = this.trigger(val(BTN.RT));
     return true;
   }
 
@@ -99,6 +99,10 @@ export class GamePad {
     const k = Math.min(1, (m - d) / (1 - d)) / m;
     return [x * k, y * k];
   }
+  // Triggers are analog (part throttle, trail braking): a small dead zone at rest so a trigger
+  // that never quite returns to 0 does not drag the brakes, and full travel a little before the
+  // stop so full throttle is easy to hold.
+  trigger(v) { return Math.max(0, Math.min(1, (v - 0.04) / 0.92)); }
   // Steering from the left stick (+ = left, as the physics wants): the curve gives finer control
   // near the centre and the full lock at full deflection.
   steer() { const x = this.lx; return -Math.sign(x) * Math.pow(Math.abs(x), this.curve); }
