@@ -5,6 +5,7 @@
 // reads input: every drop, drift, spin and wobble comes from the core.
 import * as THREE from 'three';
 import createBallisticModule from './ballistic.mjs';
+import { hostRtc, joinRtc, deliverAnswer, localLink, meetLink, newDuelId, pack as packDuel, unpack as unpackDuel } from './duel-net.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -13,12 +14,26 @@ const store = {
 };
 
 const DEG = Math.PI / 180, IN = 0.0254, YD = 0.9144, FT = 0.3048, KMH = 1 / 3.6, MPH = 0.44704;
-const ZERO = 100;          // m: every rifle is zeroed at 100 m
+// The zero: rifles at 100 m; pistols at 25 m and sub-machine guns at 50 m
+// (the P90 and its reflex sight at 100 m), the distances their sights are
+// usually set for. The shooter can change it.
+const ZERO_FOR = { pistol_9mm: 25, glock_17: 25, colt_1911: 25, sw_686: 25, fn_fiveseven: 25, mp5a3: 50, thompson_m1a1: 50, fn_p90: 100 };
+const ZEROS = [10, 15, 25, 50, 100, 200, 300];
+const defaultZero = (cid) => ZERO_FOR[RIFLE_FOR[cid]] ?? 100;
+const zero = () => S.zero ?? defaultZero(S.c);
 const BENCH = 1.2;         // m: the muzzle over the ground (a bench)
 const SCALES = [[1, '1×'], [0.1, '1/10'], [0.01, '1/100'], [1e-3, '1/1k']];
 const RIFLE_FOR = { fgmm_308_175: 'm24_sws', hornady_65cm_140: 'bolt_65cm', lapua_338lm_250: 'bolt_338lm',
   hornady_50bmg_750: 'm107_50bmg', federal_xm855: 'm16a2', speer_9mm_124gd: 'pistol_9mm',
-  cheytac_408_419: 'm200_408', hornady_65cm_147: 'bolt_65cm', ussr_762x54r_l: 'm9130_pu', ussr_762x54r_7n1: 'svd_pso1' };
+  cheytac_408_419: 'm200_408', hornady_65cm_147: 'bolt_65cm', ussr_762x54r_l: 'm9130_pu', ussr_762x54r_7n1: 'svd_pso1',
+  federal_9mm_115_fmj: 'glock_17', federal_9mm_124_fmj: 'glock_17', mp5_9mm_124_fmj: 'mp5a3', federal_45acp_230_fmj: 'colt_1911',
+  thompson_45acp_230: 'thompson_m1a1', federal_357mag_158_jsp: 'sw_686', fn_57_ss197sr: 'fn_fiveseven', fn_57_ss197sr_p90: 'fn_p90' };
+// What kind of gun: it sets the sights, the zero and the model on the bench.
+const HANDGUNS = new Set(['pistol_9mm', 'glock_17', 'colt_1911', 'sw_686', 'fn_fiveseven']);
+const SMGS = new Set(['mp5a3', 'fn_p90', 'thompson_m1a1']);
+// Fully automatic: holding Space keeps firing at the gun's cyclic rate.
+const AUTOMATIC = new Set(['mp5a3', 'fn_p90', 'thompson_m1a1']);
+const gunClass = (cid = S.c) => (HANDGUNS.has(RIFLE_FOR[cid]) ? 'handgun' : SMGS.has(RIFLE_FOR[cid]) ? 'smg' : 'rifle');
 // The scopes. Any of them goes on any rifle; by default each rifle wears its
 // own (the Mosin the PU, the SVD the PSO-1, the rest a mil scope). The Soviet
 // scopes are fixed power with a range drum in hundreds of metres, and read
@@ -31,13 +46,25 @@ const THOU = (2 * Math.PI) / 6000, MOA = Math.PI / 10800;
 // bullet-drop marks). The ACOG: Trijicon TA31 class, 4x32, 7 deg field
 // (published); its clicks are estimated at 1/4 MOA.
 const SCOPES = {
-  mil: { kind: 'mil', mode: 'dial', name: 'Mil-dot', unit: 1e-3, unitName: 'mil', click: 1e-4 },
-  moa: { kind: 'moa', mode: 'dial', name: 'MOA', unit: MOA, unitName: 'MOA', click: MOA / 4 },
+  // Travel and a turn of the turret: typical of 3-32x long-range scopes
+  // (estimated): about 30 mil (100 MOA) of elevation, 10 mil (35 MOA) of
+  // windage each way, 10 mil or 15 MOA a turn.
+  mil: { kind: 'mil', mode: 'dial', name: 'Mil-dot', unit: 1e-3, unitName: 'mil', click: 1e-4, travel: 0.030, wTravel: 0.010, rev: 0.010 },
+  moa: { kind: 'moa', mode: 'dial', name: 'MOA', unit: MOA, unitName: 'MOA', click: MOA / 4, travel: 100 * MOA, wTravel: 35 * MOA, rev: 15 * MOA },
   acog: { kind: 'acog', mode: 'hold', name: 'ACOG', mag: 4, fov: 7, unit: MOA, unitName: 'MOA', click: MOA / 4 },
   pso1: { kind: 'pso1', mode: 'drum', name: 'PSO-1', mag: 4, fov: 6, drumMax: 10, unit: THOU, unitName: 'thousandths', click: THOU / 2 },
   pu: { kind: 'pu', mode: 'drum', name: 'PU', mag: 3.5, fov: 4.5, drumMax: 13, unit: THOU, unitName: 'thousandths', click: THOU / 2 },
+  // No magnification and no tube: the eye's own view, the sight drawn over
+  // it. Irons: a square post in a square notch, the target sitting on the
+  // post (the post covers about 1.1 deg; the notch shows a little light each
+  // side, estimated from service pistols). Red dot: a 2 MOA dot (as common
+  // pistol and carbine dots). Field shown: 20 deg (a reading of the scene,
+  // not a property of the sight).
+  iron: { kind: 'iron', mode: 'hold', name: 'Iron sights', mag: 1, fov: 20, tube: false, unit: MOA, unitName: 'MOA', click: MOA },
+  dot: { kind: 'dot', mode: 'hold', name: 'Red dot', mag: 1, fov: 20, tube: false, unit: MOA, unitName: 'MOA', click: MOA },
 };
-const RIFLE_SCOPE = { m9130_pu: 'pu', svd_pso1: 'pso1', m16a2: 'acog' };
+const RIFLE_SCOPE = { m9130_pu: 'pu', svd_pso1: 'pso1', m16a2: 'acog', pistol_9mm: 'iron', glock_17: 'iron', colt_1911: 'iron', sw_686: 'iron',
+  fn_fiveseven: 'iron', mp5a3: 'iron', thompson_m1a1: 'iron', fn_p90: 'dot' };
 const scopeKey = () => (S.scope && S.scope !== 'own' ? S.scope : RIFLE_SCOPE[RIFLE_FOR[S.c]] ?? 'mil');
 const scopeOf = () => SCOPES[scopeKey()];
 // Tracers: the colour is the shooter's choice; the trace lights a little way
@@ -45,7 +72,8 @@ const scopeOf = () => SCOPES[scopeKey()];
 // (published, RWS datasheet); the rest estimated.
 const TRACER_COLOURS = { red: 0xff3a24, green: 0x5dff4a, orange: 0xff9a1f, yellow: 0xffe14a, white: 0xf4f1ff };
 const TRACER_BURNOUT = { m855_224_62: 800, eldm_264_140: 900, eldm_264_147: 900, smk_308_175: 800, l_762x54r_148: 1000,
-  '7n1_762x54r_151': 1000, scenar_338_250: 1000, cheytac_408_419: 1200, amax_510_750: 1600, gdhp_355_124: 250 };
+  '7n1_762x54r_151': 1000, scenar_338_250: 1000, cheytac_408_419: 1200, amax_510_750: 1600, gdhp_355_124: 250,
+  fmj_355_115: 200, fmj_355_124: 200, fmj_452_230: 200, jsp_357_158: 200, vmax_224_40_57: 300 };
 const tracerBurnout = (p) => TRACER_BURNOUT[p.id] ?? 1000;
 const TRACER_LIGHTS = 30;  // m: where the trace becomes visible (M62: 13 to 140 m)
 
@@ -59,6 +87,7 @@ try {
   if (errs.length) throw new Error(errs.join('; '));
   cat = B.catalog();
   raw = JSON.parse(text);
+  Object.defineProperty(raw, '__text', { value: text });
 } catch (e) {
   $('loadMsg').textContent = 'Could not start the ballistics engine in this browser: ' + e.message;
   throw e;
@@ -131,6 +160,9 @@ const SCENARIOS = [
   { id: 'dummy', name: 'Through a windscreen', sub: '.308 at 600 m · the dummy behind it', feature: true,
     s: { c: 'fgmm_308_175', dist: 600, size: 0.5, temp: 22, alt: 760, rh: 60, lat: -23.55, az: 0, tgt: 'dummy', glazing: 'windscreen',
       same: true, layers: [layer(8, 3, 1), layer(8, 3, 1), layer(8, 3, 1)], callTrue: true, call: layer(8, 3) } },
+  { id: 'line', name: 'The dummy line', sub: '.308 · a dummy every 50 m, glass before, behind or none', feature: true,
+    s: { c: 'fgmm_308_175', dist: 300, size: 0.5, temp: 24, alt: 760, rh: 55, lat: -23.55, az: 0, tgt: 'line',
+      same: true, layers: [layer(6, 3, 1), layer(6, 3, 1), layer(6, 3, 1)], callTrue: true, call: layer(6, 3) } },
   { id: 'v8', name: 'The armoured V8', sub: '.338 at 800 m · dummy at the wheel', feature: true,
     s: { c: 'lapua_338lm_250', dist: 800, size: 0.5, temp: 24, alt: 760, rh: 55, lat: -23.55, az: 0, tgt: 'v8',
       same: true, layers: [layer(6, 3, 1), layer(6, 3, 1), layer(6, 3, 1)], callTrue: true, call: layer(6, 3) } },
@@ -152,14 +184,55 @@ const SCENARIOS = [
   { id: 'm855', name: '600 m', sub: '5.56 M855 · M16A2',
     s: { c: 'federal_xm855', dist: 600, size: 0.5, temp: 25, alt: 0, rh: 50, lat: -23.55, az: 0,
       same: true, layers: [layer(15, 4, 4), layer(15, 4, 4), layer(15, 4, 4)], callTrue: true, call: layer(15, 4) } },
-  { id: '9mm', name: '100 m', sub: '9 mm · pistol',
-    s: { c: 'speer_9mm_124gd', dist: 100, size: 0.3, temp: 22, alt: 0, rh: 50, lat: -23.55, az: 0,
+  // Pistols and sub-machine guns (the second group of buttons).
+  { id: 'g17_7', short: true, feature: true, name: '7 m', sub: 'Glock 17 · 9 mm · it hits low up close',
+    s: { c: 'federal_9mm_124_fmj', zero: 25, dist: 7, size: 0.15, temp: 24, alt: 760, rh: 60, lat: -23.55, az: 0,
+      same: true, layers: [layer(5, 3, 1), layer(5, 3, 1), layer(5, 3, 1)], callTrue: true, call: layer(5, 3) } },
+  { id: 'g17_25', short: true, feature: true, name: '25 m', sub: 'Glock 17 · on the zero',
+    s: { c: 'federal_9mm_124_fmj', zero: 25, dist: 25, size: 0.15, temp: 24, alt: 760, rh: 60, lat: -23.55, az: 0,
+      same: true, layers: [layer(8, 3, 2), layer(8, 3, 2), layer(8, 3, 2)], callTrue: true, call: layer(8, 3) } },
+  { id: '1911_50', short: true, feature: true, name: '50 m', sub: '1911 · .45 ACP · left-hand twist',
+    s: { c: 'federal_45acp_230_fmj', zero: 25, dist: 50, size: 0.2, temp: 20, alt: 0, rh: 50, lat: 40.7, az: 0,
+      same: true, layers: [layer(12, 9, 2), layer(12, 9, 2), layer(12, 9, 2)], callTrue: true, call: layer(12, 9) } },
+  { id: '686_50', short: true, name: '50 m', sub: '.357 Magnum · S&W 686 revolver',
+    s: { c: 'federal_357mag_158_jsp', zero: 25, dist: 50, size: 0.2, temp: 22, alt: 0, rh: 50, lat: -23.55, az: 0,
+      same: true, layers: [layer(10, 3, 2), layer(10, 3, 2), layer(10, 3, 2)], callTrue: true, call: layer(10, 3) } },
+  { id: '57_100', short: true, name: '100 m', sub: 'Five-seveN · 5.7 mm · flat for a pistol',
+    s: { c: 'fn_57_ss197sr', zero: 25, dist: 100, size: 0.25, temp: 22, alt: 0, rh: 50, lat: -23.55, az: 0,
+      same: true, layers: [layer(10, 3, 2), layer(10, 3, 2), layer(10, 3, 2)], callTrue: true, call: layer(10, 3) } },
+  { id: 'g17_200', short: true, feature: true, name: '200 m', sub: 'Glock 17 · the pistol rainbow',
+    s: { c: 'federal_9mm_124_fmj', zero: 25, dist: 200, size: 0.5, temp: 24, alt: 760, rh: 60, lat: -23.55, az: 0,
+      same: true, layers: [layer(8, 3, 1), layer(8, 3, 1), layer(8, 3, 1)], callTrue: true, call: layer(8, 3) } },
+  { id: 'mp5_100', short: true, feature: true, name: '100 m', sub: 'MP5 · 9 mm · hold Space for full auto',
+    s: { c: 'mp5_9mm_124_fmj', zero: 50, dist: 100, size: 0.3, temp: 22, alt: 760, rh: 60, lat: -23.55, az: 0,
+      same: true, layers: [layer(10, 3, 3), layer(10, 3, 3), layer(10, 3, 3)], callTrue: true, call: layer(10, 3) } },
+  { id: 'p90_150', short: true, feature: true, name: '150 m', sub: 'P90 · 5.7 mm · red dot',
+    s: { c: 'fn_57_ss197sr_p90', zero: 100, dist: 150, size: 0.3, temp: 22, alt: 0, rh: 50, lat: 50.6, az: 90,
+      same: true, layers: [layer(15, 4, 3), layer(15, 4, 3), layer(15, 4, 3)], callTrue: true, call: layer(15, 4) } },
+  { id: 'tommy_100', short: true, name: '100 m', sub: 'Thompson · .45 ACP · the slow heavy ball',
+    s: { c: 'thompson_45acp_230', zero: 50, dist: 100, size: 0.4, temp: 10, alt: 0, rh: 70, lat: 49.3, az: 180,
+      same: true, layers: [layer(15, 3, 3), layer(15, 3, 3), layer(15, 3, 3)], callTrue: true, call: layer(15, 3) } },
+  { id: '9mm', short: true, name: '100 m', sub: '9 mm Gold Dot · service pistol',
+    s: { c: 'speer_9mm_124gd', zero: 25, dist: 100, size: 0.3, temp: 22, alt: 0, rh: 50, lat: -23.55, az: 0,
       same: true, layers: [layer(8, 3, 2), layer(8, 3, 2), layer(8, 3, 2)], callTrue: true, call: layer(8, 3) } },
 ];
 const S = structuredClone(SCENARIOS[0].s);
+S.zero = 100;
 Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen', markers: store.get('markers', 'hits'), tracer: store.get('tracer', 'off'), tracerToImpact: store.get('tracerToImpact', true),
-  scope: store.get('scope', 'own'), aim: store.get('aim', 'assist'), hint: store.get('hint', true), turret: { el: 0, wd: 0 }, hold: { up: 0, right: 0 } });
+  scope: store.get('scope', 'own'), aim: store.get('aim', 'assist'), hint: store.get('hint', true), turret: { el: 0, wd: 0 }, hold: { up: 0, right: 0 },
+  unique: store.get('unique', true), seedNext: null, position: store.get('position', 'bench') });
 let metric = store.get('metric', true);
+let pendingSway = null;
+// The duel (see the Duel section): null when shooting alone. Seat A is the
+// challenger at the range's origin, seat B the friend at the far end, facing
+// back down the same range; each draws the range from their own seat.
+let duel = null;
+const seat = () => (duel ? duel.seat : 'A');
+const myAzDeg = () => S.az + (seat() === 'B' ? 180 : 0);
+// Where the other shooter is, to my right of the range's axis (m): the same
+// number from both ends. 0 unless the duel hides you both.
+const oppRight = () => duel?.lat ?? 0;
+const hunting = () => !!duel?.hunt;
 
 // From the URL: a shared shot.
 const Q = new URLSearchParams(location.search);
@@ -170,6 +243,7 @@ let autoFire = false;
   if (cartIndex(Q.get('c')) >= 0) S.c = Q.get('c');
   S.dist = n('d', S.dist); S.size = n('sz', S.size); S.temp = n('t', S.temp); S.alt = n('a', S.alt); S.rh = n('h', S.rh);
   S.lat = n('lat', S.lat); S.az = n('az', S.az); S.t0 = n('ts', S.t0);
+  S.zero = Q.has('zr') && ZEROS.includes(+Q.get('zr')) ? +Q.get('zr') : defaultZero(S.c);
   if (Q.has('w')) {
     const ls = Q.get('w').split(';').map((x) => x.split(',').map(Number));
     if (ls.length >= 1 && ls.every((l) => l.length === 3 && l.every(Number.isFinite))) {
@@ -181,8 +255,10 @@ let autoFire = false;
     const v = Q.get('cw').split(',').map(Number);
     if (v.length === 2 && v.every(Number.isFinite)) { S.callTrue = false; S.call = layer(v[0], v[1]); } else S.callTrue = true;
   }
-  if (Q.has('f')) { const f = Q.get('f'); S.spin = f.includes('s'); S.earth = f.includes('e'); S.solver = f.includes('k'); }
+  if (Q.has('f')) { const f = Q.get('f'); S.spin = f.includes('s'); S.earth = f.includes('e'); S.solver = f.includes('k'); S.unique = f.includes('u'); }
+  if (Q.has('sd') && Q.has('sk')) { const sd = Number(Q.get('sd')), sk = Number(Q.get('sk')); if (Number.isSafeInteger(sd) && Number.isSafeInteger(sk) && sd > 0 && sk >= 0) S.seedNext = { seed: sd, stream: sk }; }
   if (Q.get('tg') === 'v8') S.tgt = 'v8';
+  if (Q.get('tg') === 'line') S.tgt = 'line';
   if (Q.has('sc') && Q.get('sc') in SCOPES) S.scope = Q.get('sc');
   if (Q.get('am') === 'm') {
     S.aim = 'manual';
@@ -195,6 +271,8 @@ let autoFire = false;
     S.tracer = c in TRACER_COLOURS ? c : 'off';
     S.tracerToImpact = burn !== 'real';
   }
+  if (['bench', 'prone', 'sling', 'sitting', 'kneeling', 'standing'].includes(Q.get('ps'))) S.position = Q.get('ps');
+  if (Q.has('sw')) { const v = Q.get('sw').split(',').map(Number); if (v.length === 2 && v.every(Number.isFinite)) pendingSway = { up: v[0] / 1e7, right: v[1] / 1e7 }; }
   if (Q.has('hm')) S.markers = ['off', 'hits', 'all'].includes(Q.get('hm')) ? Q.get('hm') : 'hits';
   if (Q.get('tg') === 'dummy') { S.tgt = 'dummy'; S.glazing = (Q.get('gz') || 'windscreen').replace(/[^a-z0-9_]/g, ''); }
   autoFire = Q.has('fire');
@@ -207,12 +285,41 @@ const sightHeight = () => (rifleRaw(S.c)?.sight_height_in ?? 1.5) * IN;
 const twist = () => { const r = rifleRaw(S.c); return r ? r.twist_in * IN * (r.twist_direction === 'left' ? -1 : 1) : 0; };
 
 function station() { B.bd_station(isaPressure(S.alt), S.temp + 273.15, S.rh / 100, S.alt); }
+// Every round unique (the engine's Milestone 4). The ammunition is at the
+// air's temperature (it has sat out on the bench); the rifle was zeroed at
+// the published velocity, so cold powder hits low and hot powder high. The
+// dope knows the powder's temperature when "my dope accounts for…" is on (a
+// shooter with a chronograph or a temperature table).
+const powderK = () => (S.unique ? S.temp + 273.15 : 0);
+const groupOf = (cid) => (S.unique ? rifleRaw(cid)?.group_moa ?? 0 : 0);
 function setup(forDope) {
   let f = 0;
   if (S.spin && (!forDope || S.solver)) f |= 1;
   if (S.earth && (!forDope || S.solver)) f |= 2;
   B.bd_setup(twist(), S.lat * DEG, f);
+  B.bd_powder(forDope && !S.solver ? 0 : powderK());
+  B.bd_group(groupOf(S.c));
 }
+// Each round's draw: its own stream of a seed. A shared link replays its
+// shot's (seed, stream); in a duel both browsers use the shooter's.
+const sessionSeed = Number(crypto.getRandomValues(new Uint32Array(1))[0]) * 1024 + 1;
+let streamCount = 0;
+function nextSeed() {
+  if (!S.unique) return null;
+  if (S.seedNext) { const x = S.seedNext; S.seedNext = null; return x; }
+  if (duel) return { seed: duel.seed, stream: (duel.seat === 'A' ? 1 : 2) * 1e6 + duel.sent + 1 };
+  return { seed: sessionSeed, stream: ++streamCount };
+}
+// The chance that a round lands inside a centred w x h box, or a circle of
+// radius r, for normal spreads sh (across) and sv (vertical): perfect call.
+function erf(x) {  // Abramowitz and Stegun 7.1.26, to 1.5e-7
+  const t = 1 / (1 + 0.3275911 * Math.abs(x)), y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return x >= 0 ? y : -y;
+}
+const chanceBox = (w, h, sh, sv) => erf(w / 2 / (Math.SQRT2 * sh)) * erf(h / 2 / (Math.SQRT2 * sv));
+const chanceCircle = (r, sh, sv) => 1 - Math.exp(-(r * r) / (2 * sh * sv));
+// My last shots at these settings, for the group they make.
+let groupLog = [];
 const trueLayers = () => {
   const n = S.same ? 1 : 3;
   return S.layers.slice(0, n).map((L, i) => ({ fromRange: (i * S.dist) / 3, speed: L.spd * KMH, fromBearing: (S.az + L.clock * 30) * DEG, gust: L.gust * KMH }));
@@ -226,24 +333,29 @@ function averageWind() {
     x += (L.spd * Math.sin(L.clock * 30 * DEG)) / n;  // across: + from the right
     y += (L.spd * Math.cos(L.clock * 30 * DEG)) / n;  // along: + head wind
   }
-  let clock = Math.atan2(x, y) / DEG / 30;
+  let clock = Math.atan2(x, y) / DEG / 30 + (seat() === 'B' ? 6 : 0);  // the layers are in seat A's frame
   if (clock <= 0) clock += 12;
+  if (clock > 12) clock -= 12;
   return layer(Math.hypot(x, y), clock);  // exact; shown to a tenth of an hour
 }
 const call = () => (S.callTrue ? averageWind() : S.call);
-const callLayers = () => { const c = call(); return [{ fromRange: 0, speed: c.spd * KMH, fromBearing: (S.az + c.clock * 30) * DEG, gust: 0 }]; };
+const callLayers = () => { const c = call(); return [{ fromRange: 0, speed: c.spd * KMH, fromBearing: (myAzDeg() + c.clock * 30) * DEG, gust: 0 }]; };
 
 // ENU <-> the line of fire (downrange d, right r, up u) <-> three.js (x right, y up, -z downrange).
 function lof(p) {
   const s = Math.sin(S.az * DEG), c = Math.cos(S.az * DEG);
-  return { d: p[0] * s + p[1] * c, r: p[0] * c - p[1] * s, u: p[2] };
+  const d = p[0] * s + p[1] * c, r = p[0] * c - p[1] * s;
+  // From seat B the range runs the other way: downrange from the far end.
+  return seat() === 'B' ? { d: S.dist - d, r: oppRight() - r, u: p[2] } : { d, r, u: p[2] };
 }
 function enu(d, r, u) {
+  if (seat() === 'B') { d = S.dist - d; r = oppRight() - r; }
   const s = Math.sin(S.az * DEG), c = Math.cos(S.az * DEG);
   return [d * s + r * c, d * c - r * s, u];
 }
 const v3 = (p) => { const l = lof(p); return new THREE.Vector3(l.r, l.u, -l.d); };
 
+const dopeStep = (d) => (d <= 30 ? 5 : d <= 120 ? 10 : d <= 300 ? 25 : d <= 600 ? 50 : d <= 1200 ? 100 : 200);
 // The shooter's solution: holds for the called wind (and, if ticked, the
 // spin and the Earth), and a dope card.
 function solveDope() {
@@ -251,25 +363,31 @@ function solveDope() {
   station();
   setup(true);
   B.wind(S.az * DEG, callLayers());
-  const step = S.dist <= 600 ? 50 : S.dist <= 1200 ? 100 : 200;
-  const rows = B.table(ci(), ZERO, sightHeight(), Math.max(S.dist, step), step, S.az * DEG);
-  const at = B.table(ci(), ZERO, sightHeight(), S.dist, S.dist, S.az * DEG).at(-1);
+  const cardTo = hunting() ? duel.base : S.dist, step = dopeStep(cardTo);
+  const rows = B.table(ci(), zero(), sightHeight(), Math.max(cardTo, step), step, myAzDeg() * DEG);
+  const at = B.table(ci(), zero(), sightHeight(), S.dist, S.dist, myAzDeg() * DEG).at(-1);
+  // The target's own row, when the steps pass it by (1 mile, 2 miles).
+  if (at && !hunting() && !rows.some((r) => Math.abs(r.range - S.dist) < 0.5)) { rows.push(at); rows.sort((a, b) => a.range - b.range); }
   const hold = at && at.range > 0 ? { up: -at.drop / S.dist, right: -at.windage / S.dist } : { up: 0, right: 0 };
-  return { rows, hold };
+  // How far apart the rounds land at the target (with this dope's powder).
+  const spread = S.unique && !hunting() ? B.spread(ci(), zero(), sightHeight(), S.dist, myAzDeg() * DEG) : null;
+  return { rows, hold, spread };
 }
 
 // What each effect does at the target, from separate flights in the true air.
 // Each flown at the shot's own moment (t0), so the wind bars meet the same
 // gusts the round did.
 function breakdown(t0) {
-  const at = (flags, wind) => {
+  const at = (flags, wind, powder = powderK()) => {
     station();
     B.bd_setup(twist(), S.lat * DEG, flags);
+    B.bd_powder(powder);
     B.wind(S.az * DEG, wind ? trueLayers() : []);
-    return B.table(ci(), ZERO, sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1) ?? { drop: 0, windage: 0 };
+    return B.table(ci(), zero(), sightHeight(), S.dist, S.dist, myAzDeg() * DEG, t0).at(-1) ?? { drop: 0, windage: 0 };
   };
   const base = at(0, false), wind = at(0, true);
   const out = [{ k: 'Gravity & drag', up: base.drop, right: 0 }, { k: 'Wind', up: wind.drop - base.drop, right: wind.windage }];
+  if (powderK()) out.push({ k: 'Powder temp', up: base.drop - at(0, false, 0).drop, right: 0 });
   if (S.spin) {
     const spin = at(1, false), spinWind = at(1, true);
     out.push({ k: 'Spin drift', up: spin.drop - base.drop, right: spin.windage });
@@ -295,15 +413,39 @@ function dummyPart(o) {
   if (inCap(DUMMY.legs, true)) return 'thigh';
   return null;
 }
+// The dummy line: a crash dummy every 50 m out to the distance set, each a
+// little to one side of the last so none hides another, in turn behind a
+// pane of glass, in the open, and in front of one (a different glass each
+// time). The one at the set distance is the one your dope is for; any of
+// them can be hit, and the nearest one in the round's way stops it.
+const LINE_STEP = 50, LINE_MAX = 30;
+const LINE_GLASS = ['windscreen', 'annealed_6', 'tempered_6', 'car_side_tempered', 'laminated_6_38', 'storefront_tempered_10', 'picture_glass_2', 'annealed_4'];
+function lineDummies() {
+  const n = Math.max(1, Math.round(S.dist / LINE_STEP)), first = Math.max(1, n - LINE_MAX + 1), out = [];
+  // A funnel: the one your dope is for in the middle, each nearer one a lane further out, left and right in turn.
+  const lane = (k) => ((n - k) % 2 ? 1 : -1) * Math.ceil((n - k) / 2) * 1.7;
+  for (let k = first; k <= n; ++k)
+    out.push({ k, d: k * LINE_STEP, x: lane(k), pane: ['front', 'none', 'behind'][k % 3], glazing: LINE_GLASS[k % LINE_GLASS.length] });
+  return out;
+}
+const isDummy = (t) => t === 'dummy' || t === 'line';
+// The Liquids Lab's look for a hit from the range: tarantinoness 7, and a
+// bright red (185, 0, 12) in place of the dummy's green stage blood.
+const LIQUIDS_LOOK = { tn: 7, col: 'b9000c' };
 // The glass impactor nearest in calibre (Glass Dynamics' own bullets).
-const glassImpactor = (p) => (p.diameter_in >= 0.4 ? 'bmg_50' : p.diameter_in >= 0.3 && p.mass_gr < 140 ? 'pistol_9mm' : 'rifle_762');
+const glassImpactor = (cid) => {
+  const p = projRaw(cid), mv = cat.cartridges[cartIndex(cid)].muzzleVelocity;
+  if (mv < 600) return 'pistol_9mm';  // handgun and sub-machine-gun speeds
+  return p.diameter_in >= 0.4 ? 'bmg_50' : 'rifle_762';
+};
 function liquidsUrl(sh) {
   const p = projRaw(sh.S.c), at = sh.atTarget;
   const v = lof(at.velocity), speed = Math.hypot(...at.velocity);
   const q = new URLSearchParams({ from: 'ballistics', name: cat.cartridges[cartIndex(sh.S.c)].name.replace(/\s*\(.*\)$/, ''),
-    range: Math.round(sh.S.dist), mass_g: (p.mass_gr * 0.06479891).toFixed(2), dia_mm: (p.diameter_in * 25.4).toFixed(2), v: speed.toFixed(1),
-    desc: (Math.atan2(-v.u, v.d) / DEG).toFixed(2), drift: (Math.atan2(v.r, v.d) / DEG).toFixed(2), gi: glassImpactor(p),
-    glazing: sh.S.glazing, pane: sh.S.glazing === 'none' ? 'none' : 'front', target: dummyPart(sh.impact) || 'chest', back: shareUrl(sh, false) });
+    range: Math.round(sh.line ? sh.line.d : sh.S.dist), mass_g: (p.mass_gr * 0.06479891).toFixed(2), dia_mm: (p.diameter_in * 25.4).toFixed(2), v: speed.toFixed(1),
+    desc: (Math.atan2(-v.u, v.d) / DEG).toFixed(2), drift: (Math.atan2(v.r, v.d) / DEG).toFixed(2), gi: glassImpactor(sh.S.c),
+    glazing: sh.line ? sh.line.glazing : sh.S.glazing, pane: sh.line ? sh.line.pane : sh.S.glazing === 'none' ? 'none' : 'front',
+    target: dummyPart(sh.impact) || 'chest', back: shareUrl(sh, false), ...LIQUIDS_LOOK });
   if (sh.S.tgt === 'v8' && sh.glass) {
     // Through the V8's windscreen already (Glass Dynamics here): the dummy gets what is left.
     q.set('v', sh.glass.vout.toFixed(1));
@@ -333,7 +475,7 @@ function strikeV8(impact, at) {
   if (!out.onGlass || !G) return out;
   const gi = gcat.glazings.findIndex((g) => g.id === V8.glazing);
   const p = projRaw(S.c);
-  const ii = Math.max(0, gcat.impactors.findIndex((x) => x.id === glassImpactor(p)));
+  const ii = Math.max(0, gcat.impactors.findIndex((x) => x.id === glassImpactor(S.c)));
   const dl = [dotp(d, X), dotp(d, Vv), dotp(d, N)], dp = [dl[0], dl[1], -dl[2]];
   out.yaw = Math.atan2(dp[0], dp[2]); out.pitch = Math.asin(Math.max(-1, Math.min(1, dp[1])));
   if (gi < 0 || !G.gls_new_pane(gi, 2, 1)) return out;
@@ -373,10 +515,16 @@ function fire(tFire) {
   station();
   setup(false);
   B.wind(S.az * DEG, trueLayers());
-  const e0 = B.bd_zero(ci(), ZERO, sightHeight());
-  const aim = shotHold(dope);
-  const el = e0 + aim.up, az = S.az * DEG + aim.right;
-  const id = Number.isFinite(e0) ? B.bd_fire(ci(), 0, 0, 0, az, el, tFire) : 0;
+  const e0 = B.bd_zero(ci(), zero(), sightHeight());
+  // The shot leaves where the wobble has the crosshair at that instant.
+  const sway = swayNow();
+  fixedSway = null;
+  const aim0 = shotHold(dope), aim = { up: aim0.up + sway.up, right: aim0.right + sway.right };
+  { const pr = projRaw(S.c), mom = pr.mass_gr * 6.479891e-5 * cat.cartridges[ci()].muzzleVelocity; lastShotWall = nowWall; lastShotKick = Math.min(0.03, 0.0012 * mom * positionOf().recoil); }
+  const el = e0 + aim.up, az = myAzDeg() * DEG + aim.right, o = enu(0, 0, 0);
+  const seed = Number.isFinite(e0) ? nextSeed() : null;
+  const id = !Number.isFinite(e0) ? 0 : seed ? B.bd_fire_round(ci(), o[0], o[1], o[2], az, el, tFire, seed.seed, seed.stream) : B.bd_fire(ci(), o[0], o[1], o[2], az, el, tFire);
+  const draw = id ? B.lastDraw() : null;
   if (!id) { toast('This load cannot reach the zero.'); return null; }
   // Fly to the target plane, then on to the ground.
   const t0 = tFire;
@@ -395,13 +543,22 @@ function fire(tFire) {
   const reaches = downrange(tEnd) >= S.dist;
   let tTarget = reaches ? bisect((tt) => downrange(tt) >= S.dist, t0, tEnd) : null;
   const sh = sightHeight();
-  let hit = false, impact = null;
-  if (tTarget !== null) {
+  let hit = false, impact = null, line = null;
+  if (S.tgt === 'line') {
+    // The nearest dummy in the round's way.
+    tTarget = null;
+    for (const dm of lineDummies()) {
+      if (downrange(tEnd) < dm.d) break;
+      const tt = bisect((x) => downrange(x) >= dm.d, t0, tEnd), p = lof(B.stateAt(tt).position), o = { right: p.r - dm.x, up: p.u - sh };
+      if (dm.d === Math.round(S.dist / LINE_STEP) * LINE_STEP) { impact = o; if (p.u > -BENCH) tTarget = tt; }
+      if (p.u > -BENCH && dummyPart(o) !== null) { hit = true; impact = o; tTarget = tt; line = dm; break; }
+    }
+  } else if (tTarget !== null) {
     const p = lof(B.stateAt(tTarget).position);
-    impact = { right: p.r, up: p.u - sh };
+    impact = { right: p.r - oppRight(), up: p.u - sh };
     // Hit only if it reached the plane above the ground.
     const above = p.u > -BENCH;
-    hit = above && (S.tgt === 'dummy' ? dummyPart(impact) !== null : S.tgt === 'v8' ? true : Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2);
+    hit = above && (S.tgt === 'duel' ? figurePart(p.r - oppRight(), p.u) !== null : S.tgt === 'dummy' ? dummyPart(impact) !== null : S.tgt === 'v8' ? true : Math.abs(impact.right) <= S.size / 2 && Math.abs(impact.up) <= S.size / 2);
     if (!above) tTarget = null;
   }
   // Where it lands if it misses: the ground.
@@ -414,7 +571,7 @@ function fire(tFire) {
   const air = B.air(0, 0, 0, t0);
   const sg = S.spin ? B.bd_stability(ci()) : 0;
   // Sg where the round meets the target (the flight goes on past it).
-  const sgTarget = S.spin && tTarget !== null ? B.table(ci(), ZERO, sightHeight(), S.dist, S.dist, S.az * DEG, t0).at(-1)?.stability ?? 0 : 0;
+  const sgTarget = S.spin && tTarget !== null ? B.table(ci(), zero(), sightHeight(), S.dist, S.dist, myAzDeg() * DEG, t0).at(-1)?.stability ?? 0 : 0;
   const atT = tTarget !== null ? B.stateAt(tTarget) : null;
   // The V8: where the round meets the raked windscreen, and what the glass does to it.
   let glass = null;
@@ -426,7 +583,8 @@ function fire(tFire) {
   mesh.visible = true;
   scene.add(mesh);
   shot = {
-    id, S: structuredClone(S), dope, aim, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget,
+    id, S: structuredClone(S), dope, aim, sway, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az, seed, draw, line,
+    part: S.tgt === 'duel' && hit && atT ? figurePart(lof(atT.position).r - oppRight(), lof(atT.position).u) : null,
     round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
     mesh, body: mesh.getObjectByName('body'), len: bullet.userData.length, done: false, doneWall: 0, left: false,
     // The engine keeps the round in the air it was fired into, so the
@@ -434,7 +592,7 @@ function fire(tFire) {
     bars: breakdown(t0),
   };
   shots.push(shot);
-  if (shots.length > 24) retire(shots[0]);
+  if (shots.length > 40) retire(shots[0]);  // a full 30-round magazine stays in the air
   return shot;
 }
 
@@ -488,8 +646,8 @@ function grassTexture() {
   return t;
 }
 const gtex = grassTexture();
-gtex.repeat.set(160, 300);
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 7500), new THREE.MeshLambertMaterial({ map: gtex }));
+gtex.repeat.set(640, 640);  // 25 m tiles; wide enough that no edge shows from the bullet camera
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), new THREE.MeshLambertMaterial({ map: gtex }));
 ground.rotation.x = -Math.PI / 2;
 ground.position.set(0, -BENCH, -3500);
 scene.add(ground);
@@ -531,24 +689,27 @@ function buildRange() {
   flags.length = 0;
   hitMarks = [];
   const D = S.dist;
-  // Distance boards on the left.
-  const unit = metric ? 1 : YD;
-  const every = (metric ? D : D / YD) <= 1200 ? 100 : 250;
-  for (let k = every; k * unit <= D + 600; k += every) {
-    const s = label(`${k} ${metric ? 'm' : 'yd'}`, 1.2 + (k * unit) / 900);
-    s.position.set(-14 - (k * unit) / 150, -BENCH + 2.2 + (k * unit) / 600, -k * unit);
+  // Distance boards on the left (closer in, smaller and more often on a short range).
+  const unit = metric ? 1 : YD, near = D < 150;
+  const DU = metric ? D : D / YD;
+  const Dshow = hunting() ? duel.base * 1.15 : D;  // hidden range: the furniture must not give it away
+  const every = DU <= 30 ? 5 : DU <= 120 ? 10 : DU <= 300 ? 25 : DU <= 1200 ? 100 : 250;
+  for (let k = every; !hunting() && k * unit <= D + (near ? Math.max(10, D * 0.5) : 600); k += every) {
+    const x = k * unit;
+    const s = label(`${k} ${metric ? 'm' : 'yd'}`, near ? 0.22 + x / 140 : 1.2 + x / 900);
+    s.position.set(near ? -1.6 - x * 0.07 : -14 - x / 150, near ? -BENCH + 1.0 + x / 200 : -BENCH + 2.2 + x / 600, -x);
     range.add(s);
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2, 6), wood);
     post.position.set(s.position.x, -BENCH + 1, s.position.z);
     range.add(post);
   }
-  // Wind flags on the right, every 100 m (200 m past 1 km).
-  const fe = D <= 1000 ? 100 : 200;
-  for (let d = fe / 2; d < D; d += fe) {
+  // Wind flags on the right, every 100 m (200 m past 1 km; closer on a short range).
+  const fe = D <= 30 ? 5 : D <= 150 ? 25 : D <= 1000 ? 100 : 200;
+  for (let d = fe / 2; d < Dshow; d += fe) {
     const g = new THREE.Group();
-    const x = 9 + d / 120;
+    const x = near ? 2 + d * 0.05 : 9 + d / 120;
     g.position.set(x, -BENCH, -d);
-    const scale = 1 + d / 1200;
+    const scale = near ? 0.45 : 1 + d / 1200;
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035 * scale, 0.05 * scale, 4 * scale, 6), poleMat);
     pole.position.y = 2 * scale;
     g.add(pole);
@@ -613,6 +774,77 @@ function buildRange() {
     range.add(target);
     return;
   }
+  if (S.tgt === 'duel') {
+    // The other shooter, prone behind sandbags at the far end, facing you:
+    // the head and shoulders over the cover are all there is to hit (the same
+    // FIGURE the hit test uses), the muzzle at the bore line.
+    const fig = new THREE.Group();
+    fig.position.set(oppRight(), 0, -D);
+    const camo = new THREE.MeshStandardMaterial({ color: 0x5b5d3a, roughness: 0.9 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0x4a4a32, roughness: 0.8 });
+    const bags = new THREE.MeshStandardMaterial({ color: 0x8c7b57, roughness: 1 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(FIGURE.head.r, 20, 14), skin);
+    head.position.set(0, FIGURE.head.z, -0.25);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(FIGURE.torso.w, FIGURE.torso.z1 - FIGURE.torso.z0, 0.5), camo);
+    torso.position.set(0, (FIGURE.torso.z0 + FIGURE.torso.z1) / 2, -0.45);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(1.6, BENCH + FIGURE.cover, 0.6), bags);
+    wall.position.set(0, (-BENCH + FIGURE.cover) / 2, 0.1);
+    const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.7, 10), gunMetal);
+    gun.rotation.x = Math.PI / 2;
+    gun.position.set(0, 0, 0.05);
+    fig.add(head, torso, wall, gun);
+    oppFlash.position.set(0, 0, 0.66);
+    fig.add(oppFlash);
+    glint.material.map = glowTex;
+    glint.position.set(0, FIGURE.head.z + 0.02, 0.1);
+    fig.add(glint);
+    range.add(fig);
+    // Hidden: empty emplacements around theirs (the same ones in both browsers).
+    if (hunting()) for (const [dd, dr] of duel.decoys[duel.seat === 'A' ? 'B' : 'A']) {
+      const w = new THREE.Mesh(wall.geometry, bags);
+      w.position.set(oppRight() - dr, wall.position.y, -(D - dd) + 0.1);
+      range.add(w);
+    }
+    target = new THREE.Group();
+    target.position.set(0, sightHeight(), -D);
+    plate = new THREE.Group();
+    plate.add(new THREE.Group());
+    target.add(plate);
+    range.add(target);
+    return;
+  }
+  if (S.tgt === 'line') {
+    const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.55 });
+    const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xcfe8f5, transparent: true, opacity: 0.25, roughness: 0.05, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
+    const frameMat = new THREE.MeshLambertMaterial({ color: 0x2a2f36 });
+    for (const dm of lineDummies()) {
+      const g = new THREE.Group();
+      g.position.set(dm.x, sightHeight(), -dm.d);
+      const cap = (r, len, x, y) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 5, 10), yellow); m.position.set(x, y, 0); g.add(m); };
+      cap(...DUMMY.torso); cap(...DUMMY.head);
+      { const [r, l, x, y] = DUMMY.arms; cap(r, l, -x, y); cap(r, l, x, y); }
+      { const [r, l, x, y] = DUMMY.legs; cap(r, l, -x, y); cap(r, l, x, y); }
+      if (dm.pane !== 'none') {
+        // In front: between you and the dummy. Behind: it catches what comes out the back.
+        const z = dm.pane === 'front' ? 0.6 : -0.6, pane = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 2.0), glassMat);
+        pane.position.set(0, -0.25, z);
+        g.add(pane);
+        for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.1, 0.05), frameMat); post.position.set(sx * 0.675, -0.25, z); g.add(post); }
+      }
+      const gl = glazings.find((x) => x.id === dm.glazing);
+      const tag = label(`${metric ? dm.d + ' m' : Math.round(dm.d / YD) + ' yd'}${dm.pane === 'none' ? '' : ' · ' + (dm.pane === 'front' ? 'behind ' : 'before ') + (gl ? gl.name.split(',')[0].toLowerCase() : 'glass')}`, 0.16 + dm.d / 2500);
+      tag.position.set(0, 1.05 + dm.d / 1500, 0);
+      g.add(tag);
+      range.add(g);
+    }
+    target = new THREE.Group();
+    target.position.set(0, sightHeight(), -D);
+    plate = new THREE.Group();
+    plate.add(new THREE.Group());
+    target.add(plate);
+    range.add(target);
+    return;
+  }
   if (S.tgt === 'dummy') {
     // A crash dummy (chest at the aim point) behind a pane of the chosen glass.
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b711, roughness: 0.55 });
@@ -632,8 +864,8 @@ function buildRange() {
     target.add(plate);
     range.add(target);
     const bermD = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9a8a68 }));
-    bermD.scale.set(30 + D / 50, 3 + D / 1000, 12);
-    bermD.position.set(0, -BENCH, -D - 30);
+    bermD.scale.set(near ? 8 : 30 + D / 50, near ? 2.5 : 3 + D / 1000, near ? 3 : 12);
+    bermD.position.set(0, -BENCH, -D - (near ? 5 : 30));
     range.add(bermD);
     return;
   }
@@ -660,27 +892,48 @@ function buildRange() {
   target.add(bar);
   range.add(target);
   const berm = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9a8a68 }));
-  berm.scale.set(30 + D / 50, 3 + D / 1000, 12);
-  berm.position.set(0, -BENCH, -D - 30);
+  berm.scale.set(near ? 8 : 30 + D / 50, near ? 2.5 : 3 + D / 1000, near ? 3 : 12);
+  berm.position.set(0, -BENCH, -D - (near ? 5 : 30));
   range.add(berm);
 }
 
-// The rifle on its bench.
+// The gun on its bench (the muzzle at the origin, pointing down -z).
 const rifle = new THREE.Group();
+const gun = new THREE.Group();
+rifle.add(gun);
+const gunMetal = new THREE.MeshStandardMaterial({ color: 0x1d2024, metalness: 0.6, roughness: 0.5 });
+const gunTan = new THREE.MeshStandardMaterial({ color: 0x8a7a5c, roughness: 0.8 });
+const gunPoly = new THREE.MeshStandardMaterial({ color: 0x24272b, metalness: 0.1, roughness: 0.75 });
+function buildGun() {
+  gun.clear();
+  const r = rifleRaw(S.c), kind = gunClass(), bl = (r?.barrel_in ?? 24) * IN, sh = sightHeight();
+  const box = (w, h, d, x, y, z, m) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); gun.add(o); return o; };
+  const tube = (r0, r1, len, z, y, m, name) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, len, 16), m); o.rotation.x = Math.PI / 2; o.position.set(0, y, z); if (name) o.name = name; gun.add(o); return o; };
+  if (kind === 'handgun') {
+    // Slide over the barrel, the grip behind and below it, the sights on top.
+    box(0.03, 0.034, bl + 0.05, 0, 0.004, bl / 2 + 0.02, gunMetal);
+    box(0.03, 0.11, 0.05, 0, -0.07, bl + 0.01, gunPoly).rotation.x = -0.25;
+    box(0.006, sh - 0.017, 0.006, 0, (sh + 0.017) / 2, 0.012, gunMetal);
+    box(0.022, sh - 0.017, 0.008, 0, (sh + 0.017) / 2, bl + 0.03, gunMetal);
+    return;
+  }
+  tube(0.009, 0.012, bl, bl / 2, 0, gunMetal);
+  if (kind === 'smg') {
+    box(0.05, 0.07, 0.3, 0, -0.005, bl + 0.15, gunPoly);       // receiver
+    box(0.035, 0.12, 0.05, 0, -0.09, bl + 0.12, gunPoly);       // magazine
+    box(0.03, 0.06, 0.25, 0, -0.04, bl + 0.42, gunTan);        // stock
+    if (scopeKey() === 'dot') tube(0.016, 0.016, 0.07, bl + 0.12, sh, gunMetal, 'scope');
+    else { box(0.006, sh - 0.03, 0.006, 0, sh / 2 + 0.015, 0.03, gunMetal); box(0.02, sh - 0.03, 0.02, 0, sh / 2 + 0.015, bl + 0.25, gunMetal); }
+    return;
+  }
+  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.75), gunTan);
+  stock.position.set(0, -0.04, bl + 0.3);
+  gun.add(stock);
+  const sc = scopeOf();
+  if (sc.tube === false) { box(0.006, sh - 0.012, 0.006, 0, sh / 2, 0.02, gunMetal); box(0.02, sh - 0.012, 0.02, 0, sh / 2, bl * 0.8, gunMetal); }
+  else tube(0.017, 0.022, 0.36, bl + 0.1, sh, gunMetal, 'scope');
+}
 {
-  const metal = new THREE.MeshStandardMaterial({ color: 0x1d2024, metalness: 0.6, roughness: 0.5 });
-  const tan = new THREE.MeshStandardMaterial({ color: 0x8a7a5c, roughness: 0.8 });
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.65, 16), metal);
-  barrel.rotation.x = Math.PI / 2;
-  barrel.position.z = 0.325;
-  rifle.add(barrel);
-  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.75), tan);
-  stock.position.set(0, -0.04, 0.95);
-  rifle.add(stock);
-  const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.022, 0.36, 16), metal);
-  scope.rotation.x = Math.PI / 2;
-  scope.name = 'scope';
-  rifle.add(scope);
   const bench = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 1.6), wood);
   bench.position.set(0.1, -0.1, 0.9);
   rifle.add(bench);
@@ -691,7 +944,7 @@ const rifle = new THREE.Group();
   }
 }
 scene.add(rifle);
-function placeRifle() { rifle.getObjectByName('scope').position.set(0, sightHeight(), 0.75); }
+function placeRifle() { buildGun(); }
 
 // The bullet: true size, copper, with the rifling's engraving so the spin shows.
 const bullet = new THREE.Group();
@@ -699,37 +952,163 @@ const bulletBody = new THREE.Group();
 bulletBody.name = 'body';
 bullet.add(bulletBody);
 bullet.visible = false;  // the pattern each round's own copy is made from
-function buildBullet() {
-  bulletBody.clear();
-  const p = projRaw(S.c);
-  const d = p.diameter_in * IN, L = p.length_in * IN;
-  const copper = new THREE.MeshStandardMaterial({ color: 0xc27a45, metalness: 0.85, roughness: 0.28 });
-  const groove = new THREE.MeshStandardMaterial({ color: 0x6b3a1c, metalness: 0.6, roughness: 0.5 });
-  const shank = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d * 0.42, L * 0.45, 24), copper);
-  shank.rotation.x = Math.PI / 2;
-  shank.position.z = -L * 0.05;
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(d / 2, L * 0.55, 24), copper);
-  nose.rotation.x = Math.PI / 2;
-  nose.position.z = L * 0.45;
-  bulletBody.add(shank, nose);
-  const grooves = (RIFLE_FOR[S.c] === 'm24_sws') ? 5 : 6;
-  for (let k = 0; k < grooves; ++k) {
-    const a = (k / grooves) * Math.PI * 2;
-    const m = new THREE.Mesh(new THREE.BoxGeometry(d * 0.12, d * 0.04, L * 0.42), groove);
-    m.position.set(Math.cos(a) * d * 0.5, Math.sin(a) * d * 0.5, -L * 0.05);
-    m.rotation.z = a;
-    bulletBody.add(m);
+function buildBullet() { makeBullet(S.c, bullet, bulletBody); }
+// What each bullet looks like, in calibres: the nose's length, the boat
+// tail's length and angle (0: flat base), the meplat's diameter, what the tip
+// is, and the jacket. Proportions are estimated from the makers' drawings and
+// photographs; the diameter and overall length are the library's.
+const JACKET = { copper: 0xbd8058, tombac: 0xb07a4c, solid: 0xb98a52, lead: 0x6f7178 };
+const BULLET_LOOK = {
+  smk_308_175: { nose: 2.25, bt: 0.6, meplat: 0.2, tip: 'hollow' },
+  scenar_338_250: { nose: 2.6, bt: 0.75, meplat: 0.18, tip: 'hollow' },
+  eldm_264_140: { nose: 2.85, bt: 0.75, meplat: 0.34, tip: 'polymer', tipColour: 0xb8141c },
+  eldm_264_147: { nose: 3.0, bt: 0.8, meplat: 0.34, tip: 'polymer', tipColour: 0xb8141c },
+  amax_510_750: { nose: 2.7, bt: 0.7, meplat: 0.3, tip: 'polymer', tipColour: 0xb8141c },
+  vmax_224_40_57: { nose: 1.7, bt: 0.35, meplat: 0.36, tip: 'polymer', tipColour: 0x1f4fb0 },  // SS197SR's blue tip
+  m855_224_62: { nose: 2.3, bt: 0.5, meplat: 0.18, tip: 'paint', tipColour: 0x2f7a3a, cannelure: 0.55 },  // green tip
+  cheytac_408_419: { nose: 2.9, bt: 0.8, meplat: 0.12, tip: 'fmj', jacket: 'solid', bands: 3 },
+  l_762x54r_148: { nose: 2.5, bt: 0, meplat: 0.14, tip: 'fmj', jacket: 'tombac', cannelure: 0.5 },
+  '7n1_762x54r_151': { nose: 2.5, bt: 0.5, meplat: 0.14, tip: 'fmj', jacket: 'tombac', cannelure: 0.5 },
+  gdhp_355_124: { nose: 0.8, bt: 0, meplat: 0.62, tip: 'cavity' },
+  fmj_355_115: { nose: 0.85, bt: 0, meplat: 0.3, tip: 'fmj' },
+  fmj_355_124: { nose: 0.9, bt: 0, meplat: 0.3, tip: 'fmj' },
+  fmj_452_230: { nose: 0.75, bt: 0, meplat: 0.36, tip: 'fmj' },
+  jsp_357_158: { nose: 0.7, bt: 0, meplat: 0.56, tip: 'soft', cannelure: 0.6 },
+};
+// The sky and the ground as the bullet's metal reflects them.
+let bulletEnv = null;
+function bulletEnvMap() {
+  if (bulletEnv) return bulletEnv;
+  const env = new THREE.Scene();
+  env.add(sky.clone());
+  const g = new THREE.Mesh(new THREE.CircleGeometry(8000, 32), new THREE.MeshBasicMaterial({ color: 0x8a9a62 }));
+  g.rotation.x = -Math.PI / 2;
+  g.position.y = -1;
+  env.add(g);
+  const sunBall = new THREE.Mesh(new THREE.SphereGeometry(450, 16, 12), new THREE.MeshBasicMaterial({ color: 0xfff6e0 }));
+  sunBall.position.copy(sun.position).normalize().multiplyScalar(6000);
+  env.add(sunBall);
+  const pm = new THREE.PMREMGenerator(R);
+  bulletEnv = pm.fromScene(env, 0, 1, 9500).texture;
+  pm.dispose();
+  return bulletEnv;
+}
+// The bearing surface's skin: the barrel's lands pressed into the jacket as
+// shallow helical grooves at the rifling's own angle (one turn in `twist`),
+// and a knurled cannelure where the bullet has one. A colour map and a bump
+// map: the engraving is in the surface, it does not stand out of it.
+function engravingTextures(colour, lands, turns, cannelure) {
+  const W = 512, H = 128;
+  const mk = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; };
+  const cc = mk(), cb = mk(), gc = cc.getContext('2d'), gb = cb.getContext('2d');
+  const ic = gc.createImageData(W, H), ib = gb.createImageData(W, H);
+  const col = new THREE.Color(colour), r0 = col.r, g0 = col.g, b0 = col.b;  // linear
+  const toS = (x) => Math.round(255 * Math.pow(Math.max(0, Math.min(1, x)), 1 / 2.2));
+  let seed = 12345;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const streak = new Float32Array(W);  // drawing marks along the helix
+  for (let x = 0; x < W; ++x) streak[x] = 0.94 + 0.12 * rnd();
+  for (let y = 0; y < H; ++y) {
+    const v = 1 - y / (H - 1);  // 0 at the rear of the bearing, 1 at the front
+    for (let x = 0; x < W; ++x) {
+      const u = x / W, ph = ((lands * (u - turns * v)) % 1 + 1) % 1;
+      // A land's mark: 38 % of the pitch, with soft shoulders.
+      const edge = Math.min(ph, 0.38 - ph), inLand = Math.max(0, Math.min(1, edge / 0.03));
+      let depth = inLand, shade = 1 - 0.16 * inLand;
+      const sx = ((Math.round((u - turns * v) * W) % W) + W) % W;
+      shade *= streak[sx];
+      if (cannelure != null && Math.abs(v - cannelure) < 0.07) {
+        const k = 1 - Math.abs(v - cannelure) / 0.07, knurl = 0.5 + 0.5 * Math.sin(u * Math.PI * 2 * 64);
+        depth = Math.max(depth, k * (0.6 + 0.4 * knurl));
+        shade *= 1 - 0.35 * k * (0.5 + 0.5 * knurl);
+      }
+      const i = 4 * (y * W + x);
+      ic.data[i] = toS(r0 * shade); ic.data[i + 1] = toS(g0 * shade); ic.data[i + 2] = toS(b0 * shade); ic.data[i + 3] = 255;
+      const h = Math.round(255 * (1 - 0.8 * depth));
+      ib.data[i] = ib.data[i + 1] = ib.data[i + 2] = h; ib.data[i + 3] = 255;
+    }
   }
-  bullet.userData.length = L;
-  bullet.userData.diameter = d;
+  gc.putImageData(ic, 0, 0); gb.putImageData(ib, 0, 0);
+  const map = new THREE.CanvasTexture(cc), bump = new THREE.CanvasTexture(cb);
+  map.colorSpace = THREE.SRGBColorSpace;
+  for (const t of [map, bump]) { t.wrapS = THREE.RepeatWrapping; t.anisotropy = 8; }
+  return { map, bump };
+}
+function makeBullet(cid, group, bodyGroup) {
+  bodyGroup.clear();
+  const p = projRaw(cid), rifle = rifleRaw(cid), look = BULLET_LOOK[p.id] ?? { nose: Math.min(2.4, p.length_in / p.diameter_in * 0.55), bt: 0, meplat: 0.2, tip: 'fmj' };
+  const d = p.diameter_in * IN, L = p.length_in * IN, Rr = d / 2;
+  const env = bulletEnvMap();
+  const jacketColour = JACKET[look.jacket ?? 'copper'];
+  const metal = (colour, rough = 0.3) => new THREE.MeshStandardMaterial({ color: colour, metalness: 1, roughness: rough, envMap: env, envMapIntensity: 1.7, side: THREE.DoubleSide });
+  const jacket = metal(jacketColour);
+  // The profile, from the base (z = 0) to the tip (z = L), in metres.
+  const nose = look.nose * d, bt = look.bt * d, bear = Math.max(0.25 * d, L - nose - bt), z1 = bt, z2 = bt + bear;
+  const rm = (look.meplat * d) / 2;                     // the meplat's radius (where the tip, the hollow or the dome starts)
+  const tipLen = look.tip === 'polymer' ? 0.42 * d : 0;  // a polymer tip carries the ogive on to a point
+  const N = L - z2 - tipLen;                             // the metal ogive's length
+  const rho = (N * N + (Rr - rm) * (Rr - rm)) / (2 * (Rr - rm));  // tangent ogive through the shoulder and the meplat's rim
+  const ogive = (x) => Math.sqrt(Math.max(0, rho * rho - (N - x) * (N - x))) + Rr - rho;  // x from the meplat
+  const lathe = (pts, mat) => {
+    const g = new THREE.LatheGeometry(pts.map(([r, z]) => new THREE.Vector2(Math.max(r, 0), z - L / 2)), 64);
+    g.rotateX(Math.PI / 2);  // the lathe's axis (y) to the bullet's (z, nose forward)
+    const m = new THREE.Mesh(g, mat);
+    bodyGroup.add(m);
+    return m;
+  };
+  // Base and boat tail: a slightly dished base, a 0.03-calibre heel radius.
+  const rb = bt > 0 ? Rr - bt * Math.tan(8.5 * DEG) : Rr - 0.03 * d;
+  lathe([[0, 0.02 * d], [rb * 0.8, 0], [rb, 0.012 * d], ...(bt > 0 ? [[Rr, z1]] : [[Rr, 0.04 * d], [Rr, z1 + 0.0001]])], jacket);
+  // The bearing surface, engraved by the rifling at its own angle.
+  const lands = rifle?.id === 'm24_sws' ? 5 : rifle?.id === 'svd_pso1' || rifle?.id === 'm9130_pu' ? 4 : rifle?.id === 'm200_408' ? 8 : 6;
+  const tw = rifle ? rifle.twist_in * IN * (rifle.twist_direction === 'left' ? -1 : 1) : 0;
+  const tex = engravingTextures(jacketColour, lands, tw ? bear / tw : 0, look.cannelure ?? null);
+  const skin = new THREE.MeshStandardMaterial({ map: tex.map, bumpMap: tex.bump, bumpScale: 1.4, metalness: 1, roughness: 0.34, envMap: env, envMapIntensity: 1.7, side: THREE.DoubleSide });
+  lathe([[Rr, z1], [Rr, z2]], skin);
+  if (look.bands) {  // a lathe-turned solid's relief grooves between its driving bands
+    const dark = metal(jacketColour, 0.5);
+    for (let k = 1; k <= look.bands; ++k) { const zc = z1 + (bear * k) / (look.bands + 1), w = 0.05 * d; lathe([[Rr * 1.002, zc - w], [Rr * 0.985, zc - w * 0.6], [Rr * 0.985, zc + w * 0.6], [Rr * 1.002, zc + w]], dark); }
+  }
+  // The ogive.
+  const og = [];
+  for (let k = 0; k <= 28; ++k) { const x = N * (k / 28); og.push([ogive(x), L - tipLen - x]); }
+  og.reverse();  // shoulder to meplat
+  const paintFrom = look.tip === 'paint' ? 0.5 * d : 0;   // a painted tip: the last half calibre
+  const softFrom = look.tip === 'soft' ? 0.28 * d : 0;    // exposed lead: the last 0.28 calibre
+  const cut = paintFrom || softFrom;
+  if (cut) {
+    const zc = L - cut, lower = og.filter(([, z]) => z <= zc), upper = og.filter(([, z]) => z > zc), rc = ogive(N - (zc - z2));
+    lathe([...lower, [rc, zc]], jacket);
+    const front = look.tip === 'paint' ? new THREE.MeshStandardMaterial({ color: look.tipColour, metalness: 0.1, roughness: 0.55, envMap: env, envMapIntensity: 0.5, side: THREE.DoubleSide })
+      : new THREE.MeshStandardMaterial({ color: JACKET.lead, metalness: 0.7, roughness: 0.6, envMap: env, envMapIntensity: 0.6, side: THREE.DoubleSide });
+    lathe([[rc, zc], ...upper, [rm * 0.7, L + 0.02 * d * (look.tip === 'soft' ? 0 : 1)], [0, L + 0.03 * d * (look.tip === 'soft' ? 0 : 1)]], front);
+  } else lathe(og, jacket);
+  // The tip.
+  if (look.tip === 'polymer') {
+    // The polymer tip carries the ogive on to a small rounded point.
+    const pts = [];
+    for (let k = 0; k <= 10; ++k) { const f = k / 10; pts.push([rm * Math.sqrt(1 - f * f) * (1 - 0.25 * f) + 0.0 * d, L - tipLen + tipLen * f]); }
+    lathe(pts, new THREE.MeshStandardMaterial({ color: look.tipColour, metalness: 0, roughness: 0.35, envMap: env, envMapIntensity: 0.6, side: THREE.DoubleSide }));
+  } else if (look.tip === 'hollow') {
+    // An open-tip match bullet: the jacket closed to a small ragged mouth.
+    lathe([[rm, L], [rm * 0.55, L - 0.01 * d], [rm * 0.45, L - 0.12 * d], [0, L - 0.14 * d]], new THREE.MeshStandardMaterial({ color: 0x1a1210, metalness: 0.5, roughness: 0.8, side: THREE.DoubleSide }));
+  } else if (look.tip === 'cavity') {
+    // A pistol hollow point: the jacket's rim, the cavity, its floor.
+    lathe([[rm, L], [rm * 0.86, L - 0.02 * d], [rm * 0.45, L - 0.42 * d], [0, L - 0.46 * d]], metal(JACKET.lead, 0.55));
+  } else if (look.tip === 'fmj') {
+    // A full metal jacket's small domed point.
+    const pts = [];
+    for (let k = 0; k <= 8; ++k) { const a = (k / 8) * Math.PI / 2; pts.push([rm * Math.cos(a), L + rm * 0.55 * Math.sin(a)]); }
+    lathe(pts, jacket);
+  }
+  group.userData.length = L;
+  group.userData.diameter = d;
+  return group;
 }
 bullet.visible = false;
 scene.add(bullet);
-// The shock cone (Mach angle) and the dashed path.
-const shock = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 32, 1, true), new THREE.MeshBasicMaterial({
-  color: 0xdbe8ff, transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false }));
-shock.visible = false;
-scene.add(shock);
+// The dashed path. (The shock cone is drawn into the trace's buffer below:
+// it bends the light, it does not glow.)
 const pathGeo = new THREE.BufferGeometry();
 const path = new THREE.Line(pathGeo, new THREE.LineDashedMaterial({ color: 0xffd36b, dashSize: 4, gapSize: 3, transparent: true, opacity: 0.55 }));
 path.frustumCulled = false;
@@ -739,6 +1118,21 @@ const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.Me
 scene.add(flash);
 const dust = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), new THREE.MeshLambertMaterial({ color: 0xb59a74, transparent: true, opacity: 0 }));
 scene.add(dust);
+// Their scope's glint: seen when their scope points your way.
+const glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: null, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: false, blending: THREE.AdditiveBlending }));
+glint.scale.set(0.012, 0.012, 1);
+// The opponent's muzzle flash (parented to their figure in a duel).
+const oppFlash = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0 }));
+// What can be hit of a shooter in a duel, from their own muzzle (m: right,
+// up): a head over the sights and the shoulders above the sandbags. The
+// head is a 22 cm sphere, the shoulders 44 cm wide; everything below the
+// cover's top is behind it. Both browsers test against these same numbers.
+const FIGURE = { head: { z: 0.06, r: 0.11 }, torso: { w: 0.44, z0: -0.3, z1: -0.04 }, cover: -0.3 };
+function figurePart(right, z) {
+  if (Math.hypot(right, z - FIGURE.head.z) <= FIGURE.head.r) return 'head';
+  if (Math.abs(right) <= FIGURE.torso.w / 2 && z >= FIGURE.torso.z0 && z <= FIGURE.torso.z1) return 'shoulder';
+  return null;
+}
 // The tracer: the burning base of the round, and the streak the eye keeps
 // behind it. Two sets of glows: a fixed size on screen (seen from the rifle
 // or through the scope) and life size (the bullet camera).
@@ -779,17 +1173,19 @@ function updateTracer(life, fov) {
     B.bd_select(sh.id);
     for (let k = 0; k < TRACER_N; ++k) {
       const sp = grp.children[k], t = tE - k * TRACER_DT;
-      const st = t >= sh.t0 ? B.stateAt(t) : null, d = st ? lof(st.position).d : -1;
+      const st = t >= sh.t0 ? B.stateAt(t) : null, d = st ? (sh.remote ? S.dist - lof(st.position).d : lof(st.position).d) : -1;
       sp.visible = !!st && d >= TRACER_LIGHTS && d <= burn;
       if (!sp.visible) continue;
       sp.position.copy(v3(st.position));
-      if (k === 0 && life) sp.position.addScaledVector(v3(st.velocity).normalize(), -sh.len * 0.5);
+      // In the bullet camera the glow is life size and sits at the base, where the trace compound burns.
+      const dia = sh.mesh.userData.diameter ?? 0.008;
+      if (k === 0 && life) sp.position.addScaledVector(v3(st.velocity).normalize(), -(sh.len * 0.5 + dia * 0.4));
       const f = 1 - k / TRACER_N;
       // A white-hot core at the head, the colour along the streak.
       sp.material.color.setHex(col);
       if (k === 0) sp.material.color.lerp(new THREE.Color(0xffffff), life ? 0.35 : 0.12);
       sp.material.opacity = (k === 0 ? 1 : 0.45 * f * f) * fade;
-      const sz = life ? (k === 0 ? 0.03 : 0.02 * f) : screen * (k === 0 ? 0.022 : 0.012 * (0.4 + 0.6 * f));
+      const sz = life ? dia * (k === 0 ? 2.4 : 1.8 * f) : screen * (k === 0 ? 0.022 : 0.012 * (0.4 + 0.6 * f));
       sp.scale.set(sz, sz, 1);
     }
   }
@@ -800,51 +1196,105 @@ const rt = new THREE.WebGLRenderTarget(1, 1, { samples: 4 });
 // it (a refractive tube along the path), into its own buffer.
 const wakeRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
 const wakeScene = new THREE.Scene();
-const MAX_WAKE = 4000;
+const MAX_WAKE = 6000;
 const wakeGeo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(2, 2));
 const wCenter = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE * 3), 3);
 const wRadius = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE), 1);
 const wStrength = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE), 1);
-wakeGeo.setAttribute('aCenter', wCenter); wakeGeo.setAttribute('aRadius', wRadius); wakeGeo.setAttribute('aStrength', wStrength);
+const wDir = new THREE.InstancedBufferAttribute(new Float32Array(MAX_WAKE * 4), 4);
+wakeGeo.setAttribute('aCenter', wCenter); wakeGeo.setAttribute('aRadius', wRadius); wakeGeo.setAttribute('aStrength', wStrength); wakeGeo.setAttribute('aDir', wDir);
 wakeGeo.instanceCount = 0;
+// Each stretch of wake bends the light that crosses it. Its index change
+// is the engine's `index` (in sea-level n - 1 = 2.9e-4), so a ray that runs
+// a length l through it, across a width r, turns by about
+// 2.9e-4 index l / r. Seen from the side l is its width (2r): next to
+// nothing. Seen end-on from behind the rifle, l is the stretch's length
+// along the path, and the stretches line up and add: a .308's trace then
+// turns the light by a few tenths of a milliradian, many times the mirage,
+// and a spotter sees it. The output is in pixels of the wake buffer.
 const wakeMat = new THREE.ShaderMaterial({
   uniforms: { pxScale: { value: 0.001 } },
-  vertexShader: `attribute vec3 aCenter; attribute float aRadius, aStrength; uniform float pxScale; varying vec2 vC; varying float vS;
+  vertexShader: `attribute vec3 aCenter; attribute vec4 aDir; attribute float aRadius, aStrength; uniform float pxScale;
+    varying vec2 vC; varying float vS, vH;
     void main(){ vec4 mv = viewMatrix * vec4(aCenter, 1.); float depth = max(0.01, -mv.z);
-      // A wake thinner than a few pixels is drawn a few pixels wide, keeping its integrated strength.
+      // The length a ray from the eye runs inside this stretch.
+      vec3 ray = normalize(aCenter - cameraPosition);
+      float c = abs(dot(ray, aDir.xyz)), s = sqrt(max(0., 1. - c * c));
+      float len = min(aDir.w / max(c, 1e-3), 2. * aRadius / max(s, 1e-3));
+      // Its turn (rad), capped where the near wake is not modelled anyway.
+      float turn = min(2.9e-4 * aStrength * len / aRadius, 2e-3);
+      // A wake thinner than a few pixels is drawn a few pixels wide, keeping its integrated turn.
       float r = max(aRadius, 2.5 * pxScale * depth);
       mv.xy += position.xy * r; vC = position.xy;
-      // Shown with a contrast curve (the square root of the deficit), as a spotter's eye and scope pick out a faint trace.
-      vS = sqrt(aStrength) * aRadius / r; gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `varying vec2 vC; varying float vS;
+      vS = turn / pxScale * aRadius / r;               // pixels
+      vH = sqrt(aStrength) * aRadius / r;              // for condensation haze only
+      gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `varying vec2 vC; varying float vS, vH;
     void main(){ float r2 = dot(vC, vC); if (r2 > 1.) discard; float f = exp(-3. * r2);
-      gl_FragColor = vec4(-vC * f * vS, f * vS, 1.); }`,
+      // Hot air has the lower index: light leaving the eye bends away from the
+      // wake's core, so the scene behind is fetched from further out.
+      gl_FragColor = vec4(vC * f * vS, f * vH, 1.); }`,
   transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
 });
 const wakeMesh = new THREE.Mesh(wakeGeo, wakeMat);
 wakeMesh.frustumCulled = false;
 wakeScene.add(wakeMesh);
+// The Mach cone, seen from the bullet camera: a thin shell where the air
+// jumps in density, so it bends light most where the eye looks along it
+// (its edge on the screen). Its apex at the nose, its axis along the round's
+// velocity through the air, its half-angle asin(1/M). The jump at the cone's
+// rim from Whitham's far-field rule for a projectile, dp/p = 0.53 (M^2 - 1)^(1/8)
+// d / (r^(3/4) l^(1/4)), and drho/rho = dp / (gamma p): a few per cent a
+// hand's width from a rifle bullet, falling as r^(-3/4) (the rule is a
+// far-field one, stretched here to tens of centimetres).
+// To the naked eye that jump turns light by only a few tenths of a
+// milliradian, at the cone's edge: invisible from the bullet camera. It is
+// drawn 20 times stronger, as a schlieren photograph shows it: presentation,
+// not physics (said so on How it works).
+const SCHLIEREN = 20;
+const shock = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 48, 1, true), new THREE.ShaderMaterial({
+  uniforms: { strength: { value: 0 }, pxScale: { value: 0.001 } },
+  vertexShader: `varying vec3 vN, vV; varying float vK; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.); vV = mv.xyz; vK = 0.5 - position.y; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform float strength, pxScale; varying vec3 vN, vV; varying float vK;
+    void main(){ float g = 1. - abs(dot(normalize(vN), normalize(-vV))); g = g * g * g;
+      // strength is the jump at the drawn rim (vK = 1); it grows toward the
+      // apex as r^(-3/4), and fades out before the drawn cone ends so its
+      // edge does not show (the real cone goes on, ever weaker).
+      g *= min(4., pow(max(vK, 0.02), -0.75)) * smoothstep(1., 0.45, vK);
+      g *= smoothstep(0.04, 0.12, length(vV));  // not where the shell passes the eye
+      gl_FragColor = vec4(normalize(vN).xy * g * strength / pxScale, 0., 1.); }`,
+  transparent: true, side: THREE.DoubleSide, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
+}));
+shock.frustumCulled = false;
+shock.visible = false;
+wakeScene.add(shock);
+// Condensation: the trace is refraction only, unless the air is near
+// saturation, when the cooling behind the round can fog it (photographs of
+// bullets in humid air show it). The white haze is kept for that case.
+const hazeFor = (rh) => Math.max(0, Math.min(1, (rh - 85) / 15));
 let showTrace = store.get('trace', true);
 const post = new THREE.Scene();
 const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const mirage = new THREE.ShaderMaterial({
   uniforms: { tex: { value: rt.texture }, wake: { value: wakeRT.texture }, wakeGain: { value: 0 }, scope: { value: 1 },
-    t: { value: 0 }, amp: { value: 0.0006 }, drift: { value: 0 }, aspect: { value: 1 } },
+    t: { value: 0 }, amp: { value: 0.0006 }, drift: { value: 0 }, aspect: { value: 1 }, haze: { value: 0 }, cell: { value: 1 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
   fragmentShader: `
-    uniform sampler2D tex, wake; uniform float t, amp, drift, aspect, wakeGain, scope; varying vec2 vUv;
+    uniform sampler2D tex, wake; uniform float t, amp, drift, aspect, wakeGain, scope, haze, cell; varying vec2 vUv;
     void main(){
       vec2 p = vUv;
       // The trace: the wake bends the light through it.
       vec3 wk = texture2D(wake, vUv).xyz;
-      p += wk.xy * wakeGain;
+      p += wk.xy * wakeGain * vec2(1. / aspect, 1.);  // pixels to the view's width and height
       // Heat shimmer: rising, boiling waves that lean and run with the crosswind.
-      float w1 = sin(p.y * 260. + t * 5.1 - p.x * 60. * drift + drift * t * 9.);
-      float w2 = sin(p.y * 170. - t * 3.7 + p.x * 90. + drift * t * 6.);
+      // (cell: the shimmer's cells have a fixed size in the sky, so they
+      // fill more of a narrower view.)
+      float w1 = sin(cell * (p.y * 260. - p.x * 60. * drift) + t * 5.1 + drift * t * 9.);
+      float w2 = sin(cell * (p.y * 170. + p.x * 90.) - t * 3.7 + drift * t * 6.);
       p.x += amp * (0.6 * w1 + 0.4 * w2);
-      p.y += amp * 0.5 * sin(p.x * 210. + t * 4.3);
+      p.y += amp * 0.5 * sin(cell * p.x * 210. + t * 4.3);
       vec3 c = texture2D(tex, p).rgb;
-      c = mix(c, vec3(0.92, 0.95, 1.0), min(0.45, wk.z * 0.9));
+      c = mix(c, vec3(0.92, 0.95, 1.0), min(0.45, wk.z * 0.9 * haze));
       vec2 q = (vUv - 0.5) * vec2(aspect, 1.);
       float r = length(q);
       float tube = mix(1., smoothstep(0.47, 0.455, r) * (1. - 0.25 * smoothstep(0.3, 0.46, r)), scope);
@@ -855,27 +1305,29 @@ const mirage = new THREE.ShaderMaterial({
 post.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mirage));
 const ret = $('reticle'), rg = ret.getContext('2d');
 let magnification = 20;
-const magFor = (d) => { const sc = scopeOf(); return sc.fov ? sc.mag : Math.max(6, Math.min(25, Math.round(d / 45))); };
+const magFor = (d) => { const sc = scopeOf(); return sc.fov ? sc.mag : Math.max(3, Math.min(25, Math.round(d / 45))); };
 const zoomBy = (k) => { if (!scopeOf().fov) magnification = Math.max(3, Math.min(32, magnification + k)); };
 // Degrees, vertical: a Soviet scope's own field, else a typical riflescope's.
 const scopeFov = () => { const sc = scopeOf(); return sc.fov ? sc.fov : 35 / magnification; };
 // The tube shows a circle 0.91 of the screen's height across, so the camera
 // sees a little more: the circle then spans the scope's stated field.
 const TUBE = 0.455;
-const scopeCamFov = () => scopeFov() / (2 * TUBE);
+const scopeCamFov = () => (scopeOf().tube === false ? scopeFov() : scopeFov() / (2 * TUBE));
 
-// The Soviet drum: the elevation (from the 100 m zero) each mark gives, worked
+// The Soviet drum: the elevation (from the zero) each mark gives, worked
 // out by the engine for this load in the tables' normal conditions (15 C,
 // 750 mmHg, still air): the drum is engraved once, and the day's air is a hold.
 const drumCache = {};
 function drumTable() {
-  if (drumCache[S.c]) return drumCache[S.c];
+  const key = `${S.c}@${zero()}`;
+  if (drumCache[key]) return drumCache[key];
   B.bd_station(99992, 288.15, 0.5, 0);
   B.bd_setup(twist(), 0, 0);
+  B.bd_powder(0);  // the tables' normal conditions: the published velocity
   B.wind(0, []);
   const el = [0, 0];
-  for (const r of B.table(ci(), ZERO, sightHeight(), 1300, 100, 0)) if (r.range > 0) el[Math.round(r.range / 100)] = -r.drop / r.range;
-  return (drumCache[S.c] = el);
+  for (const r of B.table(ci(), zero(), sightHeight(), 1300, 100, 0)) if (r.range > 0) el[Math.round(r.range / 100)] = -r.drop / r.range;
+  return (drumCache[key] = el);
 }
 // A hold (rad up) on a Soviet scope: the drum mark that comes nearest, and
 // what is left to hold (rad, + aim higher).
@@ -900,7 +1352,8 @@ function bdcFor(up) {
 function plan(hold) {
   const sc = scopeOf();
   if (sc.mode === 'drum') { const d = drumFor(hold.up); return { drum: d.drum, dialUp: drumTable()[d.drum], holdUp: d.rest, holdRight: hold.right }; }
-  if (sc.mode === 'hold') { const b = bdcFor(hold.up); return { mark: b.mark, dialUp: 0, holdUp: hold.up, holdRight: hold.right }; }
+  if (sc.mode === 'hold' && sc.kind === 'acog') { const b = bdcFor(hold.up); return { mark: b.mark, dialUp: 0, holdUp: hold.up, holdRight: hold.right }; }
+  if (sc.mode === 'hold') return { dialUp: 0, holdUp: hold.up, holdRight: hold.right };
   return { dialUp: hold.up, holdUp: 0, holdRight: hold.right };
 }
 // Manual aim: the turrets (clicks; on a Soviet scope the elevation is the
@@ -908,19 +1361,81 @@ function plan(hold) {
 const turretUp = () => { const sc = scopeOf(); return sc.mode === 'drum' ? drumTable()[Math.max(1, Math.min(sc.drumMax, S.turret.el))] : S.turret.el * sc.click; };
 const turretRight = () => S.turret.wd * scopeOf().click;
 function resetAim() {
-  S.turret = { el: scopeOf().mode === 'drum' ? 1 : 0, wd: 0 };
+  S.turret = { el: scopeOf().mode === 'drum' ? Math.max(1, Math.round(zero() / 100)) : 0, wd: 0 };
   S.hold = { up: 0, right: 0 };
 }
 // Where the scope looks (the crosshair, from the target's centre), and the
 // angles the shot leaves at (from the zero).
+// ---------- The shooter: position, wobble, breath, pulse, recoil ----------
+// Nobody holds a rifle still. The crosshair wanders over a wobble area set
+// by the position, rises and falls with the breath, and jumps with the
+// pulse; the shot leaves wherever it is at that instant. Figures (1 SD of
+// the wobble, the breath's swing and the pulse's kick, in MOA) are estimated
+// from marksmanship manuals' wobble areas: a benched rifle is nearly still,
+// a good prone shooter holds about 1 MOA, standing 6 to 10.
+const POSITIONS = {
+  bench: { name: 'Bench rest', sway: 0.06, breath: 0.25, pulse: 0.03, recoil: 0.5 },
+  prone: { name: 'Prone, bipod and rear bag', sway: 0.3, breath: 1.2, pulse: 0.12, recoil: 0.8 },
+  sling: { name: 'Prone, sling', sway: 0.7, breath: 2.5, pulse: 0.25, recoil: 1 },
+  sitting: { name: 'Sitting', sway: 1.8, breath: 3.5, pulse: 0.45, recoil: 1.2 },
+  kneeling: { name: 'Kneeling', sway: 3.0, breath: 5, pulse: 0.6, recoil: 1.4 },
+  standing: { name: 'Standing, offhand', sway: 6.5, breath: 7, pulse: 0.9, recoil: 1.8 },
+};
+const positionOf = () => POSITIONS[duel ? 'prone' : S.position] ?? POSITIONS.bench;
+// Breath: in and out every 4 s. Holding it (Shift, or the button) settles
+// the rifle at the natural pause and steadies the wobble for about 6 s; held
+// longer the wobble grows as the oxygen runs down, and at 12 s you must
+// breathe. Air comes back at half the rate it was spent.
+const breath = { holding: false, held: 0, debt: 0, level: 0, phase: 0, lastT: 0, gasp: 0 };
+let fixedSway = null;      // a shared link's shot: the wobble it left with
+let lastShotWall = -1e9, lastShotKick = 0;
+function updateShooter(wall) {
+  const dt = Math.min(0.1, Math.max(0, wall - breath.lastT));
+  breath.lastT = wall;
+  const want = breath.holding && breath.gasp <= 0 && breath.held < 12;
+  if (want) { breath.held += dt; breath.debt = Math.min(12, breath.debt + dt); }
+  else {
+    if (breath.holding && breath.held >= 12) breath.gasp = 2.5;  // out of air
+    breath.held = 0;
+    breath.debt = Math.max(0, breath.debt - dt * 0.5);
+    breath.gasp = Math.max(0, breath.gasp - dt);
+    breath.phase += (dt / (breath.debt > 6 ? 2.2 : 4)) * 2 * Math.PI;  // breathing harder after a long hold
+  }
+  // The breath's swing eases out when held, and back in after.
+  breath.level += ((want ? 0 : 1) - breath.level) * Math.min(1, dt * (want ? 5 : 2.5));
+}
+function swayNow(wall = nowWall) {
+  if (fixedSway) return fixedSway;
+  const P = positionOf(), t = wall;
+  // A wander of three slow sines an axis (RMS 1), a faster tremor on top.
+  const wx = (Math.sin(t * 1.93 + 1.1) + Math.sin(t * 3.17 + 4.2) * 0.7 + Math.sin(t * 6.4 + 2.2) * 0.35) / 0.93;
+  const wy = (Math.sin(t * 2.31 + 0.4) + Math.sin(t * 3.77 + 5.6) * 0.7 + Math.sin(t * 7.1 + 0.9) * 0.35) / 0.93;
+  // Steadier while the breath is held, worse once the air runs down.
+  const steady = (breath.holding && breath.held > 0 && breath.held < 12 ? 0.55 : 1) * (1 + Math.max(0, breath.debt - 6) * 0.45) * (breath.gasp > 0 ? 2 : 1);
+  const b = Math.sin(breath.phase) * P.breath * breath.level * (breath.debt > 6 ? 1.4 : 1);
+  // The pulse: 66 beats a minute at rest, a short kick up and a little left.
+  const beat = (t * (1.1 + breath.debt * 0.03)) % 1, kick = Math.exp(-beat * 9) * Math.sin(beat * 30);
+  return { up: (wy * P.sway * steady + b + kick * P.pulse) * MOA, right: (wx * P.sway * steady * 1.15 - kick * P.pulse * 0.4) * MOA };
+}
+// Recoil, as the scope shows it: the muzzle jumps and settles (the look
+// only: the round has left). A third of a mil per kg m/s of the bullet's
+// momentum at the bench, more in less steady positions (estimated).
+function recoilNow(wall = nowWall) {
+  const t = wall - lastShotWall;
+  if (t < 0 || t > 1.5) return 0;
+  return lastShotKick * Math.exp(-t / 0.16) * Math.cos(t * 9);
+}
 function sightHold() {
-  if (S.aim === 'manual') return S.hold;
-  if (!dope) return { up: 0, right: 0 };
+  const sw = swayNow(), rc = recoilNow();
+  if (S.aim === 'manual') return { up: S.hold.up + sw.up + rc, right: S.hold.right + sw.right };
+  if (!dope) return { up: sw.up + rc, right: sw.right };
   const p = plan(dope.hold);
-  return { up: p.holdUp, right: p.holdRight };
+  return { up: p.holdUp + sw.up + rc, right: p.holdRight + sw.right };
 }
 const shotHold = (d) => (S.aim === 'manual' ? { up: turretUp() + S.hold.up, right: turretRight() + S.hold.right } : d.hold);
-const fmtU = (rad, sc = scopeOf()) => `${(Math.abs(rad) / sc.unit).toFixed(sc.unit === MOA ? 1 : 1)} ${sc.unitName}`;
+// A value in the scope's unit, to its click: quarter MOA shows two decimals.
+const unitDigits = (sc = scopeOf()) => (sc.click / sc.unit < 0.1 - 1e-9 || Math.abs((sc.click / sc.unit) * 10 - Math.round((sc.click / sc.unit) * 10)) > 1e-6 ? 2 : 1);
+const fmtU = (rad, sc = scopeOf()) => `${(Math.abs(rad) / sc.unit).toFixed(unitDigits(sc))} ${sc.unitName}`;
 function turretText() {
   const sc = scopeOf();
   const el = sc.mode === 'drum' ? `drum ${Math.max(1, Math.min(sc.drumMax, S.turret.el))}` : `${turretUp() >= 0 ? 'up' : 'down'} ${fmtU(turretUp())}`;
@@ -938,7 +1453,7 @@ function drawReticle(dope) {
   const tx = cx - sh.right * px, ty = cy + sh.up * px;
   rg.save();
   rg.beginPath();
-  rg.arc(cx, cy, R0, 0, Math.PI * 2);
+  if (sc.tube === false) rg.rect(0, 0, w, h); else rg.arc(cx, cy, R0, 0, Math.PI * 2);
   rg.clip();
   rg.strokeStyle = 'rgba(8,8,8,0.92)';
   rg.fillStyle = 'rgba(8,8,8,0.92)';
@@ -946,15 +1461,17 @@ function drawReticle(dope) {
   else if (sc.kind === 'moa') milReticle(cx, cy, R0, px * MOA, dpr, 40, 1, 10, 10);
   else if (sc.kind === 'acog') acogReticle(cx, cy, R0, px, dpr);
   else if (sc.kind === 'pu') puReticle(cx, cy, R0, px * THOU, dpr);
+  else if (sc.kind === 'iron') ironSights(cx, cy, h, px, dpr);
+  else if (sc.kind === 'dot') redDot(cx, cy, px, dpr);
   else pso1Reticle(cx, cy, R0, px * THOU, dpr);
   // The target's centre (a small ring: at a kilometre the plate is a few pixels).
   rg.strokeStyle = '#ff3b2f';
   rg.lineWidth = 2 * dpr;
   rg.beginPath();
-  rg.arc(tx, ty, 5 * dpr, 0, Math.PI * 2);
+  if (!hunting()) rg.arc(tx, ty, 5 * dpr, 0, Math.PI * 2);
   rg.stroke();
   // Manual: where the crosshair should go for the call, with the turrets as set.
-  if (dope && S.aim === 'manual' && S.hint) {
+  if (dope && S.aim === 'manual' && S.hint && !hunting()) {
     const nx = tx + (dope.hold.right - turretRight()) * px, ny = ty - (dope.hold.up - turretUp()) * px;
     rg.setLineDash([3 * dpr, 3 * dpr]);
     rg.strokeStyle = '#ffd36b';
@@ -964,7 +1481,7 @@ function drawReticle(dope) {
     rg.setLineDash([]);
   }
   // Where the last shots went, as the spotter saw them.
-  if (S.markers !== 'off')
+  if (S.markers !== 'off' && !hunting())
     for (const im of impacts) {
       const x = tx + (im.right / S.dist) * px, y = ty - (im.up / S.dist) * px, k = 5 * dpr;
       rg.strokeStyle = im.hit ? 'rgba(255,255,255,0.95)' : '#ff3b2f';
@@ -977,7 +1494,7 @@ function drawReticle(dope) {
   rg.fillStyle = 'rgba(231,236,242,0.95)';
   rg.font = `600 ${12 * dpr}px "JetBrains Mono", monospace`;
   rg.textAlign = 'center';
-  const head = `${sc.name} ${sc.fov ? sc.mag : magnification}×`;
+  const head = sc.tube === false ? sc.name : `${sc.name} ${sc.fov ? sc.mag : magnification}×`;
   const side = (r) => (r > 0 ? ' right' : ' left');
   let line = '';
   if (S.aim === 'manual') {
@@ -989,13 +1506,65 @@ function drawReticle(dope) {
     if (sc.mode === 'drum') {
       const over = sc.kind === 'pso1' && p.drum === 10 && p.holdUp > 0.2 * THOU ? ` (chevron ${pso1Chevron(dope.hold.up)})` : '';
       line = `${head}   drum ${p.drum}   hold ${rest(p.holdUp)}${over}   wind ${wd}`;
+    } else if (sc.mode === 'hold' && sc.kind !== 'acog') {
+      // Held on the target: how far above or below its centre, in its own size.
+      const cm = (r) => fmtLen(Math.abs(r) * S.dist);
+      const v = Math.abs(p.holdUp) < 0.05 * sc.unit ? 'on the centre' : `${cm(p.holdUp)} ${p.holdUp > 0 ? 'high' : 'low'} (${fmtU(p.holdUp)})`;
+      line = `${head}   hold ${v}   wind ${Math.abs(p.holdRight) < 0.05 * sc.unit ? 'centre' : cm(p.holdRight) + side(p.holdRight)}`;
     } else if (sc.mode === 'hold') {
       const b = bdcFor(dope.hold.up);
       line = `${head}   ${b.mark === 1 ? 'chevron tip' : b.mark * 100 + ' m bar'}, ${rest(b.rest)}   wind ${wd}`;
     } else line = `${head}   dialled ${dope.hold.up >= 0 ? 'up' : 'down'} ${fmtU(dope.hold.up)}   hold ${wd}`;
   }
   if (line) rg.fillText(line, cx, cy + R0 + 20 * dpr);
+  // The breath: a bar that empties while it is held (amber when the air runs down).
+  if (positionOf() !== POSITIONS.bench || breath.holding) {
+    const w0 = 120 * dpr, x0 = cx - w0 / 2, y0 = cy + R0 + 30 * dpr, left = Math.max(0, 1 - breath.debt / 12);
+    rg.fillStyle = 'rgba(255,255,255,0.18)'; rg.fillRect(x0, y0, w0, 4 * dpr);
+    rg.fillStyle = breath.gasp > 0 ? '#ef5d4f' : breath.debt > 6 ? '#f0b43a' : breath.holding ? '#36c483' : 'rgba(231,236,242,0.7)';
+    rg.fillRect(x0, y0, w0 * left, 4 * dpr);
+    rg.fillStyle = 'rgba(231,236,242,0.8)';
+    rg.font = `600 ${10 * dpr}px "JetBrains Mono", monospace`;
+    rg.fillText(breath.gasp > 0 ? 'out of breath' : breath.holding ? 'holding your breath' : 'hold Shift to hold your breath', cx, y0 + 16 * dpr);
+  }
   rg.textAlign = 'start';
+}
+// Iron sights, as the eye sees them with the front sight in focus: the rear
+// notch (blurred) and the front post, its top level with the notch's and
+// on the aim point (a centre hold: the post's top on the target's centre).
+// A pistol's 0.14 in post at arm's length (about 30 in) covers about 0.26
+// deg, its notch 0.4 deg and its rear blade about 2.2 by 0.6 deg; a carbine's
+// hooded post at half a metre is much the same (estimated; sights vary).
+function ironSights(cx, cy, h, px, dpr) {
+  const post = 0.26 * DEG * px, notch = 0.4 * DEG * px, rearW = 2.2 * DEG * px, rearH = 0.6 * DEG * px;
+  rg.save();
+  rg.filter = `blur(${(1.5 * dpr).toFixed(1)}px)`;
+  rg.fillStyle = 'rgba(14,14,16,0.88)';
+  // The rear sight: a blade with a square notch, its top at the aim line,
+  // and the slide below it.
+  rg.fillRect(cx - rearW / 2, cy, rearW / 2 - notch / 2, rearH);
+  rg.fillRect(cx + notch / 2, cy, rearW / 2 - notch / 2, rearH);
+  rg.fillRect(cx - rearW / 2, cy + rearH, rearW, h);
+  rg.restore();
+  // The front post, sharp, rising to the aim point; a white dot near its top.
+  rg.fillStyle = 'rgba(10,10,12,0.96)';
+  rg.fillRect(cx - post / 2, cy, post, rearH * 1.6);
+  rg.fillStyle = 'rgba(235,240,230,0.9)';
+  rg.beginPath();
+  rg.arc(cx, cy + post * 0.7, post * 0.25, 0, Math.PI * 2);
+  rg.fill();
+  rg.fillStyle = 'rgba(8,8,8,0.92)';
+}
+// A red dot: 2 MOA, lit, with a soft glow; the window's edge is not drawn.
+function redDot(cx, cy, px, dpr) {
+  const r = Math.max(1.5 * dpr, MOA * px);
+  const g = rg.createRadialGradient(cx, cy, 0, cx, cy, r * 3);
+  g.addColorStop(0, 'rgba(255,60,40,1)'); g.addColorStop(0.33, 'rgba(255,40,30,0.95)'); g.addColorStop(1, 'rgba(255,30,20,0)');
+  rg.fillStyle = g;
+  rg.beginPath();
+  rg.arc(cx, cy, r * 3, 0, Math.PI * 2);
+  rg.fill();
+  rg.fillStyle = 'rgba(8,8,8,0.92)';
 }
 // A mil or MOA reticle: fine crosshair, heavy outer posts from `span` units,
 // a tick every `step`, longer every `major`, numbered every `label`.
@@ -1150,6 +1719,7 @@ const CAMS = [['scope', 'Scope'], ['shooter', 'Shooter'], ['bullet', 'Bullet'], 
 let cam = 'scope';
 let orbit = { yaw: 0, pitch: 0 };
 function setCam(c) {
+  if (c === 'target' && hunting()) c = 'scope';  // it would show where they are
   cam = c;
   for (const b of $('cams').children) b.setAttribute('aria-pressed', String(b.dataset.c === c));
   ret.style.display = c === 'scope' ? 'block' : 'none';
@@ -1164,9 +1734,11 @@ let afterWall = 0;
 function autoScale(sh) {
   const tof = (sh.tStop - sh.t0);
   const cruise = Math.min(1, Math.max(0.01, tof / 7));
+  // Downrange from whoever fired it (an opponent's round comes from the far end).
+  const along = (p) => (sh.remote ? sh.S.dist - lof(p).d : lof(p).d);
   const st = stateOf(sh, Math.min(tNow, sh.tStop));
-  const d = lof(st.position).d;
-  const rem = Math.max(0, (sh.hit ? sh.S.dist : lof(B.stateAt(sh.tStop).position).d) - d);
+  const d = along(st.position);
+  const rem = Math.max(0, (sh.hit ? sh.S.dist : along(B.stateAt(sh.tStop).position)) - d);
   const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
   const fromMuzzle = 0.003 + (cruise - 0.003) * sm(1, 40, d);
   const toEnd = 0.0004 + (cruise - 0.0004) * sm(0.5, 35, rem);
@@ -1210,14 +1782,14 @@ const fmtAlt = (m) => (metric ? `${m.toFixed(0)} m` : `${(m / FT).toFixed(0)} ft
 const clockName = (c) => `${Math.abs(c - Math.round(c)) < 0.05 ? Math.round(c) : c.toFixed(1)} o'clock`;
 
 function presetsUI() {
-  const box = $('presets');
-  box.innerHTML = '';
+  const box = $('presets'), shortBox = $('presetsShort');
+  box.innerHTML = shortBox.innerHTML = '';
   for (const p of SCENARIOS) {
     const b = document.createElement('button');
     if (p.feature) b.className = 'feature';
     b.innerHTML = `${p.name}<small>${p.sub}</small>`;
-    b.onclick = () => { Object.assign(S, { tgt: 'plate', glazing: 'windscreen' }, structuredClone(p.s)); S.t0 = 10; resetAim(); syncUI(); changed(true); refresh(); tNow = S.t0; fireNow(); };
-    box.appendChild(b);
+    b.onclick = () => { Object.assign(S, { tgt: 'plate', glazing: 'windscreen' }, structuredClone(p.s)); S.zero = p.s.zero ?? defaultZero(p.s.c); S.t0 = 10; resetAim(); syncUI(); changed(true); refresh(); tNow = S.t0; fireNow(); };
+    (p.short ? shortBox : box).appendChild(b);
   }
 }
 function layersUI() {
@@ -1253,15 +1825,17 @@ function syncUI() {
   $('markers').value = S.markers;
   $('tracer').value = S.tracer;
   $('tracerToImpact').checked = S.tracerToImpact;
+  $('position').value = duel ? 'prone' : S.position; $('position').disabled = !!duel;
   $('scope').value = S.scope; $('aim').value = S.aim; $('hint').checked = S.hint;
   $('manualBox').hidden = S.aim !== 'manual';
   turretUI();
   if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); }
+  $('zero').value = String(zero());
   $('dist').value = S.dist; $('size').value = S.size; $('temp').value = S.temp; $('alt').value = S.alt; $('rh').value = S.rh;
   $('lat').value = S.lat; $('az').value = S.az;
   $('sameWind').checked = S.same; $('callTrue').checked = S.callTrue; $('callBox').hidden = S.callTrue;
   $('callSpd').value = S.call.spd; $('callDir').value = S.call.clock;
-  $('fSpin').checked = S.spin; $('fEarth').checked = S.earth; $('fSolver').checked = S.solver;
+  $('fSpin').checked = S.spin; $('fEarth').checked = S.earth; $('fSolver').checked = S.solver; $('fUnique').checked = S.unique;
   $('bUnits').textContent = metric ? 'Metric' : 'Imperial';
   layersUI();
   labels();
@@ -1269,8 +1843,10 @@ function syncUI() {
 function labels() {
   const r = raw.rifles.find((x) => x.id === RIFLE_FOR[S.c]);
   const c = cat.cartridges[ci()];
-  $('loadDesc').textContent = `${fmtV(c.muzzleVelocity)} from ${r ? r.name : 'its rifle'}, 1:${r ? r.twist_in : '?'} in ${r && r.twist_direction === 'left' ? 'left' : 'right'}-hand twist, scope ${fmtLen(sightHeight())} over the bore.`;
-  $('vDist').textContent = fmtDist(S.dist);
+  const sights = scopeOf().tube === false ? (scopeKey() === 'dot' ? 'red dot' : 'sights') : 'scope';
+  $('loadDesc').textContent = `${fmtV(c.muzzleVelocity)} from ${r ? r.name : 'its rifle'} (${r ? r.barrel_in : '?'} in barrel), 1:${r ? r.twist_in : '?'} in ${r && r.twist_direction === 'left' ? 'left' : 'right'}-hand twist, ${sights} ${fmtLen(sightHeight())} over the bore.`;
+  $('zeroNote').textContent = `${gunClass() === 'rifle' ? 'The rifle' : 'The gun'} is zeroed at ${zero()} m. ${scopeOf().mode === 'dial' ? 'The elevation from your dope is dialled; the wind is held on the reticle.' : scopeOf().tube === false ? 'Everything is held: put the sight where the dope says, above or beside the target.' : 'Set the marks your dope gives and hold the rest.'}`;
+  $('vDist').textContent = hunting() ? 'hidden: range them on the reticle' : fmtDist(S.dist);
   $('vSize').textContent = fmtLen(S.size) + ` · ${(S.size / S.dist * 1000).toFixed(2)} mil`;
   $('vTemp').textContent = fmtT(S.temp);
   $('vAlt').textContent = `${fmtAlt(S.alt)} · ${(isaPressure(S.alt) / 100).toFixed(0)} hPa`;
@@ -1282,7 +1858,7 @@ function labels() {
   $('vCallSpd').textContent = fmtSpeedW(S.call.spd);
   $('vCallDir').textContent = clockName(S.call.clock);
   if (S.callTrue) $('callBox').hidden = true;
-  $('callTrue').nextSibling.textContent = ` Call the average true wind exactly (${fmtSpeedW(cw.spd)} from ${clockName(cw.clock)})`;
+  $('callTrue').nextSibling.textContent = duel ? ' Call the average true wind exactly (not in a duel)' : ` Call the average true wind exactly (${fmtSpeedW(cw.spd)} from ${clockName(cw.clock)})`;
 }
 
 let dope = null, dopeTimer = 0;
@@ -1290,7 +1866,7 @@ function changed(rebuild = false) {
   labels();
   clearTimeout(dopeTimer);
   dopeTimer = setTimeout(refresh, rebuild ? 0 : 90);
-  if (rebuild) { retireAll(); shot = null; path.visible = false; impacts = []; missMarks = []; buildRange(); buildBullet(); placeRifle(); magnification = magFor(S.dist); }
+  if (rebuild) { retireAll(); shot = null; path.visible = false; impacts = []; missMarks = []; buildRange(); buildBullet(); placeRifle(); magnification = hunting() ? 8 : magFor(S.dist); }
 }
 // The dope for the call, then the true air back in the engine for the flags.
 function refresh() {
@@ -1309,21 +1885,31 @@ function refresh() {
   }
 }
 function dopeUI() {
+  turretUI();
+  const sp = dope?.spread, el = $('spreadInfo');
+  if (!sp || !(sp.vertical > 0)) el.textContent = S.unique ? '' : 'Every round the same: switch on "Every round unique" for their spread.';
+  else {
+    const what = S.tgt === 'plate' ? `hit chance on this plate ${Math.round(100 * chanceBox(S.size, S.size, sp.horizontal, sp.vertical))} %`
+      : S.tgt === 'duel' ? `a head at this range ${Math.round(100 * chanceCircle(FIGURE.head.r, sp.horizontal, sp.vertical))} % of the time` : '';
+    el.textContent = `Rounds scatter ${fmtLen(sp.vertical)} up and down, ${fmtLen(sp.horizontal)} across (1 SD) at the target${what ? ': ' + what : ''}, if the wind call is right.`;
+  }
   const t = $('dope');
   const sc = scopeOf(), u = sc.unit;
-  const what = { dial: `${sc.unitName}, dialled`, drum: `${sc.name} drum, holds in ${sc.unitName}`, hold: `${sc.name} marks, holds in ${sc.unitName}` }[sc.mode];
+  const plain = sc.mode === 'hold' && sc.kind !== 'acog';
+  const what = plain ? `${sc.name}: holds in ${sc.unitName}, zeroed at ${zero()} m` : { dial: `${sc.unitName}, dialled`, drum: `${sc.name} drum, holds in ${sc.unitName}`, hold: `${sc.name} marks, holds in ${sc.unitName}` }[sc.mode];
   $('dopeWhat').textContent = `${what} · call ${fmtSpeedW(call().spd)} from ${clockName(call().clock)}`;
-  const second = { dial: 'Elev', drum: 'Drum', hold: 'Mark' }[sc.mode];
+  const second = plain ? 'Hold' : { dial: 'Elev', drum: 'Drum', hold: 'Mark' }[sc.mode];
   const arrow = (r) => (Math.abs(r) < 0.05 ? '·' : Math.abs(r).toFixed(1) + (r > 0 ? '↑' : '↓'));
-  let h = `<tr><th>${metric ? 'm' : 'yd'}</th><th>${second}</th>${sc.mode === 'dial' ? '' : '<th>Hold</th>'}<th>Wind</th><th>${metric ? 'm/s' : 'ft/s'}</th><th>s</th></tr>`;
+  let h = `<tr><th>${metric ? 'm' : 'yd'}</th><th>${second}</th>${sc.mode === 'dial' || plain ? '' : '<th>Hold</th>'}${plain ? `<th>${metric ? 'cm' : 'in'}</th>` : ''}<th>Wind</th><th>${metric ? 'm/s' : 'ft/s'}</th><th>s</th></tr>`;
   for (const r of dope.rows) {
     if (r.range <= 0) continue;
     const up = -r.drop / r.range, wd = (-r.windage / r.range) / u;
     let cells;
     if (sc.mode === 'drum') { const d = drumFor(up); cells = `<td>${d.drum}</td><td>${arrow(d.rest / u)}</td>`; }
+    else if (plain) cells = `<td>${arrow(up / u)}</td><td>${arrow((up * r.range) / (metric ? 0.01 : IN))}</td>`;
     else if (sc.mode === 'hold') { const b = bdcFor(up); cells = `<td>${b.mark === 1 ? 'tip' : b.mark}</td><td>${arrow(b.rest / u)}</td>`; }
-    else cells = `<td>${(up / u).toFixed(1)}</td>`;
-    h += `<tr class="${Math.abs(r.range - S.dist) < 1 ? 'at' : ''}"><td>${(metric ? r.range : r.range / YD).toFixed(0)}</td>${cells}<td>${Math.abs(wd).toFixed(1)}${wd > 0.05 ? 'R' : wd < -0.05 ? 'L' : ''}</td><td>${(metric ? r.speed : r.speed / FT).toFixed(0)}</td><td>${r.time.toFixed(2)}</td></tr>`;
+    else cells = `<td>${((Math.round(up / sc.click) * sc.click) / u).toFixed(unitDigits(sc))}</td>`;  // to the click you would dial
+    h += `<tr class="${Math.abs(r.range - S.dist) < 1 && !hunting() ? 'at' : ''}"><td>${(metric ? r.range : r.range / YD).toFixed(r.range < 50 && !Number.isInteger(metric ? r.range : r.range / YD) ? 1 : 0)}</td>${cells}<td>${Math.abs(wd).toFixed(1)}${wd > 0.05 ? 'R' : wd < -0.05 ? 'L' : ''}</td><td>${(metric ? r.speed : r.speed / FT).toFixed(0)}</td><td>${r.time.toFixed(2)}</td></tr>`;
   }
   t.innerHTML = h;
 }
@@ -1333,7 +1919,7 @@ function resultsUI() {
   const o = $('outcome');
   const sh = shot;
   const mil = (m) => ((m / S.dist) * 1e3).toFixed(2);
-  $('watch').hidden = !((sh.hit && S.tgt === 'dummy') || (S.tgt === 'v8' && sh.glass && sh.glass.penetrated));
+  $('watch').hidden = !((sh.hit && isDummy(S.tgt)) || (S.tgt === 'v8' && sh.glass && sh.glass.penetrated));
   if (S.tgt === 'v8' && sh.glass && sh.glass.onGlass) {
     const gl = sh.glass;
     if (gl.penetrated) { o.className = 'bad'; o.textContent = `Through the armoured windscreen: ${gl.vin.toFixed(0)} → ${gl.vout.toFixed(0)} m/s, on to the driver.`; $('watch').href = liquidsUrl(sh); }
@@ -1342,6 +1928,14 @@ function resultsUI() {
   } else if (S.tgt === 'v8') {
     o.className = 'warn';
     o.textContent = sh.impact ? `It missed the windscreen: ${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'} (bodywork or past).` : 'It never reached the car.';
+  } else if (S.tgt === 'duel' && sh.impact) {
+    o.className = sh.hit ? 'ok' : 'bad';
+    o.textContent = sh.hit ? `Hit: your friend's ${sh.part} (${sh.part === 'head' ? 2 : 1} ${sh.part === 'head' ? 'points' : 'point'}).`
+      : `Miss: ${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'} of the head.`;
+  } else if (sh.hit && sh.line) {
+    o.className = 'ok';
+    o.textContent = `Hit the dummy at ${fmtDist(sh.line.d)} (${dummyPart(sh.impact)})${sh.line.pane === 'front' ? ', through its glass' : sh.line.pane === 'behind' ? ', glass behind it' : ', in the open'}: watch it in the Liquids Lab.`;
+    $('watch').href = liquidsUrl(sh);
   } else if (sh.hit && S.tgt === 'dummy') {
     o.className = 'ok';
     o.textContent = `Hit the dummy (${dummyPart(sh.impact)}) through ${sh.S.glazing === 'none' ? 'the open air' : 'the glass'}: watch it in the Liquids Lab.`;
@@ -1356,7 +1950,8 @@ function resultsUI() {
     o.className = 'bad';
     o.textContent = 'The round never reached the target: it hit the ground short.';
   }
-  $('rWhat').textContent = `${fmtDist(S.dist)}`;
+  $('rWhat').textContent = hunting() ? '' : `${fmtDist(S.dist)}`;
+  if (hunting() && !sh.hit) { o.className = 'bad'; o.textContent = 'No hit. Watch where it struck, find them, range them, and try again.'; $('kv').innerHTML = ''; $('bars').innerHTML = ''; return; }
   const at = sh.atTarget;
   const kv = [];
   if (sh.impact) kv.push(['Off centre', `${mil(sh.impact.right)} R, ${mil(sh.impact.up)} U mil`]);
@@ -1374,13 +1969,24 @@ function resultsUI() {
   }
   if (sh.glass && sh.glass.onGlass) kv.push(['Glass Dynamics', `${sh.glass.outcome} · struck at ${(90 - Math.abs(sh.glass.pitch) / DEG).toFixed(0)}° to the glass`]);
   kv.push(['Muzzle', `${fmtV(sh.muzzleSpeed)} · Mach ${(sh.muzzleSpeed / sh.air.speedOfSound).toFixed(2)}`]);
+  if (sh.draw && sh.seed) {
+    const d = sh.draw, dv = d.velocityOffset, sc = scopeOf();
+    const dvs = metric ? `${Math.abs(dv).toFixed(1)} m/s` : `${(Math.abs(dv) / FT).toFixed(0)} ft/s`;
+    kv.push(['This round', `${dv >= 0 ? '+' : '−'}${dvs} · BC ${d.bcFactor >= 1 ? '+' : '−'}${(Math.abs(d.bcFactor - 1) * 100).toFixed(1)} % · barrel ${fmtU(d.up, sc)} ${d.up >= 0 ? 'up' : 'down'}, ${fmtU(d.right, sc)} ${d.right >= 0 ? 'R' : 'L'}`]);
+  }
+  if (groupLog.length >= 2) {
+    let es = 0;
+    for (let i = 0; i < groupLog.length; ++i) for (let j = i + 1; j < groupLog.length; ++j) es = Math.max(es, Math.hypot(groupLog[i].right - groupLog[j].right, groupLog[i].up - groupLog[j].up));
+    kv.push([`Group, last ${groupLog.length}`, `${fmtLen(es)} · ${(es / S.dist / MOA).toFixed(2)} MOA`]);
+  }
   // Muzzle to target (not the flight on past it).
   const tUntil = (sh.tTarget ?? sh.tStop) - sh.t0;
   if (S.spin) {
     const unstable = sh.sg < 1 || (sh.sgTarget > 0 && sh.sgTarget < 1);
     kv.push(['Stability Sg', `${sh.sg.toFixed(2)}${sh.sgTarget > 0 ? ' → ' + sh.sgTarget.toFixed(2) : ''}${unstable ? ' · TUMBLED' : ''}`]);
   }
-  if (sh.round.subsonicTime > 0 && sh.round.subsonicTime <= tUntil) {
+  if (sh.muzzleSpeed < sh.air.speedOfSound) kv.push(['Subsonic', 'from the muzzle (no sonic crack)']);
+  else if (sh.round.subsonicTime > 0 && sh.round.subsonicTime <= tUntil) {
     const st = stateOf(sh, sh.t0 + sh.round.subsonicTime);
     kv.push(['Went subsonic at', fmtDist(lof(st.position).d)]);
   }
@@ -1389,7 +1995,10 @@ function resultsUI() {
     kv.push(['Aimed', sh.S.aim === 'manual' ? `by hand: ${fmtU(a.up)} ${a.up >= 0 ? 'up' : 'down'} · ${fmtU(a.right)} ${side(a.right)}`
       : `${fmtU(a.up)} ${a.up >= 0 ? 'up' : 'down'} · ${fmtU(a.right)} ${side(a.right)} (${sc.name})`]);
   }
-  kv.push(['Air', `${fmtT(S.temp)} · ${(isaPressure(S.alt) / 100).toFixed(0)} hPa · DA ${fmtAlt(sh.air.densityAltitude)}`]);
+  // A real scope runs out of elevation long before 2 miles: say so when the dope asks for more.
+  if (sh.S.aim !== 'manual' && scopeOf().mode === 'dial' && Math.abs(sh.aim.up) > 0.03)
+    kv.push(['Turret', `${fmtU(sh.aim.up)}: past most scopes' ~30 mil of travel (a canted base and holdover)`]);
+  kv.push(['Air', `${fmtT(S.temp)} · ${(isaPressure(S.alt) / 100).toFixed(0)} hPa · DA ${fmtAlt(sh.air.densityAltitude)}${S.unique ? ' · powder at the air' : ''}`]);
   $('kv').innerHTML = kv.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join('');
   // What moved it.
   const all = sh.bars.flatMap((b) => [Math.abs(b.up), Math.abs(b.right)]);
@@ -1424,7 +2033,7 @@ function hitFeedback(sh) {
     void m.offsetWidth;
     m.classList.add('on');
     // Red when it reached the dummy (through the V8's glass, or the dummy target).
-    if (T.tgt === 'dummy' || (T.tgt === 'v8' && sh.glass && sh.glass.penetrated)) m.classList.add('kill');
+    if (isDummy(T.tgt) || (T.tgt === 'v8' && sh.glass && sh.glass.penetrated)) m.classList.add('kill');
     tick();
   }
   if (isHit || S.markers === 'all') {
@@ -1454,15 +2063,31 @@ function banner(a, b) { $('bTitle').textContent = a; $('bSub').textContent = b; 
 // worked, a semi-automatic is ready as fast as the trigger. Estimated. A shot
 // asked for sooner waits its turn: in bullet time the rounds still leave the
 // muzzle at the rifle's true cadence.
-const RIFLE_CYCLE = { m24_sws: 1.2, bolt_65cm: 1.2, bolt_338lm: 1.4, m200_408: 1.6, m9130_pu: 1.3, m107_50bmg: 0.25, svd_pso1: 0.2, m16a2: 0.12, pistol_9mm: 0.12 };
+// The automatics fire at their cyclic rate (published: MP5 about 800 rounds a
+// minute, P90 about 900, Thompson M1A1 about 700); a revolver's double-action
+// pull is slower than a pistol's trigger (estimated).
+const RIFLE_CYCLE = { m24_sws: 1.2, bolt_65cm: 1.2, bolt_338lm: 1.4, m200_408: 1.6, m9130_pu: 1.3, m107_50bmg: 0.25, svd_pso1: 0.2, m16a2: 0.12, pistol_9mm: 0.12,
+  glock_17: 0.12, colt_1911: 0.15, sw_686: 0.3, fn_fiveseven: 0.12, mp5a3: 60 / 800, fn_p90: 60 / 900, thompson_m1a1: 60 / 700 };
 // A round arrives: the plate rings and swings, the glass breaks, the dust flies.
+function logGroup(sh) {
+  if (sh.remote || !sh.impact) return;
+  const key = `${sh.S.c}|${sh.S.dist}|${zero()}|${sh.S.aim}`;
+  if (groupLog.key !== key) { groupLog = []; groupLog.key = key; }
+  groupLog.push({ right: sh.impact.right, up: sh.impact.up });
+  if (groupLog.length > 5) groupLog.shift();
+  if (sh === shot) resultsUI();
+}
 function arrive(sh) {
+  logGroup(sh);
+  if (duel && duelArrive(sh)) return;
   const T = sh.S;
   hitFeedback(sh);
   if (T.tgt === 'v8' && sh.glass && sh.glass.onGlass) {
     drawV8Cracks(sh.glass);
     noiseBurst(0.35, 3000, 0.4);
     banner(sh.glass.penetrated ? 'Through the glass' : 'Stopped', sh.glass.penetrated ? `${sh.glass.vin.toFixed(0)} → ${sh.glass.vout.toFixed(0)} m/s: watch it in the Liquids Lab` : 'the armoured windscreen held');
+  } else if (sh.hit && sh.line) {
+    banner('Hit', `the dummy at ${fmtDist(sh.line.d)}, ${dummyPart(sh.impact)}: watch it in the Liquids Lab`);
   } else if (sh.hit && T.tgt === 'dummy') {
     banner('Hit', `the dummy's ${dummyPart(sh.impact)} at ${fmtDist(T.dist)}: watch it in the Liquids Lab`);
   } else if (sh.hit) {
@@ -1487,13 +2112,16 @@ function arrive(sh) {
 
 function fireNow() {
   if (S.tgt === 'v8' && !G) { toast('Loading the glass engine for the windscreen…'); $('outcome').className = ''; $('outcome').textContent = 'Loading the glass engine…'; $('watch').hidden = true; ensureGlass().then(() => fireNow()).catch((e) => toast('Glass engine: ' + e.message)); return; }
+  if (duel && !duelMayFire()) return;
   const cycle = RIFLE_CYCLE[RIFLE_FOR[S.c]] ?? 0.9;
-  const prev = shots.at(-1), t0 = Math.max(tNow, prev ? prev.t0 + cycle : tNow);
-  if (t0 - tNow > 8 * cycle) { toast('Eight rounds are already waiting to go'); return; }
+  const prev = shots.filter((x) => !x.remote).at(-1), t0 = Math.max(tNow, prev ? prev.t0 + cycle : tNow);
+  const queue = AUTOMATIC.has(RIFLE_FOR[S.c]) ? 30 : 8;
+  if (t0 - tNow > queue * cycle) { if (queue === 8) toast('Eight rounds are already waiting to go'); return; }
   if (dopeTimer) refresh();  // settings still pending: apply them first
   if (!fire(t0)) return;
-  if (t0 > tNow + 1e-6) toast(cycle > 0.5 ? 'Working the bolt…' : 'Next round');
-  if (auto) setCam('bullet');
+  if (duel) duelSent(shot);
+  if (t0 > tNow + 1e-6 && !AUTOMATIC.has(RIFLE_FOR[S.c])) toast(cycle > 0.5 ? 'Working the bolt…' : 'Next round');
+  if (auto && !duel) setCam('bullet');
   resultsUI();
   // The dashed path of the whole flight, for the scope and shooter views.
   const pts = [];
@@ -1505,7 +2133,12 @@ function fireNow() {
   path.visible = false;
 }
 
-$('cartridge').onchange = (e) => { S.c = e.target.value; resetAim(); syncUI(); changed(true); };
+$('cartridge').onchange = (e) => { S.c = e.target.value; S.zero = defaultZero(S.c); resetAim(); syncUI(); changed(true); };
+{
+  const z = $('zero');
+  for (const m of ZEROS) { const o = document.createElement('option'); o.value = String(m); o.textContent = `${m} m`; z.appendChild(o); }
+  z.onchange = (e) => { S.zero = +e.target.value; resetAim(); syncUI(); changed(true); };
+}
 {
   const gsel = $('glazing');
   const none = document.createElement('option'); none.value = 'none'; none.textContent = 'No glass'; gsel.appendChild(none);
@@ -1516,23 +2149,41 @@ $('cartridge').onchange = (e) => { S.c = e.target.value; resetAim(); syncUI(); c
     const o = document.createElement('option'); o.value = g.id; o.textContent = g.name; groups[g.category].appendChild(o);
   }
 }
-$('tgt').onchange = (e) => { S.tgt = e.target.value; if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); } syncUI(); changed(true); };
+$('tgt').onchange = (e) => { S.tgt = e.target.value; if (S.tgt === 'line') S.dist = Math.max(LINE_STEP, Math.round(S.dist / LINE_STEP) * LINE_STEP); if (S.tgt === 'v8') { ensureCar(); ensureGlass().catch(() => {}); } syncUI(); changed(true); };
 $('markers').onchange = (e) => { S.markers = e.target.value; store.set('markers', S.markers); };
 $('tracer').onchange = (e) => { S.tracer = e.target.value; store.set('tracer', S.tracer); };
 $('tracerToImpact').onchange = (e) => { S.tracerToImpact = e.target.checked; store.set('tracerToImpact', S.tracerToImpact); };
 // Scope and aim.
 function turretUI() {
+  const sc = scopeOf(), drum = sc.mode === 'drum', hold = sc.mode === 'hold';
+  // Sights with nothing to dial for range (irons, a red dot, the ACOG's
+  // marks): everything is held, so the turrets are not offered.
+  $('turrets').hidden = hold;
+  $('holdOnly').hidden = !hold;
+  if (hold) return;
   const t = turretText();
-  $('tEl').textContent = t.el;
-  $('tWd').textContent = t.wd;
+  const elIn = $('tElIn'), wdIn = $('tWdIn');
+  elIn.step = drum ? 1 : String(sc.click / sc.unit);
+  wdIn.step = String(sc.click / sc.unit);
+  if (document.activeElement !== elIn) elIn.value = drum ? String(Math.max(1, Math.min(sc.drumMax, S.turret.el))) : ((S.turret.el * sc.click) / sc.unit).toFixed(unitDigits(sc));
+  if (document.activeElement !== wdIn) wdIn.value = ((S.turret.wd * sc.click) / sc.unit).toFixed(unitDigits(sc));
+  $('tElUnit').textContent = drum ? 'drum (×100 m)' : `${sc.unitName} ${turretUp() >= 0 ? 'up' : 'down'}`;
+  $('tWdUnit').textContent = `${sc.unitName} ${turretRight() >= 0 ? 'R' : 'L'}`;
+  // Clicks, the turn of the turret, and how far the card is from the dial.
+  const turns = (clicks) => { if (!sc.rev) return ''; const per = Math.round(sc.rev / sc.click), n = Math.floor(Math.abs(clicks) / per); return n ? ` · turn ${n + 1}` : ''; };
+  const need = dope && !drum && !hunting() ? { el: Math.round(dope.hold.up / sc.click), wd: Math.round(dope.hold.right / sc.click) } : null;
+  const diff = (have, want, up, down) => (want === have ? '<b class="ok">on the card</b>' : `${Math.abs(want - have)} clicks ${want > have ? up : down} to the card`);
+  $('tElSub').innerHTML = drum ? `${t.el}${dope ? ` · the card says drum ${plan(dope.hold).drum}` : ''}`
+    : `${Math.abs(S.turret.el)} clicks${turns(S.turret.el)}${need ? ' · ' + diff(S.turret.el, need.el, 'up', 'down') : ''}${Math.abs(turretUp()) > (sc.travel ?? Infinity) ? ' · <b class="warn">past this scope\'s travel: hold the rest</b>' : ''}`;
+  $('tWdSub').innerHTML = `${Math.abs(S.turret.wd)} clicks${need ? ' · ' + diff(S.turret.wd, need.wd, 'R', 'L') : ''}${Math.abs(turretRight()) > (sc.wTravel ?? Infinity) ? ' · <b class="warn">past this scope\'s travel</b>' : ''}`;
 }
 const click = () => noiseBurst(0.012, 5200, 0.1, 4);  // a turret detent
-function turn(which, k) {
+function turn(which, k, sound = true) {
   const sc = scopeOf();
   if (which === 'el') S.turret.el = sc.mode === 'drum' ? Math.max(1, Math.min(sc.drumMax, S.turret.el + k)) : S.turret.el + k;
   else S.turret.wd += k;
   turretUI();
-  click();
+  if (sound) click();
 }
 function nudge(up, right) {
   const u = scopeOf().unit;
@@ -1542,22 +2193,61 @@ function nudge(up, right) {
 $('scope').onchange = (e) => { S.scope = e.target.value; store.set('scope', S.scope); resetAim(); syncUI(); changed(true); };
 $('aim').onchange = (e) => { S.aim = e.target.value; store.set('aim', S.aim); resetAim(); syncUI(); };
 $('hint').onchange = (e) => { S.hint = e.target.checked; store.set('hint', S.hint); };
-$('tElUp').onclick = () => turn('el', 1);
-$('tElDn').onclick = () => turn('el', -1);
-$('tWdR').onclick = () => turn('wd', 1);
-$('tWdL').onclick = () => turn('wd', -1);
+// Hold a turret button to keep turning it: a click, then after 0.35 s ten
+// clicks a second, then after 1.2 s a hundred (a fast spin, a mil-scope turn
+// a second); Shift-click turns ten clicks at once.
+function holdToTurn(btn, which, dir) {
+  let timer = 0, started = 0;
+  const stop = () => { clearTimeout(timer); timer = 0; };
+  const step = () => {
+    const held = performance.now() - started;
+    turn(which, dir * (held > 1200 ? 10 : 1), true);
+    timer = setTimeout(step, 100);
+  };
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    started = performance.now();
+    turn(which, dir * (e.shiftKey ? 10 : 1));
+    stop();
+    timer = setTimeout(step, 350);
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel', 'blur']) btn.addEventListener(ev, stop);
+  btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); turn(which, dir * (e.shiftKey ? 10 : 1)); } });
+}
+holdToTurn($('tElUp'), 'el', 1);
+holdToTurn($('tElDn'), 'el', -1);
+holdToTurn($('tWdR'), 'wd', 1);
+holdToTurn($('tWdL'), 'wd', -1);
+// Or type the value: it goes to the nearest click (or drum mark).
+$('tElIn').onchange = (e) => {
+  const sc = scopeOf(), v = parseFloat(e.target.value);
+  if (Number.isFinite(v)) S.turret.el = sc.mode === 'drum' ? Math.max(1, Math.min(sc.drumMax, Math.round(v))) : Math.round((v * sc.unit) / sc.click);
+  e.target.blur(); turretUI(); click();  // shown back at the click it went to
+};
+$('tWdIn').onchange = (e) => {
+  const sc = scopeOf(), v = parseFloat(e.target.value);
+  if (Number.isFinite(v)) S.turret.wd = Math.round((v * sc.unit) / sc.click);
+  e.target.blur(); turretUI(); click();
+};
 $('bDial').onclick = () => {
   const sc = scopeOf(), p = plan(dope.hold);
   S.turret.el = sc.mode === 'drum' ? p.drum : sc.mode === 'hold' ? 0 : Math.round(dope.hold.up / sc.click);
-  S.turret.wd = 0;
-  turretUI();
+  turretUI(); click();
+};
+// The wind on the turret too (many shooters dial it on a steady wind and
+// keep the reticle for the gusts).
+$('bDialWd').onclick = () => {
+  const sc = scopeOf();
+  S.turret.wd = Math.round(dope.hold.right / sc.click);
+  S.hold.right = 0;
+  turretUI(); click();
 };
 $('bCentre').onclick = () => { S.hold = { up: 0, right: 0 }; };
 $('bTrace').onclick = () => { showTrace = !showTrace; store.set('trace', showTrace); $('bTrace').setAttribute('aria-pressed', String(showTrace)); };
 $('bTrace').setAttribute('aria-pressed', String(showTrace));
 $('glazing').onchange = (e) => { S.glazing = e.target.value; changed(true); };
 for (const [id, k, rebuild] of [['dist', 'dist', true], ['size', 'size', true], ['temp', 'temp'], ['alt', 'alt'], ['rh', 'rh'], ['lat', 'lat'], ['az', 'az']])
-  $(id).oninput = (e) => { S[k] = +e.target.value; changed(!!rebuild); };
+  $(id).oninput = (e) => { S[k] = +e.target.value; if (k === 'dist' && S.tgt === 'line') S.dist = Math.max(LINE_STEP, Math.round(S.dist / LINE_STEP) * LINE_STEP); changed(!!rebuild); };
 $('sameWind').onchange = (e) => { S.same = e.target.checked; if (S.same) for (const l of S.layers) Object.assign(l, S.layers[0]); layersUI(); changed(); };
 $('callTrue').onchange = (e) => { S.callTrue = e.target.checked; if (!S.callTrue) S.call = averageWind(); syncUI(); changed(); };
 $('callSpd').oninput = (e) => { S.call.spd = +e.target.value; changed(); };
@@ -1565,8 +2255,9 @@ $('callDir').oninput = (e) => { S.call.clock = +e.target.value; changed(); };
 $('fSpin').onchange = (e) => { S.spin = e.target.checked; changed(); };
 $('fEarth').onchange = (e) => { S.earth = e.target.checked; changed(); };
 $('fSolver').onchange = (e) => { S.solver = e.target.checked; changed(); };
+$('fUnique').onchange = (e) => { S.unique = e.target.checked; store.set('unique', S.unique); changed(); };
 $('fire').onclick = () => fireNow();
-$('bReplay').onclick = () => { if (!shot) return; retireAll(shot); tNow = shot.t0; shot.done = false; shot.left = false; plate.rotation.x = 0; if (auto) setCam('bullet'); };
+$('bReplay').onclick = () => { if (duel) { killcam(); return; } if (!shot) return; retireAll(shot); tNow = shot.t0; shot.done = false; shot.left = false; plate.rotation.x = 0; if (auto) setCam('bullet'); };
 $('bAuto').onclick = () => { auto = !auto; $('bAuto').setAttribute('aria-pressed', String(auto)); };
 $('bSound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); $('bSound').setAttribute('aria-pressed', String(soundOn)); };
 $('bSound').setAttribute('aria-pressed', String(soundOn));
@@ -1579,8 +2270,10 @@ function shareUrl(sh, absolute = true) {
   const q = new URLSearchParams({ c: X.c, d: X.dist, sz: X.size, t: X.temp, a: X.alt, h: X.rh, lat: X.lat, az: X.az,
     w: (X.same ? X.layers.slice(0, 1) : X.layers).map((l) => [l.spd, l.clock, l.gust].join(',')).join(';'),
     cw: X.callTrue ? 'true' : [X.call.spd, X.call.clock].join(','),
-    f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : ''), ts: sh ? sh.t0 : X.t0, fire: 1 });
+    f: (X.spin ? 's' : '') + (X.earth ? 'e' : '') + (X.solver ? 'k' : '') + (X.unique ? 'u' : ''), zr: X.zero ?? defaultZero(X.c), ts: sh ? sh.t0 : X.t0, fire: 1 });
+  if (sh?.seed) { q.set('sd', String(sh.seed.seed)); q.set('sk', String(sh.seed.stream)); }
   if (X.tgt === 'dummy') { q.set('tg', 'dummy'); q.set('gz', X.glazing); }
+  if (X.tgt === 'line') q.set('tg', 'line');
   if (X.tgt === 'v8') q.set('tg', 'v8');
   if (S.tracer !== 'off') q.set('tr', S.tracer + (S.tracerToImpact ? '' : '.real'));
   if (X.scope && X.scope !== 'own') q.set('sc', X.scope);
@@ -1589,6 +2282,8 @@ function shareUrl(sh, absolute = true) {
     q.set('tu', `${X.turret.el},${X.turret.wd}`);
     q.set('ho', `${Math.round(X.hold.up * 1e6)},${Math.round(X.hold.right * 1e6)}`);
   }
+  if (X.position && X.position !== 'bench') q.set('ps', X.position);
+  if (sh?.sway) q.set('sw', `${Math.round(sh.sway.up * 1e7)},${Math.round(sh.sway.right * 1e7)}`);
   return `${absolute ? location.origin : ''}/sao-paulo/ballistics/?${q}`;
 }
 $('bShare').onclick = async () => {
@@ -1613,9 +2308,20 @@ const tabs = { tLab: 'lab', tRes: 'res' };
 for (const [t, p] of Object.entries(tabs)) $(t).onclick = () => { for (const [u, q] of Object.entries(tabs)) { $(q).hidden = u !== t; $(u).setAttribute('aria-pressed', String(u === t)); } $('tabs').classList.remove('closed'); };
 $('tHide').onclick = () => { $('lab').hidden = $('res').hidden = true; $('tabs').classList.add('closed'); };
 if (window.innerWidth <= 860) $('res').hidden = true;
+window.addEventListener('keydown', (e) => { if (e.key === 'Shift') breath.holding = true; });
+window.addEventListener('keyup', (e) => { if (e.key === 'Shift') breath.holding = false; });
+window.addEventListener('blur', () => { breath.holding = false; });
+{
+  const bb = $('bBreath');
+  bb.addEventListener('pointerdown', (e) => { e.preventDefault(); breath.holding = true; bb.setAttribute('aria-pressed', 'true'); });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) bb.addEventListener(ev, () => { breath.holding = false; bb.setAttribute('aria-pressed', 'false'); });
+  const ps = $('position');
+  for (const [k, v] of Object.entries(POSITIONS)) { const o = document.createElement('option'); o.value = k; o.textContent = `${v.name} · wobble ${v.sway < 1 ? v.sway.toFixed(2) : v.sway.toFixed(1)} MOA`; ps.appendChild(o); }
+  ps.onchange = (e) => { S.position = e.target.value; store.set('position', S.position); };
+}
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  if (e.code === 'Space') { e.preventDefault(); fireNow(); }
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat || AUTOMATIC.has(RIFLE_FOR[S.c])) fireNow(); }
   else if (e.key === 'c' || e.key === 'C') setCam(CAMS[(CAMS.findIndex((x) => x[0] === cam) + 1) % CAMS.length][0]);
   else if (e.key === 'b' || e.key === 'B') $('bAuto').click();
   else if (e.key === 'z' || e.key === 'Z') $('bReplay').click();
@@ -1623,15 +2329,17 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 't' || e.key === 'T') $('bTrace').click();
   else if (e.key === 'u' || e.key === 'U') $('bUnits').click();
   else if (e.key === 'h' || e.key === 'H') $('help').classList.toggle('on');
+  else if (duel && (e.key === 'k' || e.key === 'K')) killcam();
+  else if (duel && (e.key === 'v' || e.key === 'V')) setMic(!duel.micOn);
   else if (S.aim === 'manual' && e.key.startsWith('Arrow')) {
     e.preventDefault();
     const k = e.shiftKey ? 0.5 : 0.1;
     nudge(e.key === 'ArrowUp' ? k : e.key === 'ArrowDown' ? -k : 0, e.key === 'ArrowRight' ? k : e.key === 'ArrowLeft' ? -k : 0);
   }
-  else if (S.aim === 'manual' && (e.key === 'r' || e.key === 'R')) turn('el', 1);
-  else if (S.aim === 'manual' && (e.key === 'f' || e.key === 'F')) turn('el', -1);
-  else if (S.aim === 'manual' && (e.key === 'e' || e.key === 'E')) turn('wd', 1);
-  else if (S.aim === 'manual' && (e.key === 'q' || e.key === 'Q')) turn('wd', -1);
+  else if (S.aim === 'manual' && scopeOf().mode !== 'hold' && 'rRfFeEqQ'.includes(e.key)) {
+    const k = e.shiftKey ? 10 : 1, key = e.key.toLowerCase();
+    turn(key === 'r' || key === 'f' ? 'el' : 'wd', key === 'r' || key === 'e' ? k : -k);
+  }
   else if (e.key === '+' || e.key === '=') zoomBy(1);
   else if (e.key === '-') zoomBy(-1);
 });
@@ -1687,6 +2395,7 @@ function updateFlags(tEngine, wall) {
 }
 
 let last = performance.now();
+let mirageAngle = 0;  // rad RMS, set each frame
 function frame(now) {
   requestAnimationFrame(frame);
   const wallDt = Math.min(0.1, (now - last) / 1000);
@@ -1695,17 +2404,30 @@ function frame(now) {
   nowWall = wall;
   // The range's clock. Bullet time follows the latest round still flying.
   let s = 1;
-  const lead = [...shots].reverse().find((x) => tNow < x.tStop && tNow >= x.t0);
-  if (lead) s = auto ? autoScale(lead) : scale;
-  tNow += wallDt * s;
-  // Rounds leaving the muzzle: the flash and the report.
-  for (const sh of shots) if (!sh.left && tNow >= sh.t0) { sh.left = true; flash.material.opacity = 1; dust.material.opacity = 0; noiseBurst(0.5, 2200, 0.5); }
+  const replay = duel?.replay;
+  const lead = replay ? (tNow < replay.tStop ? replay : null) : [...shots].reverse().find((x) => !x.remote && tNow < x.tStop && tNow >= x.t0);
+  if (duel && duel.live && !duel.mail && !replay) tNow = duelNow();  // a duel runs on the shared clock, at 1x
+  else {
+    if (lead) s = auto ? autoScale(lead) : scale;
+    if (replay) s = Math.max(s, 0.03);  // a killcam: bullet time, but done in seconds
+    tNow += wallDt * s;
+  }
+  if (replay && tNow >= replay.tStop + 0.8) endKillcam();
+  // Rounds leaving the muzzle: the flash and the report (the opponent's
+  // flash is seen at once; its report arrives at the speed of sound).
+  for (const sh of shots) if (!sh.left && tNow >= sh.t0) {
+    sh.left = true;
+    if (sh.remote) { oppFlash.material.opacity = 1; continue; }
+    flash.material.opacity = 1; dust.material.opacity = 0; noiseBurst(0.5, 2200, 0.5);
+  }
+  for (const sh of shots) if (sh.remote && !sh.heard && tNow >= sh.t0 + sh.reportDelay) { sh.heard = true; if (!replay) noiseBurst(0.6, 900 + 1300 * Math.exp(-S.dist / 800), 0.35); }
   // Rounds arriving: what each does at the end of its flight.
   for (const sh of shots) if (!sh.done && tNow >= sh.tStop && tNow >= sh.t0) { sh.done = true; sh.doneWall = wall; arrive(sh); }
   // Rounds long since landed go (the latest stays, for replay and the results).
-  for (const sh of [...shots]) if (sh !== shot && sh.done && wall - sh.doneWall > 4) retire(sh);
-  // The round the cameras and the HUD follow: the latest to have left the muzzle.
-  const fs = [...shots].reverse().find((x) => tNow >= x.t0) ?? shot;
+  for (const sh of [...shots]) if (sh !== shot && sh !== duel?.last && sh !== replay && sh.done && wall - sh.doneWall > 4) retire(sh);
+  // The round the cameras and the HUD follow: the latest of mine to have
+  // left the muzzle (in a killcam, the round replayed).
+  const fs = replay ?? [...shots].reverse().find((x) => !x.remote && tNow >= x.t0) ?? shot;
   phase = !fs ? 'idle' : tNow < fs.tStop ? 'flight' : 'after';
   te = fs ? Math.max(0, Math.min(tNow, fs.tStop) - fs.t0) : 0;
   afterWall = fs && fs.done ? wall - fs.doneWall : 0;
@@ -1713,12 +2435,18 @@ function frame(now) {
   const tEngine = tNow;
   updateFlags(tNow, wall);
   mirage.uniforms.t.value = wall;
+  updateShooter(wall);
   // Mirage: stronger in heat and still air, leaning with the crosswind at the target.
   {
     const pTarget = enu(S.dist * 0.7, 0, -BENCH + 0.5);
     const w = lof(B.air(pTarget[0], pTarget[1], pTarget[2], tEngine).wind);
+    // The image dances by an angle, not a share of the screen: about 30
+    // microradians RMS over a kilometre of sunny ground (the angle-of-arrival
+    // spread 2.91 Cn^2 L D^(-1/3) for Cn^2 near 1e-13 and a 5 cm objective),
+    // growing as the square root of the path. Heat stands in for the sun on
+    // the ground (estimated); a crosswind of 4 m/s or more washes it out.
     const heat = Math.max(0.15, Math.min(1.4, (S.temp + 5) / 30));
-    mirage.uniforms.amp.value = (0.00035 + 0.0011 * heat) / (1 + Math.abs(w.r) / 4) * Math.min(1.6, S.dist / 800);
+    mirageAngle = (2.4e-5 * (0.32 + heat)) / (1 + Math.abs(w.r) / 4) * Math.sqrt(Math.min(S.dist, 3000) / 1000);
     mirage.uniforms.drift.value = Math.max(-1.5, Math.min(1.5, w.r / 3));
   }
   // The rounds.
@@ -1736,16 +2464,23 @@ function frame(now) {
     st = stateOf(fs, fs.t0 + te);
     const p = v3(st.position);
     const nose = v3(B.noseAt(fs.t0 + te)).normalize();
-    const q = fs.mesh.quaternion;
     const a = B.air(st.position[0], st.position[1], st.position[2], tEngine);
     const u = Math.hypot(st.velocity[0] - a.wind[0], st.velocity[1] - a.wind[1], st.velocity[2] - a.wind[2]);
     const M = u / a.speedOfSound;
     shock.visible = M > 1.01 && phase === 'flight' && cam === 'bullet';
     if (shock.visible) {
-      const L = 0.35, half = Math.asin(1 / M);
-      shock.scale.set(L * Math.tan(half), L, L * Math.tan(half));
-      shock.quaternion.copy(q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
-      shock.position.copy(p).addScaledVector(nose, fs.len * 0.5 - L / 2);
+      // Close to Mach 1 the shock stands off the nose as a bow wave and its
+      // cone flattens: the half-angle is held to 75 deg there.
+      const L = 0.35, half = Math.min(75 * DEG, Math.asin(1 / M)), rim = L * Math.tan(half);
+      const air = v3([st.velocity[0] - a.wind[0], st.velocity[1] - a.wind[1], st.velocity[2] - a.wind[2]]).normalize();
+      shock.scale.set(rim, L, rim);
+      shock.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), air);  // the apex (+y) leads
+      shock.position.copy(p).addScaledVector(nose, fs.len * 0.5).addScaledVector(air, -L / 2);
+      const pr = projRaw(fs.S.c), d = pr.diameter_in * IN, l = pr.length_in * IN, r = Math.max(rim, 2 * d);
+      const jump = (0.53 * Math.pow(M * M - 1, 1 / 8) * d) / (Math.pow(r, 0.75) * Math.pow(l, 0.25)) / 1.4;
+      // The turn at grazing incidence: the index jump over the shell's own
+      // thickness, seen along a chord of the cone about 30 times as long (estimated).
+      shock.material.uniforms.strength.value = SCHLIEREN * 2.9e-4 * (a.density / 1.225) * jump * 30;
     }
     const inAir = shots.filter((x) => tNow >= x.t0 && tNow < x.tStop).length;
     const hud = `${fmtDist(lof(st.position).d)}<span>·</span>${fmtV(Math.hypot(...st.velocity))}<span>·</span>Mach ${M.toFixed(2)}<span>·</span>${(st.spin / (2 * Math.PI)).toFixed(0)} turns/s${inAir > 1 ? `<span>·</span>${inAir} rounds in the air` : ''}`;
@@ -1757,6 +2492,8 @@ function frame(now) {
   // Muzzle flash, dust, the plate swinging.
   flash.position.set(0, 0, -0.66);
   flash.material.opacity *= Math.pow(0.02, wallDt * (phase === 'flight' ? Math.max(0.02, s) * 40 : 6));
+  oppFlash.material.opacity *= Math.pow(0.02, wallDt * 12);
+  if (duel) duelFrame(wall);
   if (dust.material.opacity > 0) { dust.scale.multiplyScalar(1 + wallDt * 1.5); dust.material.opacity *= Math.pow(0.4, wallDt); }
   if (plate.userData.swing) {
     plate.userData.phase = (plate.userData.phase || 0) + wallDt * 5;
@@ -1773,10 +2510,17 @@ function frame(now) {
     scopeCam.fov = scopeCamFov();
     scopeCam.position.set(0, sightHeight(), 0);
     const ah = sightHold();
-    scopeCam.lookAt(ah.right * D, sightHeight() + ah.up * D, -D);
+    // The angles as the bore turns by them (not their tangents: 0.3 mil of difference at 100 mil).
+    scopeCam.lookAt(Math.sin(ah.right) * Math.cos(ah.up) * D, sightHeight() + Math.sin(ah.up) * D, -Math.cos(ah.right) * Math.cos(ah.up) * D);
     scopeCam.updateProjectionMatrix();
+    // The mirage in this view: its angle over the view's height, its cells at their size in the sky.
+    mirage.uniforms.amp.value = mirageAngle / (scopeCam.fov * DEG);
+    mirage.uniforms.cell.value = Math.max(0.25, Math.min(4, (scopeCam.fov * DEG) / 0.0244));
     rifle.visible = false;
-    mirage.uniforms.scope.value = 1;
+    // The flash is a sphere 0.66 m out from the muzzle: through open sights'
+    // wide view it would hang in front of the eye all through bullet time.
+    flash.visible = false;
+    mirage.uniforms.scope.value = scopeOf().tube === false ? 0 : 1;
     updateTracer(false, scopeCam.fov);
     present(scopeCam, tEngine);
     drawReticle(dope);
@@ -1786,18 +2530,20 @@ function frame(now) {
   mirage.uniforms.scope.value = 0;
   mirage.uniforms.amp.value = 0;
   rifle.visible = true;
+  flash.visible = true;
   if (cam === 'bullet' && st) {
     const p = fs.mesh.position;
     const dir = v3(st.velocity).normalize();  // v3 is linear: it converts directions too
     const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
     // Behind and beside the round, orbiting it slowly (drag to swing round it).
-    const a = 0.4 + orbit.yaw + 0.12 * Math.sin(wall * 0.3);
-    const dist = 0.22;
+    // Its distance follows the bullet's size, so a 9 mm fills the view as a .50 does.
+    const a = 1.05 + orbit.yaw + 0.12 * Math.sin(wall * 0.3);
+    const dist = Math.max(0.05, 4.2 * fs.len);
     camera.position.copy(p).addScaledVector(dir, -dist * Math.cos(a)).addScaledVector(side, dist * Math.sin(a))
-      .add(new THREE.Vector3(0, 0.035 + orbit.pitch * 0.2, 0));
+      .add(new THREE.Vector3(0, dist * (0.2 + orbit.pitch), 0));
     camera.near = 0.002;
-    camera.fov = 40;
-    camera.lookAt(p.clone().addScaledVector(dir, 0.04));
+    camera.fov = 32;
+    camera.lookAt(p.clone().addScaledVector(dir, fs.len * 0.3));
   } else if (cam === 'target') {
     const tp = target.position;
     camera.near = 0.05;
@@ -1829,30 +2575,507 @@ function present(cam, tEngine) {
       if (tNow < sh.t0 || n >= MAX_WAKE) continue;
       const p = projRaw(sh.S.c);
       B.bd_select(sh.id);
-      const w = B.wake(Math.min(tNow, sh.tStop), Math.max(0.25, sh.S.dist / 6000), 0.5, p.mass_gr * 6.479891e-5, p.diameter_in * IN);
-      for (let k = 0; k < w.length / 6 && n < MAX_WAKE; ++k, ++n) {
-        const q = v3([w[6 * k], w[6 * k + 1], w[6 * k + 2]]);
+      // Each stretch stands for `spacing` metres of path (the shader turns
+      // that into the length a ray runs inside it), so the trace does not
+      // change with how finely it is sampled.
+      const spacing = Math.max(0.25, sh.S.dist / 6000);
+      const w = B.wake(Math.min(tNow, sh.tStop), spacing, 0.5, p.mass_gr * 6.479891e-5, p.diameter_in * IN);
+      const m = w.length / 7;
+      for (let k = 0; k < m && n < MAX_WAKE; ++k, ++n) {
+        const q = v3([w[7 * k], w[7 * k + 1], w[7 * k + 2]]);
+        // The path's direction here, from the neighbouring stretches.
+        const i0 = Math.max(0, k - 1), i1 = Math.min(m - 1, k + 1);
+        const dv = v3([w[7 * i1] - w[7 * i0], w[7 * i1 + 1] - w[7 * i0 + 1], w[7 * i1 + 2] - w[7 * i0 + 2]]);
+        if (dv.lengthSq() > 0) dv.normalize(); else dv.set(0, 0, -1);
         wCenter.setXYZ(n, q.x, q.y, q.z);
-        wRadius.setX(n, w[6 * k + 3]);
-        wStrength.setX(n, w[6 * k + 4]);
+        wRadius.setX(n, w[7 * k + 3]);
+        wStrength.setX(n, w[7 * k + 6]);
+        wDir.setXYZW(n, dv.x, dv.y, dv.z, spacing);
       }
     }
-  if (n) wCenter.needsUpdate = wRadius.needsUpdate = wStrength.needsUpdate = true;
+  if (n) wCenter.needsUpdate = wRadius.needsUpdate = wStrength.needsUpdate = wDir.needsUpdate = true;
   wakeGeo.instanceCount = n;
+  const any = n > 0 || shock.visible;
   R.getClearColor(clearTmp);
   const ca = R.getClearAlpha();
   R.setRenderTarget(wakeRT);
   R.setClearColor(0x000000, 0);
   R.clear();
-  if (n) {
-    wakeMat.uniforms.pxScale.value = (2 * Math.tan((cam.fov * DEG) / 2)) / (wakeRT.height || 1);
+  if (any) {
+    wakeMat.uniforms.pxScale.value = shock.material.uniforms.pxScale.value = (2 * Math.tan((cam.fov * DEG) / 2)) / (wakeRT.height || 1);
     R.render(wakeScene, cam);
   }
   R.setClearColor(clearTmp, ca);
-  mirage.uniforms.wakeGain.value = n ? 0.012 : 0;
+  mirage.uniforms.wakeGain.value = any ? 1 / (wakeRT.height || 1) : 0;  // the buffer holds pixels
+  mirage.uniforms.haze.value = hazeFor(S.rh);
   R.setRenderTarget(null);
   R.render(post, postCam);
 }
+
+
+// ---------- Duel ----------
+// Two shooters, one range: you at one end, your friend at the other, each
+// shooting at the other's head and shoulders over the sandbags. Every round
+// is flown by both browsers from the same inputs (the rifle, the bore's
+// elevation and azimuth, the instant it left), so both see the same flight
+// and agree on every hit without a server deciding. Conditions come from
+// the challenger's link and are locked; the wind is rolled at random and
+// hidden from both: read it off the flags and the mirage. Body 1, head 2,
+// first to 3. A hit calls a 4 s cease-fire; K replays the last hit in
+// bullet time.
+const DUEL_TO = 3, CEASE = 4, DUEL_KEYS = ['dist', 'size', 'temp', 'alt', 'rh', 'lat', 'az', 'tgt', 'sameWind', 'callTrue', 'fSpin', 'fEarth', 'glazing'];
+const libHash = (() => { let h = 2166136261; for (let i = 0; i < raw.__text.length; ++i) h = Math.imul(h ^ raw.__text.charCodeAt(i), 16777619); return (h >>> 0).toString(16); })();
+const engineId = () => B.determinism().join('.');
+const duelNow = () => (duel.seat === 'A' ? 10 + performance.now() / 1000 - duel.epoch : performance.now() / 1000 + duel.offset);
+function duelMayFire() {
+  if (duel.mail) {
+    if (duel.replay) return false;
+    if (duel.over) { toast('The duel is over'); return false; }
+    if (!duel.myTurn) { toast("It is your friend's turn: send them the link"); return false; }
+    if (duel.incoming && !duel.incoming.done) { toast('Their round is still on its way'); return false; }
+    return true;
+  }
+  if (!duel.live) { toast(duel.link?.open ? 'Waiting for the clocks to agree…' : 'Waiting for your friend to connect'); return false; }
+  if (duel.replay) return false;
+  if (duel.over) { toast('The duel is over: press Rematch'); return false; }
+  if (tNow < duel.startAt) { toast(`Fire at will in ${Math.ceil(duel.startAt - tNow)} s`); return false; }
+  if (tNow < duel.ceaseUntil) { toast('Cease fire'); return false; }
+  return true;
+}
+// The settings both browsers must share: locked for the duel.
+function lockForDuel(on) {
+  for (const id of DUEL_KEYS) { const el = $(id); if (el) el.disabled = on; }
+  for (const b of document.querySelectorAll('#presets button, #presetsShort button')) b.disabled = on;
+  $('aim').disabled = on && hunting(); $('bDial').disabled = $('bDialWd').disabled = on && hunting(); $('hint').disabled = on && hunting();
+  $('duelHunt').disabled = on; $('bDuelMail').hidden = on;
+  $('layers').hidden = on;
+  $('duelWindNote').hidden = !on;
+}
+// The duel's world, from its id alone (so nothing about it is in the link):
+// the wind (0 to 25 km/h from any clock, gusts of 5 to 20 % of it), and for
+// a hidden duel the true distance (65 to 100 % of the one set), how far to
+// one side the other shooter is, and nine empty emplacements around each.
+function duelWorld(id, base) {
+  let x = parseInt(id.slice(0, 8), 16) >>> 0;
+  const u = () => { x = (x + 0x6d2b79f5) >>> 0; let t = Math.imul(x ^ (x >>> 15), 1 | x); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const spd = Math.round(u() * 50) / 2, clock = Math.round(u() * 24) / 2, gust = Math.round(spd * (0.05 + 0.15 * u()) * 2) / 2;
+  const dist = Math.round(base * (0.65 + 0.35 * u())), half = Math.min(70, 0.09 * dist), lat = Math.round((u() * 2 - 1) * half * 10) / 10;
+  const decoys = {};
+  for (const seatName of ['A', 'B']) {
+    // Around the shooter, but not centred on them (in their own frame: toward the other end, to their right).
+    const cd = (u() - 0.5) * 0.12 * dist, cr = (u() - 0.5) * half;
+    decoys[seatName] = Array.from({ length: 9 }, () => [Math.round(cd + (u() - 0.5) * 0.3 * dist), Math.round((cr + (u() * 2 - 1) * half) * 10) / 10]).filter(([dd, dr]) => Math.hypot(dd, dr) > 4);
+  }
+  return { wind: layer(spd, clock, gust), dist, lat, decoys };
+}
+function duelUrl(extra) {
+  const q = new URLSearchParams(new URL(shareUrl(null)).search);
+  q.delete('fire'); q.delete('w'); q.delete('sw'); q.delete('ps'); q.delete('sd'); q.delete('sk'); q.delete('cw');
+  if (duel?.hunt) { q.set('d', String(duel.base)); q.set('hunt', '1'); } q.delete('am'); q.delete('tu'); q.delete('ho'); q.delete('tr'); q.delete('sc');
+  for (const [k, v] of Object.entries(extra)) q.set(k, v);
+  return `${location.origin}/sao-paulo/ballistics/?${q}`;
+}
+function duelUI() {
+  const st = $('duelState'), sc = $('duelScore');
+  if (!duel) { st.textContent = 'challenge a friend'; sc.hidden = true; $('bDuel').hidden = false; $('bDuelEnd').hidden = true; $('bRematch').hidden = true; return; }
+  $('bDuel').hidden = true; $('bDuelEnd').hidden = false;
+  st.textContent = duel.mail ? (duel.over ? 'over' : duel.myTurn ? 'your shot' : 'their turn: send the link')
+    : duel.link?.open ? (duel.live ? `connected · ${duel.rtt != null ? Math.round(duel.rtt * 1000) + ' ms' : ''}` : 'connected · syncing clocks') : duel.state;
+  sc.hidden = false;
+  const me = duel.score[duel.seat], them = duel.score[duel.seat === 'A' ? 'B' : 'A'];
+  let line = `You <b>${me}</b> · <b>${them}</b> Friend`;
+  if (duel.over) line += ` · ${me > them ? 'you win' : 'your friend wins'}`;
+  else if (duel.mail) line += duel.myTurn ? ' · your shot' : ' · their turn';
+  else if (duel.live && tNow < duel.startAt) line += ` · fire at will in ${Math.max(0, Math.ceil(duel.startAt - tNow))}`;
+  else if (duel.live && tNow < duel.ceaseUntil) line += ' · cease fire';
+  sc.innerHTML = line;
+  $('bRematch').hidden = !duel.over || duel.mail;
+  $('bMic').hidden = !duel.link?.mic;
+  $('bMic').setAttribute('aria-pressed', String(!!duel.micOn));
+}
+function startDuelCommon(seatName, id, opt = {}) {
+  const world = duelWorld(id, S.dist);
+  S.same = true;
+  S.layers = [0, 1, 2].map(() => ({ ...world.wind }));
+  duel = { id, hunt: !!opt.hunt, mail: !!opt.mail, base: S.dist, lat: opt.hunt ? world.lat : 0, decoys: world.decoys, log: [], myTurn: seatName === 'A', incoming: null, seed: parseInt(id.slice(0, 12), 16) + 1, seat: seatName, link: null, live: false, epoch: performance.now() / 1000, offset: 0, rtt: null, startAt: Infinity, ceaseUntil: 0,
+    score: { A: 0, B: 0 }, over: false, sent: 0, mine: new Map(), theirs: new Map(), state: 'connecting', replay: null, last: null, lastPing: 0, best: Infinity };
+  S.tgt = 'duel'; S.callTrue = false; S.call = layer(0, 12);
+  if (duel.hunt) { S.dist = world.dist; S.aim = 'manual'; S.hint = false; }
+  auto = false; $('bAuto').setAttribute('aria-pressed', 'false');
+  retireAll(); shot = null;
+  resetAim(); syncUI(); changed(true); refresh();
+  lockForDuel(true);
+  setCam('scope');
+  duelUI();
+}
+function wireLink(link) {
+  duel.link = link;
+  link.onopen = () => {
+    duel.state = 'connected';
+    link.send({ t: 'hello', v: 1, seat: duel.seat, engine: engineId(), lib: libHash });
+    if (duel.seat === 'B') duelPing();
+    $('duelShare').hidden = true;
+    toast('Connected to your friend');
+    duelUI();
+  };
+  link.onclose = () => { if (!duel) return; duel.state = 'disconnected'; duel.live = false; toast('Your friend disconnected'); duelUI(); };
+  link.onmessage = onDuelMessage;
+}
+async function challenge(kind = 'rtc') {
+  const id = newDuelId();
+  startDuelCommon('A', id, { hunt: $('duelHunt').checked });
+  duel.state = 'making the link…';
+  duelUI();
+  if (kind === 'local') {
+    wireLink(localLink(id, 'A'));
+    showDuelLink(duelUrl({ duel: id, net: 'local' }), 'Open this link in another tab of this browser.');
+    return;
+  }
+  // Railgun Meet first (one link, voice, any network); if it does not
+  // answer, a direct browser-to-browser link with a reply.
+  try {
+    duel.state = 'opening a voice channel…';
+    duelUI();
+    const link = await meetLink(id, 'A');
+    wireLink(link);
+    duel.state = 'waiting for your friend';
+    showDuelLink(duelUrl({ duel: id, net: 'meet' }), 'Send this link to your friend: the duel starts when they open it. You can talk to each other (Mic).');
+    duelUI();
+    return;
+  } catch { /* Meet is not reachable from here: the direct link */ }
+  try {
+    const link = await hostRtc(id);
+    wireLink(link);
+    duel.state = 'waiting for your friend';
+    showDuelLink(duelUrl({ duel: id, offer: link.offer }), 'Send this link to your friend. When they send you their reply link, open it in this browser (or paste it below).');
+  } catch (e) { duel.state = 'could not start: ' + e.message; }
+  duelUI();
+}
+async function acceptChallenge(id, offer, net) {
+  startDuelCommon('B', id, { hunt: Q.get('hunt') === '1' });
+  if (net === 'local') { wireLink(localLink(id, 'B')); duelUI(); return; }
+  if (net === 'meet') {
+    try {
+      duel.state = 'joining the voice channel…';
+      duelUI();
+      wireLink(await meetLink(id, 'B', 10000));
+      duel.state = 'waiting for your friend';
+    } catch (e) { duel.state = 'could not join: ' + e.message; }
+    duelUI();
+    return;
+  }
+  try {
+    duel.state = 'answering…';
+    duelUI();
+    const link = await joinRtc(offer);
+    wireLink(link);
+    duel.state = 'waiting for your friend to open your reply';
+    showDuelLink(`${location.origin}/sao-paulo/ballistics/?duel=${id}&answer=${link.answer}`, 'Send this reply link back to your friend: the duel starts when they open it.');
+  } catch (e) { duel.state = 'could not answer: ' + e.message; }
+  duelUI();
+}
+function showDuelLink(url, note) {
+  $('duelShare').hidden = false;
+  $('duelLink').value = url;
+  $('duelNote').textContent = note;
+  $('duelPaste').hidden = duel.seat !== 'A' || duel.link?.kind !== 'rtc';
+}
+function endDuel() {
+  duel?.link?.close?.();
+  if (duel?.hunt) S.dist = duel.base;
+  duel = null;
+  lockForDuel(false);
+  $('duelShare').hidden = true;
+  S.tgt = 'plate';
+  retireAll(); shot = null;
+  syncUI(); changed(true); refresh();
+  duelUI();
+}
+// Clock: the challenger's is the duel's. The friend pings; the reply with
+// the shortest round trip sets the offset (half the trip each way).
+function duelPing() { duel.lastPing = performance.now(); duel.link.send({ t: 'ping', a: performance.now() / 1000 }); }
+function onDuelMessage(m) {
+  if (!duel) return;
+  const L = duel.link;
+  if (m.t === 'hello') {
+    if (m.engine !== engineId() || m.lib !== libHash) toast('Your friend runs another version of the range: reload both pages');
+    return;
+  }
+  if (m.t === 'ping' && duel.seat === 'A') { L.send({ t: 'pong', a: m.a, h: duelNow() }); return; }
+  if (m.t === 'pong' && duel.seat === 'B') {
+    const b = performance.now() / 1000, rtt = b - m.a;
+    if (rtt < duel.best) { duel.best = rtt; duel.offset = m.h + rtt / 2 - b; }
+    duel.rtt = rtt;
+    duel.pings = (duel.pings ?? 0) + 1;
+    if (duel.pings === 5 && !duel.live) L.send({ t: 'ready' });
+    return;
+  }
+  if (m.t === 'ready' && duel.seat === 'A') { goLive(duelNow() + 5); L.send({ t: 'start', at: duel.startAt }); return; }
+  if (m.t === 'start' && duel.seat === 'B') { goLive(m.at); return; }
+  if (m.t === 'shot') { fireRemote(m); return; }
+  if (m.t === 'look' && Number.isFinite(m.r) && Number.isFinite(m.u)) { duel.look = { r: m.r, u: m.u, at: performance.now() }; return; }
+  if (m.t === 'outcome') { checkOutcome(m); return; }
+  if (m.t === 'rematch') { rematch(false); return; }
+}
+function goLive(at) {
+  duel.live = true;
+  duel.startAt = at;
+  tNow = duelNow();
+  duelUI();
+  banner('Duel', `${fmtDist(S.dist)} · fire at will in ${Math.round(at - tNow)} s`);
+}
+function duelFrame() {
+  // Hidden duels: tell them where my scope points (5 times a second), for the glint.
+  if (duel.hunt && duel.live && !duel.mail && duel.link?.open && performance.now() - (duel.lastLook ?? 0) > 200) {
+    duel.lastLook = performance.now();
+    const h = sightHold();
+    duel.link.send({ t: 'look', r: h.right, u: h.up });
+  }
+  // Their glint: bright when their scope is within 12 mil of me, gone after a second without news.
+  {
+    const lk = duel.look, fresh = lk && performance.now() - lk.at < 1000;
+    const off = fresh ? Math.hypot(lk.r - Math.atan2(oppRight(), S.dist), lk.u) : 1;
+    glint.material.opacity = fresh ? Math.max(0, 1 - off / 0.012) * (0.75 + 0.25 * Math.sin(performance.now() / 60)) : 0;
+  }
+  if (duel.seat === 'B' && duel.link?.open && performance.now() - duel.lastPing > (duel.live ? 3000 : 250)) duelPing();
+  if (Math.floor(performance.now() / 250) !== duel.uiTick) { duel.uiTick = Math.floor(performance.now() / 250); duelUI(); }
+}
+// My shot leaves: tell the other browser exactly what left the muzzle.
+function duelSent(sh) {
+  const k = ++duel.sent;
+  sh.k = k;
+  duel.mine.set(k, sh);
+  sh.msg = { t: 'shot', k, c: sh.S.c, el: sh.el, az: sh.az, t0: sh.t0, ...(sh.seed ? { seed: sh.seed.seed, stream: sh.seed.stream } : {}) };
+  if (duel.mail) duel.myTurn = false; else duel.link.send(sh.msg);
+}
+// The other shooter's round, flown here from their muzzle at the far end
+// toward mine: the same call, so the same round as in their browser.
+function fireRemote(m) {
+  if (!duel || duel.theirs.has(m.k)) return;
+  const k = cartIndex(m.c);
+  if (k < 0) return;
+  const r = raw.rifles.find((x) => x.id === RIFLE_FOR[m.c]);
+  station();
+  B.bd_setup(r ? r.twist_in * IN * (r.twist_direction === 'left' ? -1 : 1) : 0, S.lat * DEG, (S.spin ? 1 : 0) | (S.earth ? 2 : 0));
+  // Their round's own draw: their rifle's group, the powder at this air (a
+  // shot without a seed is a round of the published load).
+  B.bd_powder(m.seed ? S.temp + 273.15 : 0);
+  B.bd_group(m.seed ? r?.group_moa ?? 0 : 0);
+  B.wind(S.az * DEG, trueLayers());
+  const o = enu(S.dist, oppRight(), 0);
+  const id = m.seed ? B.bd_fire_round(k, o[0], o[1], o[2], m.az, m.el, m.t0, m.seed, m.stream) : B.bd_fire(k, o[0], o[1], o[2], m.az, m.el, m.t0);
+  if (!id) return;
+  let t = m.t0, rr = B.round();
+  while (!rr.stopped && t - m.t0 < 25) {
+    t += 0.05;
+    B.bd_advance(t, 0);
+    rr = B.round();
+    const l = lof(rr.position);
+    if (l.d < -1 && l.u < -BENCH) break;
+    if (l.d < -(S.dist * 0.6 + 50)) break;
+  }
+  const tEnd = rr.time;
+  const toMe = (tt) => lof(B.stateAt(tt).position).d;  // my distance from it: 0 at my muzzle
+  const bisect = (f, a, b) => { for (let i = 0; i < 60; ++i) { const c = 0.5 * (a + b); if (f(c)) b = c; else a = c; } return 0.5 * (a + b); };
+  let tTarget = toMe(tEnd) <= 0 ? bisect((tt) => toMe(tt) <= 0, m.t0, tEnd) : null;
+  let hit = false, part = null, impact = null, pass = null;
+  if (tTarget !== null) {
+    const p = lof(B.stateAt(tTarget).position);
+    // In their frame right is my left; the figure is symmetric, so the test is the same.
+    if (p.u > -BENCH) {
+      part = figurePart(-p.r, p.u);
+      hit = part !== null;
+      impact = { right: p.r, up: p.u - FIGURE.head.z };  // as I see it
+      const st = B.stateAt(tTarget), a = B.air(st.position[0], st.position[1], st.position[2], tTarget);
+      pass = { miss: Math.hypot(p.r, p.u - FIGURE.head.z), mach: Math.hypot(st.velocity[0] - a.wind[0], st.velocity[1] - a.wind[1], st.velocity[2] - a.wind[2]) / a.speedOfSound };
+    } else tTarget = null;
+  }
+  let tGround = null;
+  if (!hit) { const below = (tt) => B.stateAt(tt).position[2] <= -BENCH; if (below(tEnd)) tGround = bisect(below, m.t0, tEnd); }
+  const mesh = new THREE.Group(), body = new THREE.Group();
+  body.name = 'body';
+  mesh.add(body);
+  makeBullet(m.c, mesh, body);
+  scene.add(mesh);
+  const air = B.air(0, 0, 0, m.t0);
+  const sh = { id, remote: true, k: m.k, S: { ...structuredClone(S), c: m.c }, t0: m.t0, tEnd, tTarget, tGround, tStop: hit ? tTarget : tGround ?? (tTarget ?? tEnd),
+    hit, part, impact, pass, mesh, body, len: mesh.userData.length, done: false, doneWall: 0, left: false, heard: false, reportDelay: S.dist / air.speedOfSound };
+  shots.push(sh);
+  duel.theirs.set(m.k, sh);
+  if (shots.length > 40) retire(shots.find((x) => x !== shot));
+  // Back to my rifle in the engine.
+  setup(false);
+  if (duel.pendingOutcome?.has(m.k)) checkOutcome(duel.pendingOutcome.get(m.k));
+  return sh;
+}
+// Both browsers flew it; the shooter's says what it found, the other checks.
+function checkOutcome(m) {
+  const sh = duel.theirs.get(m.k);
+  if (!sh) { (duel.pendingOutcome ??= new Map()).set(m.k, m); return; }
+  if (sh.hit !== m.hit || sh.part !== m.part) { duel.mismatch = true; toast(`Our two browsers disagree about shot ${m.k}: please report it`); }
+}
+function score(seatName, part) {
+  duel.score[seatName] += part === 'head' ? 2 : 1;
+  if (duel.score[seatName] >= DUEL_TO) duel.over = true;
+}
+// A round ends its flight: score it the same way in both browsers.
+function duelArrive(sh) {
+  if (S.tgt !== 'duel') return false;
+  const ceaseFrom = (x) => { duel.ceaseUntil = Math.max(duel.ceaseUntil, x.tStop + CEASE); duel.last = x; };
+  if (!sh.remote) {
+    duel.link?.send({ t: 'outcome', k: sh.k, hit: sh.hit, part: sh.part });
+    if (sh.hit) {
+      score(duel.seat, sh.part);
+      ceaseFrom(sh);
+      ping(); tick();
+      const m = $('hitmark'); m.classList.remove('on', 'kill'); void m.offsetWidth; m.classList.add('on', 'kill');
+      banner(sh.part === 'head' ? 'Headshot' : 'Hit', duel.over ? 'you win the duel · K for the killcam' : `your friend's ${sh.part} · K for the killcam`);
+    } else if (duel.hunt) banner('Miss', 'no hit');
+    else if (sh.impact) {
+      banner('Miss', `${fmtLen(Math.abs(sh.impact.right))} ${sh.impact.right >= 0 ? 'right' : 'left'}, ${fmtLen(Math.abs(sh.impact.up))} ${sh.impact.up >= 0 ? 'high' : 'low'} of the head`);
+      impacts.push({ right: sh.impact.right, up: sh.impact.up, hit: false }); if (impacts.length > 6) impacts.shift();
+    } else banner('Miss', 'short of your friend');
+    if (duel.mail && sh.msg) mailLink(sh.msg);
+    duelUI();
+    return true;
+  }
+  // Theirs, at me.
+  if (sh.hit) {
+    score(duel.seat === 'A' ? 'B' : 'A', sh.part);
+    ceaseFrom(sh);
+    noiseBurst(0.3, 500, 0.6);
+    $('hurt').classList.remove('on'); void $('hurt').offsetWidth; $('hurt').classList.add('on');
+    if (duel.mail && duel.over) duel.myTurn = false;
+    banner(sh.part === 'head' ? 'Headshot' : 'You are hit', duel.over ? 'your friend wins the duel · K for the killcam' : `in the ${sh.part} · K to see it`);
+  } else if (sh.pass) {
+    // A supersonic round passing close cracks; a subsonic one only hisses.
+    if (sh.pass.miss < 4) noiseBurst(sh.pass.mach > 1 ? 0.06 : 0.25, sh.pass.mach > 1 ? 5200 : 1800, sh.pass.mach > 1 ? 0.7 : 0.15, 1.5);
+    banner(sh.pass.mach > 1 && sh.pass.miss < 4 ? 'Snap' : 'Incoming', `${fmtLen(sh.pass.miss)} from your head (${Math.abs(sh.impact.right) > Math.abs(sh.impact.up) ? (sh.impact.right > 0 ? 'right' : 'left') : sh.impact.up > 0 ? 'high' : 'low'})`);
+  } else banner('Incoming', 'it landed short of you');
+  duelUI();
+  return true;
+}
+// K: the last hit again, in bullet time, from behind the round.
+function killcam() {
+  // The last hit, or else my last round.
+  const sh = duel?.last ?? shot;
+  if (!duel || !sh || duel.replay) return;
+  duel.replay = sh;
+  tNow = sh.t0;
+  auto = true;
+  setCam('bullet');
+}
+function endKillcam() {
+  const was = duel.replay;
+  duel.replay = null;
+  auto = false;
+  tNow = duel.live && !duel.mail ? duelNow() : was ? was.tStop + 1 : tNow;
+  setCam('scope');
+}
+function rematch(tell) {
+  duel.score = { A: 0, B: 0 };
+  duel.over = false;
+  duel.ceaseUntil = 0;
+  duel.startAt = duelNow() + 5;
+  if (tell) duel.link?.send({ t: 'rematch' });
+  banner('Rematch', 'fire at will in 5 s');
+  duelUI();
+}
+
+// ---------- A duel by message ----------
+// No connection at all: a shot is a handful of numbers, and both browsers
+// fly it the same, so the duel travels as a link. You shoot; the link you
+// send carries every shot so far; your friend opens it, watches your round
+// come in, shoots back, and sends you the next link. The score is worked
+// out again from the shots each time, so a link cannot claim a hit it did
+// not make.
+const packShots = (log) => log.map((m) => [m.c, m.el, m.az, m.t0, m.seed ?? 0, m.stream ?? 0]);
+async function mailLink(msg) {
+  duel.log.push(msg);
+  const code = await packDuel(packShots(duel.log));
+  if (!duel) return;
+  showDuelLink(duelUrl({ duel: duel.id, mail: code }), duel.over ? 'You won. Send this link so your friend can watch it.' : 'Your shot is in this link. Send it to your friend: they watch it come in, shoot back, and send you theirs.');
+  duelUI();
+}
+function challengeByMail() {
+  startDuelCommon('A', newDuelId(), { hunt: $('duelHunt').checked, mail: true });
+  duel.live = true; duel.startAt = 0; duel.state = 'your shot';
+  banner('Duel by message', 'take your shot: the link to send appears when it lands');
+  duelUI();
+}
+// My own earlier shot, flown again without drawing it: what it hit.
+function judgeMine(m) {
+  const k = cartIndex(m.c), r = raw.rifles.find((x) => x.id === RIFLE_FOR[m.c]);
+  if (k < 0) return null;
+  station();
+  B.bd_setup(r ? r.twist_in * IN * (r.twist_direction === 'left' ? -1 : 1) : 0, S.lat * DEG, (S.spin ? 1 : 0) | (S.earth ? 2 : 0));
+  B.bd_powder(m.seed ? S.temp + 273.15 : 0);
+  B.bd_group(m.seed ? r?.group_moa ?? 0 : 0);
+  B.wind(S.az * DEG, trueLayers());
+  const o = enu(0, 0, 0);
+  const id = m.seed ? B.bd_fire_round(k, o[0], o[1], o[2], m.az, m.el, m.t0, m.seed, m.stream) : B.bd_fire(k, o[0], o[1], o[2], m.az, m.el, m.t0);
+  if (!id) return null;
+  let t = m.t0, rr = B.round();
+  while (!rr.stopped && t - m.t0 < 25 && lof(rr.position).d < S.dist) { t += 0.05; B.bd_advance(t, 0); rr = B.round(); }
+  let part = null;
+  if (lof(rr.position).d >= S.dist) {
+    let a = m.t0, b = rr.time;
+    for (let i = 0; i < 60; ++i) { const c = 0.5 * (a + b); if (lof(B.stateAt(c).position).d >= S.dist) b = c; else a = c; }
+    const p = lof(B.stateAt(b).position);
+    if (p.u > -BENCH) part = figurePart(p.r - oppRight(), p.u);
+  }
+  B.bd_release(id);
+  setup(false);
+  return part;
+}
+async function openMail(id, code, hunt) {
+  let rows;
+  try { rows = await unpackDuel(code); } catch { rows = null; }
+  if (!Array.isArray(rows) || !rows.length || rows.length > 200) { toast('This duel link is damaged'); return; }
+  const log = rows.map((r, i) => ({ t: 'shot', k: i + 1, c: String(r[0]), el: +r[1], az: +r[2], t0: +r[3], ...(r[4] ? { seed: +r[4], stream: +r[5] } : {}) }));
+  if (!log.every((m) => cartIndex(m.c) >= 0 && [m.el, m.az, m.t0].every(Number.isFinite))) { toast('This duel link is damaged'); return; }
+  // The challenger shot first, then in turn: whoever opens the link shoots next.
+  const me = log.length % 2 === 1 ? 'B' : 'A', them = me === 'A' ? 'B' : 'A';
+  startDuelCommon(me, id, { hunt, mail: true });
+  duel.live = true; duel.startAt = 0; duel.log = log;
+  duel.sent = log.filter((_, i) => (i % 2 === 0 ? 'A' : 'B') === me).length;
+  // The score so far, from the shots themselves.
+  for (let i = 0; i < log.length - 1 && !duel.over; ++i) {
+    const by = i % 2 === 0 ? 'A' : 'B';
+    let part;
+    if (by === me) part = judgeMine(log[i]);
+    else { const sh = fireRemote(log[i]); part = sh?.hit ? sh.part : null; if (sh) retire(sh); }
+    if (part) score(by, part);
+  }
+  // Their last shot, coming in now.
+  const last = log.at(-1);
+  tNow = last.t0 - 2.5;
+  duel.incoming = duel.over ? null : fireRemote(last);
+  duel.myTurn = true;
+  banner(`Your friend's shot ${Math.ceil(log.length / 2)}`, 'it is on its way: then it is your turn');
+  duelUI();
+  void them;
+}
+$('bDuelMail').onclick = () => challengeByMail();
+$('bDuel').onclick = () => challenge(Q.get('net') === 'local' ? 'local' : 'rtc');
+$('bDuelEnd').onclick = () => endDuel();
+$('duelLink').onfocus = (e) => e.target.select();
+$('bRematch').onclick = () => rematch(true);
+// Voice (Railgun Meet duels): the microphone is off until you turn it on.
+async function setMic(on) {
+  if (!duel?.link?.mic) return;
+  try { await duel.link.mic(on); duel.micOn = on; } catch (e) { toast('Microphone: ' + e.message); duel.micOn = false; }
+  duelUI();
+}
+$('bMic').onclick = () => setMic(!duel?.micOn);
+// Browsers start remote audio only after a gesture.
+window.addEventListener('pointerdown', () => duel?.link?.startAudio?.(), { capture: true });
+$('bDuelCopy').onclick = async () => { try { await navigator.clipboard.writeText($('duelLink').value); toast('Link copied'); } catch { $('duelLink').select(); } };
+$('bDuelShare').onclick = async () => { try { await navigator.share({ title: 'Sniper duel', text: 'A sniper duel on the São Paulo World range', url: $('duelLink').value }); } catch { $('bDuelCopy').click(); } };
+$('duelReply').onchange = async (e) => {
+  const v = e.target.value.trim(), code = v.includes('answer=') ? new URL(v, location.origin).searchParams.get('answer') : v;
+  if (duel?.link?.accept && code && (await duel.link.accept(code).catch(() => false))) toast('Connecting…'); else toast('That is not a reply to this duel');
+};
 
 // ---------- Start ----------
 presetsUI();
@@ -1864,8 +3087,19 @@ dope = solveDope();
 dopeUI();
 $('loading').remove();
 requestAnimationFrame(frame);
-if (autoFire) setTimeout(fireNow, 300);
+if (Q.has('duel') && Q.has('answer')) {
+  // A reply link: hand the answer to the duel tab in this browser.
+  deliverAnswer(Q.get('duel'), Q.get('answer')).then((ok) => {
+    $('duelShare').hidden = false;
+    $('duelLink').value = '';
+    $('duelNote').textContent = ok ? 'Your friend is connecting: go back to your duel tab.' : 'No duel tab took this reply. Open it in the browser where you made the challenge, or paste it into that tab.';
+    banner(ok ? 'Reply delivered' : 'Reply not delivered', ok ? 'go back to your duel tab' : 'open it in the browser with the duel');
+  });
+} else if (Q.has('duel') && Q.has('mail')) openMail(Q.get('duel').replace(/[^0-9a-f]/g, '').slice(0, 24), Q.get('mail'), Q.get('hunt') === '1');
+else if (Q.has('duel')) acceptChallenge(Q.get('duel').replace(/[^0-9a-f]/g, '').slice(0, 24), Q.get('offer') || '', Q.get('net') || 'rtc');
+else if (autoFire) setTimeout(() => { fixedSway = pendingSway; tNow = S.t0; fireNow(); }, 300);  // at the shot's own instant: the same gusts
+duelUI();
 // The Glass engine (for the V8's windscreen) loads in the background.
 setTimeout(() => ensureGlass().catch(() => {}), 1500);
 // For the browser console: the engine and the current shot.
-window.ballisticsRange = { B, R, wakeRT, wakeGeo, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
+window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, glint, sway: () => swayNow(), shareUrl, get duel() { return duel; }, challenge, killcam, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };

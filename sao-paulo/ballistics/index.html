@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <base href="/sao-paulo/ballistics/">
 <title>Ballistics Range</title>
-<meta name="description" content="Long-range shooting in your browser: 1 km, 1 mile, 2 km and 2 mile shots solved by the Ballistic Dynamics C++ engine compiled to WebAssembly: drag, wind along the range, air temperature and altitude, spin drift, aerodynamic jump, Coriolis and Eötvös, with a slow-motion bullet camera.">
+<meta name="description" content="Shooting in your browser, from a pistol at 7 m to a .50 BMG at 2 miles: pistols, sub-machine guns and rifles solved by the Ballistic Dynamics C++ engine compiled to WebAssembly: drag, wind along the range, air temperature and altitude, spin drift, aerodynamic jump, Coriolis and Eötvös, with a slow-motion bullet camera.">
 <meta property="og:title" content="São Paulo World · Ballistics Range">
-<meta property="og:description" content="Real exterior ballistics out to two miles, in bullet time.">
+<meta property="og:description" content="Real exterior ballistics from 7 metres to two miles, in bullet time.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/ballistics/">
 <meta name="twitter:card" content="summary">
@@ -128,10 +128,23 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   #banner{top:64px}
   #hud{bottom:auto;top:110px;font-size:11px}
 }
+#duelScore{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:3;font:700 14px var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 14px;white-space:nowrap}
+#duelScore b{font:900 18px var(--display);color:var(--hot)}
+#duelShare input{width:100%;font:500 11px var(--mono);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:6px}
+#hurt{position:fixed;inset:0;pointer-events:none;z-index:2;opacity:0;background:radial-gradient(ellipse at center,rgba(150,0,0,0) 40%,rgba(170,0,0,.75) 100%)}
+#hurt.on{animation:hurt 1.4s ease-out}
+@keyframes hurt{0%{opacity:1}100%{opacity:0}}
+@media (max-width:860px){#duelScore{top:56px;font-size:12px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 .turret{display:grid;grid-template-columns:72px 1fr auto auto;gap:6px;align-items:center;margin-top:6px;font-size:12.5px;color:#cfd8e3}
 .turret b{font:600 12px var(--mono);color:#fff}
-.turret button{min-width:34px}
+.turret button{min-width:40px;min-height:34px;touch-action:none}
+.turret{grid-template-columns:68px 1fr auto auto}
+.tval{display:flex;align-items:center;gap:5px;min-width:0}
+.tval input{width:72px;font:600 13px var(--mono);color:#fff;background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:5px 6px;text-align:right}
+.tval em{font:500 11px var(--mono);color:var(--mute);font-style:normal;white-space:nowrap}
+.tsub{font:500 11px var(--mono);color:var(--mute);margin:2px 0 0 74px}
+.tsub .ok{color:var(--good);font-weight:600}.tsub .warn{color:var(--warn);font-weight:600}
 </style>
 </head>
 <body>
@@ -157,29 +170,48 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
 </div>
 
 <aside id="lab" class="panel" aria-label="The shot">
-  <h2>Scenarios</h2>
+  <h2>Duel <small id="duelState">challenge a friend</small></h2>
+  <div class="row"><button id="bDuel" title="Live: make a link, your friend shoots back from the far end of this range">Challenge a friend</button><button id="bDuelMail" title="No connection needed: take turns, each shot travels in a link you send by message">Play by message</button><button id="bDuelEnd" hidden>Leave the duel</button><button id="bRematch" hidden>Rematch</button><button id="bMic" hidden aria-pressed="false" title="Talk to your friend (V)">Mic</button></div>
+  <label class="check"><input type="checkbox" id="duelHunt"> Hide us: random spots among empty emplacements, distance unknown</label>
+  <div id="duelShare" hidden>
+    <input id="duelLink" readonly aria-label="Duel link">
+    <div class="row" style="margin-top:6px"><button id="bDuelCopy">Copy link</button><button id="bDuelShare">Share…</button></div>
+    <p class="note" id="duelNote"></p>
+    <div id="duelPaste"><input id="duelReply" placeholder="…or paste your friend's reply link here" aria-label="Your friend's reply link"></div>
+  </div>
+  <p class="note">Your friend gets this range, this air and a hidden random wind, and shoots back at you from the far end. Head 2, shoulders 1, first to 3. Read the wind off the flags. K: killcam. Over Railgun Meet you can talk (Mic, V).</p>
+  <h2>Scenarios <small>rifles, 500 m to 2 miles</small></h2>
   <div class="presets" id="presets"></div>
+  <h2>Pistols &amp; SMGs <small>7 to 200 m</small></h2>
+  <div class="presets" id="presetsShort"></div>
 
-  <h2>Rifle &amp; load <small id="sgInfo"></small></h2>
+  <h2>Gun &amp; load <small id="sgInfo"></small></h2>
   <select id="cartridge" aria-label="Cartridge"></select>
   <p class="desc" id="loadDesc"></p>
-  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Scope <select id="scope" aria-label="Scope"><option value="own">The rifle's own</option><option value="mil">Mil-dot, 3–32×, 0.1 mil clicks</option><option value="moa">MOA, 3–32×, ¼ MOA clicks</option><option value="acog">ACOG 4×32 (TA31): bullet-drop marks</option><option value="pso1">PSO-1 4× (SVD): drum and chevrons</option><option value="pu">PU 3.5× (Mosin): drum and post</option></select></label>
-  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Aim <select id="aim" aria-label="Aim"><option value="assist">Assisted: your dope is dialled and held for you</option><option value="manual">Manual: you dial the turrets and hold the crosshair</option></select></label>
+  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Scope <select id="scope" aria-label="Scope"><option value="own">The rifle's own</option><option value="mil">Mil-dot, 3–32×, 0.1 mil clicks</option><option value="moa">MOA, 3–32×, ¼ MOA clicks</option><option value="acog">ACOG 4×32 (TA31): bullet-drop marks</option><option value="pso1">PSO-1 4× (SVD): drum and chevrons</option><option value="pu">PU 3.5× (Mosin): drum and post</option><option value="iron">Iron sights: post and notch</option><option value="dot">Red dot, 1×, 2 MOA</option></select></label>
+  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Zero <select id="zero" aria-label="Zero distance"></select></label>
+  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Position <select id="position" aria-label="Shooting position"></select></label>
+  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Aim <select id="aim" aria-label="Aim"><option value="assist">Assisted: dope set for you</option><option value="manual">Manual: your turrets, your hold</option></select></label>
   <div id="manualBox" hidden>
-    <div class="turret"><span>Elevation</span><b id="tEl"></b><button id="tElDn" title="Elevation turret down (F)">▼</button><button id="tElUp" title="Elevation turret up (R)">▲</button></div>
-    <div class="turret"><span>Windage</span><b id="tWd"></b><button id="tWdL" title="Windage turret left (Q)">◀</button><button id="tWdR" title="Windage turret right (E)">▶</button></div>
-    <div class="row" style="margin-top:8px"><button id="bDial" title="Set the elevation turret (or drum) to your dope card; the wind stays yours to hold">Dial the dope</button><button id="bCentre" title="Put the crosshair back on the target's centre">Centre</button></div>
+    <div id="turrets">
+    <div class="turret"><span>Elevation</span><label class="tval"><input id="tElIn" type="number" inputmode="decimal" aria-label="Elevation turret"><em id="tElUnit"></em></label><button id="tElDn" title="Elevation down: hold to spin, Shift for 10 clicks (F)">▼</button><button id="tElUp" title="Elevation up: hold to spin, Shift for 10 clicks (R)">▲</button></div>
+    <div class="tsub" id="tElSub"></div>
+    <div class="turret"><span>Windage</span><label class="tval"><input id="tWdIn" type="number" inputmode="decimal" aria-label="Windage turret (negative is left)"><em id="tWdUnit"></em></label><button id="tWdL" title="Windage left: hold to spin, Shift for 10 clicks (Q)">◀</button><button id="tWdR" title="Windage right: hold to spin, Shift for 10 clicks (E)">▶</button></div>
+    <div class="tsub" id="tWdSub"></div>
+    <div class="row" style="margin-top:8px"><button id="bDial" title="Set the elevation turret (or drum) to your dope card">Dial elevation</button><button id="bDialWd" title="Put the card's wind on the windage turret too, instead of holding it">Dial wind</button><button id="bCentre" title="Put the crosshair back on the target's centre">Centre</button></div>
+    </div>
+    <p class="note" id="holdOnly" hidden>This sight has nothing to dial for range: hold on the target. The dashed ring shows where your card says to put the aim point.</p>
     <label class="check"><input type="checkbox" id="hint"> Show where the call says to aim (dashed ring)</label>
-    <p class="note">In the scope, drag or use the arrow keys (Shift for bigger steps) to move the crosshair. R and F turn the elevation, Q and E the windage. Space fires.</p>
+    <p class="note">Type a value, tap the arrows, or hold them to spin the turret (Shift: 10 clicks). In the scope, drag or use the arrow keys to move the crosshair (Shift: bigger steps). R/F elevation, Q/E windage. Space fires.</p>
   </div>
-  <div class="slider"><span>Distance</span><b id="vDist"></b><input id="dist" type="range" min="100" max="3600" step="10" aria-label="Distance"></div>
-  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Target <select id="tgt" aria-label="Target"><option value="plate">Steel plate</option><option value="dummy">Crash dummy behind glass</option><option value="v8">Rosser V8: armoured windscreen, dummy driving</option></select></label>
+  <div class="slider"><span>Distance</span><b id="vDist"></b><input id="dist" type="range" min="5" max="3600" step="1" aria-label="Distance"></div>
+  <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Target <select id="tgt" aria-label="Target"><option value="plate">Steel plate</option><option value="dummy">Crash dummy behind glass</option><option value="line">Dummy line: one every 50 m, glass before, behind or none</option><option value="v8">Rosser V8: armoured windscreen, dummy driving</option><option value="duel" hidden>Your friend (a duel)</option></select></label>
   <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Hit markers <select id="markers" aria-label="Hit markers"><option value="off">Off</option><option value="hits">On hits</option><option value="all">Every impact</option></select></label>
   <label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Tracer <select id="tracer" aria-label="Tracer"><option value="off">Off: ball</option><option value="red">Red (NATO M62, M856)</option><option value="green">Green (Russian 7.62×54R)</option><option value="orange">Orange</option><option value="yellow">Yellow</option><option value="white">White</option></select></label>
   <label class="check"><input type="checkbox" id="tracerToImpact"> Tracer stays lit to the impact (off: it burns out at its real range)</label>
   <div id="glazeBox" hidden><label class="check" style="display:grid;grid-template-columns:auto 1fr;gap:8px">Glass <select id="glazing" aria-label="Glazing in front of the dummy"></select></label>
     <p class="note">A hit opens the impact in the Liquids Lab: the round arrives at its real speed and angle, the Glass engine breaks the pane and the fluid engine throws the spatter.</p></div>
-  <div class="slider" id="sizeBox"><span>Target size</span><b id="vSize"></b><input id="size" type="range" min="0.2" max="2" step="0.05" aria-label="Target size"></div>
+  <div class="slider" id="sizeBox"><span>Target size</span><b id="vSize"></b><input id="size" type="range" min="0.05" max="2" step="0.05" aria-label="Target size"></div>
 
   <h2>Air <small id="daInfo"></small></h2>
   <div class="slider"><span>Temperature</span><b id="vTemp"></b><input id="temp" type="range" min="-25" max="48" step="1" aria-label="Temperature"></div>
@@ -187,6 +219,7 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   <div class="slider"><span>Humidity</span><b id="vRh"></b><input id="rh" type="range" min="0" max="100" step="1" aria-label="Relative humidity"></div>
 
   <h2>Wind <small>true wind on the range</small></h2>
+  <p class="note" id="duelWindNote" hidden>In a duel the true wind is hidden: read it off the flags (and the mirage), then call it below.</p>
   <div id="layers"></div>
   <label class="check"><input type="checkbox" id="sameWind" checked> The same wind all the way</label>
   <div class="layer">
@@ -203,10 +236,11 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   <div class="slider"><span>Firing toward</span><b id="vAz"></b><input id="az" type="range" min="0" max="359" step="1" aria-label="Direction of fire"></div>
   <label class="check"><input type="checkbox" id="fSpin" checked> Spin: stability, spin drift, aerodynamic jump</label>
   <label class="check"><input type="checkbox" id="fEarth" checked> Earth's rotation: Coriolis and Eötvös</label>
-  <label class="check"><input type="checkbox" id="fSolver" checked> My dope accounts for spin and Coriolis</label>
+  <label class="check"><input type="checkbox" id="fUnique" checked> Every round unique: velocity spread, powder temperature, BC, the rifle's own group</label>
+  <label class="check"><input type="checkbox" id="fSolver" checked> My dope accounts for spin, Coriolis and the powder's temperature</label>
 
-  <button id="fire" title="Fire with your dope (Space)">Fire</button>
-  <p class="note">The rifle is zeroed at 100 m. The elevation from your dope is dialled; the wind is held on the reticle.</p>
+  <div class="row" style="margin-top:10px;flex-wrap:nowrap"><button id="fire" style="margin-top:0" title="Fire with your dope (Space)">Fire</button><button id="bBreath" aria-pressed="false" style="padding:10px" title="Hold your breath: press and hold (or hold Shift)">Breath</button></div>
+  <p class="note" id="zeroNote">The rifle is zeroed at 100 m. The elevation from your dope is dialled; the wind is held on the reticle.</p>
 </aside>
 
 <aside id="res" class="panel" aria-label="Results">
@@ -217,6 +251,7 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
   <h2>What moved it <small>at the target</small></h2>
   <div class="bars" id="bars"></div>
   <h2>Dope card <small id="dopeWhat"></small></h2>
+  <p class="note" id="spreadInfo"></p>
   <table class="dope" id="dope"></table>
 </aside>
 
@@ -229,6 +264,8 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
 </div>
 
 <div id="hud"></div>
+<div id="duelScore" hidden></div>
+<div id="hurt" aria-hidden="true"></div>
 <div id="hitmark" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <div id="banner"><b id="bTitle"></b><small id="bSub"></small></div>
 <div id="toast" role="status"></div>
@@ -244,10 +281,16 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
       <li><b>Bullet time</b> (<kbd>B</kbd>) follows the round from the muzzle to the target, slowing right down on the way in. The slow motion is the same flight: the engine's steps never change, only how fast they are shown.</li>
       <li>Cameras (<kbd>C</kbd>): the <b>scope</b> with its MIL reticle and the mirage, the shooter's shoulder, the bullet, and the target.</li>
       <li><b>Share</b> copies a link that rebuilds exactly this shot: the same air, the same gusts at the same instant, the same impact.</li>
-      <li><b>Trace</b> (<kbd>T</kbd>) shows the round's wake bending the light as it goes downrange, the swirl a spotter watches through the scope. <b>Hit markers</b>: an X flash on a hit, and marks on the reticle where your last shots went (every impact, misses too, if you choose).</li>
+      <li><b>Trace</b> (<kbd>T</kbd>) shows the round's wake bending the light as it goes downrange, the swirl a spotter watches through the scope: its strength is the wake's heat, so it is strongest early in a fast round's flight and fades as the round slows. The bullet camera shows the Mach cone as a schlieren photograph would (much stronger than the eye sees it). <b>Hit markers</b>: an X flash on a hit, and marks on the reticle where your last shots went (every impact, misses too, if you choose).</li>
       <li><b>Fire again</b> while a round is still flying: several can be in the air at once. A bolt action takes about a second to work; a semi-automatic fires as fast as you press. In bullet time the rounds still leave at the rifle's real pace.</li>
-      <li><b>Scope</b>: put any scope on any rifle: mil-dot, MOA, the ACOG 4×32, the PSO-1 or the PU. <b>Aim</b>: Assisted sets your dope for you; Manual hands you the turrets (R/F elevation, Q/E windage) and the crosshair (drag in the scope or use the arrow keys). <b>Dial the dope</b> sets the elevation from your card; the wind is yours.</li>
+      <li><b>Duel</b>: <b>Challenge a friend</b> makes a link. Your friend opens it and gets a reply link to send back; when you open that reply in this browser (or paste it in), you are connected directly, browser to browser. You shoot from opposite ends of the same range, through the same air and the same hidden wind, at each other's head and shoulders over the sandbags: head 2, shoulders 1, first to 3. Each round is flown in both browsers from the same aim and instant, so both see the same flight and agree on the hit. Their muzzle flash comes at once, their report at the speed of sound, and a near miss cracks past. A hit calls a 4 s cease-fire; <kbd>K</kbd> replays it in bullet time.</li>
+      <li><b>Position and breath</b>: nobody holds a rifle still. Pick a <b>Position</b> (bench rest to standing): the crosshair wanders over that position's wobble, rises and falls with your breath and jumps with your pulse, and the shot leaves wherever it is. Hold <kbd>Shift</kbd> (or the <b>Breath</b> button) to hold your breath: the rifle settles and steadies for about six seconds, then the wobble grows as your air runs down. After the shot the scope jumps with the recoil. In a duel both shooters are prone on a bipod.</li>
+      <li><b>Hidden duels</b>: tick <b>Hide us</b> before you challenge. Each of you is put somewhere along your end among empty sandbag emplacements, and the distance is not told (somewhere from two thirds of the distance set up to all of it). Search with the scope at low power (wheel or +/− to zoom), find the emplacement with a head over it, range it on the reticle (a head is 22 cm, shoulders 44 cm: size in mm ÷ mils = metres), read your dope card and dial. A scope pointed your way glints, and a muzzle flash gives its owner away.</li>
+      <li><b>Play by message</b>: a duel with no connection. Take your shot; the link that appears carries it. Send it by any messenger: your friend watches your round come in, shoots back, and sends you the next link. The score is worked out again from the shots every time a link is opened.</li>
+      <li><b>Pistols &amp; SMGs</b>: a Glock 17, a 1911 (its left-hand twist drifts the .45 left), a .357 revolver, the Five-seveN, the MP5, the P90 and the Thompson, from 7 to 200 m on iron sights or a red dot. Handguns are zeroed at 25 m, the sub-machine guns at 50 m (change it under <b>Zero</b>). Up close a pistol hits <b>low</b>: the sights sit above the bore and the round is still climbing to meet them. Hold <kbd>Space</kbd> with an MP5, a P90 or a Thompson for full auto at its real cyclic rate; a semi-automatic fires once per press.</li>
+      <li><b>Scope</b>: put any scope on any rifle: mil-dot, MOA, the ACOG 4×32, the PSO-1 or the PU. <b>Aim</b>: Assisted sets your dope for you; Manual hands you the turrets (R/F elevation, Q/E windage) and the crosshair (drag in the scope or use the arrow keys). Type a turret value, tap, or hold the arrows to spin it (Shift: 10 clicks); the line under each turret counts the clicks and says how far you are from your card. <b>Dial elevation</b> sets the elevation from your card; <b>Dial wind</b> puts the card's wind on the turret too (or hold it on the reticle). Iron sights, the red dot and the ACOG have nothing to dial: you hold.</li>
       <li><b>Tracer</b>: light the round in red, green, orange, yellow or white; it stays lit to the impact, or untick that to have it burn out at its real range. The <b>Mosin M91/30</b> and the <b>SVD</b> wear their own scopes, the PU and the PSO-1: set the drum to the hundreds of metres the dope card gives, then hold the rest in thousandths (the red ring).</li>
+      <li><b>The dummy line</b>: a crash dummy every 50 m out to the distance you set, in turn behind a pane of glass, in the open, and in front of one (a different glass each time). The distance picks the one your dope is for; hit any of them and <b>Watch it hit the dummy</b> plays that impact in the Liquids Lab at the round's real speed and angle there, with tarantinoness 7 and bright red.</li>
       <li><b>The armoured V8</b>: the Rosser V8 from the driving sim with a crash dummy at the wheel behind its armoured windscreen, raked about 70°. The Glass engine takes the round at its real angle: it may stop it, glance off, or let it through to the driver, and the Liquids Lab plays the rest.</li>
       <li>Set the target to <b>Crash dummy behind glass</b> (or pick <b>Through a windscreen</b>): a hit opens the impact in the <b>Liquids Lab</b>, with the round arriving at the speed and angle this range computed; the Glass engine breaks the pane and the fluid engine does the rest, in bullet time.</li>
     </ul>
@@ -260,7 +303,7 @@ table.dope th:first-child,table.dope td:first-child{text-align:left}
       <li><b>The Earth:</b> Coriolis (right in the northern hemisphere, left in the southern) and Eötvös (a round fired east rises, one fired west drops).</li>
     </ul>
     <h3>Honest limits</h3>
-    <p>Every round of a load is the same round: muzzle-velocity spread, powder temperature and group size come in the next milestone, so the temperature here changes the air, not the powder. Spin-drift coefficients are estimated per bullet class and land within about 20 % of Litz's measured formula. Transonic dynamic instability is not modelled yet. The range is flat. Full details on the <a href="how/" style="color:var(--ice)">How it works</a> page.</p>
+    <p>With <b>Every round unique</b> on, each round draws its own muzzle velocity, ballistic coefficient and barrel throw (from the load's spread and the rifle's group, all estimated figures) and the powder sits at the air's temperature; the rifle was zeroed at the published velocity, so cold ammunition hits low. Under the dope card: how far the rounds scatter at the target and your chance of a hit with a perfect wind call. Off, every round of a load is the same round. Spin-drift coefficients are estimated per bullet class and land within about 20 % of Litz's measured formula. Transonic dynamic instability is not modelled yet. The range is flat. Full details on the <a href="how/" style="color:var(--ice)">How it works</a> page.</p>
   </div>
 </div>
 

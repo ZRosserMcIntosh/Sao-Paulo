@@ -33,6 +33,9 @@ const ARRIVAL = (() => {
     glazing: (q.get('glazing') || 'windscreen').replace(/[^a-z0-9_]/g, ''), pane, target,
     back: (q.get('back') || '').startsWith('/sao-paulo/ballistics/') ? q.get('back') : '/sao-paulo/ballistics/',
     via: (q.get('via') || '').replace(/[<>]/g, '').slice(0, 120),
+    // The look the range asks for: tarantinoness (1 to 11) and the liquid's colour (hex).
+    tness: q.has('tn') ? n('tn', 0, 1, 11) : 0,
+    colour: /^[0-9a-f]{6}$/i.test(q.get('col') || '') ? '#' + q.get('col').toLowerCase() : '',
   };
 })();
 
@@ -1536,6 +1539,8 @@ if (ARRIVAL) {
   g.projectile = 'ballistics_arrival';
   g.pane = ARRIVAL.pane;
   g.target = ARRIVAL.target;
+  if (ARRIVAL.tness) g.tness = Math.round(ARRIVAL.tness * 2) / 2;
+  if (ARRIVAL.colour) { const dm = cat.dummies?.[0]; if (dm?.liquid) { tints[dm.liquid] = ARRIVAL.colour; try { applyColours(); } catch { /* applied when the scene builds */ } } }
   if (gcat && gcat.glazings.some((x) => x.id === ARRIVAL.glazing)) g.glazing = ARRIVAL.glazing;
   const back = document.createElement('a');
   back.className = 'how';
