@@ -40,6 +40,12 @@ const DEFAULT_VOICE = {
   drive: 1,               // saturation scale
   gain: 1,
   lowpass: 0,             // Hz: a 12 dB/oct roll-off on the output (0 = off); mufflers, filters
+  highpass: 0,            // Hz: a 12 dB/oct cut below this (0 = off): no subsonic boom that small
+                          // speakers can't play and only distort on
+  rasp: 0,                // turbulent exhaust flow noise riding each pulse (the grit of a
+  raspFreq: 2600,         // free-flowing exhaust at load), centred here (Hz)
+  idleRough: 0,           // combustion varies far more cycle to cycle at idle than at full load:
+                          // extra pulse-strength and timing spread at low load (0..1)
 };
 
 class EngineSynth {
@@ -65,9 +71,10 @@ class EngineSynth {
       res: V.res.map(([f, det, tau, g]) => mk(f + b * det, tau, g)),
       comb: new Float32Array(4096), ci: 0, combLen: Math.min(4095, Math.round(sr * (V.comb[0] + b * V.comb[1]))),
       exc: 0, excLeft: 0, excAmp: 0,
+      rasp: mk(V.raspFreq, 0.00035, 1),
       hp: 0, hpx: 0, lp: 0, zx: 0, zh: 0,
     }));
-    this.banks.forEach((bk) => bk.res.forEach((r) => this.tune(r)));
+    this.banks.forEach((bk) => { bk.res.forEach((r) => this.tune(r)); this.tune(bk.rasp); });
     // Intake: a bright resonator excited by every event, strongest at high rpm and full load.
     this.intake = V.intake.map(([f, tau, g]) => mk(f, tau, g));
     this.intake.forEach((r) => this.tune(r));
@@ -85,15 +92,17 @@ class EngineSynth {
     this.tLp = [0, 0];
     this.hy = 0;
     // optional output low-pass (RBJ biquad, Q 0.707), one per channel
-    this.olp = null;
-    if (V.lowpass > 0) {
-      const w0 = 2 * Math.PI * Math.min(V.lowpass, 0.45 * sr) / sr, al = Math.sin(w0) / (2 * Math.SQRT1_2), cw = Math.cos(w0), a0 = 1 + al;
-      this.olp = { b0: (1 - cw) / 2 / a0, b1: (1 - cw) / a0, b2: (1 - cw) / 2 / a0, a1: -2 * cw / a0, a2: (1 - al) / a0, st: [[0, 0, 0, 0], [0, 0, 0, 0]] };
-    }
+    const biquad = (f, hp) => {
+      const w0 = 2 * Math.PI * Math.min(f, 0.45 * sr) / sr, al = Math.sin(w0) / (2 * Math.SQRT1_2), cw = Math.cos(w0), a0 = 1 + al;
+      const b0 = (hp ? (1 + cw) : (1 - cw)) / 2 / a0;
+      return { b0, b1: (hp ? -2 : 2) * b0, b2: b0, a1: -2 * cw / a0, a2: (1 - al) / a0, st: [[0, 0, 0, 0], [0, 0, 0, 0]] };
+    };
+    this.olp = V.lowpass > 0 ? biquad(V.lowpass, false) : null;
+    this.ohp = V.highpass > 0 ? biquad(V.highpass, true) : null;
   }
   // Fresh cycle-to-cycle timing variation (Gaussian, crank degrees -> fraction of 720 deg).
   newCycle() {
-    const sd = this.v.cycleJitter / 720;
+    const sd = (this.v.cycleJitter + 6 * this.v.idleRough * Math.max(0, 1 - 2.5 * (this.load || 0))) / 720;
     for (let c = 0; c < this.nEv; ++c) {
       if (!sd) { this.cycTime[c] = 0; continue; }
       const g = Math.sqrt(-2 * Math.log(1 - this.rand())) * Math.cos(2 * Math.PI * this.rand());
@@ -159,6 +168,7 @@ class EngineSynth {
         const cutNow = Math.max(this.cutS, limiterCut);
         // Combustion strength: strong on load, weak pumping pulses when coasting.
         let e = (0.2 + 0.8 * Math.pow(load, 0.8)) * this.cylAmp[c] * (0.98 + 0.04 * this.rand());
+        if (this.v.idleRough > 0) e *= 1 + this.v.idleRough * Math.max(0, 1 - 2.5 * load) * (this.rand() * 1.2 - 0.6);
         if (cutNow > 0.5) e = 0.1 * this.cylAmp[c];
         // Overrun: unburnt fuel popping in the exhaust when lifting at high rpm.
         if (load < 0.08 && rpm > 3200 && this.decel > 300 && this.rand() < (0.035 + 0.08 * Math.min(1, this.decel / 4000)) * this.v.crackle * (8 / this.nEv)) this.pop = 0.6 + 0.7 * this.rand();
@@ -176,6 +186,8 @@ class EngineSynth {
         if (this.pop > 0) { x += this.pop * (this.rand() * 2 - 1) * 2.0; }
         let y = 0;
         for (const r of bk.res) y += this.ring(r, x);
+        // flow noise: turbulence gated by the pulse passing through the pipe
+        if (this.v.rasp > 0) y += this.ring(bk.rasp, (this.rand() * 2 - 1) * x) * this.v.rasp * (0.25 + 0.75 * load) * (0.3 + 0.7 * rpmN);
         // open-ended pipe: negative reflection
         const d = bk.comb[(bk.ci - bk.combLen + 4096) & 4095];
         let z = y - this.v.combFb * d;
@@ -237,10 +249,11 @@ class EngineSynth {
         // DC / sub-sonic block
         const hp = v - bk.hpx + 0.995 * bk.hp; bk.hpx = v; bk.hp = hp;
         out[b] = hp;
-        if (this.olp) {
-          const f = this.olp, z = f.st[b];
-          const y = f.b0 * hp + f.b1 * z[0] + f.b2 * z[1] - f.a1 * z[2] - f.a2 * z[3];
-          z[1] = z[0]; z[0] = hp; z[3] = z[2]; z[2] = y;
+        for (const f of [this.olp, this.ohp]) {
+          if (!f) continue;
+          const z = f.st[b], x = out[b];
+          const y = f.b0 * x + f.b1 * z[0] + f.b2 * z[1] - f.a1 * z[2] - f.a2 * z[3];
+          z[1] = z[0]; z[0] = x; z[3] = z[2]; z[2] = y;
           out[b] = y;
         }
       }
