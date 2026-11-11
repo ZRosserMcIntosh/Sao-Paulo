@@ -21,12 +21,15 @@
 const DEFAULT_VOICE = {
   events: Array.from({ length: 8 }, (_, c) => [c / 8, c & 1]), // [cycle fraction, bank]
   jitter: 0.006,          // per-cylinder timing spread (fraction of a cycle)
+  cycleJitter: 0,         // cycle-to-cycle combustion timing variation (crank degrees, rms):
+                          // smears the upper harmonics into a natural roll-off, keeps the note
   res: [[92, 6, 0.016, 0.9], [300, 14, 0.007, 0.55], [690, 25, 0.0045, 0.5], [1480, 60, 0.003, 0.32], [3100, 120, 0.0016, 0.16]], // [f, bank detune, tau, gain]
   comb: [0.0093, 0.0004], // pipe delay (s) and the second bank's extra length
   combFb: 0.35,
   intake: [[1900, 0.0025, 1], [3600, 0.0012, 0.5]],
   pulseW: 0.0005,         // s
   whineOrder: 24,
+  whineGain: 1,           // valvetrain / gear whine level
   stereo: 0.72,           // share of a bank in its own channel (0.5 = one merged exhaust)
   turbo: 0,               // 0..1: pulse damping, compressor whistle, blow-off
   turboWhistle: 1,        // whistle level relative to the turbo amount
@@ -36,6 +39,7 @@ const DEFAULT_VOICE = {
   interior: 0.16,         // cabin low-pass coefficient (lower = better insulated)
   drive: 1,               // saturation scale
   gain: 1,
+  lowpass: 0,             // Hz: a 12 dB/oct roll-off on the output (0 = off); mufflers, filters
 };
 
 class EngineSynth {
@@ -49,6 +53,8 @@ class EngineSynth {
     // half-order "burble" at low rpm that a perfectly even pulse train would not have.
     this.cylAmp = Array.from({ length: this.nEv }, () => 0.9 + 0.2 * this.rand());
     this.cylTime = Array.from({ length: this.nEv }, () => (this.rand() - 0.5) * V.jitter);
+    this.cycTime = new Float64Array(this.nEv);   // this cycle's combustion variation per event
+    this.newCycle();
     this.phase = 0; // 0..1 per four-stroke cycle (two crank revolutions)
     this.nextEvent = 0;
     this.rpm = 1000; this.load = 0; this.cutS = 0;
@@ -78,6 +84,21 @@ class EngineSynth {
     this.boost = 0; this.tw = 0; this.bov = 0; this.bovLp = 0; this.prevLoad = 0;
     this.tLp = [0, 0];
     this.hy = 0;
+    // optional output low-pass (RBJ biquad, Q 0.707), one per channel
+    this.olp = null;
+    if (V.lowpass > 0) {
+      const w0 = 2 * Math.PI * Math.min(V.lowpass, 0.45 * sr) / sr, al = Math.sin(w0) / (2 * Math.SQRT1_2), cw = Math.cos(w0), a0 = 1 + al;
+      this.olp = { b0: (1 - cw) / 2 / a0, b1: (1 - cw) / a0, b2: (1 - cw) / 2 / a0, a1: -2 * cw / a0, a2: (1 - al) / a0, st: [[0, 0, 0, 0], [0, 0, 0, 0]] };
+    }
+  }
+  // Fresh cycle-to-cycle timing variation (Gaussian, crank degrees -> fraction of 720 deg).
+  newCycle() {
+    const sd = this.v.cycleJitter / 720;
+    for (let c = 0; c < this.nEv; ++c) {
+      if (!sd) { this.cycTime[c] = 0; continue; }
+      const g = Math.sqrt(-2 * Math.log(1 - this.rand())) * Math.cos(2 * Math.PI * this.rand());
+      this.cycTime[c] = Math.max(-3, Math.min(3, g)) * sd;
+    }
   }
   tune(r) {
     const rr = Math.exp(-1 / (r.tau * this.sr));
@@ -125,14 +146,14 @@ class EngineSynth {
       const dp = rpm / 120 / sr;
       this.phase += dp;
       this.t += 1;
-      if (this.phase >= 1) { this.phase -= 1; this.nextEvent = 0; }
+      if (this.phase >= 1) { this.phase -= 1; this.nextEvent = 0; this.newCycle(); }
       // Firing events at their crank angles, each down its own bank's exhaust. Event times are
       // kept to a fraction of a sample: rounding them would smear the high harmonics into noise
       // at high rpm.
       const ev = this.v.events;
-      while (this.nextEvent < this.nEv && this.phase >= ev[this.nextEvent][0] + this.cylTime[this.nextEvent]) {
+      while (this.nextEvent < this.nEv && this.phase >= ev[this.nextEvent][0] + this.cylTime[this.nextEvent] + this.cycTime[this.nextEvent]) {
         const c = this.nextEvent;
-        const ago = (this.phase - (ev[c][0] + this.cylTime[c])) / dp; // samples since the event
+        const ago = (this.phase - (ev[c][0] + this.cylTime[c] + this.cycTime[c])) / dp; // samples since the event
         this.nextEvent++;
         const bk = this.banks[ev[c][1]];
         const cutNow = Math.max(this.cutS, limiterCut);
@@ -182,7 +203,7 @@ class EngineSynth {
       ik *= (0.15 + 0.85 * load) * Math.pow(rpmN, 1.6) * (0.35 + 0.65 * inter);
       // Valvetrain / gear whine: faint tone that rises with rpm.
       this.whine += (rpm / 60) * this.v.whineOrder / sr; if (this.whine > 1) this.whine -= 1;
-      let wh = Math.sin(2 * Math.PI * this.whine) * 0.012 * rpmN;
+      let wh = Math.sin(2 * Math.PI * this.whine) * 0.012 * rpmN * this.v.whineGain;
       if (this.v.turbo > 0) {
         // Boost builds with load and revs (spool lag ~0.4 s), falls fast on a lift. Lifting
         // off with boost up dumps it through the blow-off / bypass valve: a short "pssh".
@@ -216,6 +237,12 @@ class EngineSynth {
         // DC / sub-sonic block
         const hp = v - bk.hpx + 0.995 * bk.hp; bk.hpx = v; bk.hp = hp;
         out[b] = hp;
+        if (this.olp) {
+          const f = this.olp, z = f.st[b];
+          const y = f.b0 * hp + f.b1 * z[0] + f.b2 * z[1] - f.a1 * z[2] - f.a2 * z[3];
+          z[1] = z[0]; z[0] = hp; z[3] = z[2]; z[2] = y;
+          out[b] = y;
+        }
       }
       const loud = 0.42 * (0.55 + 0.45 * Math.min(1, rpmN * 1.3)) * this.v.gain;
       const st = this.v.stereo;
