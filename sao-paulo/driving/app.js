@@ -1493,8 +1493,8 @@ bindHold('tGas', 'gas'); bindHold('tBrake', 'brake'); bindHold('tHand', 'hand');
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
 }
 // ---------- Game controllers (gamepad.js) ----------
-// Forza-style layout: left stick steer, RT gas, LT brake, A handbrake, B / X (or RB / LB) shift
-// up / down, Y hold to rewind, right stick to look around (R3 looks back), View camera, Menu the
+// Forza-style layout: left stick steer, RT gas, LT brake (both analog), B / A (or RB / LB) shift
+// up / down, X handbrake, Y hold to rewind, right stick to look around (R3 looks back), View camera, Menu the
 // settings (D-pad to move, A to press, B back), D-pad up telemetry, down reset, left / right slow
 // motion, L3 replay. In the replay: A play/pause, triggers scrub, D-pad speed, X drive from here,
 // B exit.
@@ -1588,7 +1588,7 @@ function readInput(dt, gear, speed) {
   if (gpad.active && !padMenu.on) {
     const sx = gpad.steer();
     if (Math.abs(sx) > Math.abs(steer)) steer = sx;
-    up = Math.max(up, gpad.rt); down = Math.max(down, gpad.lt); hand = Math.max(hand, gpad.pressed(BTN.A) ? 1 : 0);
+    up = Math.max(up, gpad.rt); down = Math.max(down, gpad.lt); hand = Math.max(hand, gpad.pressed(BTN.X) ? 1 : 0);
   }
   if (Math.abs(touch.steer) > Math.abs(steer)) steer = touch.steer;
   up = Math.max(up, touch.gas); down = Math.max(down, touch.brake); hand = Math.max(hand, touch.hand);
@@ -2188,7 +2188,7 @@ function updateSmoke(dt, worldVel) {
 const audio = new CarAudio();
 window.__spwAudio = audio; // for debugging in the console
 window.__spwDebris = () => ({ glass: destruction.glass.pieces.filter(Boolean).length, rubble: destruction.rubble.pieces.filter(Boolean).length, hidden: Object.values(walls).filter((w) => !w.mesh.visible).length });
-window.__spwState = () => ({ pos: [S(0), S(1), S(2)], v: S(7), rpm: S(14), gear: S(15), thr: S(17), tcs: S(18), contact: [0, 1, 2, 3].map((w) => W(w, 11)), impact: S(31), upright: S(36), body: S(37) });
+window.__spwState = () => ({ pos: [S(0), S(1), S(2)], v: S(7), rpm: S(14), gear: S(15), thr: S(17), tcs: S(18), contact: [0, 1, 2, 3].map((w) => W(w, 11)), impact: S(31), upright: S(36), body: S(37), input: [S(27), S(28), S(29)] });
 window.__spwPlace = (x, y = 0, yaw = 0) => placeAt({ x, y, yaw });
 window.__spwBike = () => ({ t: B(2), frames: window.__frames, kind: B(0), fallen: B(1), v: B(3), lean: B(4), steer: B(5), pitch: B(6), target: B(7), torque: B(8), yaw: B(22), pos: [B(23), B(24), B(25)], grip: [B(16), B(17)] });
 audio.enabled = store.get('sound', true); audio.volume = store.get('volume', 0.8);
@@ -2471,7 +2471,7 @@ function padFrame(dt) {
   // driving
   if (e(B.VIEW)) cycleCam();
   if (e(B.B) || e(B.RB)) paddle(1);
-  if (e(B.X) || e(B.LB)) paddle(-1);
+  if (e(B.A) || e(B.LB)) paddle(-1);
   if (e(B.Y) && !isBike() && !lab?.active) { rewindHold = true; padRewind = true; }
   if (padRewind && !gpad.pressed(B.Y)) { rewindHold = false; padRewind = false; }
   if (e(B.DOWN)) resetCar();
