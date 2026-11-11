@@ -25,6 +25,7 @@ import { CarFlowView } from './carflow.js';
 import { TelemetryPanel, captureTelemetry, REC } from './telemetry.js';
 import { ReplayViewer } from './replay.js';
 import { WindTunnel } from './tunnel.js';
+import { GamePad, PadMenu, BTN, padName } from './gamepad.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -1491,7 +1492,21 @@ bindHold('tGas', 'gas'); bindHold('tBrake', 'brake'); bindHold('tHand', 'hand');
   const up = () => { touch.steer = 0; knob.style.left = 'calc(50% - 17px)'; };
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
 }
-const pad = { prev: [] };
+// ---------- Game controllers (gamepad.js) ----------
+// Forza-style layout: left stick steer, RT gas, LT brake, A handbrake, B / X (or RB / LB) shift
+// up / down, Y hold to rewind, right stick to look around (R3 looks back), View camera, Menu the
+// settings (D-pad to move, A to press, B back), D-pad up telemetry, down reset, left / right slow
+// motion, L3 replay. In the replay: A play/pause, triggers scrub, D-pad speed, X drive from here,
+// B exit.
+const gpad = new GamePad({
+  store,
+  onConnect: (kind) => { toast(`${padName(kind)} connected: ${gpad.label('MENU')} for the menu, ${gpad.label('VIEW')} for the camera`); padStatus(); },
+  onDisconnect: (kind) => { toast(`${padName(kind)} disconnected`); padStatus(); },
+  onLayoutWarning: () => toast('This browser does not recognise the controller\'s layout, so buttons may be mixed up. Chrome or Edge read Xbox and PlayStation controllers correctly.'),
+});
+const padMenu = new PadMenu();
+const padLook = { yaw: 0, pitch: 0 };   // right-stick look, added to the chase cameras
+let padRewind = false, padShift = 0;
 let kbSteer = 0, reverseHold = 0;
 // ---------- Mouse steering ----------
 // A virtual steering wheel: with the pointer locked to the view, horizontal mouse movement turns
@@ -1510,6 +1525,15 @@ function setMouseSteer(on) {
 $('bMouse').onclick = (e) => { setMouseSteer(!mouseSteer.on); e.currentTarget.blur(); };
 $('bMouse').setAttribute('aria-pressed', mouseSteer.on);
 $('mSens').value = mouseSteer.sens;
+// controller settings
+{
+  const dz = $('padDead'), cv = $('padCurve'), rb = $('padRumble');
+  dz.value = gpad.deadzone; cv.value = gpad.curve; rb.checked = gpad.vibrate;
+  dz.oninput = () => gpad.setDeadzone(+dz.value);
+  cv.oninput = () => gpad.setCurve(+cv.value);
+  rb.onchange = () => { gpad.setVibrate(rb.checked); if (rb.checked) gpad.rumble(0.6, 0.4, 200); };
+  padStatus();
+}
 $('mSens').oninput = (e) => { mouseSteer.sens = +e.target.value; store.set('mouseSens', mouseSteer.sens); };
 $('mCentre').checked = mouseSteer.centre;
 $('mCentre').onchange = (e) => { mouseSteer.centre = e.target.checked; store.set('mouseCentre', mouseSteer.centre); };
@@ -1561,21 +1585,10 @@ function readInput(dt, gear, speed) {
   let hand = keys.has(' ') ? 1 : 0;
   let shiftUp = edge.up, shiftDown = edge.down;
   edge.up = edge.down = false;
-  const gp = navigator.getGamepads ? [...navigator.getGamepads()].find((g) => g && g.connected) : null;
-  if (gp) {
-    const btn = (i) => gp.buttons[i] ? gp.buttons[i].value : 0;
-    const pressed = (i) => !!gp.buttons[i]?.pressed;
-    const was = (i) => !!pad.prev[i];
-    const ax = gp.axes[0] ?? 0;
-    const sx = Math.abs(ax) < 0.08 ? 0 : (ax - Math.sign(ax) * 0.08) / 0.92;
-    if (Math.abs(sx) > Math.abs(steer)) steer = -sx;
-    up = Math.max(up, btn(7)); down = Math.max(down, btn(6)); hand = Math.max(hand, btn(0));
-    if (pressed(5) && !was(5)) shiftUp = true;
-    if (pressed(4) && !was(4)) shiftDown = true;
-    if (pressed(3) && !was(3)) resetCar();
-    if (pressed(8) && !was(8)) cycleCam();
-    if (pressed(9) && !was(9)) setPreset((settings.preset + 1) % 4);
-    pad.prev = gp.buttons.map((b) => b.pressed);
+  if (gpad.active && !padMenu.on) {
+    const sx = gpad.steer();
+    if (Math.abs(sx) > Math.abs(steer)) steer = sx;
+    up = Math.max(up, gpad.rt); down = Math.max(down, gpad.lt); hand = Math.max(hand, gpad.pressed(BTN.A) ? 1 : 0);
   }
   if (Math.abs(touch.steer) > Math.abs(steer)) steer = touch.steer;
   up = Math.max(up, touch.gas); down = Math.max(down, touch.brake); hand = Math.max(hand, touch.hand);
@@ -1626,6 +1639,14 @@ const orbit = { yaw: store.get('orbitYaw', 2.6), pitch: store.get('orbitPitch', 
 const chaseDir = new THREE.Vector3(1, 0, 0);
 let chaseAccel = 0;
 const driftDir = new THREE.Vector3(1, 0, 0);
+const _lookUp = new THREE.Vector3(0, 1, 0);
+// The controller's right stick: swing a chase camera round the car (and up a little).
+function padLookAround(want, look, carPos) {
+  if (!padLook.yaw && !padLook.pitch) return;
+  want.sub(carPos).applyAxisAngle(_lookUp, padLook.yaw).add(carPos);
+  look.sub(carPos).applyAxisAngle(_lookUp, padLook.yaw).add(carPos);
+  want.y += padLook.pitch * 4;
+}
 function updateCamera(dt, carPos, carQuat, vel, spd = S(7), ax = S(11)) {
   const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(carQuat); fwd.y = 0; fwd.normalize();
   const vh = new THREE.Vector3(vel.x, 0, vel.z);
@@ -1638,6 +1659,7 @@ function updateCamera(dt, carPos, carQuat, vel, spd = S(7), ax = S(11)) {
     if (camInit) driftDir.copy(travel); else driftDir.lerp(travel, 1 - Math.exp(-dt * 2.2)).normalize();
     const want5 = carPos.clone().addScaledVector(driftDir, -7.8); want5.y = carPos.y + 2.7;
     const look5 = carPos.clone().addScaledVector(driftDir, 2.5); look5.y = carPos.y + 0.6;
+    padLookAround(want5, look5, carPos);
     if (camInit) camPos.copy(want5); else camPos.lerp(want5, 1 - Math.exp(-dt * 6));
     camLook.copy(look5); camInit = false;
     camera.position.copy(camPos); camera.lookAt(camLook); return;
@@ -1652,6 +1674,7 @@ function updateCamera(dt, carPos, carQuat, vel, spd = S(7), ax = S(11)) {
     const dist = (far ? (bike ? 8 : 12) : bike ? 4.2 : 6.2) + 0.4 * chaseAccel, h = far ? (bike ? 3.2 : 4.5) : bike ? 1.7 : 2.1;
     want = carPos.clone().addScaledVector(chaseDir, -dist); want.y = carPos.y + h;
     look = carPos.clone().addScaledVector(chaseDir, far ? 6 : 4); look.y = carPos.y + (far ? 0 : 0.7);
+    padLookAround(want, look, carPos);
     // smooth only vertical motion (bumps), keep the horizontal follow rigid
     if (camInit) camPos.copy(want); else { const y = camPos.y + (want.y - camPos.y) * (1 - Math.exp(-dt * 8)); camPos.copy(want); camPos.y = y; }
     camLook.copy(look); camInit = false;
@@ -1660,6 +1683,7 @@ function updateCamera(dt, carPos, carQuat, vel, spd = S(7), ax = S(11)) {
   else if (settings.cam === 2) {
     want = new THREE.Vector3(0.3, groundZBody + 1.25, 0).applyQuaternion(carQuat).add(carPos);
     look = new THREE.Vector3(30, groundZBody + 0.9, 0).applyQuaternion(carQuat).add(carPos);
+    if (padLook.yaw || padLook.pitch) look.sub(want).applyAxisAngle(_lookUp, padLook.yaw).add(want).setY(look.y + padLook.pitch * 20);
     camPos.copy(want); camLook.copy(look); camera.position.copy(camPos); camera.lookAt(camLook); return;
   }
   else if (settings.cam === 4) {
@@ -2404,8 +2428,101 @@ async function shareLink() {
 window.__spwShare = shareLink;
 let rewindHold = false;
 
+// The controller's buttons, once a frame, whatever is on screen (driving, a menu, the replay, the
+// tunnel); the sticks and triggers that drive the car are read in readInput.
+const REPLAY_SPEEDS = [0.05, 0.1, 0.25, 0.5, 1];
+function padFrame(dt) {
+  if (!gpad.poll(dt)) { if (padRewind) { rewindHold = false; padRewind = false; } padLook.yaw = padLook.pitch = 0; return; }
+  const B = BTN, e = (b) => gpad.edge(b);
+  // menus: Menu opens the settings (or closes whatever panel the controller is in)
+  if (e(B.MENU)) {
+    if (padMenu.on) closePadMenu();
+    else { const side = $('side'); if (side.hidden) togglePanel(); padMenu.open(side); toast(`Menu: ${gpad.label('DPAD')} to move, ${gpad.label('A')} to press, ${gpad.label('B')} to go back`); }
+    return;
+  }
+  if (padMenu.on) {
+    // the garage opened from the menu takes the controller
+    const g = garage.panel && !garage.panel.hidden ? garage.panel : null;
+    if (g && padMenu.scope !== g) padMenu.open(g);
+    else if (!g && padMenu.scope !== $('side')) padMenu.open($('side'));
+    if (gpad.repeat(B.UP, dt)) padMenu.move(-1);
+    if (gpad.repeat(B.DOWN, dt)) padMenu.move(1);
+    if (gpad.repeat(B.LEFT, dt)) padMenu.adjust(-1);
+    if (gpad.repeat(B.RIGHT, dt)) padMenu.adjust(1);
+    if (e(B.A)) padMenu.press();
+    if (e(B.B)) { if (g) garage.toggle(false); else closePadMenu(); }
+    return;
+  }
+  // the replay
+  if (replay.on) {
+    if (e(B.A)) { replay.playing = !replay.playing; if (replay.playing && replay.t >= replay.t1) replay.t = replay.t0; replay.syncButtons(); }
+    if (e(B.B) || e(B.L3)) { closeReplay(); return; }
+    if (e(B.X)) { closeReplay(replay.frameIndex()); toast('Driving from here'); return; }
+    const scrub = gpad.rt - gpad.lt + gpad.lx;
+    if (Math.abs(scrub) > 0.05) { replay.playing = false; replay.t = Math.max(replay.t0, Math.min(replay.t1, replay.t + scrub * dt * 2)); replay.syncButtons(); }
+    for (const [b, d] of [[B.LEFT, -1], [B.RIGHT, 1]]) if (e(b)) {
+      const i = REPLAY_SPEEDS.indexOf(replay.speed);
+      replay.speed = REPLAY_SPEEDS[Math.max(0, Math.min(REPLAY_SPEEDS.length - 1, (i < 0 ? 2 : i) + d))]; replay.syncButtons();
+    }
+    padCameraLook(dt, true);
+    return;
+  }
+  if (tunnel.on && e(B.B)) { exitTunnel(); return; }
+  // driving
+  if (e(B.VIEW)) cycleCam();
+  if (e(B.B) || e(B.RB)) paddle(1);
+  if (e(B.X) || e(B.LB)) paddle(-1);
+  if (e(B.Y) && !isBike() && !lab?.active) { rewindHold = true; padRewind = true; }
+  if (padRewind && !gpad.pressed(B.Y)) { rewindHold = false; padRewind = false; }
+  if (e(B.DOWN)) resetCar();
+  if (e(B.UP)) { if (!telemetry.on) telemetry.toggle(true); else telemetry.next(); }
+  if (e(B.LEFT)) stepTimeScale(-1);
+  if (e(B.RIGHT)) stepTimeScale(1);
+  if (e(B.L3)) openReplay();
+  padCameraLook(dt, false);
+}
+// Right stick: look around the car (chase, drift and bonnet cameras; in the free camera and the
+// replay it orbits). R3 held looks back. Let go and the view springs back.
+function padCameraLook(dt, orbitOnly) {
+  const rx = gpad.rx, ry = gpad.ry;
+  if (settings.cam === 4 || orbitOnly) {
+    if (Math.abs(rx) + Math.abs(ry) > 0) {
+      if (settings.cam !== 4) { settings.cam = 4; camInit = true; }
+      orbit.yaw -= rx * dt * 2.2; orbit.pitch = Math.max(-0.05, Math.min(1.45, orbit.pitch - ry * dt * 1.4));
+    }
+    padLook.yaw = padLook.pitch = 0;
+    return;
+  }
+  const back = gpad.pressed(BTN.R3);
+  const wantYaw = back ? Math.PI : -rx * 2.4, wantPitch = back ? 0 : Math.max(0, -ry) * 0.5;
+  const k = 1 - Math.exp(-dt * (back ? 30 : 8));
+  padLook.yaw += (wantYaw - padLook.yaw) * k; padLook.pitch += (wantPitch - padLook.pitch) * k;
+}
+function closePadMenu() {
+  if (garage.panel && !garage.panel.hidden) garage.toggle(false);
+  padMenu.close();
+  if (!$('side').hidden) togglePanel();
+}
+// The car talks back through the motors: hits (strong motor), tyres past their grip and ABS
+// (weak motor). Skipped in the menus, the replay and slow motion below a quarter.
+function padRumble(hit) {
+  if (!gpad.active || padMenu.on) return;
+  if (hit > 1.2) { gpad.rumble(Math.min(1, 0.25 + hit / 10), Math.min(1, hit / 14), 120 + Math.min(300, hit * 25)); return; }
+  if (VIEW.timeScale < 0.25 || isBike()) return;
+  let slip = 0, abs = 0;
+  for (let w = 0; w < Math.min(4, S(22)); ++w) { if (W(w, 11) > 0.5) slip = Math.max(slip, W(w, 16) - 0.95); if (W(w, 13) > 0.5) abs = 1; }
+  const weak = Math.min(0.6, Math.max(0, slip) * 2.5) + (abs ? 0.25 : 0);
+  if (weak > 0.04) gpad.rumble(0, weak, 110);
+}
+function padStatus() {
+  const el = $('padStatus'); if (!el) return;
+  el.textContent = gpad.active ? `${padName(gpad.kind)} connected${gpad.standard ? '' : ' (layout not recognised by this browser)'}` : 'No controller: connect one and press any button.';
+  for (const k of el.closest('section, aside')?.querySelectorAll('[data-pad]') ?? []) k.textContent = gpad.label(k.dataset.pad);
+}
+
 function frameOnce(now, draw) {
   const dt = TICKS > 1 ? 1 / 60 : Math.min(0.1, (now - last) / 1000); last = now;
+  padFrame(dt);
   adaptRes(dt);
   window.__frames = (window.__frames || 0) + 1;
   if (isBike()) { frameBike(dt, now); if (draw) renderer.render(scene, camera); return; }
@@ -2485,6 +2602,7 @@ function frameOnce(now, draw) {
   rewind.afterFrame(snap, simDt, inp, pose);
   const hit = S(31);
   if (hit > 1.2) { lastImpact = hit; try { audio.impact(Math.min(1, hit / 12)); } catch { /* audio not ready */ } }
+  padRumble(hit);
   {
     const nh = M._ord_hit_events();
     if (nh) { const hb = new Float64Array(M.HEAPF64.buffer, M._ord_hit_buffer(), 7 * nh).slice(); for (let k = 0; k < nh; ++k) crumpleFromEvent(Array.from(hb.subarray(7 * k, 7 * k + 7))); }
