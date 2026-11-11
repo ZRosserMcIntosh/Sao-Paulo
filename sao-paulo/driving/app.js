@@ -685,8 +685,34 @@ function isWheelNode(o) {
   return false;
 }
 
-async function loadModel(buffer, name, announce = true) {
-  modelSource = { buffer, name };
+// Each car's own model, from models/: the 911s their Porsche, every other car the Rosser V8
+// (car.glb). A model missing on the server falls back to the Rosser V8; the phone version
+// (_mobile) falls back to the full one. A model dropped on the page drives every car until reload.
+const CAR_MODELS = { 9: ['porsche911', 'Porsche 911'], 10: ['porsche911', 'Porsche 911'] };
+const modelFiles = new Map();   // file -> Promise<ArrayBuffer | null>
+function fetchModelFile(file) {
+  if (!modelFiles.has(file)) {
+    modelFiles.set(file, fetch('models/' + file).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null));
+  }
+  return modelFiles.get(file);
+}
+async function modelFile(base) {
+  return (MOBILE ? await fetchModelFile(base + '_mobile.glb') : null) || fetchModelFile(base + '.glb');
+}
+let carModelToken = 0;
+async function carModel() {
+  if (isBike()) return;
+  if (modelSource?.user) { await loadModel(modelSource.buffer, modelSource.name, false, true); return; }
+  const token = ++carModelToken;
+  const [base, name] = CAR_MODELS[settings.car] || ['car', 'Rosser V8'];
+  let buf = await modelFile(base), label = name;
+  if (!buf && base !== 'car') { buf = await modelFile('car'); label = 'Rosser V8'; }
+  if (token !== carModelToken || !buf) return;   // another car was picked meanwhile, or no model at all
+  try { await loadModel(buf, label, false); }
+  catch (e) { console.warn(`models/${base}.glb failed to load`, e); }
+}
+async function loadModel(buffer, name, announce = true, user = false) {
+  modelSource = { buffer, name, user };
   const gltf = await loader.parseAsync(buffer, './');
   const inner = gltf.scene;
   modelSource.sceneRoot = inner;
@@ -773,7 +799,7 @@ function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<
 
 async function loadModelFile(file) {
   if (!/\.glb$/i.test(file.name)) { toast('Please use a binary glTF (.glb). In Blender: File › Export › glTF 2.0, format “glTF Binary”.'); return; }
-  try { await loadModel(await file.arrayBuffer(), file.name); }
+  try { await loadModel(await file.arrayBuffer(), file.name, true, true); }
   catch (e) { toast('Could not read that model: ' + e.message); }
 }
 $('bModel').onclick = () => $('file').click();
@@ -782,7 +808,7 @@ $('bTurn').onclick = async () => {
   if (!modelSource) { toast('Load a model first'); return; }
   const turn = ((model?.turn ?? 0) + 1) % 4;
   store.set('turn:' + modelSource.name, turn);
-  await loadModel(modelSource.buffer, modelSource.name, false);
+  await loadModel(modelSource.buffer, modelSource.name, false, modelSource.user);
 };
 let dragDepth = 0;
 addEventListener('dragenter', (e) => { e.preventDefault(); if (++dragDepth === 1) $('drop').classList.add('on'); });
@@ -1282,7 +1308,7 @@ function createCar() {
   dummies.place(ph.xr + 0.42 * (ph.xf - ph.xr), groundZBody + 0.36);
   M._ord_set_occupants(settings.belted ? 1 : 0, settings.airbags ? 1 : 0, settings.airbags ? 1 : 0);
   buildTach();
-  if (modelSource) loadModel(modelSource.buffer, modelSource.name, false);
+  carModel();
   M._ord_reset(ZONES[0].x, ZONES[0].y, ZONES[0].yaw);
   applySeeThrough(); applyDummies();
   crashSeen[0] = crashSeen[1] = 0;
@@ -2292,12 +2318,7 @@ window.__spwZone = (name) => { const z = ZONES.find((q) => q.name.startsWith(nam
 createCar();
 setRain(rainIdx, false);
 if (SHARE?.zone) { const z = ZONES.find((q) => q.name === SHARE.zone); if (z) placeAt(z); }
-const MODEL_URL = MOBILE ? 'models/car_mobile.glb' : 'models/car.glb';
-const savedModel = await fetch(MODEL_URL, { method: 'HEAD' }).then((r) => (r.ok ? true : false)).catch(() => false);
-if (savedModel) {
-  try { await loadModel(await (await fetch(MODEL_URL)).arrayBuffer(), 'Rosser V8', false); }
-  catch (e) { console.warn('models/car.glb failed to load', e); }
-}
+await carModel();
 $('loading').remove();
 let last = performance.now();
 const qIso = new THREE.Quaternion();
