@@ -15,8 +15,35 @@
 const even = (n, banks) => Array.from({ length: n }, (_, k) => [k / n, banks[k % banks.length]]);
 
 export const VOICES = {
-  // Rosser Stella V8: flat-plane V8, 9,000 rpm. The original voice (synth defaults).
-  stella: {},
+  // Rosser Stella V8: flat-plane V8, 9,000 rpm, voiced as a Ferrari 458 Italia (4.5 L F136 flat-plane
+  // V8, 9,000 rpm) and tuned against a recording of one (aftermarket Acoustiq Atelier exhaust):
+  // averaged over a 6,000-9,000 rpm full-throttle pull, the 2nd/6th/8th/12th/16th engine orders
+  // sit within 3-5 dB of the recording relative to the 4th (the note), and the 1-4 kHz and
+  // 4-10 kHz shares match (10.9 vs 10.2 %, 0.51 vs 0.51 %). Banks alternate, so each hears four
+  // even pulses per cycle: a clean wail at the 4th order (600 Hz at 9,000 rpm). Rough, lumpy idle
+  // (cycle-to-cycle combustion variation), turbulent rasp on each pulse at load, no subsonic boom,
+  // and almost no saturation (the old voice clipped ~90 % of samples at full throttle).
+  stella: {
+    events: Array.from({ length: 8 }, (_, c) => [c / 8, c & 1]),
+    jitter: 0.003,
+    cycleJitter: 1.6,
+    idleRough: 0.6,
+    res: [[95, 5, 0.016, 0.85], [190, 8, 0.009, 0.12], [560, 18, 0.0062, 0.85], [760, 22, 0.005, 0.7], [1250, 30, 0.0042, 0.2], [2350, 60, 0.0024, 0.5], [4300, 110, 0.0012, 0.16]],
+    comb: [0.0058, 0.0003],
+    combFb: 0.12,
+    intake: [[1450, 0.0018, 0.85], [2900, 0.0010, 0.25]],
+    whineOrder: 24, whineGain: 0.35,
+    stereo: 0.7,
+    turbo: 0,
+    crackle: 0.55,
+    interior: 0.24,
+    drive: 0.075,
+    gain: 1,
+    lowpass: 13000,
+    highpass: 35,
+    rasp: 1.35, raspFreq: 4200,
+    flatEq: true,   // tuned as heard: the page's engine EQ (bass boost, top cut) is bypassed
+  },
 
   // Porsche 911 Carrera S / 4S (992): 3.0 L twin-turbo flat-six. Boxer firing alternates banks
   // (1-6-2-4-3-5), so each bank hears three evenly spaced pulses: the flat-six howl, three
@@ -27,15 +54,21 @@ export const VOICES = {
     jitter: 0.004,
     res: [[118, 8, 0.013, 0.85], [355, 16, 0.0065, 0.62], [840, 28, 0.0042, 0.52], [1720, 60, 0.0028, 0.32], [3400, 110, 0.0015, 0.15]],
     comb: [0.0074, 0.0003],
-    intake: [[2150, 0.0024, 1], [4100, 0.0012, 0.45]],
+    intake: [[1850, 0.0016, 0.6], [3300, 0.0008, 0.2]],
     whineOrder: 30,
+    whineGain: 0.3,
+    // combustion varies a few crank degrees cycle to cycle: the upper harmonics smear into a
+    // soft roll-off instead of ringing as pure 2-4 kHz tones
+    cycleJitter: 3,
     stereo: 0.66,
     turbo: 0.5,
-    turboWhistle: 0.8,
+    turboWhistle: 0.35,
     crackle: 0.9,
     interior: 0.14,
     drive: 1.05,
-    gain: 1.0,
+    gain: 0.85,
+    // twin turbos and the particulate filter muffle the top end of the 992's exhaust
+    lowpass: 4500,
   },
 
   // Mercedes-AMG S 63 (W222): 4.0 L "hot-V" twin-turbo cross-plane V8. Bank order L R L R R L R L

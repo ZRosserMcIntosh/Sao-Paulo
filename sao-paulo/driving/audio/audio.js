@@ -50,6 +50,8 @@ export class CarAudio {
     // pulled back, and the fizzy top rolled off.
     const eq = (type, f, gain, q = 0.8) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.gain.value = gain; b.Q.value = q; return b; };
     const low = eq('lowshelf', 180, 8), body = eq('peaking', 380, 2.5, 0.9), harsh = eq('peaking', 3000, -8, 0.8), top = eq('highshelf', 5500, -8);
+    this.eqBands = [[low, 8], [body, 2.5], [harsh, -8], [top, -8]];
+    this.applyEq();
     this.engineGain = ctx.createGain(); this.engineGain.gain.value = 0.55;
     this.engine.connect(low).connect(body).connect(harsh).connect(top).connect(this.engineGain).connect(this.master);
 
@@ -116,6 +118,13 @@ export class CarAudio {
   setVoice(voice) {
     this.voice = voice || null;
     if (this.engine) this.engine.port.postMessage({ voice: this.voice || {} });
+    this.applyEq();
+  }
+  // A voice tuned against a recording (flatEq) is played as tuned: the engine EQ goes flat.
+  applyEq() {
+    if (!this.eqBands || !this.ctx) return;
+    const flat = !!this.voice?.flatEq;
+    for (const [band, gain] of this.eqBands) band.gain.setTargetAtTime(flat ? 0 : gain, this.ctx.currentTime, 0.05);
   }
   setEnabled(on) {
     this.enabled = on;
