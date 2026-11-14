@@ -971,11 +971,15 @@ function addressGoal() {
     }
     return;
   }
-  const back = (putt ? 2.2 : 4.2) * zoom, up = putt ? 0.9 : 1.75;
+  // A tall, narrow screen needs the camera further back to see the golfer and the line.
+  const narrow = camera.aspect < 1 ? 1.7 : 1;
+  const back = (putt ? 2.2 : 4.2) * zoom * narrow, up = (putt ? 0.9 : 1.75) * (narrow > 1 ? 1.4 : 1);
   camGoal.pos.set(b.pos[0] - d.x * back, b.pos[1] + up * zoom, b.pos[2] - d.z * back);
   const ahead = putt ? Math.max(3, dist2(b.pos, pinPos()) * 0.8) : Math.min(140, (c?.carry || 120) * 0.6);
   camGoal.look.set(b.pos[0] + d.x * ahead, b.pos[1] + (putt ? -0.5 : 2), b.pos[2] + d.z * ahead);
   if (!putt) camGoal.look.y = Math.max(camGoal.look.y, H(camGoal.look.x, camGoal.look.z) + 3);
+  // Portrait: tilt down so the course, not the sky, fills the tall frame.
+  if (narrow > 1) camGoal.look.y -= putt ? 0.6 : 0.06 * ahead;
 }
 function updateCamera(dt) {
   if (!game.started) {

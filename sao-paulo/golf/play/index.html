@@ -131,12 +131,29 @@ table.card td:first-child,table.card th:first-child{text-align:left}
 #label-layer{position:fixed;inset:0;pointer-events:none;z-index:2}
 .blabel{position:absolute;transform:translate(-50%,-130%);font:600 11px var(--body);padding:1px 6px;border-radius:4px;background:rgba(0,0,0,.55);white-space:nowrap}
 @media (max-width:640px){
-  #holeCard .h{font-size:20px}
+  #top{gap:5px}
+  #top .plate{display:none}
+  #holeCard{padding:6px 8px}
+  #holeCard .h{font-size:19px}
+  #holeCard .d{display:none}
+  #windCard{padding:5px 7px;gap:5px}
+  #windArrow{width:26px;height:26px}
+  #windCard .v{font-size:15px}
+  #windCard .d{display:none}
+  #pinCard{padding:6px 8px}
   #pinCard .big{font-size:22px}
-  .clubSel .name{font-size:18px;min-width:104px}
-  #players{max-width:60vw}
-  #result{bottom:calc(max(10px,env(safe-area-inset-bottom)) + 190px);right:10px;left:10px;min-width:0}
-  .topbtns .wide{display:none}
+  #pinCard .d{display:none}
+  .topbtns{flex-direction:column;gap:4px}
+  .topbtns button{padding:5px 8px;font-size:12px}
+  #players{top:calc(max(10px,env(safe-area-inset-top)) + 54px);max-width:62vw}
+  .pl{padding:3px 7px;font-size:11px}
+  #bottom{padding:8px;gap:6px}
+  .clubSel .name{font-size:18px;min-width:96px}
+  .seg button{padding:6px 7px;font-size:12px}
+  #hint{display:none}
+  .lie{font-size:11px}
+  #toast{font-size:34px;width:92vw}
+  #result{bottom:calc(max(10px,env(safe-area-inset-bottom)) + 200px);right:10px;left:10px;min-width:0}
 }
 </style>
 </head>
