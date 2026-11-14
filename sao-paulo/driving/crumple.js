@@ -42,23 +42,46 @@ export class Crumple {
       if (o.isInstancedMesh || o.isSkinnedMesh) return;
       // own the geometry: shared geometries would dent every car part that uses them
       if (!o.userData.crumpleOwn) { o.geometry = o.geometry.clone(); o.userData.crumpleOwn = true; }
-      const g = o.geometry, p = g.attributes.position;
+      const g = o.geometry;
+      // Quantized models (KHR_mesh_quantization: Int16 positions, Int8 normals) can't be bent:
+      // recomputing normals accumulates tiny face normals into 8-bit slots, which round to zero
+      // (the panel renders black), and a position can't leave the part's original bounds. Bent
+      // parts get full-precision floats.
+      for (const name of ['position', 'normal']) {
+        const a = g.attributes[name];
+        if (!a || (a.array instanceof Float32Array && !a.normalized)) continue;
+        const f = new Float32Array(a.count * 3);
+        for (let i = 0; i < a.count; ++i) { f[3 * i] = a.getX(i); f[3 * i + 1] = a.getY(i); f[3 * i + 2] = a.getZ(i); }
+        g.setAttribute(name, new THREE.BufferAttribute(f, 3));
+      }
+      const p = g.attributes.position;
       const toRoot = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
       const fromRoot = new THREE.Matrix4().copy(toRoot).invert();
       const base = new Float32Array(p.array);           // local, original
       const body = new Float32Array(p.count * 3);       // in the car's frame, original
       const v = new THREE.Vector3();
       for (let i = 0; i < p.count; ++i) { v.fromBufferAttribute(p, i).applyMatrix4(toRoot); body.set([v.x, v.y, v.z], 3 * i); }
-      this.meshes.push({ mesh: o, base, body, offset: new Float32Array(p.count * 3), toRoot, fromRoot, normal: !!g.attributes.normal });
+      const n0 = g.attributes.normal ? Float32Array.from(g.attributes.normal.array) : null;
+      this.meshes.push({ mesh: o, base, body, n0, offset: new Float32Array(p.count * 3), toRoot, fromRoot, normal: !!g.attributes.normal });
     });
+  }
+
+  // Recompute a part's normals; a vertex whose faces all have zero area (the model has some) keeps
+  // its original normal instead of none (which renders black).
+  normals(m) {
+    const g = m.mesh.geometry;
+    g.computeVertexNormals();
+    const n = g.attributes.normal.array;
+    if (!m.n0) return;
+    for (let i = 0; i < n.length; i += 3) if (n[i] * n[i] + n[i + 1] * n[i + 1] + n[i + 2] * n[i + 2] < 0.25) { n[i] = m.n0[i]; n[i + 1] = m.n0[i + 1]; n[i + 2] = m.n0[i + 2]; }
   }
 
   restore() {
     for (const m of this.meshes) {
       const p = m.mesh.geometry.attributes.position;
       p.array.set(m.base); p.needsUpdate = true;
-      if (m.normal) m.mesh.geometry.computeVertexNormals();
-      m.offset.fill(0);
+      if (m.normal) this.normals(m);
+      m.offset.fill(0); m.moved = false; m.normalsStale = false;
     }
     this.hits = [];
   }
@@ -137,7 +160,7 @@ export class Crumple {
         p.setXYZ(i, v.x, v.y, v.z);
       }
       p.needsUpdate = true;
-      if (m.normal) m.mesh.geometry.computeVertexNormals();
+      if (m.normal) this.normals(m);
       m.mesh.geometry.computeBoundingSphere();
     }
   }
@@ -148,6 +171,12 @@ export class Crumple {
   // nearest rest nodes (Gaussian weights, sigma 0.35 m; the cell's anchored nodes count, so the
   // cabin stays put) and follows their displacement. `normals` false skips the (costly) normal
   // recompute while a crash is still moving the shape.
+  // Bind ahead of time (after a car loads), so the first crash doesn't stall on it.
+  prepareCage(nodes, count) {
+    if (!this.meshes.length || !count) return;
+    const key = `${count}:${nodes[0].toFixed(4)}:${nodes[8 * (count - 1) + 2].toFixed(4)}`;
+    if (this.cageKey !== key) this.bindCage(nodes, count, key);
+  }
   applyCage(nodes, count, normals = true) {
     if (!this.meshes.length || !count) return;
     const key = `${count}:${nodes[0].toFixed(4)}:${nodes[8 * (count - 1) + 2].toFixed(4)}`;
@@ -172,16 +201,24 @@ export class Crumple {
           const n = 3 * b.idx[4 * i + k];
           ox += w * disp[n]; oy += w * disp[n + 1]; oz += w * disp[n + 2];
         }
+        const dx = ox - m.offset[3 * i], dy = oy - m.offset[3 * i + 1], dz = oz - m.offset[3 * i + 2];
+        if (dx * dx + dy * dy + dz * dz > 1e-8) m.moved = true;   // more than 0.1 mm
         m.offset[3 * i] = ox; m.offset[3 * i + 1] = oy; m.offset[3 * i + 2] = oz;
         v.set(m.body[3 * i] + ox, m.body[3 * i + 1] + oy, m.body[3 * i + 2] + oz).applyMatrix4(m.fromRoot);
         p.setXYZ(i, v.x, v.y, v.z);
       }
+      if (!m.moved && !m.normalsStale) continue;     // untouched by this crash: nothing to redraw
       p.needsUpdate = true;
-      if (normals && m.normal) m.mesh.geometry.computeVertexNormals();
       m.mesh.geometry.computeBoundingSphere();
+      if (m.moved) m.normalsStale = true;
+      m.moved = false;
+      // normals only for parts the crash bent since their last recompute
+      if (normals && m.normal && m.normalsStale) { this.normals(m); m.normalsStale = false; }
     }
   }
 
+  // Bind each vertex to its four nearest rest nodes (a brute-force search: ~110 nodes, a few tens
+  // of milliseconds for a whole car; done ahead of time by prepareCage).
   bindCage(nodes, count, key) {
     const rest = new Float32Array(3 * count);
     for (let i = 0; i < count; ++i) { const o = 8 * i; rest[3 * i] = nodes[o]; rest[3 * i + 1] = nodes[o + 2]; rest[3 * i + 2] = -nodes[o + 1]; }
