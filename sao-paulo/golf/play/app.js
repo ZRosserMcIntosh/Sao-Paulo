@@ -17,7 +17,16 @@ const MOBILE = matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, i
 const params = new URLSearchParams(location.search);
 // Live rooms need a relay (golf repository, tools/relay). Configure the site's
 // with window.GOLF_RELAY, or ?relay=wss://... ; ?relay=local plays between tabs.
-const RELAY = params.get('relay') || window.GOLF_RELAY || '';
+// An invitation link must not be able to send players' browsers to any server
+// it names: ?relay= is honoured only for this browser's tabs ('local') and for
+// a relay on this machine (development); otherwise the site's own relay.
+const SITE_RELAY = typeof window.GOLF_RELAY === 'string' ? window.GOLF_RELAY : '';
+const RELAY = (() => {
+  const r = params.get('relay');
+  if (r === 'local') return r;
+  if (r) { try { const u = new URL(r); if ((u.protocol === 'ws:' || u.protocol === 'wss:') && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)) return u.href; } catch { /* ignored */ } }
+  return SITE_RELAY;
+})();
 const LITE = params.has('lite');  // no city, no shadows (slow GPUs, tests)
 const COLORS = ['#ffd36b', '#8fd8ff', '#ff8c7a', '#9cf08a', '#d9a5ff', '#ffffff', '#ffb35c', '#7ff0e0'];
 const YD = 0.9144, MPH = 0.44704;
@@ -239,7 +248,7 @@ async function enter() {
   if (m) {
     try {
       const r = await decodeRound(m[1]);
-      if (r && r.saved) { await startFromSaved(r); return; }
+      if (r && isObj(r.saved) && cleanConfig(r.saved.config) && Array.isArray(r.saved.shots) && r.saved.shots.every((x) => cleanSwing(x))) { await startFromSaved(r); return; }
     } catch (e) { console.warn('turn link', e); $('menuStatus').textContent = 'That link could not be read; start a new round.'; }
   }
   if (params.get('room')) { setMode('live'); return; }
@@ -366,7 +375,30 @@ function renderLobby(peers) {
     box.appendChild(d);
   }
 }
+// Messages come from other people's browsers: accept only well-formed ones.
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const SWING_KEYS = { club: 'string', aim: 'number', power: 'number', face: 'number', path: 'number', loft: 'number', attack: 'number', toe: 'number', up: 'number' };
+function cleanSwing(v) {
+  if (!isObj(v)) return null;
+  const out = {};
+  for (const [k, t] of Object.entries(SWING_KEYS)) {
+    if (v[k] === undefined) continue;
+    if (typeof v[k] !== t || (t === 'number' && !Number.isFinite(v[k])) || (t === 'string' && v[k].length > 4)) return null;
+    out[k] = v[k];
+  }
+  return typeof out.club === 'string' && typeof out.power === 'number' ? out : null;
+}
+function cleanConfig(c) {
+  return isObj(c) && Array.isArray(c.players) && c.players.length >= 1 && c.players.length <= 8 && Array.isArray(c.holes) && c.holes.length <= 9
+    && c.players.every((p) => isObj(p) && typeof p.name === 'string' && p.name.length <= 40);
+}
 async function onRoomMessage(from, m) {
+  if (!isObj(m) || typeof m.t !== 'string') return;
+  if (m.t === 'shot') { const sw = cleanSwing(m.swing); if (!sw || !Number.isInteger(m.n) || m.n < 0) return; m = { ...m, swing: sw }; }
+  if ((m.t === 'start' || m.t === 'sync') && (!cleanConfig(m.cfg) || !Array.isArray(m.owners))) return;
+  if (m.t === 'sync' && (!isObj(m.saved) || !Array.isArray(m.saved.shots) || m.saved.shots.some((x) => !cleanSwing(x)))) return;
+  if (m.t === 'hello') { m = { ...m, name: String(m.name || 'Guest').slice(0, 18), golfer: SKILLS.some((k) => k[0] === m.golfer) ? m.golfer : 'mid' }; }
+  if (m.t === 'lobby' && (!Array.isArray(m.players) || m.players.length > 8)) return;
   if (m.t === 'hello' && game.isHost) {
     if (game.started) {
       // Late or returning: send the round so far.
@@ -647,7 +679,7 @@ function lieText() {
   const b = currentBall();
   if (!b) return '';
   const s = info.surfaces.find((x) => x.id === b.surface);
-  return `Lie: <b>${s ? s.name : b.surface}${b.plugged ? ' (plugged)' : ''}${b.teed ? ' (teed)' : ''}</b>`;
+  return `Lie: <b>${escapeHtml(s ? s.name : b.surface)}${b.plugged ? ' (plugged)' : ''}${b.teed ? ' (teed)' : ''}</b>`;
 }
 
 $('clubPrev').onclick = () => { if (!isLocalTurn()) return; ui.club = Math.max(0, ui.club - 1); updateClub(); };
