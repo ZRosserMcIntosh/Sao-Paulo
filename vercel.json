@@ -27,6 +27,11 @@
       "permanent": true
     },
     {
+      "source": "/sao-paulo/golf/play",
+      "destination": "/sao-paulo/golf/play/",
+      "permanent": true
+    },
+    {
       "source": "/sao-paulo/glass",
       "destination": "/sao-paulo/glass/",
       "permanent": true
@@ -153,6 +158,24 @@
     },
     {
       "source": "/sao-paulo/ballistics/(.*\\.wasm)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/golf/play/(.*\\.wasm)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/golf/play/(.*\\.json)",
       "headers": [
         {
           "key": "Cache-Control",

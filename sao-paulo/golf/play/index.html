@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<base href="/sao-paulo/golf/play/">
+<title>Golf · São Paulo World</title>
+<meta name="description" content="Play golf in São Paulo: nine holes on the real ground of the Pinheiros floodplain, physics validated against TrackMan tour data, with friends by invitation link.">
+<link rel="canonical" href="https://zrossermcintosh.com/sao-paulo/golf/play/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="São Paulo World">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/golf/play/">
+<meta property="og:title" content="Golf · São Paulo World">
+<meta property="og:description" content="Nine holes on the real ground of São Paulo with the city skyline around you. Validated ball flight, bounce, roll and putting. Invite friends with a link.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/golf/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"../../driving/vendor/three.module.min.js"}}</script>
+<style>
+:root{
+  --bg:#070b12; --panel:rgba(9,15,25,.82); --panel-solid:#0d1521; --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.14);
+  --plate:#1d57c2; --plate-ink:#fff; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b; --green:#5cbf55;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);-webkit-text-size-adjust:100%;touch-action:none}
+button{font:600 13px var(--body);color:var(--ink);background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:7px;padding:8px 12px;cursor:pointer;touch-action:manipulation}
+button:hover{background:rgba(255,255,255,.14)}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--hot);color:#151005;border-color:var(--hot)}
+button.primary:hover{background:#ffe08f}
+button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+input,select{font:500 13px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:7px;padding:7px 9px;min-width:0}
+select option{background:#0d1521}
+kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:rgba(255,255,255,.05)}
+.eyebrow{font:600 10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:4px 10px;text-decoration:none;flex:none}
+.plate b{font:900 17px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 8px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:2px;white-space:nowrap}
+#view{position:fixed;inset:0;display:block;width:100%;height:100%}
+.hud{position:fixed;pointer-events:none;z-index:3}
+.hud>*{pointer-events:auto}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+/* top bar */
+#top{top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));display:flex;gap:8px;align-items:flex-start;pointer-events:none}
+#top>*{pointer-events:auto}
+#holeCard{padding:8px 12px;min-width:0}
+#holeCard .h{font:900 24px/1 var(--display);text-transform:uppercase;white-space:nowrap}
+#holeCard .h small{font:700 14px var(--display);color:var(--mute);margin-left:6px}
+#holeCard .d{font:500 12px var(--mono);color:var(--mute);margin-top:3px;white-space:nowrap}
+#pinCard{padding:8px 12px;text-align:right;margin-left:auto}
+#pinCard .big{font:900 28px/1 var(--display);font-variant-numeric:tabular-nums}
+#pinCard .big small{font:600 12px var(--mono);color:var(--mute);margin-left:3px}
+#pinCard .d{font:500 11px var(--mono);color:var(--mute)}
+#windCard{padding:6px 10px;display:flex;align-items:center;gap:8px}
+#windArrow{width:34px;height:34px}
+#windCard .v{font:800 18px/1 var(--display)}
+#windCard .d{font:500 10px var(--mono);color:var(--mute)}
+.topbtns{display:flex;gap:6px}
+/* players strip */
+#players{top:calc(max(10px,env(safe-area-inset-top)) + 64px);left:max(10px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:4px;max-width:46vw}
+.pl{display:flex;align-items:center;gap:8px;padding:4px 9px;border-radius:8px;background:var(--panel);border:1px solid var(--line);font:500 12px var(--body);white-space:nowrap}
+.pl .dot{width:10px;height:10px;border-radius:50%;flex:none}
+.pl.turn{border-color:var(--hot);box-shadow:0 0 0 1px var(--hot) inset}
+.pl .s{font:600 12px var(--mono);color:var(--mute);margin-left:auto}
+.pl .ai{font:600 9px var(--mono);letter-spacing:.1em;color:var(--mute);border:1px solid var(--line);border-radius:3px;padding:0 3px}
+/* bottom controls */
+#bottom{left:50%;transform:translateX(-50%);bottom:max(10px,env(safe-area-inset-bottom));width:min(760px,calc(100vw - 20px));padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.clubSel{display:flex;align-items:center;gap:6px}
+.clubSel .name{font:900 22px/1 var(--display);text-transform:uppercase;min-width:132px;text-align:center}
+.clubSel .carry{font:600 11px var(--mono);color:var(--mute);text-align:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:7px 9px;font-weight:500}
+.seg button+button{border-left:1px solid var(--line)}
+.lie{font:600 12px var(--mono);color:var(--mute)}
+.lie b{color:var(--ink)}
+#meterWrap{position:relative;height:30px;border-radius:7px;background:rgba(0,0,0,.35);border:1px solid var(--line);overflow:hidden;cursor:pointer;touch-action:none}
+#meterFill{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#36c483,#ffd36b 80%,#ef5d4f)}
+#meterPower{position:absolute;top:0;bottom:0;width:3px;background:#fff;display:none}
+#meterZone{position:absolute;top:0;bottom:0;background:rgba(255,255,255,.18);border-left:1px solid rgba(255,255,255,.5);border-right:1px solid rgba(255,255,255,.5)}
+#meterMark{position:absolute;top:-2px;bottom:-2px;width:4px;margin-left:-2px;background:var(--hot);box-shadow:0 0 8px var(--hot);display:none}
+#meterSuggest{position:absolute;top:0;bottom:0;width:2px;background:#8fd8ff;display:none}
+#meterLabel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 12px var(--mono);color:#fff;text-shadow:0 1px 2px #000;pointer-events:none}
+#swingBtn{min-width:120px;font:900 18px var(--display);letter-spacing:.06em;text-transform:uppercase;padding:9px 14px}
+.hint{font:500 11px var(--mono);color:var(--mute)}
+/* toasts and result */
+#toast{top:30%;left:50%;transform:translateX(-50%);text-align:center;font:900 46px/1 var(--display);text-transform:uppercase;text-shadow:0 3px 18px rgba(0,0,0,.6);opacity:0;transition:opacity .25s;pointer-events:none}
+#toast small{display:block;font:600 15px var(--body);text-transform:none;margin-top:6px}
+#result{right:max(10px,env(safe-area-inset-right));bottom:calc(max(10px,env(safe-area-inset-bottom)) + 150px);padding:10px 12px;min-width:220px;display:none}
+#result h3{margin:0 0 6px;font:800 15px var(--display);text-transform:uppercase;letter-spacing:.05em}
+#result table{border-collapse:collapse;font:500 12px var(--mono);font-variant-numeric:tabular-nums;width:100%}
+#result td{padding:1px 0}
+#result td:last-child{text-align:right;color:var(--ink)}
+#result td:first-child{color:var(--mute);padding-right:12px}
+#result .note{font:500 12px var(--body);color:var(--warn);margin-top:6px;max-width:260px}
+/* overlays */
+.overlay{position:fixed;inset:0;z-index:10;display:none;align-items:center;justify-content:center;background:rgba(4,7,12,.72);padding:16px;overflow:auto}
+.overlay.open{display:flex}
+.dialog{background:var(--panel-solid);border:1px solid var(--line);border-radius:14px;width:min(720px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:18px 18px 16px}
+.dialog h2{margin:0;font:900 30px/1 var(--display);text-transform:uppercase}
+.dialog h3{margin:16px 0 8px;font:800 15px var(--display);text-transform:uppercase;letter-spacing:.05em;color:var(--mute)}
+.dialog p{margin:6px 0;color:var(--mute)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 12px}
+.field{display:flex;flex-direction:column;gap:4px;font:500 12px var(--body);color:var(--mute)}
+.prow{display:grid;grid-template-columns:18px minmax(0,1fr) 140px auto;gap:8px;align-items:center;margin-bottom:6px}
+.prow .dot{width:14px;height:14px;border-radius:50%}
+.modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin-top:12px}
+.mode{text-align:left;padding:12px;border-radius:10px}
+.mode b{display:block;font:800 17px var(--display);text-transform:uppercase;letter-spacing:.03em}
+.mode span{font:500 12px var(--body);color:var(--mute)}
+.mode[aria-pressed="true"] span{color:#334}
+.linkbox{display:flex;gap:6px;margin-top:8px}
+.linkbox input{flex:1;font-family:var(--mono);font-size:12px}
+table.card{border-collapse:collapse;width:100%;font:500 13px var(--mono);font-variant-numeric:tabular-nums}
+table.card th,table.card td{border-bottom:1px solid var(--line);padding:5px 4px;text-align:center}
+table.card th{font:600 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+table.card td:first-child,table.card th:first-child{text-align:left}
+.sc-under{color:#ff8c7a}.sc-eagle{color:#ffd36b}.sc-over{color:#8fd8ff}
+#loading{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:var(--bg)}
+#loading .t{font:900 34px var(--display);text-transform:uppercase}
+#loading .s{font:500 13px var(--mono);color:var(--mute)}
+#loading .barx{width:min(320px,70vw);height:4px;background:rgba(255,255,255,.1);border-radius:2px;overflow:hidden}
+#loading .barx i{display:block;height:100%;width:0;background:var(--hot);transition:width .3s}
+.lobbyList{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.small{font:500 11px var(--mono);color:var(--mute)}
+#label-layer{position:fixed;inset:0;pointer-events:none;z-index:2}
+.blabel{position:absolute;transform:translate(-50%,-130%);font:600 11px var(--body);padding:1px 6px;border-radius:4px;background:rgba(0,0,0,.55);white-space:nowrap}
+@media (max-width:640px){
+  #holeCard .h{font-size:20px}
+  #pinCard .big{font-size:22px}
+  .clubSel .name{font-size:18px;min-width:104px}
+  #players{max-width:60vw}
+  #result{bottom:calc(max(10px,env(safe-area-inset-bottom)) + 190px);right:10px;left:10px;min-width:0}
+  .topbtns .wide{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="The golf course"></canvas>
+<div id="label-layer"></div>
+
+<div id="loading" role="status">
+  <div class="t">Golf · São Paulo</div>
+  <div class="s" id="loadMsg">Loading the course…</div>
+  <div class="barx"><i id="loadBar"></i></div>
+</div>
+
+<div class="hud" id="top">
+  <a class="plate" href="../../" title="Back to São Paulo World"><b>São Paulo World</b><span>Golf</span></a>
+  <div class="panel" id="holeCard"><div class="h" id="holeTitle">Hole 1<small>Par 4</small></div><div class="d" id="holeSub">—</div></div>
+  <div class="panel" id="windCard" title="Wind at 10 m"><svg id="windArrow" viewBox="-20 -20 40 40" aria-hidden="true"><circle r="18" fill="none" stroke="rgba(255,255,255,.25)"/><path id="windPath" d="M0,-14 L7,6 L0,2 L-7,6 Z" fill="#8fd8ff"/></svg><div><div class="v" id="windV">0 m/s</div><div class="d" id="windD">calm</div></div></div>
+  <div class="panel" id="pinCard"><div class="big" id="pinDist">—<small>m</small></div><div class="d" id="pinSub">to the pin</div></div>
+  <div class="topbtns">
+    <button id="btnCard" title="Scorecard (C)">Card</button>
+    <button id="btnMenu" title="Menu (Esc)">Menu</button>
+  </div>
+</div>
+
+<div class="hud" id="players" aria-live="polite"></div>
+
+<div class="hud" id="toast"></div>
+
+<div class="hud panel" id="result" aria-live="polite"></div>
+
+<div class="hud panel" id="bottom">
+  <div class="row">
+    <div class="clubSel">
+      <button id="clubPrev" aria-label="Previous club">◀</button>
+      <div><div class="name" id="clubName">Driver</div><div class="carry" id="clubCarry">—</div></div>
+      <button id="clubNext" aria-label="Next club">▶</button>
+    </div>
+    <div class="seg" role="group" aria-label="Shot shape" id="shapeSeg">
+      <button data-v="-1">Draw</button><button data-v="0" aria-pressed="true">Straight</button><button data-v="1">Fade</button>
+    </div>
+    <div class="seg" role="group" aria-label="Trajectory" id="heightSeg">
+      <button data-v="-1">Low</button><button data-v="0" aria-pressed="true">Std</button><button data-v="1">High</button>
+    </div>
+    <button id="btnCaddie" title="Ask the caddie (Q)">Caddie</button>
+    <button id="btnView" title="Look at the hole / read the green (V)">View</button>
+  </div>
+  <div class="row">
+    <div id="meterWrap" style="flex:1" aria-label="Swing meter">
+      <div id="meterZone"></div><div id="meterFill"></div><div id="meterSuggest"></div><div id="meterPower"></div><div id="meterMark"></div>
+      <div id="meterLabel">Aim with ◀ ▶ or drag · press SWING</div>
+    </div>
+    <button class="primary" id="swingBtn">Swing</button>
+  </div>
+  <div class="row" style="justify-content:space-between">
+    <div class="lie" id="lieInfo">—</div>
+    <div class="hint" id="hint"><kbd>Space</kbd> swing · <kbd>←</kbd><kbd>→</kbd> aim · <kbd>↑</kbd><kbd>↓</kbd> club · <kbd>V</kbd> view</div>
+  </div>
+</div>
+
+<!-- Start menu -->
+<div class="overlay open" id="menu" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
+  <div class="dialog">
+    <div class="eyebrow">São Paulo World · Golf Dynamics</div>
+    <h2 id="menuTitle">Clube de Golfe da Várzea</h2>
+    <p id="courseBlurb">Nine holes on the real ground of São Paulo.</p>
+    <div class="modes" role="group" aria-label="How to play">
+      <button class="mode" data-mode="solo" aria-pressed="true"><b>Play</b><span>On your own or against the computer</span></button>
+      <button class="mode" data-mode="live"><b>Invite friends · live</b><span>Send a link, play together now</span></button>
+      <button class="mode" data-mode="turns"><b>Invite by link · turns</b><span>Play your shots and pass the link on, no account or server</span></button>
+    </div>
+    <h3>Players</h3>
+    <div id="playerRows"></div>
+    <div class="row"><button id="addAi">+ Computer golfer</button><button id="addHuman">+ Another player on this device</button></div>
+    <h3>Round</h3>
+    <div class="grid2">
+      <label class="field">Holes<select id="optHoles"><option value="0-8">All nine</option><option value="0-2">1–3</option><option value="3-5">4–6</option><option value="6-8">7–9</option><option value="single">One hole…</option></select></label>
+      <label class="field" id="singleField" style="display:none">Hole<select id="optSingle"></select></label>
+      <label class="field">Format<select id="optFormat"><option value="stroke">Stroke play</option><option value="stableford">Stableford (net)</option><option value="match">Match play (2 players)</option></select></label>
+      <label class="field">Tees<select id="optTees"><option value="blue">Blue (back)</option><option value="white" selected>White</option><option value="red">Red (forward)</option></select></label>
+      <label class="field">Wind<select id="optWind"><option value="0">Calm</option><option value="0.6">Light</option><option value="1" selected>São Paulo afternoon</option><option value="1.8">Strong</option></select></label>
+      <label class="field">Greens<select id="optStimp"><option value="8.5">Slow (8.5 ft)</option><option value="10.5" selected>Club (10.5 ft)</option><option value="12.5">Tournament (12.5 ft)</option></select></label>
+      <label class="field">Difficulty<select id="optDiff"><option value="0.6">Easy: caddie lines, forgiving</option><option value="1" selected>Normal</option><option value="1.25">Pro: no aim help</option></select></label>
+    </div>
+    <div id="liveBox" style="display:none">
+      <h3>Invitation</h3>
+      <p id="liveNote">Create a room, send the link, and start when everyone is in.</p>
+      <div class="linkbox"><input id="inviteLink" readonly aria-label="Invitation link"><button id="copyLink">Copy</button><button id="shareLink">Share</button></div>
+      <div class="lobbyList" id="lobbyList"></div>
+    </div>
+    <div class="row" style="margin-top:14px;justify-content:space-between">
+      <span class="small" id="menuStatus"></span>
+      <div class="row"><button id="resumeBtn" style="display:none">Back to the round</button><button class="primary" id="startBtn">Tee off</button></div>
+    </div>
+    <p class="small" style="margin-top:12px">Ball flight, impact, bounce, roll and putting: Golf Dynamics (MIT), checked against the TrackMan PGA Tour averages, Penner (2002) and the Stimpmeter; see <a href="../" style="color:inherit">the aerodynamics page</a>. Ground: SRTM (NASA/USGS). Buildings and map: © OpenStreetMap contributors (ODbL). The course is fictional.</p>
+  </div>
+</div>
+
+<!-- Scorecard -->
+<div class="overlay" id="cardDlg" role="dialog" aria-modal="true" aria-labelledby="cardTitle">
+  <div class="dialog">
+    <div class="row" style="justify-content:space-between"><h2 id="cardTitle">Scorecard</h2><button id="cardClose">Close</button></div>
+    <div id="cardBody" style="overflow:auto;margin-top:10px"></div>
+    <div id="cardShare" style="display:none">
+      <h3>Pass the round on</h3>
+      <p id="shareNote"></p>
+      <div class="linkbox"><input id="turnLink" readonly aria-label="Link for the next player"><button id="copyTurn">Copy</button><button id="shareTurn">Share</button></div>
+    </div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button id="againBtn" style="display:none" class="primary">Play again</button></div>
+  </div>
+</div>
+
+<!-- Who are you (turn links) -->
+<div class="overlay" id="whoDlg" role="dialog" aria-modal="true" aria-labelledby="whoTitle">
+  <div class="dialog">
+    <h2 id="whoTitle">Who's playing on this device?</h2>
+    <p>This round was passed to you by link. Pick your name; you will play that golfer's shots.</p>
+    <div class="lobbyList" id="whoList"></div>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
