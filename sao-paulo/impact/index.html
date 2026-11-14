@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/sao-paulo/impact/">
+<title>Impact Lab</title>
+<meta name="description" content="Crash a test car into brick, concrete block, glass block, hay or indestructible cheese, or fire a tennis ball, golf ball, bowling ball, watermelon or frozen chicken at glass, plasterboard, plywood, ice and brick. Real-time fracture in your browser, in slow motion.">
+<meta property="og:title" content="São Paulo World · Impact Lab">
+<meta property="og:description" content="Car vs. wall and a projectile gallery: everything breaks where it is hit, in slow motion.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<style>
+:root{--bg:#0d1217;--panel:#0d1217db;--fg:#e7edf2;--muted:#9aa8b4;--accent:#f5c518;--border:#ffffff1f;--lightningcss-light: ;--lightningcss-dark:initial;color-scheme:dark}*{box-sizing:border-box}[hidden]{display:none!important}html,body{background:var(--bg);height:100%;color:var(--fg);margin:0;font:13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}#viewport{position:fixed;inset:0}#viewport canvas{touch-action:none;display:block}#panel{background:var(--panel);border:1px solid var(--border);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border-radius:10px;flex-direction:column;gap:10px;width:300px;padding:12px 14px;display:flex;position:fixed;top:12px;bottom:12px;right:12px;overflow-y:auto}h1{letter-spacing:.02em;margin:0;font-size:15px}.sub{color:var(--muted);margin:2px 0 0;font-size:12px}.back{color:var(--muted);font-size:12px;text-decoration:none}label{color:var(--muted);flex-direction:column;gap:4px;font-size:12px;display:flex}label.check{color:var(--fg);flex-direction:row;align-items:center;gap:6px}select{color:var(--fg);border:1px solid var(--border);font:inherit;background:#151c23;border-radius:6px;padding:5px 6px}input[type=range]{width:100%;accent-color:var(--accent)}section{flex-direction:column;gap:10px;display:flex}.row{gap:6px;display:flex}.buttons button{flex:1}button{color:var(--fg);border:1px solid var(--border);font:inherit;cursor:pointer;background:#1b252e;border-radius:6px;padding:6px 8px}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}button.primary{background:var(--accent);color:#1d1700;border-color:#0000;font-weight:700}.tabs{background:#0a0f13;border-radius:8px;gap:4px;padding:3px;display:flex}.tab{color:var(--muted);background:0 0;border:none;flex:1}.tab.active{color:var(--fg);background:#1f2a33}.grid2{grid-template-columns:1fr 1fr;gap:8px;display:grid}.mono{font-family:ui-monospace,JetBrains Mono,Menlo,monospace;font-size:11px}pre.mono{white-space:pre-wrap;color:var(--muted);margin:6px 0 0}.readout{grid-template-columns:1fr 1fr;gap:6px;display:grid}.readout div{border:1px solid var(--border);background:#10171d;border-radius:6px;padding:6px 8px}.readout b{font-variant-numeric:tabular-nums;font-size:18px;display:block}.readout span{color:var(--muted);font-size:11px}.fine{color:var(--muted);margin:0;font-size:11px}#hud{color:#fff;text-shadow:0 1px 3px #000000b3;pointer-events:none;font:700 14px/1.2 system-ui,sans-serif;position:fixed;bottom:16px;left:16px}#hud .big{font-variant-numeric:tabular-nums;font-size:34px}#hud .slow{color:#1d1700;background:#f5c518e6;border-radius:4px;margin-top:6px;padding:2px 8px;font-size:12px;display:inline-block}@media (max-width:720px){#panel{width:auto;max-height:46vh;inset:auto 8px 8px}#hud{bottom:calc(46vh + 20px)}#hud .big{font-size:24px}}
+</style>
+<script type="module" crossorigin src="./assets/app.js"></script>
+</head>
+<body>
+    <div id="viewport"></div>
+    <aside id="panel" aria-label="Impact Lab controls">
+      <header>
+        <a class="back" href="../">← São Paulo World</a> <a class="back" href="../challenges/">· Viewer challenges</a>
+        <h1>Impact Lab</h1>
+        <p class="sub">Viewer challenge, Day 2 · Destruction Dynamics</p>
+      </header>
+
+      <div class="tabs" role="tablist">
+        <button id="tab-crash" role="tab" aria-selected="true" class="tab active">Car vs. wall</button>
+        <button id="tab-gallery" role="tab" aria-selected="false" class="tab">Projectile gallery</button>
+      </div>
+
+      <section id="crash-controls">
+        <label
+          >Wall
+          <select id="wall">
+            <option value="brick" selected>Brick</option>
+            <option value="cinder">Concrete block</option>
+            <option value="glassBlock">Glass block</option>
+            <option value="hay">Hay bales</option>
+            <option value="cheese">Indestructible cheese (Day 1)</option>
+          </select>
+        </label>
+        <label
+          >Impact speed <span id="speed-label" class="mono">80 km/h</span>
+          <input id="speed" type="range" min="10" max="150" step="5" value="80" />
+        </label>
+        <div class="row buttons">
+          <button id="btn-crash" class="primary">Crash</button>
+          <button id="btn-reset">Reset</button>
+          <button id="btn-replay" title="Run it again from the start (deterministic)">Replay</button>
+        </div>
+      </section>
+
+      <section id="gallery-controls" hidden>
+        <label
+          >Projectile
+          <select id="projectile">
+            <option value="tennis">Tennis ball (57 g)</option>
+            <option value="golf">Golf ball (46 g)</option>
+            <option value="bearing">Steel ball bearing (510 g)</option>
+            <option value="bowling" selected>Bowling ball (6.35 kg)</option>
+            <option value="melon">Watermelon (5.3 kg)</option>
+            <option value="chicken">Frozen chicken (1.6 kg)</option>
+          </select>
+        </label>
+        <label
+          >Target
+          <select id="target">
+            <option value="glass" selected>Window glass, 6 mm</option>
+            <option value="drywall">Plasterboard, 12.5 mm</option>
+            <option value="plywood">Plywood, 18 mm</option>
+            <option value="ice">Ice slab, 10 cm</option>
+            <option value="brick">Brick panel</option>
+            <option value="cheese">Indestructible cheese</option>
+          </select>
+        </label>
+        <label
+          >Launch speed <span id="launch-label" class="mono">30 m/s</span>
+          <input id="launch" type="range" min="5" max="100" step="1" value="30" />
+        </label>
+        <div class="row buttons">
+          <button id="btn-fire" class="primary">Fire</button>
+          <button id="btn-new-target">New target</button>
+          <button id="btn-replay-g" title="Re-fire every shot at a fresh target">Replay</button>
+        </div>
+      </section>
+
+      <div class="grid2">
+        <label
+          >Slow motion
+          <select id="slowmo">
+            <option value="auto" selected>Automatic</option>
+            <option value="1">Real time</option>
+            <option value="0.25">¼ speed</option>
+            <option value="0.1">1/10 speed</option>
+            <option value="0.025">1/40 speed</option>
+          </select>
+        </label>
+        <label
+          >Camera
+          <select id="camera">
+            <option value="cinematic" selected>Cinematic</option>
+            <option value="side">Side</option>
+            <option value="front">Behind the target</option>
+            <option value="top">Overhead</option>
+            <option value="onboard">Onboard</option>
+            <option value="free">Free (drag to orbit)</option>
+          </select>
+        </label>
+      </div>
+      <label class="check"><input id="sound" type="checkbox" checked /> Sound</label>
+
+      <div id="readout" class="readout" aria-live="polite"></div>
+      <details>
+        <summary>Engine stats</summary>
+        <pre id="stats" class="mono"></pre>
+      </details>
+      <p class="fine">
+        Fictional test rig for entertainment. Materials are tuned to look right, not measured: nothing here is
+        engineering or safety data.
+      </p>
+    </aside>
+    <div id="hud" aria-hidden="true"></div>
+  </body>
+</html>

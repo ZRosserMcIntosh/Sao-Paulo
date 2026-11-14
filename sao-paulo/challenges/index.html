@@ -51,6 +51,9 @@ header{padding:40px 0 28px}
 .go:hover{filter:brightness(1.08)}
 .go:focus-visible,.back:focus-visible{outline:2px solid var(--plate);outline-offset:3px}
 .go i{font-style:normal;width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:11px}
+.day2{background:#8fb0cc;color:#10202e}
+.gos{display:flex;flex-wrap:wrap;gap:10px}
+.go.alt{background:var(--plate)}
 .next{border-style:dashed;background:transparent}
 .next .day{background:transparent;border:2px dashed var(--line);color:var(--mute)}
 footer{border-top:1px solid var(--line);padding:20px 0 40px;color:var(--mute);font-size:13.5px}
@@ -83,8 +86,27 @@ footer{border-top:1px solid var(--line);padding:20px 0 40px;color:var(--mute);fo
       </div>
     </article>
 
+    <article class="card">
+      <div class="day day2"><small>Day</small><b>2</b></div>
+      <div>
+        <h2>Impact Lab</h2>
+        <p class="quote">Crash a car into a brick wall. Fire different things at different materials.</p>
+        <p class="who">the follow-up to Day 1</p>
+        <p style="margin-top:12px">Drive a crash-test car into brick, concrete block, glass block, hay bales or (of course) indestructible cheese, at 10 to 150 km/h. Or load the air cannon with a tennis ball, a golf ball, a steel bearing, a bowling ball, a watermelon or a frozen chicken, and fire it at glass, plasterboard, plywood, ice or brick. Everything breaks where it is hit, in slow motion.</p>
+        <ul>
+          <li>Engine lesson: structures break where they are hit. A support graph of joints takes the damage, and pieces shatter into Voronoi shards around the impact point.</li>
+          <li>Engine lesson: a car's front crumples on a crush model, and the wall feels the crush force plus the momentum of the front coming to rest, so speed really matters.</li>
+          <li>Engine lesson: when something breaks through, the impactor and the freed pieces share its momentum, and unsupported masonry above a hole falls away in a stepped arch.</li>
+        </ul>
+        <div class="gos">
+          <a class="go" href="../impact/"><i aria-hidden="true">▶</i>Crash the car</a>
+          <a class="go alt" href="../impact/?mode=gallery&amp;target=glass&amp;projectile=bowling"><i aria-hidden="true">●</i>Load the cannon</a>
+        </div>
+      </div>
+    </article>
+
     <article class="card next">
-      <div class="day"><small>Day</small><b>2</b></div>
+      <div class="day"><small>Day</small><b>3</b></div>
       <div>
         <h2>Your idea here</h2>
         <p style="margin-top:10px;color:var(--mute)">Leave it in the comments on the latest video.</p>
