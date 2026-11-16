@@ -58,6 +58,12 @@ header.hero{padding-block:clamp(28px,5vw,56px) 28px}
 .modes button:focus-visible,.zoom button:focus-visible,.chip:focus-visible{outline:2px solid #ffd36b;outline-offset:2px}
 .zoom{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:6px}
 .zoom button{width:34px;height:34px;font-size:17px;padding:0}
+.lmtier{position:absolute;right:12px;bottom:14px;display:flex;gap:6px;align-items:center}
+.lmtier .lbl{font:600 11px var(--mono);color:#dfe6ef;text-shadow:0 1px 3px #000;margin-right:2px}
+.lmtier button{font:600 12px var(--body);border:0;border-radius:6px;padding:6px 9px;background:rgba(10,18,30,.72);color:#dfe6ef;cursor:pointer;backdrop-filter:blur(4px)}
+.lmtier button[aria-pressed="true"]{background:#fff;color:#0a1830}
+.lmtier button:focus-visible{outline:2px solid #ffd36b;outline-offset:2px}
+@media (max-width:560px){.lmtier .lbl{display:none}.lmtier button{padding:5px 7px;font-size:11px}}
 .legend{position:absolute;left:12px;bottom:14px;display:flex;flex-wrap:wrap;gap:6px 12px;font:500 11.5px var(--body);color:#dfe6ef;text-shadow:0 1px 3px #000;pointer-events:none;max-width:55%}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .hint{font:500 12px var(--mono);color:var(--mute);margin-top:10px}
@@ -224,6 +230,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
         <button id="m_img" aria-pressed="true" data-m="img">Imagery</button><button id="m_qa" aria-pressed="false" data-m="qa">QA grades</button><button id="m_st" aria-pressed="false" data-m="st">Streets</button><button id="m_mt" aria-pressed="false" data-m="mt">Metrô</button><button id="m_nb" aria-pressed="false" data-m="nb">North build</button>
       </div>
       <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button></div>
+      <div class="lmtier" role="group" aria-label="Landmark tiers"><span class="lbl">Landmarks</span><button data-tr="1" aria-pressed="true">★ Major</button><button data-tr="2" aria-pressed="true">Medium</button><button data-tr="3" aria-pressed="true">Minor</button></div>
       <div class="legend" id="legend"></div>
       <div class="banner" id="banner"><div class="n" id="bn"></div><div class="a" id="ba"></div></div>
     </div>
@@ -462,6 +469,7 @@ function gridAdd(k){const s=D.streets[k],P=s[3];for(let n=1;n<P.length;n++){cons
   for(let x=x0;x<=x1;x++)for(let y=y0;y<=y1;y++){const key=x+","+y;let L=grid.get(key);if(!L)grid.set(key,L=[]);L.push(k*4096+n)}}}
 D.streets.forEach((s,k)=>gridAdd(k));
 if(D.streets_ext)fetch(D.streets_ext.file+"?v="+D.streets_ext.v).then(r=>r.json()).then(SX=>{const k0=D.streets.length;for(const s of SX)D.streets.push(s);for(let k=k0;k<D.streets.length;k++)gridAdd(k);draw()}).catch(()=>{});
+let _lms=null;const LMS=()=>_lms||(_lms=(D.landmarks||[]).slice().sort((a,b)=>(b.tr||3)-(a.tr||3)));const LT={1:true,2:true,3:true};document.querySelectorAll(".lmtier button").forEach(b=>b.addEventListener("click",()=>{const k=+b.dataset.tr;LT[k]=!LT[k];b.setAttribute("aria-pressed",String(LT[k]));draw()}));
 const LC={monument:"#ffd36b",museum:"#ff8fa3",theatre:"#ff8fa3",religious:"#c9b3ff",station:"#5fd0ff",stadium:"#7be08a",park:"#59c27a",university:"#ffb35c"};
 function nearest(wx,wy,maxd){let best=null,bd=maxd;const gx=Math.floor(wx/G),gy=Math.floor(wy/G);
   for(let x=gx-1;x<=gx+1;x++)for(let y=gy-1;y<=gy+1;y++){const L=grid.get(x+","+y);if(!L)continue;
@@ -490,7 +498,7 @@ function draw(){const c=cx,Wc=cv.width;c.fillStyle="#141a22";c.fillRect(0,0,Wc,W
   if(mode==="qa"){c.globalAlpha=.55;for(const t of D.tiles){const [x,y]=w2s(t.i*500-250,t.j*500+250);c.fillStyle=GC[t.g];c.fillRect(x+1,y+1,tp-2,tp-2)}c.globalAlpha=1}
   if(mode==="st"){c.lineCap="round";const wd=[3.2,2.4,1.6,.9];for(const lv of [3,2,1,0])for(const s of D.streets){if(s[2]!==lv)continue;c.strokeStyle=lv<2?"#ffd36b":lv===2?"rgba(255,255,255,.9)":"rgba(170,205,255,.55)";c.lineWidth=wd[lv]*dpr*Math.min(2.2,.7+scale*.25);c.beginPath();s[3].forEach((p,n)=>{const [x,y]=w2s(p[0],p[1]);n?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()}}
   if(mode==="st"&&base()*scale>.33){c.fillStyle="rgba(255,255,255,.95)";const step=55;for(const s of D.streets){if(!s[4])continue;const P=s[3];let acc=step/2;for(let n=1;n<P.length;n++){const a=P[n-1],b=P[n],L_=Math.hypot(b[0]-a[0],b[1]-a[1]);while(acc<L_){const t=acc/L_,[sx,sy]=w2s(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t);if(sx>-20&&sy>-20&&sx<cv.width+20&&sy<cv.height+20){const r=3.6*dpr;c.save();c.translate(sx,sy);c.rotate(Math.atan2(-(b[1]-a[1]),b[0]-a[0]));c.beginPath();c.moveTo(r,0);c.lineTo(-r,-r*.75);c.lineTo(-r*.4,0);c.lineTo(-r,r*.75);c.closePath();c.fill();c.restore()}acc+=step}acc-=L_}}}
-  if(mode==="img"||mode==="st"){const pp=base()*scale;c.font=`700 ${11*dpr}px "Public Sans",sans-serif`;c.textBaseline="middle";for(const l of D.landmarks||[]){const [x,y]=w2s(l.x,l.y);if(x<-10||y<-10||x>cv.width+10||y>cv.height+10)continue;c.fillStyle=LC[l.c]||"#fff";c.strokeStyle="#0b0f15";c.lineWidth=1.5*dpr;c.beginPath();c.arc(x,y,(pp>.15?4.5:3)*dpr,0,7);c.fill();c.stroke();if(pp>.22){c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.85)";c.strokeText(l.n,x+7*dpr,y);c.fillStyle="#fff";c.fillText(l.n,x+7*dpr,y)}}}
+  if(mode==="img"||mode==="st"){const pp=base()*scale;c.font=`700 ${11*dpr}px "Public Sans",sans-serif`;c.textBaseline="middle";{const lab=[],P=[];for(const l of LMS()){const tr=l.tr||3;if(!LT[tr])continue;const [x,y]=w2s(l.x,l.y);if(x<-10||y<-10||x>cv.width+10||y>cv.height+10)continue;const r=(tr===1?(pp>.15?6.5:5):tr===2?(pp>.15?4.5:3.5):(pp>.15?3.5:2.5))*dpr;c.fillStyle=LC[l.c]||"#fff";c.strokeStyle=tr===1?"#fff":"#0b0f15";c.lineWidth=(tr===1?2.2:1.5)*dpr;c.beginPath();c.arc(x,y,r,0,7);c.fill();c.stroke();P.push([l,x,y,r,tr])}for(let n=P.length-1;n>=0;n--){const [l,x,y,r,tr]=P[n];if(!(pp>(tr===1?0:tr===2?.22:.45)))continue;c.font=`${tr===1?800:700} ${(tr===1?12.5:tr===2?11:10)*dpr}px "Public Sans",sans-serif`;const w=c.measureText(l.n).width,h=14*dpr,bx=x+r+3*dpr;if(lab.some(q=>bx<q[2]&&bx+w>q[0]&&y-h/2<q[3]&&y+h/2>q[1]))continue;lab.push([bx,y-h/2,bx+w,y+h/2]);c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.85)";c.strokeText(l.n,bx,y);c.fillStyle=tr===3?"#dfe6ef":"#fff";c.fillText(l.n,bx,y)}}}
   if(mode==="mt"){c.fillStyle="rgba(10,15,25,.45)";c.fillRect(0,0,Wc,Wc);c.lineCap="round";c.lineJoin="round";for(const l of D.lines){c.strokeStyle=l.c;c.lineWidth=4*dpr;c.beginPath();l.xy.forEach((p,n)=>{const [x,y]=w2s(p[0],p[1]);n?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
     for(const s of l.st){const [x,y]=w2s(s.x,s.y);c.fillStyle="#fff";c.strokeStyle=l.c;c.lineWidth=2.2*dpr;c.beginPath();c.arc(x,y,3.6*dpr,0,7);c.fill();c.stroke()}}
     if(scale>1.7){c.font=`700 ${11*dpr}px "Public Sans",sans-serif`;c.textBaseline="middle";const seen=new Set();for(const l of D.lines)for(const s of l.st){if(seen.has(s.n))continue;seen.add(s.n);const [x,y]=w2s(s.x,s.y);if(x<0||y<0||x>Wc||y>Wc)continue;c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.85)";c.strokeText(s.n,x+7*dpr,y);c.fillStyle="#fff";c.fillText(s.n,x+7*dpr,y)}}}
