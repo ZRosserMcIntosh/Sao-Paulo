@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <base href="/sao-paulo/">
-<meta name="description" content="São Paulo World: a 1:1 rebuild of 144 km² of São Paulo for an open-world driving game. Every building, tree, lamp post and named street, plus the Metrô at its real depth.">
+<meta name="description" content="São Paulo World: a 1:1 rebuild of 507 km² (196 sq mi) of São Paulo for an open-world driving game. Every building, tree, lamp post and named street, plus the Metrô at its real depth.">
 <meta property="og:title" content="São Paulo World">
-<meta property="og:description" content="A 1:1 rebuild of 144 km² of São Paulo for an open-world driving game.">
+<meta property="og:description" content="A 1:1 rebuild of 507 km² (196 sq mi) of São Paulo for an open-world driving game.">
 <meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
@@ -210,7 +210,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
     <div style="margin-top:18px"><div class="plate"><b>São Paulo<br>World</b><span>Centro · Paulista · Pinheiros · Zona Norte &nbsp;1 : 1</span></div></div>
   </div>
   <div>
-    <p class="lede intro">A block-by-block rebuild of São Paulo for an open-world driving game: 507 km² of the real city so far, built in blocks of 576 tiles from public survey data, with every building footprint, street tree, lamp post and named street, plus the Metrô running underneath at its real depth.</p>
+    <p class="lede intro">A block-by-block rebuild of São Paulo for an open-world driving game: 507 km² (196 sq mi) of the real city so far, built in blocks of 576 tiles from public survey data, with every building footprint, street tree, lamp post and named street, plus the Metrô running underneath at its real depth.</p>
     <div class="ctas"><a class="drivebtn" href="driving/"><span class="ico" aria-hidden="true">▶</span><span><b>Drive the car</b><small>Vehicle physics test track, in your browser</small></span></a><a class="drivebtn fly" href="flying/"><span class="ico" aria-hidden="true">▲</span><span><b>Fly the 172</b><small>Or the Top G jet: flight test bed over the city</small></span></a><a class="drivebtn glass" href="glass/"><span class="ico" aria-hidden="true">✦</span><span><b>Break glass</b><small>Fracture lab, down to 1/100,000 speed</small></span></a><a class="drivebtn liquid" href="liquids/"><span class="ico" aria-hidden="true">●</span><span><b>Spill and splash</b><small>Liquids lab: wine, glass and spatter</small></span></a><a class="drivebtn" href="bloco/"><span class="ico" aria-hidden="true">■</span><span><b>Play Bloco</b><small>São Paulo in blocks: drive, fly, break glass</small></span></a><a class="drivebtn fly" href="wake/"><span class="ico" aria-hidden="true">≈</span><span><b>Near miss</b><small>Wake turbulence lab: a 737 over a 172 on final</small></span></a><a class="drivebtn liquid" href="destruction/"><span class="ico" aria-hidden="true">▼</span><span><b>Topple a tower</b><small>Destruction lab: 85 storeys into the Atlantic</small></span></a><a class="drivebtn range" href="ballistics/"><span class="ico" aria-hidden="true">⊕</span><span><b>Shoot two miles</b><small>Ballistics range, in bullet time</small></span></a><a class="ghost" href="#film">▶ Watch the 30-second film</a><a class="ghost" href="#north" id="northlink">Two blocks built: 1,152 tiles</a></div>
     <div class="facts" id="facts"></div>
   </div>
@@ -438,7 +438,7 @@ $("facts").innerHTML=WT?`<span><b>${fmt(WT.tiles)}</b> tiles of 500 m</span><spa
 if(D.updates&&$("upd"))$("upd").innerHTML=D.updates.map(u=>`<div class="panel"><div class="eyebrow">${u.when}</div><p style="margin-top:8px">${u.what}</p></div>`).join("");
 if(WT)$("northlink").textContent=`${(D.blocks||[]).length===3?"Three":"Two"} blocks built: ${fmt(WT.tiles)} tiles`;
 const k_=n=>n>=1e4?Math.round(n/1e3)+"k":fmt(n);
-const stats=WT&&N?[[WT.buildings,"buildings",(D.blocks||[]).map(b=>`${k_(b.buildings)} ${b.name.toLowerCase()}`).join(" · ")],[WT.trees,"street & park trees",(D.blocks||[]).map(b=>k_(b.trees)).join(" · ")],[WT.poles,"utility poles",(D.blocks||[]).map(b=>k_(b.poles)).join(" · ")],[WT.streets,"named streets","per block, some in more than one"],[WT.km2,"km² of the city",(D.blocks||[]).map(b=>b.tiles/4).join(" · ")],[WT.stops,"rail station stops",`${WT.lines} lines · ${WT.entrances} entrances`]]
+const stats=WT&&N?[[WT.buildings,"buildings",(D.blocks||[]).map(b=>`${k_(b.buildings)} ${b.name.toLowerCase()}`).join(" · ")],[WT.trees,"street & park trees",(D.blocks||[]).map(b=>k_(b.trees)).join(" · ")],[WT.poles,"utility poles",(D.blocks||[]).map(b=>k_(b.poles)).join(" · ")],[WT.streets,"named streets","per block, some in more than one"],[WT.km2,`km² of the city (${Math.round(WT.km2*0.386102)} sq mi)`,(D.blocks||[]).map(b=>b.tiles/4).join(" · ")],[WT.stops,"rail station stops",`${WT.lines} lines · ${WT.entrances} entrances`]]
   :[[T.buildings,"buildings"],[T.trees,"street & park trees"],[T.poles,"utility poles"],[ST.streets,"named streets"],[ST.intersections,"crossings with name plates"],[stops,"rail station stops"]];
 $("stats").innerHTML=stats.map(([v,l,b])=>`<div class="stat"><b>${fmt(v)}</b><span>${l}</span>${b?`<small>${b}</small>`:""}</div>`).join("");
 $("sfacts").innerHTML=`<span><b>${fmt(ST.streets)}</b> streets</span><span><b>${Math.round(100*ST.with_codlog/ST.streets)}%</b> matched to the official register</span><span><b>${fmt(ST.intersections)}</b> crossings</span><span><b>${ST.areas}</b> neighbourhoods</span>`;
