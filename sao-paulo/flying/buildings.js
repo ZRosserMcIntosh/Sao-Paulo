@@ -87,10 +87,21 @@ const rectDist = (x, y, x0, y0, s) => Math.hypot(Math.max(x0 - x, 0, x - x0 - s)
 // Options: detail (m: every building within it, more with height), skyline
 // (m: the tall buildings within it; Infinity all, 0 none), shadows (0 none,
 // 1 the tiles near the aircraft receive its shadow, 2 every tile).
-export function buildCity({ base = './buildings/', groundAt, mobile = false, maxAniso = 4, physics = null, options = {} }) {
+// `clear` ([x0, z0, x1, z1], world x and z): no building is drawn inside it (a
+// page that puts something of its own there, as the golf course does).
+export function buildCity({ base = './buildings/', groundAt, mobile = false, maxAniso = 4, physics = null, options = {}, clear = null }) {
   const group = new THREE.Group();
   group.name = 'buildings';
   const mats = facadeTextures(maxAniso).map((map) => new THREE.MeshLambertMaterial({ vertexColors: true, map }));
+  if (clear) {
+    for (const m of mats) m.onBeforeCompile = (sh) => {
+      sh.uniforms.clearBox = { value: new THREE.Vector4(...clear) };
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vClearXZ;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvClearXZ = ( modelMatrix * vec4( transformed, 1.0 ) ).xz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vClearXZ;\nuniform vec4 clearBox;')
+        .replace('void main() {', 'void main() {\nif ( vClearXZ.x > clearBox.x && vClearXZ.x < clearBox.z && vClearXZ.y > clearBox.y && vClearXZ.y < clearBox.w ) discard;');
+    };
+  }
   const opt = { detail: mobile ? 1500 : 2500, skyline: Infinity, shadows: 1, ...options };
   const root = new URL(base, location.href).href;
   const key = (i, j) => `${i},${j}`;
