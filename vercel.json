@@ -67,6 +67,11 @@
       "permanent": true
     },
     {
+      "source": "/sao-paulo/poles",
+      "destination": "/sao-paulo/poles/",
+      "permanent": true
+    },
+    {
       "source": "/sao-paulo/bloco",
       "destination": "/sao-paulo/bloco/",
       "permanent": true
