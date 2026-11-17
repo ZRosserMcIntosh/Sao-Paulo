@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<base href="/sao-paulo/poles/">
+<title>Pole Lab</title>
+<meta name="description" content="Drive a car into a São Paulo concrete utility pole: it cracks, leans in the soil or snaps, the wires whip, lines come down across the road, live conductors arc and the street goes dark. Pole Dynamics, native C++ in WebAssembly, in slow motion.">
+<meta property="og:title" content="São Paulo World · Pole Lab">
+<meta property="og:description" content="Car vs. concrete pole: cracks, leans, snaps, falling wires, arcs and blackouts, simulated in your browser.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"../driving/vendor/three.module.min.js"}}</script>
+<style>
+:root{
+  --bg:#0b111b; --panel:rgba(10,17,28,.86); --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --plate-ink:#fff; --masp:#ec4a3c; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b; --ice:#9fd6ff;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+button{font:600 12px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer;white-space:nowrap}
+button:hover{background:rgba(255,255,255,.13)}
+button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+select{font:600 12px var(--body);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:6px 8px;max-width:100%;width:100%}
+input[type=range]{width:100%;accent-color:var(--hot)}
+.panel{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:12px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.note{color:var(--mute);font-size:12px;margin:6px 0 0}
+.mono{font-family:var(--mono)}
+.top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
+.top>*{pointer-events:auto}
+.top button{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+#lab{position:fixed;left:12px;top:66px;width:318px;max-height:calc(100% - 140px);overflow:auto;z-index:2;scrollbar-width:thin}
+#lab h2,#res h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#lab h2:first-child,#res h2:first-child{margin-top:0}
+#lab h2 small,#res h2 small{font:500 10.5px var(--mono);color:var(--mute);text-transform:none;letter-spacing:0}
+.slider{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-top:8px;font-size:12px;color:var(--mute)}
+.slider b{font:600 12px var(--mono);color:var(--ink);text-align:right}
+.slider input{grid-column:1/-1}
+.check{display:flex;gap:7px;align-items:center;font-size:12px;color:var(--ink);margin-top:8px}
+#hit{width:100%;margin-top:10px;padding:10px;font:800 16px var(--display);letter-spacing:.06em;text-transform:uppercase;background:var(--masp);border-color:var(--masp);color:#fff}
+#hit:hover{filter:brightness(1.1)}
+.presets{display:grid;grid-template-columns:1fr;gap:5px}
+.presets button{text-align:left;white-space:normal;line-height:1.3}
+.presets button small{display:block;color:var(--mute);font-weight:500}
+details{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+summary{cursor:pointer;font:800 13px var(--display);text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+#res{position:fixed;right:12px;top:66px;width:300px;max-height:calc(100% - 140px);overflow:auto;z-index:2;scrollbar-width:thin}
+#outcome{font:700 14px/1.35 var(--body);margin:0}
+#outcome.ok{color:var(--good)}#outcome.bad{color:var(--bad)}#outcome.warn{color:var(--warn)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;margin-top:8px}
+.kv span{color:var(--mute)}.kv b{font:600 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.poles{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:8px}
+.poles div{border:1px solid var(--line);border-radius:6px;padding:4px 2px;text-align:center;font:600 10px var(--mono);cursor:pointer}
+.poles div b{display:block;font-size:11px}
+.poles div.sel{border-color:var(--hot)}
+.poles .s0{color:var(--good)}.poles .s1{color:var(--hot)}.poles .s2{color:var(--warn)}.poles .s3,.poles .s4{color:var(--bad)}
+canvas.chart{width:100%;height:120px;display:block;margin-top:6px;background:rgba(255,255,255,.03);border-radius:6px}
+#log{font:500 10.5px/1.45 var(--mono);color:#b9c4d3;max-height:180px;overflow:auto;white-space:pre-wrap;margin-top:6px;user-select:text;-webkit-user-select:text}
+#time{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:3;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100% - 24px)}
+#clock{font:600 13px var(--mono);min-width:130px;text-align:center;font-variant-numeric:tabular-nums}
+#clock small{display:block;font:500 10px var(--mono);color:var(--mute);letter-spacing:.06em}
+#banner{position:fixed;left:50%;top:70px;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:2;opacity:0;transition:opacity .35s;text-shadow:0 2px 10px rgba(0,0,0,.9)}
+#banner.on{opacity:1}
+#banner b{display:block;font:900 italic clamp(26px,4vw,44px)/1 var(--display);text-transform:uppercase}
+#banner small{display:block;font:600 12px var(--mono);color:#dfe6ef;margin-top:5px;letter-spacing:.06em}
+#toast{position:fixed;left:50%;top:120px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
+#toast.on{opacity:1}
+#loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg)}
+#loading .panel{max-width:440px;text-align:center}
+#loading h1{font:900 34px/1 var(--display);text-transform:uppercase;margin:0 0 8px}
+#help{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
+#help.on{display:grid}
+#help .panel{max-width:min(720px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:18px 20px;user-select:text;-webkit-user-select:text}
+#help h2{font:900 26px/1 var(--display);text-transform:uppercase;margin:0 0 10px}
+#help h3{font:800 16px/1 var(--display);text-transform:uppercase;margin:16px 0 6px}
+#help p,#help li{font-size:13.5px;color:#d3dbe6}
+#help ul{padding-left:18px;margin:6px 0}
+#help a{color:var(--ice)}
+.tabs{display:none}
+@media (max-width:860px){
+  #lab,#res{left:8px;right:8px;width:auto;top:auto;bottom:calc(58px + env(safe-area-inset-bottom));max-height:38vh;border-radius:12px;padding:10px}
+  .tabs{display:flex;position:fixed;left:8px;right:8px;bottom:calc(58px + 38vh + 6px + env(safe-area-inset-bottom));gap:5px;z-index:3;justify-content:center}
+  #time{left:8px;right:8px;bottom:calc(6px + env(safe-area-inset-bottom));transform:none;width:auto;gap:5px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;padding:6px 8px!important;scrollbar-width:none}
+  #time button{padding:6px 7px;font-size:11.5px}
+  #clock{min-width:64px;font-size:11px}
+  #clock small{display:none}
+  #scale{flex-wrap:nowrap}
+  .top .hide-sm{display:none}
+  .top .plate b{font-size:16px}.top .plate span{font-size:8px}
+  .top button{padding:5px 7px;font-size:11.5px}
+  #banner{top:64px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="A residential street of concrete utility poles"></canvas>
+
+<div class="top">
+  <a class="plate" href="../"><b>Pole Lab</b><span>São Paulo World</span></a>
+  <div class="row">
+    <button id="cam-street" class="hide-sm" title="Street-level view">Street</button>
+    <button id="cam-top" class="hide-sm" title="Overhead view">Above</button>
+    <button id="cam-follow" class="hide-sm" title="Watch the pole that was hit">Pole</button>
+    <button id="btn-help">How it works</button>
+  </div>
+</div>
+
+<div class="tabs" id="tabs"><button id="tab-lab" aria-pressed="true">Bench</button><button id="tab-res" aria-pressed="false">Results</button></div>
+
+<aside id="lab" class="panel" aria-label="Lab bench">
+  <h2>Scenarios <small>one click</small></h2>
+  <div class="presets" id="presets"></div>
+
+  <h2>The hit <small>1,300 kg car by default</small></h2>
+  <div class="slider"><span>Speed</span><b id="v-speed">80 km/h</b><input id="speed" type="range" min="10" max="140" step="5" value="80"></div>
+  <div class="slider"><span>Bumper height</span><b id="v-height">0.50 m</b><input id="height" type="range" min="0.3" max="0.9" step="0.05" value="0.5"></div>
+  <div class="slider"><span>Angle (0 = square on)</span><b id="v-yaw">0°</b><input id="yaw" type="range" min="-45" max="45" step="5" value="0"></div>
+  <div class="slider"><span>Vehicle mass</span><b id="v-mass">1,300 kg</b><input id="mass" type="range" min="800" max="3000" step="100" value="1300"></div>
+  <div class="slider"><span>Pole to hit (click a pole too)</span><b id="v-target">3 of 6</b><input id="target" type="range" min="0" max="5" step="1" value="2"></div>
+  <button id="hit">Hit the pole</button>
+
+  <h2>The street</h2>
+  <label class="slider" style="display:block"><span>Pole class (NBR 8451 rating)</span>
+    <select id="cls"><option value="0" selected>Residential · 11 m / 600 daN</option><option value="1">Tertiary · 11 m / 600 daN</option><option value="2">Secondary · 11 m / 1,000 daN</option><option value="3">Primary · 11 m / 1,500 daN</option></select></label>
+  <label class="check"><input type="checkbox" id="tx-target"> Transformer on the pole that is hit</label>
+  <label class="check"><input type="checkbox" id="tx-far" checked> Transformer on pole 5 (feeds the far end)</label>
+  <div class="slider"><span>Ground wetness</span><b id="v-wet">dry</b><input id="wet" type="range" min="0" max="1" step="0.1" value="0"></div>
+
+  <details id="adv">
+    <summary>Tunables (the module's parameters)</summary>
+    <div class="slider"><span>Soil yield moment</span><b id="v-soil">50 kN·m</b><input id="soil" type="range" min="10" max="120" step="5" value="50"></div>
+    <div class="slider"><span>Pole nominal load (this class)</span><b id="v-nominal">600 daN</b><input id="nominal" type="range" min="200" max="2000" step="50" value="600"></div>
+    <div class="slider"><span>Wire tie / clamp strength</span><b id="v-clamp">×1.0</b><input id="clamp" type="range" min="0.25" max="4" step="0.25" value="1"></div>
+    <div class="slider"><span>MV protection trips after</span><b id="v-trip">never</b><input id="trip" type="range" min="0" max="10" step="0.5" value="0"></div>
+    <div class="slider"><span>Car crush stiffness</span><b id="v-crush">400 kN/m</b><input id="crush" type="range" min="150" max="1500" step="50" value="400"></div>
+    <p class="note">Changes apply on the next hit (the street is rebuilt). The "Domino" scenario turns these to art-directed values.</p>
+  </details>
+</aside>
+
+<aside id="res" class="panel" aria-label="Results">
+  <h2>Outcome <small id="hash" class="mono" title="Deterministic state hash"></small></h2>
+  <p id="outcome">Pick a scenario or set up a hit.</p>
+  <div class="kv">
+    <span>Peak force</span><b id="r-force">–</b>
+    <span>Impulse</span><b id="r-impulse">–</b>
+    <span>Car Δv (with rebound)</span><b id="r-dv">–</b>
+    <span>Pulse</span><b id="r-dur">–</b>
+  </div>
+  <div class="poles" id="poles"></div>
+  <h2 style="margin-top:12px">Tilt <small>° per pole</small></h2>
+  <canvas class="chart" id="chart-tilt" width="560" height="240"></canvas>
+  <h2 style="margin-top:10px">Wire tension <small>max kN per span</small></h2>
+  <canvas class="chart" id="chart-tension" width="560" height="240"></canvas>
+  <h2 style="margin-top:10px">Events <small id="evcount">0</small></h2>
+  <div id="log" aria-live="polite"></div>
+  <h2 style="margin-top:10px">Engine <small>per 60 Hz step</small></h2>
+  <div class="kv">
+    <span>Woken spans</span><b id="s-spans">–</b>
+    <span>Rope nodes</span><b id="s-nodes">–</b>
+    <span>Rigid bodies</span><b id="s-bodies">–</b>
+    <span>Step time</span><b id="s-ms">–</b>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="btn-repair" title="Send the crew: the pole goes back up and its spans are re-strung">Repair crew</button>
+    <button id="btn-persist" title="Unload the tile and load it again: the damage is kept">Unload/reload tile</button>
+    <button id="btn-replay" title="Run the same hit again from the start and compare the state hash">Replay &amp; compare</button>
+  </div>
+</aside>
+
+<div id="time" class="panel" style="padding:8px 10px">
+  <div id="clock">0.00 s<small>SIM TIME</small></div>
+  <div class="row" id="scale">
+    <button data-scale="1" aria-pressed="false">1×</button>
+    <button data-scale="0.25" aria-pressed="true">¼×</button>
+    <button data-scale="0.1" aria-pressed="false">1/10×</button>
+  </div>
+  <button id="btn-pause">Pause</button>
+  <button id="btn-reset">Reset</button>
+</div>
+
+<div id="banner"><b id="banner-t"></b><small id="banner-s"></small></div>
+<div id="toast"></div>
+
+<div id="loading"><div class="panel"><h1>Pole Lab</h1><p class="note" id="loadMsg">Loading the pole simulation (WebAssembly)…</p></div></div>
+
+<div id="help" role="dialog" aria-modal="true" aria-labelledby="help-title"><div class="panel">
+  <h2 id="help-title">How the Pole Lab works</h2>
+  <p>The street is six 11 m concrete double-T poles 35 m apart, the kind that line São Paulo's residential streets. Each pole carries three 13.8 kV conductors on a crossarm, four low-voltage conductors, a telecom bundle and service drops to the houses. Whether a pole has a transformer or a streetlight comes from its position, exactly as the game's world builder decides it.</p>
+  <p>Everything you see is simulated by <b>Pole Dynamics</b>, the game's native C++ module, compiled to WebAssembly. The page only draws it. It is the same code, with the same results bit for bit, that runs in the Unity build ("Replay &amp; compare" shows the state hash).</p>
+  <h3>What happens in a hit</h3>
+  <ul>
+    <li><b>The pulse.</b> The car's front crushes against the pole (about 400 kN/m) for 20–60 ms. The lab reports the peak force, the impulse, how much speed the car loses, and the pulse length.</li>
+    <li><b>The pole.</b> The force at the bumper is checked against the section's shear strength, and the moment at the ground line against its bending strength. A hit can <b>crack</b> the pole (a permanent tilt), <b>lean</b> it in the soil, or <b>snap</b> it at the bumper. The soil is an elastic–plastic spring; wet ground is softer and weaker.</li>
+    <li><b>The wires.</b> Spans hang on their analytic catenary until something disturbs them. Then they wake up as ropes of 10–24 nodes, solved with XPBD at 240 Hz. Ties and clamps let go, conductors snap and whip back, and wires fall onto the road.</li>
+    <li><b>Hazards.</b> A live 13.8 kV conductor on the ground marks a 4 m danger zone and arcs. Lanes with anything below 2.2 m are reported blocked. Houses and streetlights go dark when their transformer's section loses power.</li>
+    <li><b>The transformer.</b> It tears off its brackets when the pulse shakes the tank above about 4 g, and falls as its own body. A hard landing raises oil-leak and fire hooks.</li>
+  </ul>
+  <h3>What it does not do</h3>
+  <p>At default settings, neighbouring poles are pulled out of plumb but do not fall over: the wires' ties and clamps let go first, which is what distribution lines are designed to do. The "Domino" scenario turns the tunables to art-directed values to show a chain. Flat ground, rigid pole pieces and one global wetness are other simplifications. The module's README lists them all, with sources for every number.</p>
+  <p class="note">A game simulation, not engineering software: do not use it to assess real poles or power lines. Stay well away from downed wires in real life and call the utility.</p>
+  <div class="row" style="margin-top:12px"><button id="help-close">Close</button></div>
+</div></div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
