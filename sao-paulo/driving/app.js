@@ -791,6 +791,7 @@ async function loadModel(buffer, name, announce = true, user = false) {
   setupPaint(inner);
   placeholder.visible = false;
   crumple?.capture();
+  prebindCage();
   $('modelNote').innerHTML = `Driving <b>${escapeHtml(name)}</b> (${size.x.toFixed(2)} × ${size.z.toFixed(2)} m). ` +
     (hasWheels ? 'Wheels found and animated from the physics.' : 'No separate wheel objects found (name them “Wheel_FL”, “Tire_RR”…, to animate them).');
   if (announce) toast(`Loaded ${name}`);
@@ -985,6 +986,27 @@ const DMG_SIZE = 22 + 6 * 8;
 const realisticOn = () => !!M._ord_damage_mode && M._ord_damage_mode() === 1;
 const damageState = () => new Float64Array(M.HEAPF64.buffer, M._ord_damage_state(), DMG_SIZE);
 const cageNodes = () => { const n = M._ord_cage_count(); return { n, nodes: new Float64Array(M.HEAPF64.buffer, M._ord_cage_nodes(), 8 * Math.max(n, 1)) }; };
+// Bind the body mesh to the crash structure while nothing is happening (after a car or model
+// loads, when Realistic is switched on), so the first hit doesn't stall on it.
+function prebindCage() {
+  const run = () => { if (!realisticOn() || isBike() || !M._ord_cage_count) return; const { n, nodes } = cageNodes(); if (n) crumple.prepareCage(nodes, n); };
+  (window.requestIdleCallback || ((f) => setTimeout(f, 200)))(run, { timeout: 1500 });
+}
+// Crash slow motion (Realistic): a big hit drops the world to a quarter speed for ~2 s of real
+// time, then eases back, so the crush can be watched (and redrawn) as it happens. Not when
+// you've picked a slow-motion speed yourself.
+const CRASH_SLOW = { on: store.get('crashSlow', true), until: 0, energy: 0, active: false, cool: 0 };
+function crashSlowMo(now) {
+  if (!CRASH_SLOW.on || CRASH_SLOW.active || now < CRASH_SLOW.cool || VIEW.timeScale !== 1 || replay.on || tunnel.on) return;
+  CRASH_SLOW.active = true; CRASH_SLOW.until = now + 2000;
+  setTimeScale(0.25);
+}
+function crashSlowTick(now) {
+  if (!CRASH_SLOW.active) return;
+  if (VIEW.timeScale !== 0.25 && VIEW.timeScale !== 0.5) { CRASH_SLOW.active = false; return; }   // you changed it
+  if (now > CRASH_SLOW.until + 500) { setTimeScale(1); CRASH_SLOW.active = false; CRASH_SLOW.cool = now + 4000; }   // the same crash settling doesn't set it off again
+  else if (now > CRASH_SLOW.until && VIEW.timeScale === 0.25) setTimeScale(0.5);
+}
 function physicsDamage(on) {
   if (!M._ord_set_damage) return;
   M._ord_set_damage(on ? 1 : 0);
@@ -1031,6 +1053,9 @@ function syncDamage(now, worldVel) {
   if (!realisticOn() || isBike() || labOn()) { if (DMG.shown) { $('dmgPanel').hidden = true; DMG.shown = false; } if (!labOn()) return; }
   const d = damageState();
   if (!d[0]) return;
+  // a big hit: the structure soaked up more than ~25 kJ (a 1.5 t car losing ~20 km/h into a wall)
+  if (d[9] - CRASH_SLOW.energy > 25000 && !labOn()) crashSlowMo(now);
+  CRASH_SLOW.energy = d[9];
   if (d[2] !== DMG.version) {
     DMG.version = d[2];
     const { n, nodes } = cageNodes();
@@ -1277,6 +1302,7 @@ function applyDamageUi() {
 function setDamage(mode) {
   settings.damage = mode; store.set('damage', mode); applyDamageUi();
   if (!labOn()) physicsDamage(mode === 'realistic');
+  prebindCage();
   // redraw what is already there at the new depth (the hits are kept exactly)
   const keep = crumpleLog.slice();
   crumple.restore(); crumpleLog.length = 0;
@@ -1285,6 +1311,8 @@ function setDamage(mode) {
 }
 document.querySelectorAll('[data-damage]').forEach((b) => (b.onclick = () => { setDamage(b.dataset.damage); b.blur(); }));
 $('bRepair').onclick = (e) => { repairBody(true); e.currentTarget.blur(); };
+$('bCrashSlow').setAttribute('aria-pressed', CRASH_SLOW.on);
+$('bCrashSlow').onclick = (e) => { CRASH_SLOW.on = !CRASH_SLOW.on; store.set('crashSlow', CRASH_SLOW.on); e.currentTarget.setAttribute('aria-pressed', CRASH_SLOW.on); toast(CRASH_SLOW.on ? 'Crash slow motion on: a big hit plays at a quarter speed' : 'Crash slow motion off'); e.currentTarget.blur(); };
 applyDamageUi();
 
 $('bGarage2').onclick = (e) => { garage.toggle(true); e.currentTarget.blur(); };
@@ -2310,6 +2338,9 @@ window.__spwShow = () => ({ overlay: overlay.on, rain: weather.rain, puddles: we
   lab: lab?.mode, moose: moose ? { run: moose.run, robot: moose.robot, last: moose.last, results: moose.results } : null, glassViews: glassfx?.views.length ?? 0, glassJobs: glassfx ? [...glassfx.jobs.values()].map((j) => ({ seg: j.seg, ready: !!j.result, error: j.error, started: j.started, ms: j.result?.ms, pieces: j.result?.shapes.length })) : [] });
 window.__spwCam = (cam, yaw, pitch, dist) => { settings.cam = cam; if (yaw !== undefined) { orbit.yaw = yaw; orbit.pitch = pitch; orbit.dist = dist; } camInit = true; };
 window.__spwDamage = (m) => { if (m) setDamage(m); let mx = 0; for (const mm of crumple.meshes) for (let i = 0; i < mm.offset.length; i += 3) mx = Math.max(mx, Math.hypot(mm.offset[i], mm.offset[i + 1], mm.offset[i + 2])); return { mode: settings.damage, dents: crumpleLog.length, rawMax: mx, cap: crumple.cap(), card: $('crash').classList.contains('on'), phys: realisticOn() ? Array.from(damageState().slice(0, 46)) : null, panel: !$('dmgPanel').hidden, panelText: $('dmgPanel').innerText, debris: DMG.debris.length, ...(() => { let f0 = -1e9, f = -1e9; for (const mm of crumple.meshes) for (let i = 0; i < mm.body.length; i += 3) { f0 = Math.max(f0, mm.body[i]); f = Math.max(f, mm.body[i] + mm.offset[i]); } return { meshFront0: f0, meshFront: f }; })() }; };
+window.__spwBody = () => crumple; // debugging: the deformable body meshes
+window.__spwCageN = () => cageNodes(); // debugging
+window.__spwLaunch = (kmh, back = 40) => { const z = ZONES.find((q) => q.name === "Crash barrier"); placeAt(z); M._ord_launch(M._ord_crash_barrier_x() - back, M._ord_crash_lane_y(), 0, kmh / 3.6, 0); }; // debugging
 window.__spwRewind = () => ({ hold: rewindHold, active: rewind.active, cursor: rewind.cursor, frames: rewind.frames.length, snaps: M._ord_snap_count() });
 window.__spwLab = (id) => runLabTest(LAB_TESTS.find((t) => t.id === id));
 window.__spwZone = (name) => { const z = ZONES.find((q) => q.name.startsWith(name)); if (z) placeAt(z); return !!z; };
@@ -2544,6 +2575,7 @@ function padStatus() {
 function frameOnce(now, draw) {
   const dt = TICKS > 1 ? 1 / 60 : Math.min(0.1, (now - last) / 1000); last = now;
   padFrame(dt);
+  crashSlowTick(now);
   adaptRes(dt);
   window.__frames = (window.__frames || 0) + 1;
   if (isBike()) { frameBike(dt, now); if (draw) renderer.render(scene, camera); return; }
