@@ -1,17 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <base href="/sao-paulo/">
-<meta name="description" content="São Paulo World: a 1:1 rebuild of 516 km² (199 sq mi) of São Paulo for an open-world driving game. Every building, tree, lamp post and named street, plus the Metrô at its real depth.">
-<meta property="og:title" content="São Paulo World">
-<meta property="og:description" content="A 1:1 rebuild of 516 km² (199 sq mi) of São Paulo for an open-world driving game.">
+<meta name="description" content="Sem Destino: a 1:1 rebuild of 627 km² (242 sq mi) of São Paulo for an open-world driving game. Every building, tree, lamp post and named street, plus the Metrô at its real depth.">
+<meta property="og:title" content="Sem Destino">
+<meta property="og:description" content="A 1:1 rebuild of 627 km² (242 sq mi) of São Paulo for an open-world driving game.">
 <meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
-<title>São Paulo World</title>
+<title>Sem Destino</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -22,7 +22,7 @@
   --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0b111b;--paper:#111a27;--ink:#e7ecf2;--mute:#93a0b2;--line:#233044;--plate:#1d57c2;--masp:#ec4a3c;--good:#36c483;--warn:#f0b43a;--bad:#ef5d4f;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#0b111b;--paper:#111a27;--ink:#e7ecf2;--mute:#93a0b2;--line:#233044;--plate:#1d57c2;--masp:#ec4a3c;--good:#36c483;--warn:#f0b43a;--bad:#ef5d4f;color-scheme:dark}
+:root[data-theme="dark"]{--bg:#06080d;--paper:#0d121b;--ink:#eef2f8;--mute:#8e9bb0;--line:#1c2534;--plate:#2a64d6;--masp:#ec4a3c;--good:#36c483;--warn:#f0b43a;--bad:#ef5d4f;color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--body);margin:0}
 .wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(16px,4vw,40px)}
@@ -151,6 +151,59 @@ footer .row{display:flex;flex-wrap:wrap;gap:16px 40px;justify-content:space-betw
 .expgrid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:28px;align-items:start}@media (max-width:900px){.expgrid{grid-template-columns:1fr}}
 .etable{width:100%;border-collapse:collapse;font-size:14px}.etable th,.etable td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}.etable th{font:600 11.5px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}.etable td{font-variant-numeric:tabular-nums}
 .tblwrap{overflow-x:auto}
+
+/* Site bar: sticky, frosted, grouped menus (replaces the 20-link topbar) */
+.sitebar{position:sticky;top:0;z-index:60;background:color-mix(in srgb,var(--bg) 74%,transparent);-webkit-backdrop-filter:saturate(1.5) blur(16px);backdrop-filter:saturate(1.5) blur(16px);border-bottom:1px solid color-mix(in srgb,var(--line) 75%,transparent);transition:box-shadow .25s}
+.sitebar.scrolled{box-shadow:0 10px 30px -18px rgba(0,0,0,.45)}
+.sb-in{display:flex;align-items:center;gap:22px;height:62px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);margin-right:auto}
+.brand .plate{display:grid;place-items:center;width:40px;height:26px;border-radius:5px;background:var(--plate);color:#fff;font:900 13px/1 var(--display);letter-spacing:.06em;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.85),0 6px 16px -8px var(--plate)}
+.brand .wm{white-space:nowrap;font:800 21px/1 var(--display);text-transform:uppercase;letter-spacing:.03em}.brand .wm i{font-style:normal;color:var(--masp)}
+.sbnav{display:flex;align-items:center;gap:4px;font:600 14px var(--body)}
+.sbnav .plain,.dd>summary{color:var(--ink);text-decoration:none;padding:8px 12px;border-radius:8px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;transition:background .15s,color .15s}
+.dd>summary::-webkit-details-marker{display:none}
+.dd>summary::after{content:"";width:6px;height:6px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg) translateY(-2px);opacity:.6;transition:transform .2s}
+.dd[open]>summary::after{transform:rotate(225deg) translateY(-1px)}
+.sbnav .plain:hover,.dd>summary:hover,.dd[open]>summary{background:color-mix(in srgb,var(--plate) 12%,transparent);color:var(--plate)}
+.dd{position:relative}
+.dd .menu{position:absolute;top:calc(100% + 10px);left:-8px;min-width:270px;padding:8px;border-radius:14px;background:var(--paper);border:1px solid var(--line);box-shadow:0 24px 60px -24px rgba(0,0,0,.5);display:grid;gap:2px;animation:ddin .16s ease-out}
+.dd.wide .menu{min-width:440px;grid-template-columns:1fr 1fr;left:auto;right:-8px}
+@keyframes ddin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.menu a,.mpanel a{display:block;padding:9px 12px;border-radius:9px;color:var(--ink);text-decoration:none}
+.menu a:hover,.mpanel a:hover{background:color-mix(in srgb,var(--plate) 10%,transparent)}
+.menu a b,.mpanel a b{display:block;font:600 14px/1.2 var(--body)}.menu a small,.mpanel a small{display:block;font:400 12px/1.3 var(--body);color:var(--mute);margin-top:2px}
+.sitebar .drivebtn.sm{padding:7px 14px 7px 8px}
+.burger{display:none;background:none;border:0;width:40px;height:40px;padding:9px;cursor:pointer}
+.burger span{display:block;height:2px;background:var(--ink);margin:5px 0;border-radius:2px;transition:transform .2s,opacity .2s}
+.burger[aria-expanded="true"] span:nth-child(1){transform:translateY(7px) rotate(45deg)}.burger[aria-expanded="true"] span:nth-child(2){opacity:0}.burger[aria-expanded="true"] span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+.mpanel{border-top:1px solid var(--line);max-height:calc(100vh - 62px);overflow:auto;padding-bottom:16px}
+.mpanel h6{margin:16px 12px 4px;font:700 11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+@media (max-width:900px){.sbnav{display:none}.burger{display:block}.brand .wm{font-size:17px}}@media (max-width:380px){.brand .wm i{display:none}}
+html{scroll-padding-top:74px}
+
+/* Hero band: full-bleed render behind the sign, CTAs as one primary + compact chips */
+.heroband{position:relative;margin-top:-1px;padding-block:clamp(36px,6vw,84px);background:linear-gradient(90deg,rgba(7,12,22,.94) 0%,rgba(7,12,22,.78) 38%,rgba(7,12,22,.35) 75%,rgba(7,12,22,.2)),url(img/aerial.jpg) center 40%/cover no-repeat;color:#eef2f7;overflow:hidden}
+.heroband::after{content:"";position:absolute;inset:auto 0 0 0;height:90px;background:linear-gradient(transparent,var(--bg));pointer-events:none}
+.heroband .herotop{position:relative;z-index:1;align-items:end}
+.heroband .eyebrow{color:#ffd166}
+.heroband .lede{color:#eef2f7;text-shadow:0 1px 18px rgba(0,0,0,.5)}
+.heroband .facts,.heroband .facts *{color:#cfd8e3}
+.heroband .ctas a:not(.drivebtn){color:#fff}
+.heroband .ctas{gap:10px}
+header.hero{padding-top:0}
+.heroband .ctas+*{margin-top:14px}
+.heroband .ctas .drivebtn:not(:first-child){padding:7px 14px 7px 8px;gap:8px;border-radius:999px;background:rgba(255,255,255,.1);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
+.heroband .ctas .drivebtn:not(:first-child):hover{background:rgba(255,255,255,.2)}
+.heroband .ctas .drivebtn:not(:first-child) .ico{width:22px;height:22px;font-size:9px}
+.heroband .ctas .drivebtn:not(:first-child) b{font-size:15px}
+.heroband .ctas .drivebtn:not(:first-child) small{display:none}
+.heroband .ctas .drivebtn:first-child{flex-basis:100%;max-width:max-content;padding:14px 26px 14px 14px}
+.heroband .ctas .drivebtn:first-child b{font-size:26px}
+
+/* Dark-first look: night-city glow behind the page, glassy cards */
+:root[data-theme="dark"] body{background:radial-gradient(1200px 600px at 85% -10%,rgba(42,100,214,.16),transparent 60%),radial-gradient(900px 500px at -10% 30%,rgba(236,74,60,.10),transparent 60%),var(--bg);background-attachment:fixed}
+:root[data-theme="dark"] .tilepanel,:root[data-theme="dark"] .mapcard{box-shadow:0 30px 80px -40px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.04)}
+:root[data-theme="dark"] h2{text-shadow:0 0 40px rgba(42,100,214,.25)}
 </style>
 <style>
 /* top bar, drive buttons, north block, drive section */
@@ -209,18 +262,18 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
 </head>
 <body>
 
-<header class="hero"><div class="wrap topbar"><nav aria-label="Sections"><a href="#film">Film</a><a href="#explore">Map &amp; tiles</a><a href="#north">The blocks</a><a href="#metro">Metrô</a><a href="#qa">Quality</a><a href="#balneario">Balneário</a><a href="ai/">How the AI thinks</a><a href="physics/">Physics engine</a><a href="vehicle-dynamics/">Vehicle dynamics (math)</a><a class="navfly" href="flying/">Fly the 172</a><a class="navfly" href="golf/play/">Play golf</a><a class="navfly" href="golf/">Golf ball wind tunnel</a><a class="navfly" href="glass/">Glass lab</a><a class="navfly" href="liquids/">Liquids lab</a><a class="navfly" href="wake/">Wake lab</a><a class="navfly" href="bloco/">Bloco</a><a class="navfly" href="destruction/">Destruction lab</a><a class="navfly" href="poles/">Pole lab</a><a class="navfly" href="ballistics/">Ballistics range</a><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive the car</b></a></nav></div>
-<div class="wrap herotop">
+<div class="sitebar"><div class="wrap sb-in"><a class="brand" href="#top" aria-label="Sem Destino: Sem Destino, top"><span class="plate">SP</span><span class="wm">Sem <i>Destino</i></span></a><nav aria-label="Sections" class="sbnav"><details class="dd "><summary>The city</summary><div class="menu"><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a></div></details><details class="dd "><summary>Play</summary><div class="menu"><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a></div></details><details class="dd wide"><summary>Labs</summary><div class="menu"><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a></div></details><a class="plain" href="ai/">How the AI thinks</a></nav><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive</b></a><button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button></div><div class="mpanel" hidden><div class="wrap"><h6>The city</h6><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a><h6>Play</h6><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a><h6>Labs</h6><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a><h6>More</h6><a href="ai/"><b>How the AI thinks</b></a></div></div></div><header class="hero" id="top">
+<div class="heroband"><div class="wrap herotop">
   <div>
     <div class="eyebrow">An open-world game, one tile at a time</div>
-    <div style="margin-top:18px"><div class="plate"><b>São Paulo<br>World</b><span>Centro · Paulista · Pinheiros · Zona Norte &nbsp;1 : 1</span></div></div>
+    <div style="margin-top:18px"><div class="plate"><b>Sem<br>Destino</b><span>São Paulo &nbsp;·&nbsp; 1 : 1</span></div></div>
   </div>
   <div>
     <p class="lede intro">A block-by-block rebuild of São Paulo for an open-world driving game: 627 km² (242 sq mi) of the real city so far, built in blocks of 576 tiles from public survey data, with every building footprint, street tree, lamp post and named street, plus the Metrô running underneath at its real depth.</p>
     <div class="ctas"><a class="drivebtn" href="driving/"><span class="ico" aria-hidden="true">▶</span><span><b>Drive the car</b><small>Vehicle physics test track, in your browser</small></span></a><a class="drivebtn fly" href="flying/"><span class="ico" aria-hidden="true">▲</span><span><b>Fly the 172</b><small>Or the Top G jet: flight test bed over the city</small></span></a><a class="drivebtn glass" href="glass/"><span class="ico" aria-hidden="true">✦</span><span><b>Break glass</b><small>Fracture lab, down to 1/100,000 speed</small></span></a><a class="drivebtn liquid" href="liquids/"><span class="ico" aria-hidden="true">●</span><span><b>Spill and splash</b><small>Liquids lab: wine, glass and spatter</small></span></a><a class="drivebtn" href="bloco/"><span class="ico" aria-hidden="true">■</span><span><b>Play Bloco</b><small>São Paulo in blocks: drive, fly, break glass</small></span></a><a class="drivebtn fly" href="wake/"><span class="ico" aria-hidden="true">≈</span><span><b>Near miss</b><small>Wake turbulence lab: a 737 over a 172 on final</small></span></a><a class="drivebtn liquid" href="destruction/"><span class="ico" aria-hidden="true">▼</span><span><b>Topple a tower</b><small>Destruction lab: 85 storeys into the Atlantic</small></span></a><a class="drivebtn" href="poles/"><span class="ico" aria-hidden="true">⚡</span><span><b>Hit a pole</b><small>Pole lab: snapped poles, live wires, blackouts</small></span></a><a class="drivebtn range" href="ballistics/"><span class="ico" aria-hidden="true">⊕</span><span><b>Shoot two miles</b><small>Ballistics range, in bullet time</small></span></a><a class="ghost" href="#film">▶ Watch the 30-second film</a><a class="ghost" href="#north" id="northlink">Two blocks built: 1,152 tiles</a></div>
     <div class="facts" id="facts"></div>
   </div>
-</div>
+</div></div>
 <div class="wrap mapgrid" id="explore">
   <div>
     <div class="search" style="margin-top:0"><input id="q" type="search" placeholder="Find a street or neighbourhood…  e.g. Oscar Freire, Santana" aria-label="Search streets and neighbourhoods" autocomplete="off"></div><div class="results" id="res"></div>
@@ -251,7 +304,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
 <section id="film"><div class="wrap">
   <div class="sechead"><div><div class="eyebrow">The film · 30 seconds, rendered in Blender</div><h2>Fly over the city</h2></div>
     <p>From street level under MASP on Avenida Paulista, up over Jardins, across Faria Lima at 300 m, down to the Pinheiros river and around the Ponte Estaiada at golden hour. Every frame is the actual game map, rendered on one laptop.</p></div>
-  <div class="filmbox"><video id="filmv" playsinline muted loop controls preload="none" poster="video/poster.jpg" data-hd="video/flythrough_1080.mp4" data-sd="video/flythrough_720.mp4" data-webm="video/flythrough_720.webm" aria-label="30-second flythrough of São Paulo World"></video></div>
+  <div class="filmbox"><video id="filmv" playsinline muted loop controls preload="none" poster="video/poster.jpg" data-hd="video/flythrough_1080.mp4" data-sd="video/flythrough_720.mp4" data-webm="video/flythrough_720.webm" aria-label="30-second flythrough of Sem Destino"></video></div>
   <div class="chapters" role="group" aria-label="Jump to a place in the film">
     <button data-t="0">MASP <small>0:00</small></button><button data-t="11.2">Jardins <small>0:11</small></button><button data-t="16">Faria Lima <small>0:16</small></button><button data-t="20.2">Rio Pinheiros <small>0:20</small></button><button data-t="25">Ponte Estaiada <small>0:25</small></button>
   </div>
@@ -427,7 +480,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
 
 
 <footer><div class="wrap row">
-  <div><div class="plate sm"><b>São Paulo World</b><span>Solo game project · 2026</span></div></div>
+  <div><div class="plate sm"><b>Sem Destino</b><span>Solo game project · 2026</span></div></div>
   <div style="max-width:60ch">Data: © OpenStreetMap contributors (ODbL); GeoSampa, Prefeitura de São Paulo (buildings, sidewalks, street trees, lighting, street register, districts, terrain). Station facts from public sources. Modelled in Blender; renders shown are untextured previews.</div>
 </div></footer>
 
@@ -660,4 +713,13 @@ $("hist").innerHTML=(D.history||[]).map(h=>{const n=tot_(h.g),gr=(h.g.A||0)+(h.g
 })();
 </script>
 
-</body></html>
+<script>
+(()=>{const bar=document.querySelector('.sitebar');if(!bar)return;const dds=[...bar.querySelectorAll('details.dd')];
+dds.forEach(d=>d.addEventListener('toggle',()=>{if(d.open)dds.forEach(o=>{if(o!==d)o.open=false})}));
+document.addEventListener('click',e=>{if(!bar.contains(e.target))dds.forEach(d=>d.open=false)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){dds.forEach(d=>d.open=false);close()}});
+bar.querySelectorAll('.menu a,.mpanel a').forEach(a=>a.addEventListener('click',()=>{dds.forEach(d=>d.open=false);close()}));
+const b=bar.querySelector('.burger'),p=bar.querySelector('.mpanel');function close(){b.setAttribute('aria-expanded','false');p.hidden=true}
+b.addEventListener('click',()=>{const o=b.getAttribute('aria-expanded')!=='true';b.setAttribute('aria-expanded',o);p.hidden=!o});
+const sc=()=>bar.classList.toggle('scrolled',scrollY>8);addEventListener('scroll',sc,{passive:true});sc();})();
+</script></body></html>
