@@ -66,11 +66,13 @@
     {
       "page": "golf/play",
       "repo": "ZRosserMcIntosh/golf",
-      "commit": "unknown",
-      "verified": null,
-      "note": "Built from the golf repository (PR #91); that repository was not reachable when this manifest was made.",
+      "commit": "0ae14c12642dd6731fa2184079873d836e588839",
+      "verified": "2026-11-18",
+      "note": "Updated from 13ddd57 (what PR #91 shipped, rebuilt and matched byte for byte) to main. The newer commit only adds map-polygon outlines, which the Varzea course does not use; the smoke round is identical.",
       "files": {
-        "golf/play/golf.wasm": "229eea84e6972900d542af003a2c93017cab82e2bd3b695a7ba90c9f69be3adf"
+        "golf/play/golf.wasm": "21ecba431892f5d740c13c0339fe4c910597a86667377e8a87316d2fc5888db4",
+        "golf/play/golf.mjs": "5117a2538910c16ce933a2cd42069e32c51f78ef96f06764bcf11e022de7a0af",
+        "golf/play/varzea.json": "ba123c6be2373f4bcbbb71c45caf6aaf01b31f98802eff9a71d172fe69cfac73"
       }
     }
   ]
