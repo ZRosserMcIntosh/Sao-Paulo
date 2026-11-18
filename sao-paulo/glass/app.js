@@ -2310,7 +2310,7 @@ function buildPresets() {
     if (gi >= 0) {
       const b = document.createElement('button');
       b.className = 'feature';
-      b.innerHTML = 'Sing a picture frame to pieces<small>2 mm of picture glass rings at about 135 Hz, in the range of a voice. Play its note at 145 dB and watch the swing build up until it shatters</small>';
+      b.innerHTML = 'Sing a picture frame to pieces<small>2 mm of picture glass rings at about 135 Hz, in the range of a voice. Play its note at 145 dB and glide it up as the swing stiffens the glass, until it shatters</small>';
       b.onclick = () => {
         if (activeScene()) leaveScene(false);
         if (stackOn || stack.length) { stack = []; leaveStack(false); renderLayers(); }
@@ -2320,6 +2320,8 @@ function buildPresets() {
         simClockReset();
         TONE.shaker = false;
         TONE.freq = TONE.modes[0].f;
+        TONE.glide = 0.25 * TONE.freq;   // a quarter of the note per second, as the engine's own test
+        TONE.glideTo = 1.8 * TONE.freq;
         TONE.dB = 145;
         TONE.holo = true;
         if (stressOn) $('bStress').click();
@@ -3838,7 +3840,8 @@ function plantStone(n, delay = 1.6) {
 // gets its peak pressure at the glass, doubled by the reflection there. A
 // shaker pushes at one point instead, and can drive every mode.
 const TONE = { ratio: 0, on: false, freq: 0, dB: 140, shaker: false, mic: null, boost: 40, holo: false, env: null, envT: 0,
-  swing: 0, stress: 0, strength: 0, stressT: 0, startT: 0, osc: null, gain: null, broke: false, modes: [], lastSent: '' };
+  swing: 0, stress: 0, strength: 0, stressT: 0, startT: 0, osc: null, gain: null, broke: false, modes: [], lastSent: '',
+  glide: 0, glideTo: 0 };   // glide: Hz/s the engine sweeps the note up (0: held), until glideTo
 const SHAKER_AT = [0.31, 0.37];   // share of the width and height: off every line of symmetry
 const EXAGS = [1, 10, 50];
 const TONE_SLOW = 1 / 12;   // playback speed while a note builds up
@@ -3853,10 +3856,24 @@ function toneAvailable() { return !!P && !rigs && !activeScene(); }
 function applyTone(force = false) {
   if (!toneAvailable()) return;
   const lvl = TONE.on ? toneLevel() * (TONE.mic ? TONE.mic.gate : 1) : 0;
-  const key = `${TONE.freq.toFixed(3)}|${lvl.toPrecision(4)}|${TONE.shaker}`;
+  const key = toneKey(lvl);
   if (!force && key === TONE.lastSent) return;
   TONE.lastSent = key;
   G.gls_tone(TONE.freq, lvl, TONE.mic ? 0.03 : 0.05, TONE.shaker ? 1 : 0, SHAKER_AT[0] * P.W, SHAKER_AT[1] * P.H);
+  // A pane bent past its thickness stiffens and its resonance climbs: the
+  // engine glides the note up on its own clock to follow it.
+  if (TONE.glide && lvl > 0) G.gls_tone_glide(TONE.glide, TONE.glideTo);
+}
+function toneKey(lvl) { return `${TONE.freq.toFixed(3)}|${lvl.toPrecision(4)}|${TONE.shaker}`; }
+// The note while the engine glides it: show and play where it has got to.
+function followGlide() {
+  if (!TONE.glide || !TONE.on) return;
+  const f = G.gls_tone_frequency();
+  if (!(f > 0) || Math.abs(f - TONE.freq) < 1e-3) return;
+  TONE.freq = f;
+  TONE.lastSent = toneKey(TONE.on ? toneLevel() * (TONE.mic ? TONE.mic.gate : 1) : 0);  // the engine already has it
+  $('vFreq').textContent = fmtHz(f);
+  $('freq').value = String(freqToSlider(Math.max(10, f)));
 }
 // The pane's lowest notes, as chips (a loudspeaker only drives the ones odd both ways).
 function toneNewPane() {
@@ -3883,7 +3900,7 @@ function renderModes() {
     b.title = `Mode ${md.m}×${md.n}: ${md.m} half-waves across, ${md.n} up` + (odd || TONE.shaker ? '' : '. Sound pushes the whole face evenly and cannot drive this one: use the shaker');
     b.setAttribute('aria-pressed', String(Math.abs(TONE.freq / md.f - 1) < 0.002));
     if (!odd && !TONE.shaker) b.style.opacity = '0.55';
-    b.onclick = () => { TONE.freq = md.f; syncToneUI(); applyTone(); };
+    b.onclick = () => { TONE.freq = md.f; TONE.glide = 0; syncToneUI(); applyTone(); };
     box.appendChild(b);
   }
 }
@@ -3948,6 +3965,7 @@ function toneFrame(dt, s, tEng) {
   toneSound();
   if (!TONE.on || !P) return;
   if (TONE.mic) micFrame();
+  followGlide();
   applyTone();
   if (!TONE.broke && (s[6] || P.broken.some(Boolean))) {
     TONE.broke = true;
@@ -4063,6 +4081,7 @@ function micFrame() {
   m.pitch = m.pitch ? m.pitch + (f - m.pitch) * 0.35 : f;
   m.db = dbfs + 120;
   TONE.freq = m.pitch;
+  TONE.glide = 0;
   TONE.dB = clamp(m.db + TONE.boost, 60, 175);
 }
 // Normalised autocorrelation, 70 Hz to 1.2 kHz, refined by a parabola.
@@ -4084,7 +4103,7 @@ function pitchOf(b, rate) {
 $('bTone').onclick = () => setTone(!TONE.on);
 $('bMic').onclick = () => (TONE.mic ? setTone(false) : startMic());
 $('bDrive').onclick = () => { TONE.shaker = !TONE.shaker; if (TONE.shaker && TONE.dB > 165) TONE.dB = 150; renderModes(); syncToneUI(); applyTone(true); };
-$('freq').oninput = (e) => { TONE.freq = sliderToFreq(+e.target.value); syncToneUI(); applyTone(); };
+$('freq').oninput = (e) => { TONE.freq = sliderToFreq(+e.target.value); TONE.glide = 0; syncToneUI(); applyTone(); };
 $('level').oninput = (e) => { TONE.dB = +e.target.value; syncToneUI(); applyTone(); };
 $('boost').oninput = (e) => { TONE.boost = +e.target.value; syncToneUI(); };
 $('bHolo').onclick = () => {
@@ -4188,6 +4207,7 @@ function applyShareLink() {
   const tn = (q.get('tone') || '').split(',').map(Number);
   if (tn[0] > 0 && !stackOn) {
     TONE.freq = clamp(tn[0], 10, 5000);
+    TONE.glide = 0;
     TONE.dB = clamp(tn[1] || 140, 60, 175);
     TONE.shaker = tn[2] === 1;
     renderModes();

@@ -26,12 +26,13 @@
     {
       "page": "glass",
       "repo": "ZRosserMcIntosh/Glass",
-      "commit": "3370791a31c5720234d92f7db810db036ae6af83",
+      "commit": "c378c23a08dfe68f9ee06a79128edcff791e1205",
       "verified": "2026-11-18",
       "files": {
-        "glass/glass.wasm": "8022f874edee884a5d78d5989ffdb4ab75f3ef7bb9fa2daacded7737dd9bbb8d",
-        "glass/glass-scalar.wasm": "99abfd02c095f647401e463afe6290b0d42e55de7b9c333275c0403cfabb10a5"
-      }
+        "glass/glass.wasm": "e8fcf930c5382f6e70a0d5e3502fe9efc3794bcb3b45bf8507174bb49ac7588a",
+        "glass/glass-scalar.wasm": "86d534958c5b60c893bd86ca0f961d29cab7e1e384aa282b415f923238866f01"
+      },
+      "note": "Glass main with membrane action (Glass #3). Also loaded by glass/drop and glass/grenade."
     },
     {
       "page": "ballistics",
