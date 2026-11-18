@@ -157,7 +157,7 @@ footer .row{display:flex;flex-wrap:wrap;gap:16px 40px;justify-content:space-betw
 .sitebar.scrolled{box-shadow:0 10px 30px -18px rgba(0,0,0,.45)}
 .sb-in{display:flex;align-items:center;gap:22px;height:62px}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);margin-right:auto}
-.brand .plate{display:grid;place-items:center;width:40px;height:26px;border-radius:5px;background:var(--plate);color:#fff;font:900 13px/1 var(--display);letter-spacing:.06em;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.85),0 6px 16px -8px var(--plate)}
+.brand .sbplate{display:grid;place-items:center;width:40px;height:26px;padding:0;margin:0;line-height:1;border-radius:5px;background:var(--plate);color:#fff;font:900 13px/1 var(--display);letter-spacing:.06em;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.85),0 6px 16px -8px var(--plate)}
 .brand .wm{white-space:nowrap;font:800 21px/1 var(--display);text-transform:uppercase;letter-spacing:.03em}.brand .wm i{font-style:normal;color:var(--masp)}
 .sbnav{display:flex;align-items:center;gap:4px;font:600 14px var(--body)}
 .sbnav .plain,.dd>summary{color:var(--ink);text-decoration:none;padding:8px 12px;border-radius:8px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;transition:background .15s,color .15s}
@@ -204,6 +204,11 @@ header.hero{padding-top:0}
 :root[data-theme="dark"] body{background:radial-gradient(1200px 600px at 85% -10%,rgba(42,100,214,.16),transparent 60%),radial-gradient(900px 500px at -10% 30%,rgba(236,74,60,.10),transparent 60%),var(--bg);background-attachment:fixed}
 :root[data-theme="dark"] .tilepanel,:root[data-theme="dark"] .mapcard{box-shadow:0 30px 80px -40px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.04)}
 :root[data-theme="dark"] h2{text-shadow:0 0 40px rgba(42,100,214,.25)}
+
+.lmcard{position:absolute;left:14px;bottom:56px;width:min(300px,60%);background:rgba(10,14,22,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.14);border-radius:12px;overflow:hidden;box-shadow:0 20px 50px -20px rgba(0,0,0,.9);z-index:5;animation:ddin .18s ease-out}
+.lmcard .lmimg{height:170px;background:#111 center/cover no-repeat}
+.lmcard .lmt{padding:10px 12px}.lmcard .lmn{display:block;font:800 19px/1.05 var(--display);text-transform:uppercase;color:#fff}.lmcard .lmk{display:block;font:500 11.5px/1.35 var(--mono);color:#9aa7ba;margin-top:4px}
+.lmcard .lmx{position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:16px;line-height:1;cursor:pointer}
 </style>
 <style>
 /* top bar, drive buttons, north block, drive section */
@@ -262,7 +267,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
 </head>
 <body>
 
-<div class="sitebar"><div class="wrap sb-in"><a class="brand" href="#top" aria-label="Sem Destino: Sem Destino, top"><span class="plate">SP</span><span class="wm">Sem <i>Destino</i></span></a><nav aria-label="Sections" class="sbnav"><details class="dd "><summary>The city</summary><div class="menu"><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a></div></details><details class="dd "><summary>Play</summary><div class="menu"><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a></div></details><details class="dd wide"><summary>Labs</summary><div class="menu"><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a></div></details><a class="plain" href="ai/">How the AI thinks</a></nav><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive</b></a><button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button></div><div class="mpanel" hidden><div class="wrap"><h6>The city</h6><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a><h6>Play</h6><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a><h6>Labs</h6><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a><h6>More</h6><a href="ai/"><b>How the AI thinks</b></a></div></div></div><header class="hero" id="top">
+<div class="sitebar"><div class="wrap sb-in"><a class="brand" href="#top" aria-label="Sem Destino: Sem Destino, top"><span class="sbplate">SP</span><span class="wm">Sem <i>Destino</i></span></a><nav aria-label="Sections" class="sbnav"><details class="dd "><summary>The city</summary><div class="menu"><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a></div></details><details class="dd "><summary>Play</summary><div class="menu"><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a></div></details><details class="dd wide"><summary>Labs</summary><div class="menu"><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a></div></details><a class="plain" href="ai/">How the AI thinks</a></nav><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive</b></a><button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button></div><div class="mpanel" hidden><div class="wrap"><h6>The city</h6><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a><h6>Play</h6><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a><h6>Labs</h6><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a><h6>More</h6><a href="ai/"><b>How the AI thinks</b></a></div></div></div><header class="hero" id="top">
 <div class="heroband"><div class="wrap herotop">
   <div>
     <div class="eyebrow">An open-world game, one tile at a time</div>
@@ -285,7 +290,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
       <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button></div>
       <div class="lmtier" role="group" aria-label="Landmark tiers"><span class="lbl">Landmarks</span><button data-tr="1" aria-pressed="true">★ Major</button><button data-tr="2" aria-pressed="true">Medium</button><button data-tr="3" aria-pressed="true">Minor</button></div>
       <div class="legend" id="legend"></div>
-      <div class="banner" id="banner"><div class="n" id="bn"></div><div class="a" id="ba"></div></div>
+      <div class="lmcard" id="lmcard" hidden><button class="lmx" aria-label="Close" onclick="this.parentNode.hidden=true">×</button><div class="lmimg"></div><div class="lmt"><b class="lmn"></b><span class="lmk"></span></div></div><div class="banner" id="banner"><div class="n" id="bn"></div><div class="a" id="ba"></div></div>
     </div>
     <div class="hint">Drag to pan · scroll or +/− to zoom · hover for the in-game street banner · click a tile</div>
   </div>
@@ -551,6 +556,18 @@ function draw(){const c=cx,Wc=cv.width;c.fillStyle="#141a22";c.fillRect(0,0,Wc,W
   if(mode==="qa"){c.globalAlpha=.55;for(const t of D.tiles){const [x,y]=w2s(t.i*500-250,t.j*500+250);c.fillStyle=GC[t.g];c.fillRect(x+1,y+1,tp-2,tp-2)}c.globalAlpha=1}
   if(mode==="st"){c.lineCap="round";const wd=[3.2,2.4,1.6,.9];for(const lv of [3,2,1,0])for(const s of D.streets){if(s[2]!==lv)continue;c.strokeStyle=lv<2?"#ffd36b":lv===2?"rgba(255,255,255,.9)":"rgba(170,205,255,.55)";c.lineWidth=wd[lv]*dpr*Math.min(2.2,.7+scale*.25);c.beginPath();s[3].forEach((p,n)=>{const [x,y]=w2s(p[0],p[1]);n?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()}}
   if(mode==="st"&&base()*scale>.33){c.fillStyle="rgba(255,255,255,.95)";const step=55;for(const s of D.streets){if(!s[4])continue;const P=s[3];let acc=step/2;for(let n=1;n<P.length;n++){const a=P[n-1],b=P[n],L_=Math.hypot(b[0]-a[0],b[1]-a[1]);while(acc<L_){const t=acc/L_,[sx,sy]=w2s(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t);if(sx>-20&&sy>-20&&sx<cv.width+20&&sy<cv.height+20){const r=3.6*dpr;c.save();c.translate(sx,sy);c.rotate(Math.atan2(-(b[1]-a[1]),b[0]-a[0]));c.beginPath();c.moveTo(r,0);c.lineTo(-r,-r*.75);c.lineTo(-r*.4,0);c.lineTo(-r,r*.75);c.closePath();c.fill();c.restore()}acc+=step}acc-=L_}}}
+  if(mode==="st"||(mode==="img"&&base()*scale>.35)){const pp=base()*scale,occ=[],lim=1600*dpr;c.textAlign="center";c.textBaseline="middle";   // street names along the streets, biggest roads first, no overlaps
+    for(const lv of [0,1,2,3]){if(pp<[.08,.13,.26,.45][lv])continue;const fs=[12.5,12,11,10][lv]*dpr;c.font=`${lv<2?800:600} ${fs}px "Public Sans",sans-serif`;
+      for(const s of D.streets){if(s[2]!==lv||!s[0])continue;const P=s[3],[fx,fy]=w2s(P[0][0],P[0][1]);if(fx<-lim||fy<-lim||fx>cv.width+lim||fy>cv.height+lim)continue;
+        const Q=P.map(p=>w2s(p[0],p[1])),cum=[0];for(let n=1;n<Q.length;n++)cum.push(cum[n-1]+Math.hypot(Q[n][0]-Q[n-1][0],Q[n][1]-Q[n-1][1]));
+        const tw=c.measureText(s[0]).width,need=tw+14*dpr;if(cum[cum.length-1]<need)continue;
+        let best=null,bd=1e9;const mid=cum[cum.length-1]/2;   // a nearly straight stretch long enough for the name, closest to the middle of the street
+        for(let i=0,j=0;i<Q.length;i++){while(j<Q.length-1&&cum[j]-cum[i]<need)j++;if(cum[j]-cum[i]<need)break;const ch=Math.hypot(Q[j][0]-Q[i][0],Q[j][1]-Q[i][1]);if(ch<need||ch<.93*(cum[j]-cum[i]))continue;const d=Math.abs((cum[i]+cum[j])/2-mid);if(d<bd){bd=d;best=[Q[i][0],Q[i][1],Q[j][0],Q[j][1]]}}
+        if(!best)continue;const mx=(best[0]+best[2])/2,my=(best[1]+best[3])/2;if(mx<0||my<0||mx>cv.width||my>cv.height)continue;
+        let a=Math.atan2(best[3]-best[1],best[2]-best[0]);if(a>Math.PI/2)a-=Math.PI;if(a<-Math.PI/2)a+=Math.PI;const hx=Math.abs(Math.cos(a))*tw/2+Math.abs(Math.sin(a))*fs*.7+3*dpr,hy=Math.abs(Math.sin(a))*tw/2+Math.abs(Math.cos(a))*fs*.7+3*dpr;
+        if(occ.some(q=>mx-hx<q[2]&&mx+hx>q[0]&&my-hy<q[3]&&my+hy>q[1]))continue;occ.push([mx-hx,my-hy,mx+hx,my+hy]);
+        c.save();c.translate(mx,my);c.rotate(a);c.lineWidth=3.2*dpr;c.lineJoin="round";c.strokeStyle="rgba(5,10,20,.88)";c.strokeText(s[0],0,0);c.fillStyle=lv<2?"#ffe6a3":"#ffffff";c.fillText(s[0],0,0);c.restore()}}
+    c.textAlign="left"}
   if(mode==="img"||mode==="st"){const pp=base()*scale;c.font=`700 ${11*dpr}px "Public Sans",sans-serif`;c.textBaseline="middle";{const lab=[],P=[];for(const l of LMS()){const tr=l.tr||3;if(!LT[tr])continue;const [x,y]=w2s(l.x,l.y);if(x<-10||y<-10||x>cv.width+10||y>cv.height+10)continue;const r=(tr===1?(pp>.15?6.5:5):tr===2?(pp>.15?4.5:3.5):(pp>.15?3.5:2.5))*dpr;c.fillStyle=LC[l.c]||"#fff";c.strokeStyle=tr===1?"#fff":"#0b0f15";c.lineWidth=(tr===1?2.2:1.5)*dpr;c.beginPath();c.arc(x,y,r,0,7);c.fill();c.stroke();P.push([l,x,y,r,tr])}for(let n=P.length-1;n>=0;n--){const [l,x,y,r,tr]=P[n];if(!(pp>(tr===1?0:tr===2?.22:.45)))continue;c.font=`${tr===1?800:700} ${(tr===1?12.5:tr===2?11:10)*dpr}px "Public Sans",sans-serif`;const w=c.measureText(l.n).width,h=14*dpr,bx=x+r+3*dpr;if(lab.some(q=>bx<q[2]&&bx+w>q[0]&&y-h/2<q[3]&&y+h/2>q[1]))continue;lab.push([bx,y-h/2,bx+w,y+h/2]);c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.85)";c.strokeText(l.n,bx,y);c.fillStyle=tr===3?"#dfe6ef":"#fff";c.fillText(l.n,bx,y)}}}
   if(mode==="mt"){c.fillStyle="rgba(10,15,25,.45)";c.fillRect(0,0,Wc,Wc);c.lineCap="round";c.lineJoin="round";for(const l of D.lines){c.strokeStyle=l.c;c.lineWidth=4*dpr;c.beginPath();l.xy.forEach((p,n)=>{const [x,y]=w2s(p[0],p[1]);n?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
     for(const s of l.st){const [x,y]=w2s(s.x,s.y);c.fillStyle="#fff";c.strokeStyle=l.c;c.lineWidth=2.2*dpr;c.beginPath();c.arc(x,y,3.6*dpr,0,7);c.fill();c.stroke()}}
@@ -577,7 +594,14 @@ cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect(),px=(e.c
   draw()});
 cv.addEventListener("pointerleave",()=>{hover=null;$("banner").style.opacity=0;draw()});
 const tname=(i,j)=>`T_${i<0?"m"+(-i):"p"+i}_${j<0?"m"+(-j):"p"+j}`;
-function pick(e){const r=cv.getBoundingClientRect(),[wx,wy]=s2w((e.clientX-r.left)*dpr,(e.clientY-r.top)*dpr);const t=TL[tname(Math.round(wx/500),Math.round(wy/500))];if(t)showTile(t)}
+const LMHERO={"MASP":"img/masp.jpg","Ponte Estaiada":"img/estaiada_aerial.jpg","Estação da Luz":"img/luz.jpg","Aeroporto de Congonhas":"img/cgh.jpg","Congonhas":"img/cgh.jpg"};
+function lmCard(l){const el=$("lmcard"),i=Math.round(l.x/500),j=Math.round(l.y/500),t=tname(i,j),h=LMHERO[l.n];
+  const fx=(l.x-(i*500-250))/500,fy=((j*500+250)-l.y)/500,Z=2.4;   // tile render is a top-down 500 m square; zoom in around the landmark
+  el.querySelector(".lmimg").style.cssText=h?`background-image:url(${h});background-size:cover;background-position:center`:`background-image:url(tiles/${t}.jpg);background-size:${Z*100}% ${Z*100}%;background-position:${Math.max(0,Math.min(100,(fx*Z-.5)/(Z-1)*100))}% ${Math.max(0,Math.min(100,(fy*Z-.5)/(Z-1)*100))}%`;
+  el.querySelector(".lmn").textContent=l.n;el.querySelector(".lmk").textContent=(h?"Hand-built landmark · in-game render":"In-game render · "+t)+(l.c?" · "+l.c:"");el.hidden=false}
+function pick(e){const r=cv.getBoundingClientRect(),[wx,wy]=s2w((e.clientX-r.left)*dpr,(e.clientY-r.top)*dpr);
+  {const px=(e.clientX-r.left)*dpr,py=(e.clientY-r.top)*dpr;let bl=null,bd=(14*dpr)**2;for(const l of LMS()){if(!LT[l.tr||3])continue;const [x,y]=w2s(l.x,l.y),d=(x-px)**2+(y-py)**2;if(d<bd){bd=d;bl=l}}if(bl){lmCard(bl)}else $("lmcard").hidden=true}
+const t=TL[tname(Math.round(wx/500),Math.round(wy/500))];if(t)showTile(t)}
 let selTile=null;
 function showTile(t){selTile=t;
   if(t.north){const km=`${(t.i*0.5).toFixed(1)} km E, ${(t.j*0.5).toFixed(1)} km N of MASP`;$("ex_h").textContent=t.d;$("ex_ph").hidden=!!t.img;$("ex_img").hidden=!t.img;
@@ -592,10 +616,35 @@ function showTile(t){selTile=t;
   $("ex_sl").innerHTML=t.sl.map(n=>`<div>${n}</div>`).join("")||"<div>No named streets</div>";loadStreets(t);draw()}
 // ---------------- street overlay on the tile render: hover -> name, bairro, numbers, CEP; the street lights up
 const SX=$("ex_sx"),sxc=SX.getContext("2d"),STIP=$("ex_stip");let SD=null,SDt=null,hov=null;
-let LD=null,DIRON=false;try{DIRON=localStorage.getItem("sp_dir")==="1"}catch(e){}
-async function loadLanes(t){LD=null;$("dir_k").textContent="";if(!t)return;try{const r=await fetch("lanes/"+t.t+".json");if(!r.ok)return;const d=await r.json();if(SDt!==t.t)return;LD=d;
+let LD=null,DIRON=true;try{DIRON=localStorage.getItem("sp_dir")!=="0"}catch(e){}
+async function loadLanes(t){LD=null;$("dir_k").textContent="";if(!t)return;try{const r=await fetch("lanes/"+t.t+".json");if(!r.ok)return;const d=await r.json();if(SDt!==t.t)return;LD=d;initCars();
   const k=d.k;$("dir_k").textContent=`${k.oneway} one-way of ${k.pieces} road pieces · ${k.signals} signals`+(k.bus_lanes?` · ${k.bus_lanes} bus lanes`:"")+(k.cameras?` · ${k.cameras} speed cameras`:"");drawSX()}catch(e){}}
-function setDir(on){DIRON=on;$("dir_t").setAttribute("aria-pressed",on?"true":"false");$("dir_lg").hidden=!on;try{localStorage.setItem("sp_dir",on?"1":"0")}catch(e){}drawSX()}
+
+// Live traffic on the tile render: little cars driving the real lanes (direction, lane count, speed limit), like the AI page.
+let CARS=[],CEDGE=[],carT=0,carRAF=0;const CCOL=["#f4f6f8","#c9ced6","#1d2430","#8b929c","#b3261e","#1f4fa3","#e8e2d0","#2f6b3a","#f2c230","#5a5f68"];
+function initCars(){CARS=[];CEDGE=[];if(!LD)return;
+  for(const e of LD.e){const P=e.slice(5),cum=[0];for(let k=2;k<P.length;k+=2)cum.push(cum[cum.length-1]+Math.hypot(P[k]-P[k-2],P[k+1]-P[k-1]));const L=cum[cum.length-1];if(L<8)continue;
+    const v=Math.max(20,Math.min(80,e[3]||40))/3.6*2;   // km/h -> render units per second (1000 units ~ 500 m)
+    if((e[1]||0)>0||e[0])CEDGE.push({P,cum,L,v,n:Math.max(1,e[1]||1),dir:1,sx:P[0],sy:P[1],ex:P[P.length-2],ey:P[P.length-1]});
+    if(!e[0]&&(e[2]||0)>0)CEDGE.push({P,cum,L,v,n:Math.max(1,e[2]),dir:-1,sx:P[P.length-2],sy:P[P.length-1],ex:P[0],ey:P[1]})}
+  for(const E of CEDGE)E.next=CEDGE.filter(F=>F!==E&&Math.hypot(F.sx-E.ex,F.sy-E.ey)<14&&!(F.P===E.P));
+  const tot=CEDGE.reduce((a,E)=>a+E.L*E.n,0),N=Math.min(90,Math.round(tot/170));
+  for(let k=0;k<N;k++){let r=Math.random()*tot,E=CEDGE[0];for(const F of CEDGE){r-=F.L*F.n;if(r<=0){E=F;break}}CARS.push(newCar(E,Math.random()*E.L))}
+  carT=performance.now();if(!carRAF)carRAF=requestAnimationFrame(carTick)}
+function newCar(E,d){return{E,d,ln:Math.floor(Math.random()*E.n),c:CCOL[Math.floor(Math.random()*CCOL.length)],sp:.75+Math.random()*.4,bus:Math.random()<.06,moto:Math.random()<.18}}
+function carPos(C){const E=C.E,dd=E.dir>0?C.d:E.L-C.d,P=E.P,cum=E.cum;let k=1;while(k<cum.length-1&&cum[k]<dd)k++;const a=cum[k-1],b=cum[k],t=b>a?(dd-a)/(b-a):0;
+  const x0=P[2*k-2],y0=P[2*k-1],x1=P[2*k],y1=P[2*k+1];let ux=x1-x0,uy=y1-y0;const l=Math.hypot(ux,uy)||1;ux/=l;uy/=l;if(E.dir<0){ux=-ux;uy=-uy}
+  const off=(C.ln+.5)*7*(E.dir<0||!E.P?1:1);return[x0+(x1-x0)*t-uy*off,y0+(y1-y0)*t+ux*off,ux,uy]}
+function carTick(now){carRAF=0;const dt=Math.min(.1,(now-carT)/1000);carT=now;
+  if(!DIRON||!LD||!CARS.length||document.hidden){return}
+  for(const C of CARS){C.d+=C.E.v*C.sp*(C.moto?1.15:1)*dt;if(C.d>=C.E.L){const nx=C.E.next;if(nx.length){const F=nx[Math.floor(Math.random()*nx.length)];Object.assign(C,{E:F,d:C.d-C.E.L,ln:Math.min(C.ln,F.n-1)})}else{const F=CEDGE[Math.floor(Math.random()*CEDGE.length)];Object.assign(C,{E:F,d:0,ln:Math.floor(Math.random()*F.n)})}}}
+  drawSX();carRAF=requestAnimationFrame(carTick)}
+function drawCars(c,w,h){if(!CARS.length)return;const sx=w/1000,sy=h/1000;c.save();
+  for(const C of CARS){const [x,y,ux,uy]=carPos(C),Lc=C.bus?30:C.moto?8:16,Wc=C.bus?8.5:C.moto?3.4:7.5;c.setTransform(ux*sx,uy*sy,-uy*sx,ux*sy,x*sx,y*sy);
+    c.fillStyle="rgba(0,0,0,.35)";c.fillRect(-Lc/2+.8,-Wc/2+.8,Lc,Wc);c.fillStyle=C.bus?"#d9452b":C.moto?"#ffd36b":C.c;c.fillRect(-Lc/2,-Wc/2,Lc,Wc);
+    if(!C.moto){c.fillStyle="rgba(20,30,45,.75)";c.fillRect(Lc*.08,-Wc/2+.6,Lc*.22,Wc-1.2)}}
+  c.restore()}
+function setDir(on){DIRON=on;if(on&&LD&&!carRAF){carT=performance.now();carRAF=requestAnimationFrame(carTick)}$("dir_t").setAttribute("aria-pressed",on?"true":"false");$("dir_lg").hidden=!on;try{localStorage.setItem("sp_dir",on?"1":"0")}catch(e){}drawSX()}
 $("dir_t").onclick=()=>setDir(!DIRON);setDir(DIRON);
 function drawLanes(c,w,h){if(!LD)return;const sx=w/1000,sy=h/1000,U=w/760;c.save();c.lineCap="round";c.lineJoin="round";
   for(const e of LD.e){const o=e[0],n=e[1]+e[2],P=e.slice(5);c.beginPath();for(let k=0;k<P.length;k+=2){const x=P[k]*sx,y=P[k+1]*sy;k?c.lineTo(x,y):c.moveTo(x,y)}
@@ -610,7 +659,7 @@ function laneAt(u,v){if(!LD)return null;let best=null,bd=26;for(const e of LD.e)
 async function loadStreets(t){SD=null;hov=null;SDt=t&&t.t;STIP.style.opacity=0;loadLanes(t);drawSX();if(!t)return;
   try{const r=await fetch("streets/"+t.t+".json");if(!r.ok)return;const d=await r.json();if(SDt!==t.t)return;SD=d;linkList()}catch(e){}}
 function sizeSX(){const r=SX.getBoundingClientRect(),k=Math.min(2,window.devicePixelRatio||1);SX.width=Math.max(1,Math.round(r.width*k));SX.height=Math.max(1,Math.round(r.height*k));drawSX()}
-function drawSX(){const c=sxc,w=SX.width,h=SX.height;c.clearRect(0,0,w,h);if(DIRON)drawLanes(c,w,h);if(!SD||hov==null)return;const s=SD.s[hov];c.save();c.lineCap="round";c.lineJoin="round";
+function drawSX(){const c=sxc,w=SX.width,h=SX.height;c.clearRect(0,0,w,h);if(DIRON){drawLanes(c,w,h);drawCars(c,w,h)}if(!SD||hov==null)return;const s=SD.s[hov];c.save();c.lineCap="round";c.lineJoin="round";
   c.fillStyle="rgba(5,10,20,.28)";c.fillRect(0,0,w,h);
   for(const [lw,col] of [[16,"rgba(255,211,107,.28)"],[8,"rgba(255,211,107,.95)"],[2.6,"#ffffff"]]){c.lineWidth=lw*w/760;c.strokeStyle=col;
     for(const L of s.L){c.beginPath();for(let k=0;k<L.length;k+=2){const x=L[k]/1000*w,y=L[k+1]/1000*h;k?c.lineTo(x,y):c.moveTo(x,y)}c.stroke()}}
@@ -722,4 +771,5 @@ bar.querySelectorAll('.menu a,.mpanel a').forEach(a=>a.addEventListener('click',
 const b=bar.querySelector('.burger'),p=bar.querySelector('.mpanel');function close(){b.setAttribute('aria-expanded','false');p.hidden=true}
 b.addEventListener('click',()=>{const o=b.getAttribute('aria-expanded')!=='true';b.setAttribute('aria-expanded',o);p.hidden=!o});
 const sc=()=>bar.classList.toggle('scrolled',scrollY>8);addEventListener('scroll',sc,{passive:true});sc();})();
-</script></body></html>
+</script><script src="/sao-paulo/i18n.js" defer></script>
+</body></html>
