@@ -186,7 +186,7 @@ footer .row{display:flex;flex-wrap:wrap;gap:16px 40px;justify-content:space-betw
 html{scroll-padding-top:74px}
 
 /* Hero band: full-bleed render behind the sign, CTAs as one primary + compact chips */
-.heroband{position:relative;margin-top:-1px;padding-block:clamp(36px,6vw,84px);background:linear-gradient(90deg,rgba(7,12,22,.94) 0%,rgba(7,12,22,.78) 38%,rgba(7,12,22,.35) 75%,rgba(7,12,22,.2)),url(img/aerial.jpg) center 40%/cover no-repeat;color:#eef2f7;overflow:hidden}
+.heroband{position:relative;margin-top:-1px;padding-block:clamp(36px,6vw,84px);background:linear-gradient(90deg,rgba(7,12,22,.55) 0%,rgba(7,12,22,.25) 45%,rgba(7,12,22,0) 80%);color:#eef2f7;overflow:hidden}
 .heroband::after{content:"";position:absolute;inset:auto 0 0 0;height:90px;background:linear-gradient(transparent,var(--bg));pointer-events:none}
 .heroband .herotop{position:relative;z-index:1;align-items:end}
 .heroband .eyebrow{color:#ffd166}
@@ -213,7 +213,8 @@ header.hero{padding-top:0}
 .lmcard .lmimg{height:170px;background:#111 center/cover no-repeat}
 .lmcard .lmt{padding:10px 12px}.lmcard .lmn{display:block;font:800 19px/1.05 var(--display);text-transform:uppercase;color:#fff}.lmcard .lmk{display:block;font:500 11.5px/1.35 var(--mono);color:#9aa7ba;margin-top:4px}
 .lmcard .lmx{position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:16px;line-height:1;cursor:pointer}
-/* BGVIDEO_V1 (Rosser 19 Nov): the website background clips, softly blurred (blur is baked into the file), behind the whole page.
+/* BGVIDEO_V2 (Rosser 19 Nov 13:02): rotates Ponte Estaiada -> Paulista -> Faria Lima (crossfaded, seamless loop), no static hero image.
+   BGVIDEO_V1: the website background clips, softly blurred (blur is baked into the file), behind the whole page.
    A theme-coloured veil keeps text readable; reduced-motion and Save-Data visitors get the still poster instead. */
 html{background:var(--bg)}
 body,:root body,:root[data-theme="dark"] body{background:transparent}
@@ -303,7 +304,7 @@ document.addEventListener('visibilitychange',function(){if(document.hidden)v.pau
     <div class="mapcard" id="mapcard">
       <canvas id="map" aria-label="Top-down mosaic of the map and the north block as it is built; hover to read street names"></canvas>
       <div class="modes" role="group" aria-label="Map layer">
-        <button id="m_img" aria-pressed="true" data-m="img">Imagery</button><button id="m_qa" aria-pressed="false" data-m="qa">QA grades</button><button id="m_st" aria-pressed="false" data-m="st">Streets</button><button id="m_mt" aria-pressed="false" data-m="mt">Metrô</button><button id="m_nb" aria-pressed="false" data-m="nb">North build</button><button id="m_pl" aria-pressed="false" title="Gas stations, police, hospitals, helipads and 30 more kinds of places">Places</button>
+        <button id="m_img" aria-pressed="true" data-m="img">Imagery</button><button id="m_qa" aria-pressed="false" data-m="qa">QA grades</button><button id="m_st" aria-pressed="false" data-m="st">Streets</button><button id="m_mt" aria-pressed="false" data-m="mt">Metrô</button><button id="m_nb" aria-pressed="false" data-m="nb">North build</button><button id="m_pl" aria-pressed="false" title="Gas stations, police, hospitals, helipads and 30 more kinds of places">Places</button><button id="m_tr" aria-pressed="true" title="Live traffic on the map when you zoom all the way in">Traffic</button>
       </div>
       <div id="pcats" class="pcats" hidden></div>
       <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button></div>
@@ -560,7 +561,7 @@ const base=()=>Math.min(cv.width/VW,cv.height/VH); // px per metre at scale 1 (w
 const w2s=(x,y)=>[((x-VX0)*base())*scale+ox,((VY1-y)*base())*scale+oy];
 const s2w=(px,py)=>[VX0+((px-ox)/scale)/base(),VY1-((py-oy)/scale)/base()];
 const ZK=MH/MW*Math.max(VW,VH)/Math.max(MW,MH); // zoom factor relative to the old square core map
-function clamp(){scale=Math.max(1,Math.min(14*ZK,scale));const cw=VW*base()*scale,ch=VH*base()*scale;
+function clamp(){scale=Math.max(1,Math.min(36*ZK,scale));const cw=VW*base()*scale,ch=VH*base()*scale;
   ox=cw<=cv.width?(cv.width-cw)/2:Math.min(0,Math.max(cv.width-cw,ox));oy=ch<=cv.height?(cv.height-ch)/2:Math.min(0,Math.max(cv.height-ch,oy))}
 /* HD_TILES_V1: sharp imagery when zoomed in. The world mosaic has ~96 px per 500 m tile; past that, each visible tile's own
    640 px render (tiles/<tid>.jpg, the same image as the tile explorer) is loaded on demand and drawn in place. */
@@ -588,6 +589,31 @@ function plDraw(c){if(!PLON||!PLD||!PLD.p)return;const tp=500*base()*scale;if(tp
       else{c.fillStyle=k[3];c.beginPath();c.arc(x,y,2.6*dpr,0,7);c.fill()}}}}
 function plNear(px,py){if(!PLON||!PLD||!PLD.p)return null;const tp=500*base()*scale;if(tp<40*dpr)return null;const [wx,wy]=s2w(px,py),L=PLB.get(Math.round(wx/500)+","+Math.round(wy/500))||[];let b=null,bd=(tp>150*dpr?12:6)*dpr;
   for(const q of L){const k=PLD.c[q[0]];if(!PLS[k[4]])continue;const [x,y]=w2s(q[1],q[2]),d=Math.hypot(x-px,y-py);if(d<bd){bd=d;b=q}}return b}
+/* MAPTRAFFIC_V1 (Rosser 19 Nov): zoomed all the way in, the big map loads each visible tile's real lanes (one-way arrows, signals,
+   speed-limit signs) and runs live traffic on them - the same data and cars as the tile explorer, for every tile on screen. */
+const MT_MIN=300,MLC=new Map();let MTON=true,mtRAF=0,mtT=0,mtLast=0;try{MTON=localStorage.getItem("sd_tr")!=="0"}catch(e){}
+function mlGet(t){if(MLC.has(t.t)){const e=MLC.get(t.t);MLC.delete(t.t);MLC.set(t.t,e);return e}MLC.set(t.t,null);
+  fetch("lanes/"+t.t+".json").then(r=>r.ok?r.json():0).then(d=>{MLC.set(t.t,d?{d,T:mkTraffic(d)}:0);draw();mtGo()}).catch(()=>MLC.set(t.t,0));
+  if(MLC.size>48){const k=MLC.keys().next().value;MLC.delete(k)}return null}
+function mtVis(tp){const W=cv.width,H=cv.height,o=[];for(const t of HDL()){const [x,y]=w2s(t.i*500-250,t.j*500+250);if(x>W||y>H||x+tp<0||y+tp<0)continue;o.push([t,x,y])}return o}
+function mtOn(tp){return MTON&&tp>=MT_MIN*dpr&&mode!=="nb"&&mode!=="mt"&&mode!=="qa"}
+function mtDraw(c,tp){if(!mtOn(tp))return;for(const [t,x,y] of mtVis(tp)){const e=mlGet(t);if(!e)continue;c.save();c.translate(x,y);drawLanesD(c,e.d,tp,tp);drawCarsD(c,e.T.C,tp,tp);c.restore()}}
+function mtStep(T,dt){const E=T.E;for(const C of T.C){C.d+=C.E.v*C.sp*(C.moto?1.15:1)*dt;if(C.d>=C.E.L){const nx=C.E.next;const F=nx.length?nx[Math.floor(Math.random()*nx.length)]:E[Math.floor(Math.random()*E.length)];Object.assign(C,{E:F,d:nx.length?C.d-C.E.L:0,ln:Math.min(C.ln,F.n-1)})}}}
+function mtGo(){if(!mtRAF){mtT=performance.now();mtRAF=requestAnimationFrame(mtTick)}}
+function mtTick(now){mtRAF=0;const tp=500*base()*scale;if(document.hidden||!mtOn(tp))return;const r=cv.getBoundingClientRect();if(r.bottom<0||r.top>innerHeight){mtRAF=requestAnimationFrame(mtTick);return}
+  const dt=Math.min(.1,(now-mtT)/1000);mtT=now;let any=0;for(const [t] of mtVis(tp)){const e=MLC.get(t.t);if(e){mtStep(e.T,dt);any=1}}
+  if(any&&now-mtLast>33){mtLast=now;draw()}mtRAF=requestAnimationFrame(mtTick)}
+/* PLHOVER_V1: the point of interest under the pointer lights up (glow + ring) and says what it is. */
+let PLH=null;
+function plHi(c){if(!PLH||!PLON||!PLD||!PLD.p)return;const tp=500*base()*scale;if(tp<40*dpr)return;const k=PLD.c[PLH[0]],[x,y]=w2s(PLH[1],PLH[2]),R=(tp>150*dpr?13:7)*dpr;
+  const g=c.createRadialGradient(x,y,R*.4,x,y,R*3.2);g.addColorStop(0,k[3]+"cc");g.addColorStop(1,k[3]+"00");c.fillStyle=g;c.beginPath();c.arc(x,y,R*3.2,0,7);c.fill();
+  c.fillStyle="rgba(8,12,20,.92)";c.beginPath();c.arc(x,y,R,0,7);c.fill();c.lineWidth=2.5*dpr;c.strokeStyle="#fff";c.stroke();c.lineWidth=1.5*dpr;c.strokeStyle=k[3];c.beginPath();c.arc(x,y,R+2.5*dpr,0,7);c.stroke();
+  c.textAlign="center";c.textBaseline="middle";c.font=`${(tp>150*dpr?15:10)*dpr}px system-ui,"Apple Color Emoji","Segoe UI Emoji",sans-serif`;c.fillStyle="#fff";c.fillText(k[2],x,y+.5*dpr);
+  const t1=PLH[3]||k[1],t2=PLH[3]?k[1]:"";c.font=`700 ${12.5*dpr}px "Public Sans",sans-serif`;const w1=c.measureText(t1).width;c.font=`600 ${10.5*dpr}px "Public Sans",sans-serif`;const w2=t2?c.measureText(t2).width:0;
+  const bw=Math.max(w1,w2)+20*dpr,bh=(t2?40:26)*dpr;let bx=x+R+10*dpr,by=y-bh/2;if(bx+bw>cv.width-6*dpr)bx=x-R-10*dpr-bw;by=Math.max(6*dpr,Math.min(cv.height-bh-6*dpr,by));
+  c.fillStyle="rgba(8,12,20,.94)";c.strokeStyle=k[3];c.lineWidth=1.5*dpr;c.beginPath();c.roundRect?c.roundRect(bx,by,bw,bh,8*dpr):c.rect(bx,by,bw,bh);c.fill();c.stroke();
+  c.textAlign="left";c.fillStyle="#fff";c.font=`700 ${12.5*dpr}px "Public Sans",sans-serif`;c.fillText(t1,bx+10*dpr,by+(t2?13:13)*dpr);
+  if(t2){c.fillStyle=k[3];c.font=`600 ${10.5*dpr}px "Public Sans",sans-serif`;c.fillText(t2,bx+10*dpr,by+28*dpr)}}
 function plUI(){$("m_pl").setAttribute("aria-pressed",String(PLON));$("pcats").hidden=!PLON;
   $("pcats").innerHTML=PLG.map(g=>`<button data-g="${g[0]}" aria-pressed="${!!PLS[g[0]]}">${g[1]}</button>`).join("")+`<span class="pcnote">© OpenStreetMap contributors</span>`}
 function draw(){const c=cx,Wc=cv.width;c.clearRect(0,0,Wc,Wc);
@@ -623,7 +649,7 @@ function draw(){const c=cx,Wc=cv.width;c.clearRect(0,0,Wc,Wc);
   if(mode==="mt"){c.fillStyle="rgba(10,15,25,.45)";c.fillRect(0,0,Wc,Wc);c.lineCap="round";c.lineJoin="round";for(const l of D.lines){c.strokeStyle=l.c;c.lineWidth=4*dpr;c.beginPath();l.xy.forEach((p,n)=>{const [x,y]=w2s(p[0],p[1]);n?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
     for(const s of l.st){const [x,y]=w2s(s.x,s.y);c.fillStyle="#fff";c.strokeStyle=l.c;c.lineWidth=2.2*dpr;c.beginPath();c.arc(x,y,3.6*dpr,0,7);c.fill();c.stroke()}}
     if(scale>1.7){c.font=`700 ${11*dpr}px "Public Sans",sans-serif`;c.textBaseline="middle";const seen=new Set();for(const l of D.lines)for(const s of l.st){if(seen.has(s.n))continue;seen.add(s.n);const [x,y]=w2s(s.x,s.y);if(x<0||y<0||x>Wc||y>Wc)continue;c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.85)";c.strokeText(s.n,x+7*dpr,y);c.fillStyle="#fff";c.fillText(s.n,x+7*dpr,y)}}}
-  plDraw(c);
+  mtDraw(c,tp);plDraw(c);plHi(c);
   if(selTile){const [x,y]=w2s(selTile.i*500-250,selTile.j*500+250);c.strokeStyle="#ffd36b";c.lineWidth=3*dpr;c.strokeRect(x,y,tp,tp)}
   if(hover&&hover.t){const [x,y]=w2s(hover.t.i*500-250,hover.t.j*500+250);c.strokeStyle="#fff";c.lineWidth=2*dpr;c.strokeRect(x,y,tp,tp)}
   const LG={img:"",qa:["A","B","C","D","F"].map(g=>`<span><i style="background:${GC[g]}"></i>${g}</span>`).join(""),st:`<span><i style="background:#ffd36b"></i>avenues</span><span><i style="background:#fff"></i>collectors</span><span><i style="background:#aacdff"></i>local</span><span>➤ one-way (zoom in)</span><span><i style="background:#5fd0ff;border-radius:50%"></i>landmarks</span>`,mt:D.lines.map(l=>`<span><i style="background:${l.c}"></i>${l.ref}</span>`).join(""),nb:`<span><i style="background:#1f9d63"></i>built</span><span><i style="background:#2563c9"></i>building</span><span><i style="background:rgba(255,255,255,.3)"></i>not yet</span>`};
@@ -631,10 +657,11 @@ function draw(){const c=cx,Wc=cv.width;c.clearRect(0,0,Wc,Wc);
 img.onload=draw; sm.onload=draw;
 function setMode(m){mode=m;for(const b of document.querySelectorAll(".modes button[data-m]"))b.setAttribute("aria-pressed",String(b.dataset.m===m));draw()}
 function showNorth(){scale=2;const [mx,my]=w2s(-750,9250);ox+=cv.width/2-mx;oy+=cv.height/2-my;clamp();setMode("nb")}
+$("m_tr").setAttribute("aria-pressed",String(MTON));$("m_tr").onclick=()=>{MTON=!MTON;try{localStorage.setItem("sd_tr",MTON?"1":"0")}catch(_){}$("m_tr").setAttribute("aria-pressed",String(MTON));draw();mtGo()};
 $("m_pl").onclick=()=>{PLON=!PLON;if(PLON)plLoad();plUI();draw()};plUI();
 $("pcats").onclick=e=>{const b=e.target.closest("button[data-g]");if(!b)return;PLS[b.dataset.g]=!PLS[b.dataset.g];try{localStorage.setItem("sd_pl",JSON.stringify(PLS))}catch(_){}plUI();draw()};
 for(const b of document.querySelectorAll(".modes button[data-m]"))b.onclick=()=>b.dataset.m==="nb"?showNorth():setMode(b.dataset.m);
-function zoomAt(f,px,py){const [wx,wy]=s2w(px,py);scale*=f;clamp();const [nx,ny]=w2s(wx,wy);ox+=px-nx;oy+=py-ny;clamp();draw()}
+function zoomAt(f,px,py){const [wx,wy]=s2w(px,py);scale*=f;clamp();const [nx,ny]=w2s(wx,wy);ox+=px-nx;oy+=py-ny;clamp();draw();mtGo()}
 $("zin").onclick=()=>zoomAt(1.6,cv.width/2,cv.height/2);$("zout").onclick=()=>zoomAt(1/1.6,cv.width/2,cv.height/2);
 cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect();zoomAt(e.deltaY<0?1.25:.8,(e.clientX-r.left)*dpr,(e.clientY-r.top)*dpr)},{passive:false});
 let drag=null,moved=0;
@@ -644,10 +671,10 @@ cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect(),px=(e.c
   if(drag){moved=Math.hypot(e.clientX-drag[0],e.clientY-drag[1]);ox=drag[2]+(e.clientX-drag[0])*dpr;oy=drag[3]+(e.clientY-drag[1])*dpr;clamp();draw();return}
   const [wx,wy]=s2w(px,py),t=TL[`T_${Math.round(wx/500)<0?"m"+(-Math.round(wx/500)):"p"+Math.round(wx/500)}_${Math.round(wy/500)<0?"m"+(-Math.round(wy/500)):"p"+Math.round(wy/500)}`];
   const s=nearest(wx,wy,Math.max(12,40/scale));hover={t};
-  const pq=plNear(px,py);if(pq){const k=PLD.c[pq[0]];$("bn").textContent=pq[3]||k[1];$("ba").textContent=k[2]+" "+k[1];$("banner").style.opacity=1}
+  const pq=plNear(px,py);PLH=pq;cv.style.cursor=pq?"pointer":"";if(pq){$("banner").style.opacity=0}   // PLHOVER_V1: the place itself lights up and is labelled on the map
   else if(s){$("bn").textContent=s[0];$("ba").textContent=s[1]||"";$("banner").style.opacity=1}else{$("banner").style.opacity=t?0.0:0}
   draw()});
-cv.addEventListener("pointerleave",()=>{hover=null;$("banner").style.opacity=0;draw()});
+cv.addEventListener("pointerleave",()=>{hover=null;PLH=null;$("banner").style.opacity=0;draw()});
 const tname=(i,j)=>`T_${i<0?"m"+(-i):"p"+i}_${j<0?"m"+(-j):"p"+j}`;
 const LMHERO={"MASP":"img/masp.jpg","Ponte Estaiada":"img/estaiada_aerial.jpg","Estação da Luz":"img/luz.jpg","Aeroporto de Congonhas":"img/cgh.jpg","Congonhas":"img/cgh.jpg"};
 function lmCard(l){const el=$("lmcard"),i=Math.round(l.x/500),j=Math.round(l.y/500),t=tname(i,j),h=LMHERO[l.n];
@@ -677,6 +704,15 @@ async function loadLanes(t){LD=null;$("dir_k").textContent="";if(!t)return;try{c
 
 // Live traffic on the tile render: little cars driving the real lanes (direction, lane count, speed limit), like the AI page.
 let CARS=[],CEDGE=[],carT=0,carRAF=0;const CCOL=["#f4f6f8","#c9ced6","#1d2430","#8b929c","#b3261e","#1f4fa3","#e8e2d0","#2f6b3a","#f2c230","#5a5f68"];
+function mkTraffic(LD){const CARS=[],CEDGE=[];
+  for(const e of LD.e){const P=e.slice(5),cum=[0];for(let k=2;k<P.length;k+=2)cum.push(cum[cum.length-1]+Math.hypot(P[k]-P[k-2],P[k+1]-P[k-1]));const L=cum[cum.length-1];if(L<8)continue;
+    const v=Math.max(20,Math.min(80,e[3]||40))/3.6*2;   // km/h -> render units per second (1000 units ~ 500 m)
+    if((e[1]||0)>0||e[0])CEDGE.push({P,cum,L,v,n:Math.max(1,e[1]||1),dir:1,sx:P[0],sy:P[1],ex:P[P.length-2],ey:P[P.length-1]});
+    if(!e[0]&&(e[2]||0)>0)CEDGE.push({P,cum,L,v,n:Math.max(1,e[2]),dir:-1,sx:P[P.length-2],sy:P[P.length-1],ex:P[0],ey:P[1]})}
+  for(const E of CEDGE)E.next=CEDGE.filter(F=>F!==E&&Math.hypot(F.sx-E.ex,F.sy-E.ey)<14&&!(F.P===E.P));
+  const tot=CEDGE.reduce((a,E)=>a+E.L*E.n,0),N=Math.min(90,Math.round(tot/170));
+  for(let k=0;k<N;k++){let r=Math.random()*tot,E=CEDGE[0];for(const F of CEDGE){r-=F.L*F.n;if(r<=0){E=F;break}}CARS.push(newCar(E,Math.random()*E.L))}
+  return {C:CARS,E:CEDGE}}
 function initCars(){CARS=[];CEDGE=[];if(!LD)return;
   for(const e of LD.e){const P=e.slice(5),cum=[0];for(let k=2;k<P.length;k+=2)cum.push(cum[cum.length-1]+Math.hypot(P[k]-P[k-2],P[k+1]-P[k-1]));const L=cum[cum.length-1];if(L<8)continue;
     const v=Math.max(20,Math.min(80,e[3]||40))/3.6*2;   // km/h -> render units per second (1000 units ~ 500 m)
@@ -694,14 +730,16 @@ function carTick(now){carRAF=0;const dt=Math.min(.1,(now-carT)/1000);carT=now;
   if(!DIRON||!LD||!CARS.length||document.hidden){return}
   for(const C of CARS){C.d+=C.E.v*C.sp*(C.moto?1.15:1)*dt;if(C.d>=C.E.L){const nx=C.E.next;if(nx.length){const F=nx[Math.floor(Math.random()*nx.length)];Object.assign(C,{E:F,d:C.d-C.E.L,ln:Math.min(C.ln,F.n-1)})}else{const F=CEDGE[Math.floor(Math.random()*CEDGE.length)];Object.assign(C,{E:F,d:0,ln:Math.floor(Math.random()*F.n)})}}}
   drawSX();carRAF=requestAnimationFrame(carTick)}
-function drawCars(c,w,h){if(!CARS.length)return;const sx=w/1000,sy=h/1000;c.save();
+function drawCars(c,w,h){drawCarsD(c,CARS,w,h)}
+function drawCarsD(c,CARS,w,h){if(!CARS.length)return;const sx=w/1000,sy=h/1000;c.save();
   for(const C of CARS){const [x,y,ux,uy]=carPos(C),Lc=C.bus?30:C.moto?8:16,Wc=C.bus?8.5:C.moto?3.4:7.5;c.setTransform(ux*sx,uy*sy,-uy*sx,ux*sy,x*sx,y*sy);
     c.fillStyle="rgba(0,0,0,.35)";c.fillRect(-Lc/2+.8,-Wc/2+.8,Lc,Wc);c.fillStyle=C.bus?"#d9452b":C.moto?"#ffd36b":C.c;c.fillRect(-Lc/2,-Wc/2,Lc,Wc);
     if(!C.moto){c.fillStyle="rgba(20,30,45,.75)";c.fillRect(Lc*.08,-Wc/2+.6,Lc*.22,Wc-1.2)}}
   c.restore()}
 function setDir(on){DIRON=on;if(on&&LD&&!carRAF){carT=performance.now();carRAF=requestAnimationFrame(carTick)}$("dir_t").setAttribute("aria-pressed",on?"true":"false");$("dir_lg").hidden=!on;try{localStorage.setItem("sp_dir",on?"1":"0")}catch(e){}drawSX()}
 $("dir_t").onclick=()=>setDir(!DIRON);setDir(DIRON);
-function drawLanes(c,w,h){if(!LD)return;const sx=w/1000,sy=h/1000,U=w/760;c.save();c.lineCap="round";c.lineJoin="round";
+function drawLanes(c,w,h){drawLanesD(c,LD,w,h)}
+function drawLanesD(c,LD,w,h){if(!LD)return;const sx=w/1000,sy=h/1000,U=w/760;c.save();c.lineCap="round";c.lineJoin="round";
   for(const e of LD.e){const o=e[0],n=e[1]+e[2],P=e.slice(5);c.beginPath();for(let k=0;k<P.length;k+=2){const x=P[k]*sx,y=P[k+1]*sy;k?c.lineTo(x,y):c.moveTo(x,y)}
     c.lineWidth=(1.4+Math.min(n,6)*0.55)*U;c.strokeStyle=o?"rgba(127,224,255,.9)":"rgba(255,255,255,.55)";c.stroke();
     if(!o)continue;let acc=0;for(let k=2;k<P.length;k+=2){const ax=P[k-2],ay=P[k-1],dx=P[k]-ax,dy=P[k+1]-ay,l=Math.hypot(dx,dy);if(!l)continue;
