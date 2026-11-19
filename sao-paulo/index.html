@@ -496,6 +496,8 @@ let D; try{D=await (await fetch("site_data.json")).json()}catch(e){$("facts").te
 const [I0,I1,J0,J1]=D.grid, X0=I0*500-250, X1=I1*500+250, Y0=J0*500-250, Y1=J1*500+250, W=X1-X0, H=Y1-Y0;
 const N=D.north||null, NT=N?N.tiles:[], NJ0=7, NJ1=N?D.world[3]:J1; NT.forEach(t=>{t.ar=[t.d];t.sl=t.sl||[];t.north=1});
 const [wI0,wI1,wJ0,wJ1]=D.world||D.grid, MX0=wI0*500-250, MX1=wI1*500+250, MY0=wJ0*500-250, MY1=wJ1*500+250, MW=MX1-MX0, MH=MY1-MY0;
+/* RODOANEL_V1: the map frame is the whole SP-021 ring road loop; the built mosaic sits inside it, unbuilt tiles are faint squares. */
+const RD=D.rodo||null, VX0=Math.min(MX0,RD?RD.bb[0]-300:MX0), VX1=Math.max(MX1,RD?RD.bb[1]+300:MX1), VY0=Math.min(MY0,RD?RD.bb[2]-300:MY0), VY1=Math.max(MY1,RD?RD.bb[3]+300:MY1), VW=VX1-VX0, VH=VY1-VY0;
 const T=D.tot, ST=D.streets_tot, green=(T.grades.A||0);
 const stops=D.lines.reduce((a,l)=>a+l.st.length,0);
 const WT=D.world_tot||null;
@@ -535,11 +537,11 @@ function nearest(wx,wy,maxd){let best=null,bd=maxd;const gx=Math.floor(wx/G),gy=
       const d=Math.hypot(a[0]+dx*t-wx,a[1]+dy*t-wy)+s[2]*1.5;if(d<bd){bd=d;best=s}}}
   return best}
 function size(){const r=card.getBoundingClientRect();cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.height*dpr);draw()}
-const base=()=>Math.min(cv.width/MW,cv.height/MH); // px per metre at scale 1 (whole map fits)
-const w2s=(x,y)=>[((x-MX0)*base())*scale+ox,((MY1-y)*base())*scale+oy];
-const s2w=(px,py)=>[MX0+((px-ox)/scale)/base(),MY1-((py-oy)/scale)/base()];
-const ZK=MH/MW; // zoom factor relative to the old square core map
-function clamp(){scale=Math.max(1,Math.min(14*ZK,scale));const cw=MW*base()*scale,ch=MH*base()*scale;
+const base=()=>Math.min(cv.width/VW,cv.height/VH); // px per metre at scale 1 (whole map fits)
+const w2s=(x,y)=>[((x-VX0)*base())*scale+ox,((VY1-y)*base())*scale+oy];
+const s2w=(px,py)=>[VX0+((px-ox)/scale)/base(),VY1-((py-oy)/scale)/base()];
+const ZK=MH/MW*Math.max(VW,VH)/Math.max(MW,MH); // zoom factor relative to the old square core map
+function clamp(){scale=Math.max(1,Math.min(14*ZK,scale));const cw=VW*base()*scale,ch=VH*base()*scale;
   ox=cw<=cv.width?(cv.width-cw)/2:Math.min(0,Math.max(cv.width-cw,ox));oy=ch<=cv.height?(cv.height-ch)/2:Math.min(0,Math.max(cv.height-ch,oy))}
 /* HD_TILES_V1: sharp imagery when zoomed in. The world mosaic has ~96 px per 500 m tile; past that, each visible tile's own
    640 px render (tiles/<tid>.jpg, the same image as the tile explorer) is loaded on demand and drawn in place. */
@@ -551,10 +553,15 @@ function hdImg(t){let e=HDC.get(t.t);if(e){HDC.delete(t.t);HDC.set(t.t,e);return
 function hdDraw(c,tp){const W=cv.width,H=cv.height;c.imageSmoothingQuality="high";
   for(const t of HDL()){const [x,y]=w2s(t.i*500-250,t.j*500+250);if(x>W||y>H||x+tp<0||y+tp<0)continue;
     const e=hdImg(t);if(e&&e.complete&&e.naturalWidth)c.drawImage(e,x,y,tp,tp)}}
+function rodoDraw(c){const tp=500*base()*scale,W=cv.width,H=cv.height;
+  if(tp>3*dpr){c.strokeStyle=tp>14*dpr?"rgba(255,255,255,.10)":"rgba(255,255,255,.07)";c.fillStyle="rgba(255,255,255,.025)";c.lineWidth=1;
+    for(const [i,j] of RD.todo){const [x,y]=w2s(i*500-250,j*500+250);if(x>W||y>H||x+tp<0||y+tp<0)continue;c.fillRect(x+1,y+1,tp-2,tp-2);if(tp>6*dpr)c.strokeRect(x+.5,y+.5,tp-1,tp-1)}}
+  c.beginPath();RD.o.forEach((p,k)=>{const [x,y]=w2s(p[0],p[1]);k?c.lineTo(x,y):c.moveTo(x,y)});c.closePath();
+  c.setLineDash([7*dpr,6*dpr]);c.strokeStyle="rgba(255,211,107,.9)";c.lineWidth=1.8*dpr;c.stroke();c.setLineDash([])}
 function draw(){const c=cx,Wc=cv.width;c.fillStyle="#141a22";c.fillRect(0,0,Wc,Wc);
   const dw=MW*base()*scale,dh=MH*base()*scale;
   const im=(dw>sm.naturalWidth*1.1&&img.complete&&img.naturalWidth)?img:(sm.complete&&sm.naturalWidth?sm:null);
-  if(im){c.imageSmoothingQuality="high";c.drawImage(im,ox,oy,dw,dh)}
+  if(RD)rodoDraw(c,true);if(im){c.imageSmoothingQuality="high";const [mx0,my0]=w2s(MX0,MY1);c.drawImage(im,mx0,my0,dw,dh)}
   const tp=500*base()*scale;
   if(tp>HD_MIN*dpr&&mode!=="nb")hdDraw(c,tp);   // HD: past the mosaic's own resolution, draw each visible tile's 640 px render on top
   if(N){for(const t of NT){if(t.img&&mode!=="nb")continue;const [x,y]=w2s(t.i*500-250,t.j*500+250);
@@ -562,8 +569,8 @@ function draw(){const c=cx,Wc=cv.width;c.fillStyle="#141a22";c.fillRect(0,0,Wc,W
       else if(t.s==="built"){c.fillStyle="rgba(31,157,99,.28)";c.fillRect(x+1,y+1,tp-2,tp-2)}
       else{c.strokeStyle="rgba(255,255,255,.08)";c.lineWidth=1;c.strokeRect(x+.5,y+.5,tp-1,tp-1)}}
     const [bx,by]=w2s(I0*500-250,NJ1*500+250),[ex,ey]=w2s(I1*500+250,NJ0*500-250);
-    c.setLineDash([6*dpr,5*dpr]);c.strokeStyle="rgba(255,211,107,.85)";c.lineWidth=1.5*dpr;c.strokeRect(bx,by,ex-bx,ey-by);c.setLineDash([]);
-    if(scale<5*ZK){c.font=`800 ${14*dpr}px "Big Shoulders Display",sans-serif`;c.textBaseline="bottom";c.textAlign="right";c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.9)";const lb=`NORTH BLOCK · ${N.built} OF 576 BUILT`,lx=Math.min(ex,cv.width)-8*dpr,ly=Math.min(ey,cv.height)-8*dpr;c.strokeText(lb,lx,ly);c.fillStyle="#ffd36b";c.fillText(lb,lx,ly);c.textAlign="left"}}
+    if(!RD){c.setLineDash([6*dpr,5*dpr]);c.strokeStyle="rgba(255,211,107,.85)";c.lineWidth=1.5*dpr;c.strokeRect(bx,by,ex-bx,ey-by);c.setLineDash([]);}
+    if(scale<5*ZK&&(!RD||w2s(0,RD.bb[2])[1]<=cv.height)){c.font=`800 ${14*dpr}px "Big Shoulders Display",sans-serif`;c.textBaseline="bottom";c.textAlign="right";c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.9)";const lb=RD?`RODOANEL LOOP · ${fmt(RD.inside-RD.todo.length)} OF ${fmt(RD.inside)} TILES BUILT`:`NORTH BLOCK · ${N.built} OF 576 BUILT`,lx=Math.min(RD?w2s(RD.bb[1],0)[0]:ex,cv.width)-8*dpr,ly=Math.min(RD?w2s(0,RD.bb[2])[1]:ey,cv.height)-8*dpr;c.strokeText(lb,lx,ly);c.fillStyle="#ffd36b";c.fillText(lb,lx,ly);c.textAlign="left"}}
   if(mode==="qa"){c.globalAlpha=.55;for(const t of D.tiles){const [x,y]=w2s(t.i*500-250,t.j*500+250);c.fillStyle=GC[t.g];c.fillRect(x+1,y+1,tp-2,tp-2)}c.globalAlpha=1}
   if(mode==="st"){c.lineCap="round";const wd=[3.2,2.4,1.6,.9];for(const lv of [3,2,1,0])for(const s of D.streets){if(s[2]!==lv)continue;c.strokeStyle=lv<2?"#ffd36b":lv===2?"rgba(255,255,255,.9)":"rgba(170,205,255,.55)";c.lineWidth=wd[lv]*dpr*Math.min(2.2,.7+scale*.25);c.beginPath();s[3].forEach((p,n)=>{const [x,y]=w2s(p[0],p[1]);n?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()}}
   if(mode==="st"&&base()*scale>.33){c.fillStyle="rgba(255,255,255,.95)";const step=55;for(const s of D.streets){if(!s[4])continue;const P=s[3];let acc=step/2;for(let n=1;n<P.length;n++){const a=P[n-1],b=P[n],L_=Math.hypot(b[0]-a[0],b[1]-a[1]);while(acc<L_){const t=acc/L_,[sx,sy]=w2s(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t);if(sx>-20&&sy>-20&&sx<cv.width+20&&sy<cv.height+20){const r=3.6*dpr;c.save();c.translate(sx,sy);c.rotate(Math.atan2(-(b[1]-a[1]),b[0]-a[0]));c.beginPath();c.moveTo(r,0);c.lineTo(-r,-r*.75);c.lineTo(-r*.4,0);c.lineTo(-r,r*.75);c.closePath();c.fill();c.restore()}acc+=step}acc-=L_}}}
