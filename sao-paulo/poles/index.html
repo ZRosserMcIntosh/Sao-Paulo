@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <base href="/sao-paulo/poles/">
-<title>Pole Lab</title>
+<title>Pole Lab · Sem Destino</title>
 <meta name="description" content="Drive a car into a São Paulo concrete utility pole: it cracks, leans in the soil or snaps, the wires whip, lines come down across the road, live conductors arc and the street goes dark. Pole Dynamics, native C++ in WebAssembly, in slow motion.">
-<meta property="og:title" content="São Paulo World · Pole Lab">
+<meta property="og:title" content="Sem Destino · Pole Lab">
 <meta property="og:description" content="Car vs. concrete pole: cracks, leans, snaps, falling wires, arcs and blackouts, simulated in your browser.">
 <meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
@@ -38,6 +38,10 @@ input[type=range]{width:100%;accent-color:var(--hot)}
 .top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
 .top>*{pointer-events:auto}
 .top button{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.top button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+#look{display:inline-flex;gap:4px}
+#btn-help .sm{display:none}
+@media (max-width:560px){#btn-help .lg{display:none}#btn-help .sm{display:inline}}
 .plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
 .plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
 .plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
@@ -109,12 +113,14 @@ canvas.chart{width:100%;height:120px;display:block;margin-top:6px;background:rgb
 <canvas id="view" aria-label="A residential street of concrete utility poles"></canvas>
 
 <div class="top">
-  <a class="plate" href="../"><b>Pole Lab</b><span>São Paulo World</span></a>
+  <a class="plate" href="../" title="Back to Sem Destino"><b>Pole Lab</b><span>Sem Destino</span></a>
   <div class="row">
     <button id="cam-street" class="hide-sm" title="Street-level view">Street</button>
     <button id="cam-top" class="hide-sm" title="Overhead view">Above</button>
     <button id="cam-follow" class="hide-sm" title="Watch the pole that was hit">Pole</button>
-    <button id="btn-help">How it works</button>
+    <span id="look" role="group" aria-label="Time of day"><button data-look="day" class="hide-sm">Day</button><button data-look="dusk">Dusk</button><button data-look="night">Night</button></span>
+    <button id="btn-sound" aria-pressed="true">Sound on</button>
+    <button id="btn-help" title="How it works"><span class="lg">How it works</span><span class="sm">?</span></button>
   </div>
 </div>
 

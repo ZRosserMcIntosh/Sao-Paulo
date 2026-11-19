@@ -1,4 +1,4 @@
-// São Paulo World — Pole Lab.
+// Sem Destino — Pole Lab.
 // A residential street of 11 m concrete poles; a car hits one. Everything is
 // simulated by Pole Dynamics (the game's native C++ module, WebAssembly build:
 // poles.wasm). This page builds the street from the world builder's seed
@@ -126,7 +126,7 @@ class Run {
             velocity: [car.n[0] * v, car.n[1] * v, 0], mass: c.mass, crushStiffness: c.crush * 1000 });
           car.v = Math.max(0, v - this.result.deltaV);
           if (!this.result.broke) car.v = 0;
-          car.phase = 'after'; car.hitAt = this.steps;
+          car.phase = 'after'; car.hitAt = this.steps; if (!quiet) sfx('IMPACT', { value: c.speed });
         }
       } else if (car.v > 0) {
         car.pos[0] += car.n[0] * car.v * DT; car.pos[1] += car.n[1] * car.v * DT;
@@ -164,6 +164,24 @@ sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 300 });
 scene.add(sun, sun.target);
+
+// Time of day. The blackout is the best moment of a line-down hit and it only reads after sunset.
+const hemi = scene.children.find((o) => o.isHemisphereLight);
+const LOOK = {
+  day: { sky: '#9cb9d6', fog: [120, 420], hemi: 1.1, sun: 2.2, sunC: '#fff1dc', exp: 1.05, lamp: 0, win: 0.9 },
+  dusk: { sky: '#3d4a6b', fog: [70, 300], hemi: 0.42, sun: 0.55, sunC: '#ff9a62', exp: 1.25, lamp: 26, win: 2.2 },
+  night: { sky: '#0b1222', fog: [50, 220], hemi: 0.14, sun: 0.12, sunC: '#9fb4ff', exp: 1.45, lamp: 34, win: 2.8 },
+};
+let look = (() => { try { return localStorage.getItem('spw-poles:look') ? JSON.parse(localStorage.getItem('spw-poles:look')) : 'dusk'; } catch { return 'dusk'; } })();
+if (!LOOK[look]) look = 'dusk';
+function applyLook() {
+  const L = LOOK[look];
+  scene.background.set(L.sky); scene.fog.color.set(L.sky); scene.fog.near = L.fog[0]; scene.fog.far = L.fog[1];
+  hemi.intensity = L.hemi; sun.intensity = L.sun; sun.color.set(L.sunC); renderer.toneMappingExposure = L.exp;
+  if (typeof M !== 'undefined') M.winOn.emissiveIntensity = L.win;
+  if (typeof view !== 'undefined') for (const p of view.poles) p.key = '';   // rebuild so the lamps pick up their lights
+  document.querySelectorAll('#look button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.look === look)));
+}
 
 // Everything below is placed in sim coordinates (z up).
 const sim = new THREE.Group();
@@ -266,6 +284,7 @@ function buildPiece(z0, z1, spec, lit) {
   if (spec.light && inside(9.0)) {
     const arm = box(0.06, 1.7, 0.06, M.steel, 0, -0.85, 9.2); arm.rotation.x = -0.24; g.add(arm);
     lamp = box(0.32, 0.6, 0.1, lit ? M.lampOn : M.lampOff, 0, -1.75, 9.38); g.add(lamp);
+    if (lit && LOOK[look].lamp > 0) { const L = new THREE.PointLight('#ffd28a', LOOK[look].lamp, 26, 1.6); L.position.set(0, -1.75, 9.1); g.add(L); }
   }
   return { group: outer, lamp };
 }
@@ -284,6 +303,32 @@ const flashGeo = new THREE.SphereGeometry(1, 16, 12);
 const arcLight = new THREE.PointLight('#b9dcff', 0, 30, 1.6);
 sim.add(arcLight);
 const WIRE_COLOR = ['#b4bcc6', '#1d1f22', '#141414', '#2a2c2f'];
+// Arc sparks: a small additive particle pool (sim frame, gravity -z).
+const SPK = { n: 700, pos: new Float32Array(700 * 3), vel: new Float32Array(700 * 3), life: new Float32Array(700), col: new Float32Array(700 * 3), next: 0 };
+const spkGeo = new THREE.BufferGeometry();
+spkGeo.setAttribute('position', new THREE.BufferAttribute(SPK.pos, 3)); spkGeo.setAttribute('color', new THREE.BufferAttribute(SPK.col, 3));
+const sparks = new THREE.Points(spkGeo, new THREE.PointsMaterial({ size: 0.09, vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+sparks.frustumCulled = false; sim.add(sparks);
+function burst(at, n, speed) {
+  for (let k = 0; k < n; ++k) {
+    const i = SPK.next; SPK.next = (SPK.next + 1) % SPK.n;
+    const a = Math.random() * 6.283, up = 0.3 + Math.random() * 0.9, v = speed * (0.4 + Math.random());
+    SPK.pos.set([at[0], at[1], Math.max(0.15, at[2])], 3 * i);
+    SPK.vel.set([Math.cos(a) * v, Math.sin(a) * v, up * v * 1.4], 3 * i);
+    SPK.life[i] = 0.35 + Math.random() * 0.6;
+  }
+}
+function stepSparks(dt) {
+  for (let i = 0; i < SPK.n; ++i) {
+    if (SPK.life[i] <= 0) { SPK.col[3 * i] = SPK.col[3 * i + 1] = SPK.col[3 * i + 2] = 0; continue; }
+    SPK.life[i] -= dt; SPK.vel[3 * i + 2] -= 9.8 * dt;
+    for (let k = 0; k < 3; ++k) SPK.pos[3 * i + k] += SPK.vel[3 * i + k] * dt;
+    if (SPK.pos[3 * i + 2] < 0.02) { SPK.pos[3 * i + 2] = 0.02; SPK.vel[3 * i + 2] *= -0.3; SPK.vel[3 * i] *= 0.5; SPK.vel[3 * i + 1] *= 0.5; }
+    const h = Math.max(0, SPK.life[i]) / 0.9;   // white-blue when fresh, cooling to orange
+    SPK.col.set([1, 0.55 + 0.45 * h, 0.25 + 0.75 * h * h], 3 * i);
+  }
+  spkGeo.attributes.position.needsUpdate = true; spkGeo.attributes.color.needsUpdate = true;
+}
 
 function clearView() {
   for (const p of view.poles) { sim.remove(p.group); if (p.tank) sim.remove(p.tank); }
@@ -394,17 +439,20 @@ function describe(e) {
 function onEvents(evs) {
   for (const e of evs) {
     counts[e.name] = (counts[e.name] ?? 0) + 1;
-    if (e.name !== 'ARC' || counts.ARC <= 3) log.push(`${(run.steps * DT).toFixed(2)} s  ${describe(e)}`);
+    { const t = run.steps * DT, last = log[log.length - 1];   // same kind within 0.25 s → one line with a count
+      if (last && last.name === e.name && t - last.t < 0.25) last.n++; else log.push({ t, name: e.name, text: describe(e), n: 1 }); }
+    sfx(e.name, e);
     const big = BIG[e.name];
     if (big && counts[e.name] === 1) banner(big[0], e.name === 'POLE_FELL' || e.name === 'POWER_OUT' ? describe(e) : big[1]);
     if (e.name === 'ARC') {
       arcLight.position.set(...e.at); arcLight.position.z = 0.4; arcLight.intensity = 60;
       const sp = new THREE.Mesh(flashGeo, new THREE.MeshBasicMaterial({ color: '#d8ecff', blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-      sp.position.set(e.at[0], e.at[1], 0.25); sp.scale.setScalar(0.6 + 0.5 * ((counts.ARC * 0.618) % 1)); sim.add(sp); view.flashes.push({ obj: sp, t: 0.18 });
+      sp.position.set(e.at[0], e.at[1], 0.25); sp.scale.setScalar(0.18 + 0.16 * ((counts.ARC * 0.618) % 1)); sim.add(sp); view.flashes.push({ obj: sp, t: 0.12 });
+      burst([e.at[0], e.at[1], 0.3], 26, 3.2); sfx('arc');
     } else if (e.name === 'WIRE_ON_GROUND_LIVE') {
       const r = Number(e.ids) / 1000 || 4;
-      const d = new THREE.Mesh(new THREE.RingGeometry(r - 0.25, r, 48), new THREE.MeshBasicMaterial({ color: '#ff2d20', transparent: true, opacity: 0.6, depthWrite: false }));
-      d.add(new THREE.Mesh(new THREE.CircleGeometry(r - 0.25, 48), new THREE.MeshBasicMaterial({ color: '#ff2d20', transparent: true, opacity: 0.2, depthWrite: false })));
+      const d = new THREE.Mesh(new THREE.RingGeometry(r - 0.08, r, 64), new THREE.MeshBasicMaterial({ color: '#ff4a2a', transparent: true, opacity: 0.5, depthWrite: false }));
+      d.add(new THREE.Mesh(new THREE.CircleGeometry(r - 0.08, 64), new THREE.MeshBasicMaterial({ color: '#ff4a2a', transparent: true, opacity: 0.06, depthWrite: false })));
       d.position.set(e.at[0], e.at[1], 0.04); sim.add(d); view.hazards.push({ obj: d, t: 0 });
     } else if (e.name === 'LANE_BLOCKED') {
       const lane = e.value | 0; blockedLanes.add(String(e.ids)); if (laneOverlay[lane]) laneOverlay[lane].material.opacity = 0.28;
@@ -417,7 +465,7 @@ function onEvents(evs) {
     }
   }
   $('evcount').textContent = Object.values(counts).reduce((a, b) => a + b, 0);
-  if (evs.length) { const el = $('log'); el.textContent = log.slice(-60).join('\n'); el.scrollTop = el.scrollHeight; }
+  if (evs.length) { const el = $('log'); el.textContent = log.slice(-60).map((l) => `${l.t.toFixed(2)} s  ${l.text}${l.n > 1 ? `  ×${l.n}` : ''}`).join('\n'); el.scrollTop = el.scrollHeight; }
 }
 
 // ---------- Charts ----------
@@ -499,17 +547,24 @@ function placeCamera() {
   camera.position.set(t.x + orbit.r * Math.sin(orbit.ph) * Math.sin(orbit.th), t.y + orbit.r * Math.cos(orbit.ph), t.z + orbit.r * Math.sin(orbit.ph) * Math.cos(orbit.th));
   camera.lookAt(t);
 }
+let userCam = false, cine = 0;
+function cineCam(real) {
+  if (userCam || !run?.car || run.car.phase !== 'after') return;
+  cine += real;
+  if (cine < 9) { orbit.th += real * 0.06; orbit.r += (16 - orbit.r) * Math.min(1, real * 0.4); placeCamera(); }
+}
 function aimAt(i, preset = 'street') {
   const x = run ? run.w.pole(run.ids[i])?.piece[0].position[0] ?? i * SPACING : i * SPACING;
   orbit.target.copy(toScene([x, -1, 4.5]));
   if (preset === 'street') Object.assign(orbit, { r: 30, th: -0.85, ph: 1.25 });
   if (preset === 'top') Object.assign(orbit, { r: 120, th: 0, ph: 0.25 });
   if (preset === 'pole') Object.assign(orbit, { r: 17, th: -0.35, ph: 1.22 });
+  if (preset === 'action') { orbit.target.copy(toScene([x, -2.5, 3.2])); Object.assign(orbit, { r: 21, th: -0.62, ph: 1.28 }); }
   placeCamera();
 }
 {
   const ptrs = new Map(); let pinch = 0;
-  canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, b: e.button, shift: e.shiftKey }); canvas.style.cursor = 'grabbing'; });
+  canvas.addEventListener('pointerdown', (e) => { userCam = true; canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, b: e.button, shift: e.shiftKey }); canvas.style.cursor = 'grabbing'; });
   canvas.addEventListener('pointerup', (e) => { ptrs.delete(e.pointerId); pinch = 0; canvas.style.cursor = 'grab'; });
   canvas.addEventListener('pointercancel', (e) => { ptrs.delete(e.pointerId); pinch = 0; });
   canvas.addEventListener('pointermove', (e) => {
@@ -526,7 +581,7 @@ function aimAt(i, preset = 'street') {
     placeCamera();
   });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  canvas.addEventListener('wheel', (e) => { e.preventDefault(); orbit.r *= Math.exp(e.deltaY * 0.001); placeCamera(); }, { passive: false });
+  canvas.addEventListener('wheel', (e) => { userCam = true; e.preventDefault(); orbit.r *= Math.exp(e.deltaY * 0.001); placeCamera(); }, { passive: false });
 }
 
 // ---------- Controls ----------
@@ -611,6 +666,52 @@ $('btn-replay').addEventListener('click', () => {
   toast(theirs === mine ? `Replayed ${fmt(target)} steps from scratch: state hash ${theirs}, identical.` : `Replay differs: ${theirs} vs ${mine}`);
 });
 
+// ---------- Sound (Web Audio, synthesised: no files) ----------
+let AC = null, master = null, soundOn = store.get('sound', true);
+function audio() {
+  if (!soundOn) return null;
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); master = AC.createGain(); master.gain.value = 0.55; master.connect(AC.destination); } catch { return null; } }
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+const noiseBuf = () => { if (noiseBuf.b) return noiseBuf.b; const b = AC.createBuffer(1, AC.sampleRate, AC.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; ++i) d[i] = Math.random() * 2 - 1; return (noiseBuf.b = b); };
+function noise(dur, type, freq, q, gain, t0 = 0) {
+  const s = AC.createBufferSource(); s.buffer = noiseBuf(); const f = AC.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = AC.createGain(), t = AC.currentTime + t0; g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  s.connect(f); f.connect(g); g.connect(master); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
+}
+function tone(type, f0, f1, dur, gain, t0 = 0) {
+  const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime + t0; o.type = type;
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
+}
+const lastSfx = {};
+function sfx(kind, e) {
+  if (!soundOn || !AC || AC.state !== 'running') return;
+  const now = AC.currentTime, gap = { WIRE_SNAPPED: 0.05, ARC: 0.09, arc: 0.09, CLAMP_FAILED: 0.06 }[kind] ?? 0.12;
+  if (now - (lastSfx[kind] ?? -9) < gap) return; lastSfx[kind] = now;
+  switch (kind) {
+    case 'IMPACT': { const k = Math.min(1, (e?.value ?? 60) / 100);
+      tone('sine', 90, 38, 0.45, 0.9 * k); noise(0.5, 'lowpass', 1400, 0.7, 0.8 * k); noise(0.25, 'bandpass', 3200, 1.2, 0.35 * k, 0.02);   // thump, crunch, glass
+      for (let i = 0; i < 5; ++i) noise(0.05, 'highpass', 5000, 0.8, 0.12 * k, 0.05 + i * 0.04); break; }
+    case 'POLE_CRACKED': noise(0.09, 'bandpass', 1800, 2, 0.5); noise(0.07, 'bandpass', 2600, 2, 0.35, 0.06); break;
+    case 'POLE_SNAPPED': tone('square', 220, 60, 0.18, 0.25); noise(0.3, 'bandpass', 1200, 1, 0.7); break;
+    case 'POLE_LEANING': noise(0.6, 'lowpass', 300, 0.7, 0.4); break;                                            // soil giving way
+    case 'POLE_FELL': tone('sine', 70, 32, 0.6, 0.9); noise(0.5, 'lowpass', 600, 0.8, 0.7); break;             // concrete hits the ground
+    case 'POLE_HIT_BODY': noise(0.35, 'lowpass', 900, 0.8, 0.8); tone('sine', 120, 50, 0.3, 0.5); break;
+    case 'WIRE_SNAPPED': { const f = 260 + Math.random() * 260; tone('triangle', f * 2.2, f * 0.6, 0.55, 0.22); noise(0.03, 'highpass', 4000, 1, 0.4); break; } // twang
+    case 'CLAMP_FAILED': tone('sine', 1400 + Math.random() * 500, 900, 0.12, 0.12); break;                        // metal ping
+    case 'ARC': case 'arc': tone('sawtooth', 120, 118, 0.22, 0.18); noise(0.22, 'bandpass', 3500, 0.6, 0.45); noise(0.12, 'highpass', 6000, 1, 0.3, 0.05); break;
+    case 'POWER_OUT': tone('sine', 120, 40, 0.9, 0.35); noise(0.15, 'bandpass', 800, 1, 0.4); break;            // the hum dies
+    case 'TRANSFORMER_DETACHED': tone('square', 160, 50, 0.4, 0.3); noise(0.4, 'bandpass', 900, 1, 0.6); break;
+    case 'TRANSFORMER_LANDED': tone('sine', 60, 30, 0.7, 1); noise(0.6, 'lowpass', 500, 0.7, 0.8); break;
+  }
+}
+$('btn-sound').addEventListener('click', () => { soundOn = !soundOn; store.set('sound', soundOn); $('btn-sound').setAttribute('aria-pressed', String(soundOn)); $('btn-sound').textContent = soundOn ? 'Sound on' : 'Sound off'; if (soundOn) audio(); });
+$('btn-sound').setAttribute('aria-pressed', String(soundOn)); $('btn-sound').textContent = soundOn ? 'Sound on' : 'Sound off';
+$('look').addEventListener('click', (e) => { const b = e.target.closest('button[data-look]'); if (!b) return; look = b.dataset.look; store.set('look', look); applyLook(); });
+applyLook();
+
 // ---------- Run control ----------
 function reset() {
   run?.destroy();
@@ -622,9 +723,15 @@ function reset() {
   if (!reset.aimed) { aimAt(cfg.target, 'street'); reset.aimed = true; }
 }
 function hit() {
+  audio();   // first user gesture unlocks sound
   reset();
   run.launch();
-  aimAt(cfg.target, 'street');
+  userCam = false; cine = 0;
+  aimAt(cfg.target, 'action');
+  if (matchMedia('(max-width:860px)').matches) {   // phones: clear the sheet while the hit plays, then show the results
+    $('lab').hidden = true; $('res').hidden = true; clearTimeout(hit.h);
+    hit.h = setTimeout(() => $('tab-res').click(), 5500);
+  }
 }
 
 // ---------- Main loop ----------
@@ -658,7 +765,9 @@ function loop(now) {
   // Effects.
   arcLight.intensity *= Math.pow(0.0005, real);
   view.flashes = view.flashes.filter((f) => { f.t -= real; f.obj.material.opacity = clamp(f.t / 0.18, 0, 1); if (f.t <= 0) { sim.remove(f.obj); return false; } return true; });
-  for (const h of view.hazards) { h.t += real; h.obj.material.opacity = 0.45 + 0.25 * Math.sin(h.t * 6); }
+  for (const h of view.hazards) { h.t += real; h.obj.material.opacity = 0.28 + 0.2 * Math.sin(h.t * 5); }
+  stepSparks(real * Math.max(scale, 0.25));
+  cineCam(real);
   for (const f of view.fires) { f.t += real; f.obj.intensity = 24 + 10 * Math.sin(f.t * 23) * Math.sin(f.t * 7.3); }
   sun.position.copy(orbit.target).add(new THREE.Vector3(40, 70, 30)); sun.target.position.copy(orbit.target);
   if (++frame % 6 === 0) { readouts(view.lastStates); chart('chart-tilt', hist.tilt, '°'); chart('chart-tension', hist.tension, 'kN'); }
