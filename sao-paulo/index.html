@@ -53,6 +53,10 @@ header.hero{padding-block:clamp(28px,5vw,56px) 28px}
 .banner .n{font:900 italic clamp(22px,3vw,34px)/1 var(--display);color:#fff;text-transform:none;letter-spacing:.01em;text-shadow:0 0 2px #000,0 2px 8px rgba(0,0,0,.9)}
 .banner .a{font:700 clamp(12px,1.4vw,15px)/1.4 var(--body);color:#ffd36b;letter-spacing:.06em;text-shadow:0 1px 6px rgba(0,0,0,.95);margin-top:4px}
 .modes{position:absolute;left:12px;top:12px;display:flex;flex-wrap:wrap;gap:6px}
+.pcats{position:absolute;left:12px;top:52px;right:84px;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.pcats button{font:600 11px var(--body);border:0;border-radius:999px;padding:5px 9px;background:rgba(10,18,30,.72);color:#dfe6ef;cursor:pointer;backdrop-filter:blur(4px)}
+.pcats button[aria-pressed="true"]{background:#ffd36b;color:#0a1830}
+.pcnote{font:500 10px var(--mono);color:#93a0b2;text-shadow:0 1px 2px #000}
 .modes button,.zoom button{font:600 12px var(--body);border:0;border-radius:6px;padding:7px 10px;background:rgba(10,18,30,.72);color:#dfe6ef;cursor:pointer;backdrop-filter:blur(4px)}
 .modes button[aria-pressed="true"]{background:#fff;color:#0a1830}
 .modes button:focus-visible,.zoom button:focus-visible,.chip:focus-visible{outline:2px solid #ffd36b;outline-offset:2px}
@@ -285,8 +289,9 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
     <div class="mapcard" id="mapcard">
       <canvas id="map" aria-label="Top-down mosaic of the map and the north block as it is built; hover to read street names"></canvas>
       <div class="modes" role="group" aria-label="Map layer">
-        <button id="m_img" aria-pressed="true" data-m="img">Imagery</button><button id="m_qa" aria-pressed="false" data-m="qa">QA grades</button><button id="m_st" aria-pressed="false" data-m="st">Streets</button><button id="m_mt" aria-pressed="false" data-m="mt">Metrô</button><button id="m_nb" aria-pressed="false" data-m="nb">North build</button>
+        <button id="m_img" aria-pressed="true" data-m="img">Imagery</button><button id="m_qa" aria-pressed="false" data-m="qa">QA grades</button><button id="m_st" aria-pressed="false" data-m="st">Streets</button><button id="m_mt" aria-pressed="false" data-m="mt">Metrô</button><button id="m_nb" aria-pressed="false" data-m="nb">North build</button><button id="m_pl" aria-pressed="false" title="Gas stations, police, hospitals, helipads and 30 more kinds of places">Places</button>
       </div>
+      <div id="pcats" class="pcats" hidden></div>
       <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button></div>
       <div class="lmtier" role="group" aria-label="Landmark tiers"><span class="lbl">Landmarks</span><button data-tr="1" aria-pressed="true">★ Major</button><button data-tr="2" aria-pressed="true">Medium</button><button data-tr="3" aria-pressed="true">Minor</button></div>
       <div class="legend" id="legend"></div>
@@ -558,12 +563,27 @@ function rodoDraw(c){const tp=500*base()*scale,W=cv.width,H=cv.height;
     for(const [i,j] of RD.todo){const [x,y]=w2s(i*500-250,j*500+250);if(x>W||y>H||x+tp<0||y+tp<0)continue;c.fillRect(x+1,y+1,tp-2,tp-2);if(tp>6*dpr)c.strokeRect(x+.5,y+.5,tp-1,tp-1)}}
   c.beginPath();RD.o.forEach((p,k)=>{const [x,y]=w2s(p[0],p[1]);k?c.lineTo(x,y):c.moveTo(x,y)});c.closePath();
   c.setLineDash([7*dpr,6*dpr]);c.strokeStyle="rgba(255,211,107,.9)";c.lineWidth=1.8*dpr;c.stroke();c.setLineDash([])}
+/* PLACES_V1: 36,596 places from OpenStreetMap inside the Rodoanel loop, loaded on first use (places.json). */
+let PLON=false,PLD=null,PLB=null;const PLG=[["emer","Police · fire · hospitals",1],["fuel","Gas stations",1],["heli","Helipads",1],["food","Food & bars",0],["shop","Shops & pharmacies",0],["cars","Cars · parking · cameras",0],["serv","Services",0],["city","City life",0]];
+const PLS={};try{Object.assign(PLS,JSON.parse(localStorage.getItem("sd_pl")||"{}"))}catch(e){}PLG.forEach(g=>{if(PLS[g[0]]===undefined)PLS[g[0]]=!!g[2]});
+function plLoad(){if(PLD)return;PLD=1;fetch("places.json?v=1").then(r=>r.json()).then(d=>{PLD=d;PLB=new Map();d.p.forEach(q=>{const k=Math.round(q[1]/500)+","+Math.round(q[2]/500);(PLB.get(k)||PLB.set(k,[]).get(k)).push(q)});draw()}).catch(()=>{PLD=null})}
+function plDraw(c){if(!PLON||!PLD||!PLD.p)return;const tp=500*base()*scale;if(tp<40*dpr)return;const big=tp>150*dpr,W=cv.width,H=cv.height;
+  const [ax,ay]=s2w(0,0),[bx,by]=s2w(W,H);c.textAlign="center";c.textBaseline="middle";c.font=`${13*dpr}px system-ui,"Apple Color Emoji","Segoe UI Emoji",sans-serif`;
+  for(let i=Math.round(ax/500)-1;i<=Math.round(bx/500)+1;i++)for(let j=Math.round(by/500)-1;j<=Math.round(ay/500)+1;j++){const L=PLB.get(i+","+j);if(!L)continue;
+    for(const q of L){const k=PLD.c[q[0]];if(!PLS[k[4]])continue;const [x,y]=w2s(q[1],q[2]);if(x<-20||y<-20||x>W+20||y>H+20)continue;
+      if(big){c.fillStyle="rgba(8,12,20,.82)";c.beginPath();c.arc(x,y,10*dpr,0,7);c.fill();c.strokeStyle=k[3];c.lineWidth=1.5*dpr;c.stroke();c.fillText(k[2],x,y+.5*dpr)}
+      else{c.fillStyle=k[3];c.beginPath();c.arc(x,y,2.6*dpr,0,7);c.fill()}}}}
+function plNear(px,py){if(!PLON||!PLD||!PLD.p)return null;const tp=500*base()*scale;if(tp<40*dpr)return null;const [wx,wy]=s2w(px,py),L=PLB.get(Math.round(wx/500)+","+Math.round(wy/500))||[];let b=null,bd=(tp>150*dpr?12:6)*dpr;
+  for(const q of L){const k=PLD.c[q[0]];if(!PLS[k[4]])continue;const [x,y]=w2s(q[1],q[2]),d=Math.hypot(x-px,y-py);if(d<bd){bd=d;b=q}}return b}
+function plUI(){$("m_pl").setAttribute("aria-pressed",String(PLON));$("pcats").hidden=!PLON;
+  $("pcats").innerHTML=PLG.map(g=>`<button data-g="${g[0]}" aria-pressed="${!!PLS[g[0]]}">${g[1]}</button>`).join("")+`<span class="pcnote">© OpenStreetMap contributors</span>`}
 function draw(){const c=cx,Wc=cv.width;c.fillStyle="#141a22";c.fillRect(0,0,Wc,Wc);
   const dw=MW*base()*scale,dh=MH*base()*scale;
   const im=(dw>sm.naturalWidth*1.1&&img.complete&&img.naturalWidth)?img:(sm.complete&&sm.naturalWidth?sm:null);
   if(RD)rodoDraw(c,true);if(im){c.imageSmoothingQuality="high";const [mx0,my0]=w2s(MX0,MY1);c.drawImage(im,mx0,my0,dw,dh)}
   const tp=500*base()*scale;
-  if(tp>HD_MIN*dpr&&mode!=="nb")hdDraw(c,tp);   // HD: past the mosaic's own resolution, draw each visible tile's 640 px render on top
+  if(tp>HD_MIN*dpr&&mode!=="nb")hdDraw(c,tp);
+  setTimeout(()=>{},0);   // HD: past the mosaic's own resolution, draw each visible tile's 640 px render on top
   if(N){for(const t of NT){if(t.img&&mode!=="nb")continue;const [x,y]=w2s(t.i*500-250,t.j*500+250);
       if(mode==="nb"){c.fillStyle=t.s==="built"?"rgba(31,157,99,.42)":t.s==="building"?"rgba(37,99,201,.85)":"rgba(255,255,255,.07)";c.fillRect(x+1,y+1,tp-2,tp-2)}
       else if(t.s==="built"){c.fillStyle="rgba(31,157,99,.28)";c.fillRect(x+1,y+1,tp-2,tp-2)}
@@ -590,14 +610,17 @@ function draw(){const c=cx,Wc=cv.width;c.fillStyle="#141a22";c.fillRect(0,0,Wc,W
   if(mode==="mt"){c.fillStyle="rgba(10,15,25,.45)";c.fillRect(0,0,Wc,Wc);c.lineCap="round";c.lineJoin="round";for(const l of D.lines){c.strokeStyle=l.c;c.lineWidth=4*dpr;c.beginPath();l.xy.forEach((p,n)=>{const [x,y]=w2s(p[0],p[1]);n?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
     for(const s of l.st){const [x,y]=w2s(s.x,s.y);c.fillStyle="#fff";c.strokeStyle=l.c;c.lineWidth=2.2*dpr;c.beginPath();c.arc(x,y,3.6*dpr,0,7);c.fill();c.stroke()}}
     if(scale>1.7){c.font=`700 ${11*dpr}px "Public Sans",sans-serif`;c.textBaseline="middle";const seen=new Set();for(const l of D.lines)for(const s of l.st){if(seen.has(s.n))continue;seen.add(s.n);const [x,y]=w2s(s.x,s.y);if(x<0||y<0||x>Wc||y>Wc)continue;c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.85)";c.strokeText(s.n,x+7*dpr,y);c.fillStyle="#fff";c.fillText(s.n,x+7*dpr,y)}}}
+  plDraw(c);
   if(selTile){const [x,y]=w2s(selTile.i*500-250,selTile.j*500+250);c.strokeStyle="#ffd36b";c.lineWidth=3*dpr;c.strokeRect(x,y,tp,tp)}
   if(hover&&hover.t){const [x,y]=w2s(hover.t.i*500-250,hover.t.j*500+250);c.strokeStyle="#fff";c.lineWidth=2*dpr;c.strokeRect(x,y,tp,tp)}
   const LG={img:"",qa:["A","B","C","D","F"].map(g=>`<span><i style="background:${GC[g]}"></i>${g}</span>`).join(""),st:`<span><i style="background:#ffd36b"></i>avenues</span><span><i style="background:#fff"></i>collectors</span><span><i style="background:#aacdff"></i>local</span><span>➤ one-way (zoom in)</span><span><i style="background:#5fd0ff;border-radius:50%"></i>landmarks</span>`,mt:D.lines.map(l=>`<span><i style="background:${l.c}"></i>${l.ref}</span>`).join(""),nb:`<span><i style="background:#1f9d63"></i>built</span><span><i style="background:#2563c9"></i>building</span><span><i style="background:rgba(255,255,255,.3)"></i>not yet</span>`};
   $("legend").innerHTML=LG[mode]}
 img.onload=draw; sm.onload=draw;
-function setMode(m){mode=m;for(const b of document.querySelectorAll(".modes button"))b.setAttribute("aria-pressed",String(b.dataset.m===m));draw()}
+function setMode(m){mode=m;for(const b of document.querySelectorAll(".modes button[data-m]"))b.setAttribute("aria-pressed",String(b.dataset.m===m));draw()}
 function showNorth(){scale=2;const [mx,my]=w2s(-750,9250);ox+=cv.width/2-mx;oy+=cv.height/2-my;clamp();setMode("nb")}
-for(const b of document.querySelectorAll(".modes button"))b.onclick=()=>b.dataset.m==="nb"?showNorth():setMode(b.dataset.m);
+$("m_pl").onclick=()=>{PLON=!PLON;if(PLON)plLoad();plUI();draw()};plUI();
+$("pcats").onclick=e=>{const b=e.target.closest("button[data-g]");if(!b)return;PLS[b.dataset.g]=!PLS[b.dataset.g];try{localStorage.setItem("sd_pl",JSON.stringify(PLS))}catch(_){}plUI();draw()};
+for(const b of document.querySelectorAll(".modes button[data-m]"))b.onclick=()=>b.dataset.m==="nb"?showNorth():setMode(b.dataset.m);
 function zoomAt(f,px,py){const [wx,wy]=s2w(px,py);scale*=f;clamp();const [nx,ny]=w2s(wx,wy);ox+=px-nx;oy+=py-ny;clamp();draw()}
 $("zin").onclick=()=>zoomAt(1.6,cv.width/2,cv.height/2);$("zout").onclick=()=>zoomAt(1/1.6,cv.width/2,cv.height/2);
 cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect();zoomAt(e.deltaY<0?1.25:.8,(e.clientX-r.left)*dpr,(e.clientY-r.top)*dpr)},{passive:false});
@@ -608,7 +631,8 @@ cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect(),px=(e.c
   if(drag){moved=Math.hypot(e.clientX-drag[0],e.clientY-drag[1]);ox=drag[2]+(e.clientX-drag[0])*dpr;oy=drag[3]+(e.clientY-drag[1])*dpr;clamp();draw();return}
   const [wx,wy]=s2w(px,py),t=TL[`T_${Math.round(wx/500)<0?"m"+(-Math.round(wx/500)):"p"+Math.round(wx/500)}_${Math.round(wy/500)<0?"m"+(-Math.round(wy/500)):"p"+Math.round(wy/500)}`];
   const s=nearest(wx,wy,Math.max(12,40/scale));hover={t};
-  if(s){$("bn").textContent=s[0];$("ba").textContent=s[1]||"";$("banner").style.opacity=1}else{$("banner").style.opacity=t?0.0:0}
+  const pq=plNear(px,py);if(pq){const k=PLD.c[pq[0]];$("bn").textContent=pq[3]||k[1];$("ba").textContent=k[2]+" "+k[1];$("banner").style.opacity=1}
+  else if(s){$("bn").textContent=s[0];$("ba").textContent=s[1]||"";$("banner").style.opacity=1}else{$("banner").style.opacity=t?0.0:0}
   draw()});
 cv.addEventListener("pointerleave",()=>{hover=null;$("banner").style.opacity=0;draw()});
 const tname=(i,j)=>`T_${i<0?"m"+(-i):"p"+i}_${j<0?"m"+(-j):"p"+j}`;
