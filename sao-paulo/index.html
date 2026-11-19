@@ -294,7 +294,7 @@ document.addEventListener('visibilitychange',function(){if(document.hidden)v.pau
   </div>
   <div>
     <p class="lede intro">A block-by-block rebuild of São Paulo for an open-world driving game: 627 km² (242 sq mi) of the real city so far, built in blocks of 576 tiles from public survey data, with every building footprint, street tree, lamp post and named street, plus the Metrô running underneath at its real depth.</p>
-    <div class="ctas"><a class="drivebtn" href="driving/"><span class="ico" aria-hidden="true">▶</span><span><b>Drive the car</b><small>Vehicle physics test track, in your browser</small></span></a><a class="drivebtn fly" href="flying/"><span class="ico" aria-hidden="true">▲</span><span><b>Fly the 172</b><small>Or the Top G jet: flight test bed over the city</small></span></a><a class="drivebtn glass" href="glass/"><span class="ico" aria-hidden="true">✦</span><span><b>Break glass</b><small>Fracture lab, down to 1/100,000 speed</small></span></a><a class="drivebtn liquid" href="liquids/"><span class="ico" aria-hidden="true">●</span><span><b>Spill and splash</b><small>Liquids lab: wine, glass and spatter</small></span></a><a class="drivebtn" href="bloco/"><span class="ico" aria-hidden="true">■</span><span><b>Play Bloco</b><small>São Paulo in blocks: drive, fly, break glass</small></span></a><a class="drivebtn fly" href="wake/"><span class="ico" aria-hidden="true">≈</span><span><b>Near miss</b><small>Wake turbulence lab: a 737 over a 172 on final</small></span></a><a class="drivebtn liquid" href="destruction/"><span class="ico" aria-hidden="true">▼</span><span><b>Topple a tower</b><small>Destruction lab: 85 storeys into the Atlantic</small></span></a><a class="drivebtn" href="poles/"><span class="ico" aria-hidden="true">⚡</span><span><b>Hit a pole</b><small>Pole lab: snapped poles, live wires, blackouts</small></span></a><a class="drivebtn range" href="ballistics/"><span class="ico" aria-hidden="true">⊕</span><span><b>Shoot two miles</b><small>Ballistics range, in bullet time</small></span></a><a class="ghost" href="#film">▶ Watch the 30-second film</a><a class="ghost" href="#north" id="northlink">Two blocks built: 1,152 tiles</a></div>
+    <div class="ctas"><a class="drivebtn" href="driving/"><span class="ico" aria-hidden="true">▶</span><span><b>Drive the car</b><small>Vehicle physics test track, in your browser</small></span></a><a class="drivebtn fly" href="flying/"><span class="ico" aria-hidden="true">▲</span><span><b>Fly the 172</b><small>Or the Top G jet: flight test bed over the city</small></span></a><a class="drivebtn glass" href="glass/"><span class="ico" aria-hidden="true">✦</span><span><b>Break glass</b><small>Fracture lab, down to 1/100,000 speed</small></span></a><a class="drivebtn liquid" href="liquids/"><span class="ico" aria-hidden="true">●</span><span><b>Spill and splash</b><small>Liquids lab: wine, glass and spatter</small></span></a><a class="drivebtn" href="bloco/"><span class="ico" aria-hidden="true">■</span><span><b>Play Bloco</b><small>São Paulo in blocks: drive, fly, break glass</small></span></a><a class="drivebtn fly" href="wake/"><span class="ico" aria-hidden="true">≈</span><span><b>Near miss</b><small>Wake turbulence lab: a 737 over a 172 on final</small></span></a><a class="drivebtn liquid" href="destruction/"><span class="ico" aria-hidden="true">▼</span><span><b>Topple a tower</b><small>Destruction lab: 85 storeys into the Atlantic</small></span></a><a class="drivebtn" href="poles/"><span class="ico" aria-hidden="true">⚡</span><span><b>Hit a pole</b><small>Pole lab: snapped poles, live wires, blackouts</small></span></a><a class="drivebtn range" href="ballistics/"><span class="ico" aria-hidden="true">⊕</span><span><b>Shoot two miles</b><small>Ballistics range, in bullet time</small></span></a><a class="ghost" href="#film">▶ Watch the 3-minute film</a><a class="ghost" href="#north" id="northlink">Two blocks built: 1,152 tiles</a></div>
     <div class="facts" id="facts"></div>
   </div>
 </div></div>
@@ -304,7 +304,7 @@ document.addEventListener('visibilitychange',function(){if(document.hidden)v.pau
     <div class="mapcard" id="mapcard">
       <canvas id="map" aria-label="Top-down mosaic of the map and the north block as it is built; hover to read street names"></canvas>
       <div class="modes" role="group" aria-label="Map layer">
-        <button id="m_img" aria-pressed="true" data-m="img">Imagery</button><button id="m_qa" aria-pressed="false" data-m="qa">QA grades</button><button id="m_st" aria-pressed="false" data-m="st">Streets</button><button id="m_mt" aria-pressed="false" data-m="mt">Metrô</button><button id="m_nb" aria-pressed="false" data-m="nb">North build</button><button id="m_pl" aria-pressed="false" title="Gas stations, police, hospitals, helipads and 30 more kinds of places">Places</button><button id="m_tr" aria-pressed="true" title="Live traffic on the map when you zoom all the way in">Traffic</button>
+        <button id="m_img" aria-pressed="true" data-m="img">Imagery</button><button id="m_qa" aria-pressed="false" data-m="qa">QA grades</button><button id="m_st" aria-pressed="false" data-m="st">Streets</button><button id="m_mt" aria-pressed="false" data-m="mt">Metrô</button><button id="m_nb" aria-pressed="false" data-m="nb">North build</button><button id="m_pl" aria-pressed="false" title="Gas stations, police, hospitals, helipads and 30 more kinds of places">Places</button><button id="m_tr" aria-pressed="true" title="Live traffic on the map when you zoom all the way in">Traffic</button><button id="m_hl" aria-pressed="true" title="Helicopters flying between the city's real helipads">Helicopters</button><button id="m_bus" aria-pressed="true" title="Buses on every OpenStreetMap bus route, on São Paulo time (zoom in to a neighbourhood)">Buses</button>
       </div>
       <div id="pcats" class="pcats" hidden></div>
       <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button></div>
@@ -327,11 +327,11 @@ document.addEventListener('visibilitychange',function(){if(document.hidden)v.pau
 </div></header>
 
 <section id="film"><div class="wrap">
-  <div class="sechead"><div><div class="eyebrow">The film · 30 seconds, rendered in Blender</div><h2>Fly over the city</h2></div>
-    <p>From street level under MASP on Avenida Paulista, up over Jardins, across Faria Lima at 300 m, down to the Pinheiros river and around the Ponte Estaiada at golden hour. Every frame is the actual game map, rendered on one laptop.</p></div>
-  <div class="filmbox"><video id="filmv" playsinline muted loop controls preload="none" poster="video/poster.jpg" data-hd="video/flythrough_1080.mp4" data-sd="video/flythrough_720.mp4" data-webm="video/flythrough_720.webm" aria-label="30-second flythrough of Sem Destino"></video></div>
+  <div class="sechead"><div><div class="eyebrow">The film · 3 minutes, rendered in Blender</div><h2>Fly over the city</h2></div>
+    <p>Six shots across the real map: from street level under MASP on Avenida Paulista and straight up above the towers, around the Ponte Estaiada over the Pinheiros river, across the Faria Lima skyline, over Ibirapuera and the Obelisco, through Centro past Copan and the Edifício Itália, and down the final approach into Congonhas. Every frame is the actual game map.</p></div>
+  <div class="filmbox"><video id="filmv" playsinline muted loop controls preload="none" poster="video/film_take5_poster.jpg" data-hd="video/film_take5_720.mp4" data-sd="video/film_take5_540.mp4" data-webm="" aria-label="3-minute flight over Sem Destino"></video></div>
   <div class="chapters" role="group" aria-label="Jump to a place in the film">
-    <button data-t="0">MASP <small>0:00</small></button><button data-t="11.2">Jardins <small>0:11</small></button><button data-t="16">Faria Lima <small>0:16</small></button><button data-t="20.2">Rio Pinheiros <small>0:20</small></button><button data-t="25">Ponte Estaiada <small>0:25</small></button>
+    <button data-t="0">MASP <small>0:00</small></button><button data-t="21">Ponte Estaiada <small>0:21</small></button><button data-t="54">Faria Lima <small>0:54</small></button><button data-t="76">Ibirapuera <small>1:16</small></button><button data-t="101">Centro <small>1:41</small></button><button data-t="127">Congonhas <small>2:07</small></button>
   </div>
 </div></section>
 
@@ -589,20 +589,163 @@ function plDraw(c){if(!PLON||!PLD||!PLD.p)return;const tp=500*base()*scale;if(tp
       else{c.fillStyle=k[3];c.beginPath();c.arc(x,y,2.6*dpr,0,7);c.fill()}}}}
 function plNear(px,py){if(!PLON||!PLD||!PLD.p)return null;const tp=500*base()*scale;if(tp<40*dpr)return null;const [wx,wy]=s2w(px,py),L=PLB.get(Math.round(wx/500)+","+Math.round(wy/500))||[];let b=null,bd=(tp>150*dpr?12:6)*dpr;
   for(const q of L){const k=PLD.c[q[0]];if(!PLS[k[4]])continue;const [x,y]=w2s(q[1],q[2]),d=Math.hypot(x-px,y-py);if(d<bd){bd=d;b=q}}return b}
+/* RODIZIO_V1 (Rosser 19 Nov): the map's traffic follows the real São Paulo clock.
+   - Rush hour (weekdays 7-10 h and 17-20 h) puts every car on the road and slows it; nights and weekends thin out.
+   - Rodízio Municipal: on weekdays 7-10 h and 17-20 h, cars whose plate ends in the day's two digits stay out of the
+     Centro Expandido (Mon 1-2, Tue 3-4, Wed 5-6, Thu 7-8, Fri 9-0; not on weekends or holidays). The boundary is the
+     Minianel Viário, traced from the map's own streets: Marginais Tietê + Pinheiros, Bandeirantes, Afonso D'Escragnolle
+     Taunay, Maria Maluf, Tancredo Neves, Juntas Provisórias, Viaduto Grande São Paulo, Anhaia Mello, Salim Farah Maluf. */
+const RODP=[[-7168,5094],[-6969,5308],[-6819,5469],[-6646,5688],[-6494,5799],[-6339,5845],[-6241,5844],[-6038,5862],[-5945,5846],[-5791,5853],[-5603,5725],[-5417,5859],[-5327,5747],[-5157,5805],[-4838,5858],[-4691,5914],[-4479,5943],[-4263,5881],[-4119,5850],[-4004,5898],[-3788,5863],[-3656,5848],[-3508,5801],[-3354,5751],[-3193,5722],[-3077,5710],[-2903,5653],[-2776,5593],[-2622,5514],[-2479,5378],[-2334,5288],[-2181,5297],[-1900,5207],[-1778,5190],[-1585,5190],[-1380,5204],[-1275,5130],[-1150,5065],[-976,5103],[-828,5064],[-729,5125],[-354,4948],[-199,4988],[-43,5014],[84,4968],[219,4901],[412,4910],[513,4911],[650,4953],[768,4785],[945,4805],[1169,4871],[1297,4723],[1404,4773],[1599,4744],[1733,4778],[1940,4729],[2152,4810],[2341,4758],[2464,4789],[2588,4759],[2745,4782],[2908,4746],[3078,4725],[3233,4709],[3366,4754],[3562,4798],[3707,4818],[3822,4765],[3966,4718],[4114,4655],[4271,4481],[4415,4406],[4583,4317],[4733,4278],[4837,4298],[5040,4339],[5175,4334],[5335,4341],[5470,4255],[5621,4128],[5734,4094],[5939,3855],[6046,3855],[6221,3669],[6382,3617],[6540,3578],[6663,3671],[6810,3702],[7008,3731],[7172,3771],[7298,3745],[7432,3790],[7472,3759],[7303,3664],[7305,3502],[7339,3367],[7370,3251],[7397,3048],[7430,2989],[7516,2705],[7515,2657],[7612,2481],[7618,2369],[7674,2171],[7735,2027],[7763,1903],[7758,1718],[7815,1580],[7855,1441],[7914,1279],[8033,1103],[8078,965],[8075,815],[8011,676],[7988,514],[7998,392],[8086,214],[8118,56],[8203,-246],[8242,-352],[8346,-518],[8414,-664],[8424,-830],[8441,-964],[8613,-1141],[8700,-1264],[8705,-1403],[8662,-1534],[8646,-1706],[8588,-1868],[8586,-2056],[8506,-2193],[8411,-2282],[7673,-2496],[7570,-2517],[7429,-2456],[7295,-2438],[7135,-2457],[6982,-2554],[6829,-2655],[6640,-2756],[6482,-2797],[6775,-2828],[6667,-2794],[6558,-2804],[6375,-2828],[6230,-2861],[6079,-2788],[5973,-2707],[5904,-2735],[5943,-2948],[5938,-3083],[5950,-3185],[5992,-3354],[5982,-3471],[6022,-3708],[6039,-4004],[6016,-4127],[5907,-4303],[5828,-4425],[5618,-4520],[5303,-4792],[5250,-4872],[5171,-5033],[5112,-5180],[5087,-5294],[5009,-5502],[4993,-5578],[4916,-5782],[4871,-5932],[4824,-6046],[4741,-6236],[4701,-6338],[4616,-6538],[4540,-6696],[4517,-6752],[4441,-6846],[4284,-7004],[4125,-7121],[3320,-7368],[3232,-7379],[3099,-7407],[2926,-7430],[2812,-7456],[2656,-7482],[2466,-7514],[2340,-7534],[2183,-7529],[2035,-7511],[1873,-7499],[1710,-7489],[1573,-7488],[1419,-7558],[1286,-7646],[1171,-7647],[1039,-7607],[978,-7561],[828,-7230],[681,-6959],[508,-6811],[388,-6728],[224,-6617],[81,-6511],[-47,-6432],[-234,-6344],[-399,-6257],[-519,-6193],[-690,-6108],[-812,-6065],[-993,-6024],[-1130,-5960],[-1254,-5864],[-1420,-5726],[-1552,-5664],[-1736,-5578],[-1850,-5479],[-2026,-5256],[-2179,-5121],[-2344,-4810],[-2484,-4638],[-2665,-4474],[-2771,-4374],[-2901,-4279],[-3064,-4171],[-3204,-4110],[-3388,-4024],[-3502,-3935],[-3961,-3830],[-3867,-3665],[-3814,-3540],[-3798,-3380],[-3736,-3253],[-3688,-3084],[-3617,-2904],[-3629,-2785],[-3615,-2648],[-3717,-2495],[-3718,-2306],[-3891,-2202],[-3884,-2002],[-4021,-1855],[-4203,-1690],[-4212,-1569],[-4424,-1406],[-4565,-1276],[-4665,-1130],[-4778,-973],[-4890,-844],[-4910,-691],[-4908,-504],[-5029,-369],[-5068,-234],[-5209,-80],[-5391,77],[-5665,216],[-5742,361],[-6208,517],[-6298,690],[-6748,826],[-6979,978],[-7337,1152],[-7388,1275]];
+const SPHOL=new Set(["2026-01-01","2026-01-25","2026-02-16","2026-02-17","2026-02-18","2026-04-03","2026-04-21","2026-05-01","2026-06-04","2026-07-09","2026-09-07","2026-10-12","2026-11-02","2026-11-15","2026-11-20","2026-12-25",
+  "2027-01-01","2027-01-25","2027-02-08","2027-02-09","2027-02-10","2027-03-26","2027-04-21","2027-05-01","2027-05-27","2027-07-09","2027-09-07","2027-10-12","2027-11-02","2027-11-15","2027-11-20","2027-12-25"]);
+let spC=null,spCt=0;
+function spNow(){const n=Date.now();if(spC&&n-spCt<15000)return spC;spCt=n;
+  const f=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",weekday:"short",hourCycle:"h23"}).formatToParts(new Date(n)),g=k=>(f.find(x=>x.type===k)||{}).value;
+  const ds=`${g("year")}-${g("month")}-${g("day")}`,h=+g("hour"),m=+g("minute"),wd=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(g("weekday"));
+  const md=+g("month")*100+ +g("day"),pause=md>=1222||md<=109;   // the city suspends the rodízio over the year-end holidays
+  const work=wd>=1&&wd<=5&&!SPHOL.has(ds),peak=work&&((h>=7&&h<10)||(h>=17&&h<20));
+  const rod=peak&&!pause?[[1,2],[3,4],[5,6],[7,8],[9,0]][wd-1]:null;
+  const dens=work?(peak?1:h<5?.3:h<7?.6:h<17?.75:h<22?.65:.45):(h<7?.3:h<11?.45:h<20?.6:.45);
+  const sf=peak?.55:h<5?1.15:1;
+  const lab=peak?"rush hour":h<5?"late night":h<7?"early morning":h<17?(work?"midday":"weekend"):h<22?"evening":"night";
+  spC={ds,h,m,wd,work,peak,rod,dens,sf,lab,hm:`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`};return spC}
+function inPoly(x,y,P){let c=false;for(let i=0,j=P.length-1;i<P.length;j=i++){const a=P[i],b=P[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])c=!c}return c}
+const RODIN=new Map();function tileInRod(tn){if(!RODIN.has(tn)){const m=/^T_([pm])(\d+)_([pm])(\d+)$/.exec(tn);RODIN.set(tn,!!m&&inPoly((m[1]==="p"?1:-1)*m[2]*500,(m[3]==="p"?1:-1)*m[4]*500,RODP))}return RODIN.get(tn)}
+function carVis(tn){const S=spNow(),ban=S.rod&&tileInRod(tn)?S.rod:null;return C=>C.r<S.dens&&!(ban&&!C.bus&&!C.moto&&ban.includes(C.pl))}
+function spHud(c,tn){const S=spNow(),W=cv.width,lines=[`São Paulo ${S.hm} · ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][S.wd]} · ${S.lab}`];
+  if(S.rod)lines.push(tn&&tileInRod(tn)?`Rodízio: plates ending ${S.rod[0]} and ${S.rod[1]} are off these streets`:`Rodízio on: plates ending ${S.rod[0]} and ${S.rod[1]} kept out of the centro expandido`);
+  else if(S.work&&!S.peak)lines.push("No rodízio now · it runs 7–10 h and 17–20 h on weekdays");
+  c.font=`600 ${11.5*dpr}px "Public Sans",sans-serif`;const w=Math.max(...lines.map(l=>c.measureText(l).width))+20*dpr,h=(lines.length*17+10)*dpr,x=10*dpr,y=cv.height-h-48*dpr;
+  c.fillStyle="rgba(8,12,20,.86)";c.beginPath();c.roundRect?c.roundRect(x,y,w,h,8*dpr):c.rect(x,y,w,h);c.fill();c.textAlign="left";c.textBaseline="middle";
+  lines.forEach((l,i)=>{c.fillStyle=i?"#ffd36b":"#fff";c.fillText(l,x+10*dpr,y+(14+i*17)*dpr)})}
 /* MAPTRAFFIC_V1 (Rosser 19 Nov): zoomed all the way in, the big map loads each visible tile's real lanes (one-way arrows, signals,
    speed-limit signs) and runs live traffic on them - the same data and cars as the tile explorer, for every tile on screen. */
-const MT_MIN=300,MLC=new Map();let MTON=true,mtRAF=0,mtT=0,mtLast=0;try{MTON=localStorage.getItem("sd_tr")!=="0"}catch(e){}
+const MT_MIN=300,MLC=new Map();let mtHudT=null;let MTON=true,mtRAF=0,mtT=0,mtLast=0;try{MTON=localStorage.getItem("sd_tr")!=="0"}catch(e){}
 function mlGet(t){if(MLC.has(t.t)){const e=MLC.get(t.t);MLC.delete(t.t);MLC.set(t.t,e);return e}MLC.set(t.t,null);
   fetch("lanes/"+t.t+".json").then(r=>r.ok?r.json():0).then(d=>{MLC.set(t.t,d?{d,T:mkTraffic(d)}:0);draw();mtGo()}).catch(()=>MLC.set(t.t,0));
   if(MLC.size>48){const k=MLC.keys().next().value;MLC.delete(k)}return null}
 function mtVis(tp){const W=cv.width,H=cv.height,o=[];for(const t of HDL()){const [x,y]=w2s(t.i*500-250,t.j*500+250);if(x>W||y>H||x+tp<0||y+tp<0)continue;o.push([t,x,y])}return o}
 function mtOn(tp){return MTON&&tp>=MT_MIN*dpr&&mode!=="nb"&&mode!=="mt"&&mode!=="qa"}
-function mtDraw(c,tp){if(!mtOn(tp))return;for(const [t,x,y] of mtVis(tp)){const e=mlGet(t);if(!e)continue;c.save();c.translate(x,y);drawLanesD(c,e.d,tp,tp);drawCarsD(c,e.T.C,tp,tp);c.restore()}}
-function mtStep(T,dt){const E=T.E;for(const C of T.C){C.d+=C.E.v*C.sp*(C.moto?1.15:1)*dt;if(C.d>=C.E.L){const nx=C.E.next;const F=nx.length?nx[Math.floor(Math.random()*nx.length)]:E[Math.floor(Math.random()*E.length)];Object.assign(C,{E:F,d:nx.length?C.d-C.E.L:0,ln:Math.min(C.ln,F.n-1)})}}}
+function mtDraw(c,tp){if(!mtOn(tp))return;const [hx,hy]=s2w(cv.width/2,cv.height/2);mtHudT=tname(Math.round(hx/500),Math.round(hy/500));for(const [t,x,y] of mtVis(tp)){const e=mlGet(t);if(!e)continue;c.save();c.translate(x,y);drawLanesD(c,e.d,tp,tp);c.restore()}}
+function mtCars(c,tp){if(!mtOn(tp))return;for(const [t,x,y] of mtVis(tp)){const e=MLC.get(t.t);if(!e)continue;c.save();c.translate(x,y);drawCarsD(c,e.T.C,tp,tp,carVis(t.t));c.restore()}}
+function mtStep(T,dt){const E=T.E,SF=spNow().sf;for(const C of T.C){C.d+=C.E.v*C.sp*SF*(C.moto?1.15:1)*dt;if(C.d>=C.E.L){const nx=C.E.next;const F=nx.length?nx[Math.floor(Math.random()*nx.length)]:E[Math.floor(Math.random()*E.length)];Object.assign(C,{E:F,d:nx.length?C.d-C.E.L:0,ln:Math.min(C.ln,F.n-1)})}}}
 function mtGo(){if(!mtRAF){mtT=performance.now();mtRAF=requestAnimationFrame(mtTick)}}
-function mtTick(now){mtRAF=0;const tp=500*base()*scale;if(document.hidden||!mtOn(tp))return;const r=cv.getBoundingClientRect();if(r.bottom<0||r.top>innerHeight){mtRAF=requestAnimationFrame(mtTick);return}
-  const dt=Math.min(.1,(now-mtT)/1000);mtT=now;let any=0;for(const [t] of mtVis(tp)){const e=MLC.get(t.t);if(e){mtStep(e.T,dt);any=1}}
-  if(any&&now-mtLast>33){mtLast=now;draw()}mtRAF=requestAnimationFrame(mtTick)}
+function mtTick(now){mtRAF=0;const tp=500*base()*scale,cars=mtOn(tp),hel=heliOn()||mode==="mt"||busOn(tp);if(document.hidden||(!cars&&!hel))return;const r=cv.getBoundingClientRect();if(r.bottom<0||r.top>innerHeight){mtT=now;mtRAF=requestAnimationFrame(mtTick);return}
+  const dt=Math.min(.1,(now-mtT)/1000);mtT=now;if(cars)for(const [t] of mtVis(tp)){const e=MLC.get(t.t);if(e)mtStep(e.T,dt)}if(hel)heliStep(dt);
+  if(now-mtLast>33){mtLast=now;frame()}mtRAF=requestAnimationFrame(mtTick)}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)mtGo()});addEventListener("scroll",()=>{if(!mtRAF)mtGo()},{passive:true});
+/* HELI_V1 (Rosser 19 Nov): São Paulo has one of the biggest helicopter fleets in the world. Helicopters fly between the 428 real
+   helipads (OpenStreetMap): more in weekday business hours and at dusk, a few at night. Each one lifts off, crosses the city at
+   ~300 m (its shadow on the ground) and lands. Hover one to see where it's going. */
+const HPADS=[[-4984,-7121,"Shopping Parque da Cidade"],[-4908,-7095],[-4835,-7084],[-4769,-7073],[-4759,-6998],[-5152,-7271,"Shering Plough"],[-5223,-7896],[-4938,-1389,"SODEPA"],[-4816,-1296],[-4872,-1767,"Gália"],[-4885,-3120,"Residência Papaiz"],[-4921,-3246],[-4821,-3329,"Rede D'Or São Luiz Morumbi"],[-5018,-3666,"Mar Gírios"],[-5008,5492,"Polícia Federal"],[-5562,-7827,"Meliá Confort São Paulo"],[-5332,-778,"TV Mundial I"],[-5543,-3796,"TV Bandeirantes"],[-5610,5427,"E-Business Bosque"],[-5917,-686],[-5792,-7869,"Auxiliar I"],[-6223,-9172,"João Dias"],[-5993,-9892],[-5788,-10101,"Banco Santander"],[-6043,-10311,"Birmann 09"],[-5943,-15296],[-6030,-22803],[-5772,-4356,"Palácio dos Bandeirantes"],[-6001,-4383,"Hospital Albert Einstein"],[-6460,-530],[-7216,-9993,"Trama"],[-7009,-10356,"Grupo Santander Banespa-Panamérica Park"],[-7164,-12033],[-6785,1026,"Onix"],[-7150,13500,"Ortosíntese"],[-7445,-9861,"Centro Empresarial de São Paulo"],[-7391,-9770,"Centro Empresarial de São Paulo"],[-7729,5195,"Friboi"],[-7919,-6878,"Condomínio Edifício Vol D'Oiseau"],[-8139,-7525,"Tivoli Center"],[-8040,-9086,"TIM"],[-8042,5216,"Classic"],[-8063,3626,"Universidade Mogi das Cruzes"],[-8484,5051,"Transportadora Americana"],[-8312,1539,"Helicidade"],[-9020,-3918],[-9045,3450,"DIMEP"],[-9036,3822,"ITM Expo"],[-9618,-15338,"Heliponto Guarapiranga"],[-578,-2036,"Forest Trade"],[-570,-2570,"Heliponto Municipal \"Demoiselle\""],[-420,-4555,"Edifício Edel Trade Center"],[-502,-4413,"Hospital Alvorada"],[-344,135,"Parque Paulista"],[-647,281,"Renaissance Hotel"],[-484,478],[-542,528,"Edifício São Luís Gonzaga"],[-391,387],[-706,836,"Angélica IV"],[-272,832,"AGU"],[-580,976],[-289,1267,"Higienópolis Medical Center"],[-691,2514,"Hospital Samaritano"],[-723,4173,"Rede Record"],[-632,4292,"Forum Trabalhista de 1ª Instância de São Paulo I"],[-681,4300,"Forum Trabalhista de 1ª Instância de São Paulo II"],[-10133,-22252,"Igreja Messiânica Mundial do Brasil"],[-10485,12786,"Rei da Pamonha"],[-10980,4378],[-11327,-2676,"Reseda Office"],[-11560,1309,"Bradesco"],[-12044,-14647,"Hospital Municipal M'boi Mirim"],[-11897,1192,"Bradesco Cidade de Deus"],[-12164,4382],[-12573,8697,"Málaga"],[-12626,8686],[-12637,8671],[-12567,9246,"SBT"],[-12885,9038,"HBR"],[-12933,2889,"JC"],[-13276,7961],[-942,-511,"Hotel Emiliano"],[-1242,563,"Instituto Dr. Arnaldo"],[-1217,5413,"Vivicon"],[-1015,3748],[-1207,4339,"Federação Paulista de Futebol"],[-16322,-15692,"Ita"],[-1529,-2587,"CBS"],[-1323,-2507,"Brigadeiro"],[-1505,-2434],[-1623,-2892,"Edifício Corporate Park"],[-1716,-3242,"Hospital São Luiz"],[-1357,361],[-1330,348,"Hospital das Clínicas"],[-1685,5387,"O Estado de São Paulo"],[-1971,-2511,"Brascan Century Plaza"],[-1900,-2366,"Resedá Office"],[-1928,-2872,"JKFC"],[-1966,-3086,"Juscelino Plaza"],[-2030,3099,"Hospital Israelita Albert Einstein"],[-2369,-2213,"Folegatti Bolina e Moruzzi Advogados"],[-2706,-2214,"Metropolitan Office"],[-2700,-2608,"Milennium"],[-2457,-2724,"Bertolucci"],[-2617,-2313,"Condomínio Edifício Itaquere"],[-2665,-2660,"Spazio Faria Lima"],[-2505,-2908,"Birmann 29"],[-2696,-3218,"Maria Cecília Lara Campos"],[-2551,-3061,"Birmann 29"],[-2630,-3209,"Birmann 31"],[-2619,-2814,"Pátio Victor Malzoni"],[-2458,-2947,"New Century"],[-2698,-3038,"Faria Lima Square"],[-2680,-3107],[-2706,-3357,"JK 1455"],[-2491,-3319,"Blue Tree Tower Faria Lima"],[-2591,-3343,"Internacional Plaza"],[-2647,-3331,"Internacional Plaza II"],[-2430,-3403],[-2583,-3435],[-2635,5765,"Heliponto VSP"],[-2368,3887,"Heliponto Palmeiras"],[-3100,-602,"Torre 2000"],[-2848,-750,"Edifício PBK"],[-3114,-1720,"Plaza Iguatemi"],[-3172,-1655,"Os Bandeirantes"],[-3237,-1527,"Condomínio Edifício San Paolo"],[-2859,-2146,"Edifício Dacon"],[-2774,-2747,"Edifício Faria Lima Financial Center"],[-2770,-2428,"Millennium"],[-2822,-2531,"Seculum"],[-2829,-2479,"Edifício HSBC Tower"],[-2915,-3721],[-3089,-3533,"Edifício Atrium IV"],[-2970,-3402,"Banco Industrial"],[-2997,-3316,"Condomínio Edifício Spazio JK"],[-3215,-3384,"Camargo Corrêa"],[-2933,-3297,"Plaza JK"],[-3092,-3267,"São Luiz"],[-2948,-3867,"Business Center"],[-3202,-3758,"ITC"],[-3182,-3807,"Atrium VI.com"],[-2994,-3751,"Edifício Palladio"],[-2870,-3757,"One Hundred"],[-2820,-3832,"Continental Square"],[-2975,-3929,"Carmo Couri"],[-3164,-3898],[-3589,-918,"Condomínio Faria Lima"],[-3660,-991,"Zarzur"],[-3550,-15718,"Kartódromo Ayrton Senna"],[-3280,-3600,"Edifício São Paulo Trade Building"],[-3329,-3694],[-3386,-3695],[-3280,-3600,"Francisco Mellão"],[-3399,-3524,"Millennium Office Park"],[-3475,-3614,"E-Tower"],[-3372,-3667,"Edifício São Paulo Trade Building"],[-3534,-3320,"Santander"],[-3451,-4107,"Berrini One"],[-3680,-4543,"Edifício Ronaldo Sampaio Ferreira"],[-3687,-4473],[-3642,-4430,"Edifício Berrini 500"],[-3631,-4487,"Berrini"],[-3346,3011,"Hospital São Camilo Pompéia"],[-3835,-4819,"João Domingues de Araújo"],[-4100,-5200,"REC Berrini TNU"],[-4039,-4928],[-3845,-5409],[-4150,-5406,"Centro Empresarial Nações Unidas - Torre Oeste"],[-3882,-5262,"REC Berrini"],[-4043,-5327,"World Trade Center"],[-4041,-5550,"Plaza II"],[-3891,-5584,"Condomínio Edifício Berrini 1681"],[-3878,-5546,"Alice Maria Sampaio Ferreira"],[-4082,-5450,"Centro Empresarial Nações Unidas-Torre Norte"],[-4104,-5952,"Rede Globo"],[-4091,-6924],[-3753,-848],[-3780,-968,"Edifício Faria Lima Premium"],[-4250,-1369,"Eldorado"],[-4059,-1582,"Quadra Hungria"],[-3890,-15435,"Hospital Autódromo José Carlos Pace"],[-3897,-1849,"Hungria 1100"],[-3787,-4571,"Attilio Tinelli"],[-3926,-2,"Aché Faria Lima"],[-4010,5255,"Centro Empresarial Iudice"],[-3843,5599,"Embrase"],[-4252,-5985,"Rede Globo 2"],[-4312,-6182,"Represa"],[-4632,-6183],[-4325,-6563,"Vivo S/A"],[-4740,-6379,"Condomínio América Business Park"],[-4467,-6833,"Rochaverá - Alfa"],[-4598,-7088,"Morumbi Corporate"],[-4618,-6948],[-4274,-7345,"Henri Dunant"],[-4598,-7332,"EZ Towers B"],[-4668,-7312,"EZ Towers A"],[-4342,-1249,"Unibanco Eusébio Matoso"],[-4680,-12062,"HPE"],[-4353,-4514],[-4435,-4282,"Panco II"],[-9,-646],[16,-288,"Tivoli Mofarrej"],[17,-324,"Banco Induscred"],[143,-252,"SESI-FIESP"],[180,-8032,"Lider Aviação"],[72,-1309,"Edifício Comercial Lorena"],[-173,-1650,"Itaú NPD Paulista"],[-22,-174,"Banco Sofisa"],[114,-41,"Banco Bradesco Av. Paulista"],[196,-75,"BFC"],[168,481,"Hospital Sírio Libanês"],[-170,282,"Cetenco Plaza - Torre Norte"],[5152,-5225,"Akron"],[5242,1688],[4911,2599,"Monte Horebe"],[5580,-788,"Kuka"],[5282,-14088,"Imigrantes"],[5261,3200,"Vigor"],[5779,-13076],[5920,6110],[6736,-124],[7044,14539,"Panco 8"],[7444,10680,"Hiper-Bergamini"],[7761,-6066,"Hangar ABC"],[7782,-6056],[7782,-6071],[7852,-9140],[7960,-11183,"Mercedes-Benz do Brasil"],[7945,-16486],[8173,-18920,"Hospital de Clínicas Municipal"],[7788,5026,"Cometa Vila Maria"],[8732,-5381],[8444,-7733],[8501,3420,"Itautec"],[8759,-5395,"Casas Bahia"],[8919,-5791],[8950,-2707,"Crematorio Vila Alpina"],[9254,-16913,"Wheaton"],[9620,-82,"Hospital e Maternidade Vitória"],[256,-382,"Citibank"],[450,-470,"CYK"],[392,-322,"Edifício Comendador Alberto Bonfiglioli"],[393,-10616,"Hospital e Maternidade Santa Marina"],[466,-1644],[690,-2036,"IBM Tutóia"],[396,-3731,"Hospital Gastroclínica"],[709,-3448,"Ibirapuera Park Hotel Ltda"],[326,-220,"Conde Francisco Matarazzo"],[515,55,"IGESP"],[390,384,"Federação do Comércio do Estado de São Paulo"],[292,476,"Hospital Sírio Libanês II"],[318,843,"Frei Caneca Shopping"],[556,2031,"Santa Casa"],[296,2540,"Porto do Sol Hotel"],[650,2449,"Faculdade de Ciências Médicas da Santa Casa de São Paulo"],[9958,1507],[9812,2912,"UNICID - Universidade Cidade de São Paulo"],[10345,-5755],[10740,-5911],[10650,-15094],[10519,-14838],[10311,8894],[11197,-5866,"Pires do Rio"],[11244,-16725],[11033,-18488,"Volkswagen"],[11360,3101,"Grupo Souza Lima"],[12608,-8865,"Deputado Adib Chammas"],[12688,-11957,"Hospital Estadual Mário Covas"],[13099,-10259,"Bradesco - Santo André"],[13549,9744,"Aché"],[14182,-7019],[13902,-11380,"Monte das Oliveiras"],[13950,12053],[14212,2073,"Bradesco"],[1015,-701,"Delta Plaza"],[931,-371],[987,-6449],[918,-905],[1061,-822,"Hospital Santa Catarina"],[987,-1118,"Paulista Capital Plaza - The Flat"],[1061,-1101,"Parque Cultural Paulista"],[1013,-3559,"Comando Naval"],[847,-4668,"SECOVI"],[1139,5375],[1130,2003,"Banespa República"],[1009,2666,"Folha de São Paulo"],[1048,3454,"Porto Seguro"],[15237,-11071,"Pirelli - Laboratório Eng. Cabos"],[15367,-456,"Shopping Leste Aricanduva"],[16532,-1100,"Edifício Comercial Lorena"],[16281,12502],[16395,3885,"Panco I"],[17201,-9974],[17248,10612,"Jomarca"],[16937,4019,"Panco"],[17501,10164,"Locar"],[17282,12071,"Braspress"],[18177,2122],[18641,-15443],[18692,11663,"Aurora"],[18480,4739,"Metrópole Paulista"],[1506,-338,"Central Towers Paulista"],[1367,-515,"Telefônica"],[1405,-403,"Hospital Paulistano"],[1488,-680,"Beneficência Portuguesa"],[1697,-8068],[1703,-8180],[1668,-8103],[1527,-8269,"Itaúsa"],[1291,-878,"Hospital Alemão Oswaldo Cruz"],[1280,-1269,"Hospital do Coração"],[1457,-1320,"Condomínio Edifício Paulista Plaza"],[1644,5547],[1635,5454],[1609,5449],[1607,5478],[1634,5483],[1621,5466],[1722,5394],[1739,5397],[1743,5377],[1725,5374],[1600,5348],[1610,5362],[1634,5368],[1625,5353],[1731,5324],[1737,5296],[1584,5356],[1634,5303],[1642,5319],[1619,5314],[1550,9834],[19844,1076,"Hospital Santa Marcelina"],[19950,12531],[20467,-664],[21124,8834],[21207,10295,"Terminal Petrobrás de Guarulhos"],[21454,12932,"CD Guarulhos"],[22698,10139,"Ellece"],[22395,13661,"Karina"],[24455,10202,"CFAPP"],[24545,14902],[2161,459,"Hospital Leforte Liberdade"],[1829,5345],[1835,5315],[1833,5330],[1793,5306],[1791,5321],[1787,5336],[1861,5401],[1857,5423],[1836,5419],[1840,5398],[1787,5386],[1783,5406],[1762,5402],[1765,5383],[1822,5395],[1819,5412],[1804,5391],[1800,5409],[2243,5597],[2218,5598],[2189,5516],[2193,5463],[1953,5430],[1956,5412],[1923,5406],[1920,5423],[2024,5454],[2041,5458],[2131,5456],[2101,5448],[1899,5431],[1876,5426],[1902,5411],[1880,5406],[1764,5330],[2022,1532],[1857,1553,"Condomínio Conde Matarazzo"],[2239,1786],[2071,1874,"Banco de Boston"],[2088,1959],[24906,14517,"Pavão"],[25087,14978,"Centro de Distribuição Ponto Frio"],[24904,18763],[27496,3520,"Eco Fly"],[28345,16012,"Ipiranga Centro Logístico"],[2482,5411],[2480,5392],[2486,5402],[2459,5404],[2458,5386],[2485,5383],[2438,5406],[2433,5391],[2393,5392],[2394,5408],[2303,5412],[2303,5397],[2302,5382],[2258,5415],[2258,5400],[2257,5385],[2361,5406],[2337,5408],[2473,8477,"Conjunto Hospitalar do Mandaqui"],[2371,1754,"Cidade"],[30313,2914,"Hospital Doutor Osíris Florindo Coelho"],[33152,4451],[33165,4441],[33213,4448,"Ibar"],[2965,-9630],[2952,-9589],[2844,4882,"A Universal"],[3472,-4049,"Divena"],[3296,6887,"Centro Empresarial Vari"],[3576,1227],[3616,10148,"Hospital da Polícia Militar"],[3996,-12676,"Papaiz"],[4125,465,"C.T.O. Itaú"],[3781,2878,"Mega Mix"],[4473,-500],[4270,-936],[4584,9248]];
+let HELON=true,HELS=[],helT=0;try{HELON=localStorage.getItem("sd_hl")!=="0"}catch(e){}
+function heliOn(){return HELON&&mode!=="nb"&&mode!=="mt"}
+function heliWant(){const S=spNow();if(!S.work)return S.h>=8&&S.h<19?7:3;return S.h>=17&&S.h<20?18:S.h>=7&&S.h<17?12:S.h>=20&&S.h<23?6:3}
+function heliNew(mid){const a=HPADS[Math.floor(Math.random()*HPADS.length)];let b=null;
+  for(let k=0;k<40&&!b;k++){const q=HPADS[Math.floor(Math.random()*HPADS.length)],d=Math.hypot(q[0]-a[0],q[1]-a[1]);if(d>2500&&d<14000)b=q}
+  if(!b)return null;const L=Math.hypot(b[0]-a[0],b[1]-a[1]),tf=L/95;
+  return {a,b,L,tf,t:mid?-6+Math.random()*(tf+18):-6,ph:Math.random()*6,bend:(Math.random()-.5)*.18,sz:.85+Math.random()*.3}}
+function heliStep(dt){helT+=dt;const want=heliWant(),first=!HELS.length&&helT<2;while(HELS.length<want){const h=heliNew(first);if(!h)break;HELS.push(h)}
+  for(const h of HELS)h.t+=dt;HELS=HELS.filter(h=>h.t<h.tf+12);if(HELS.length>want+4)HELS.length=want+4}
+// position + altitude 0..1: 6 s lift-off on the pad, cruise along a gentle curve, 6 s landing, then a few seconds on the pad
+function heliPos(h){const u=Math.max(0,Math.min(1,h.t/h.tf)),e=u*u*(3-2*u),dx=h.b[0]-h.a[0],dy=h.b[1]-h.a[1],nx=-dy/h.L,ny=dx/h.L,bow=Math.sin(Math.PI*e)*h.L*h.bend;
+  const al=h.t<0?Math.max(0,(h.t+6)/6):h.t>h.tf?Math.max(0,1-(h.t-h.tf)/6):1;return [h.a[0]+dx*e+nx*bow,h.a[1]+dy*e+ny*bow,al]}
+function heliDraw(c,tp){if(!heliOn()||!HELS.length)return;const ppm=base()*scale,now=performance.now()/1000;
+  for(const h of HELS){const [x,y,al]=heliPos(h),[sx,sy]=w2s(x,y);if(sx<-60||sy<-60||sx>cv.width+60||sy>cv.height+60)continue;
+    const s=Math.max(12*dpr,Math.min(40*dpr,24*ppm))*h.sz,ang=Math.atan2(-(h.b[1]-h.a[1]),h.b[0]-h.a[0]),off=al*Math.max(4*dpr,Math.min(40*dpr,36*ppm));
+    c.save();c.translate(sx+off*.7,sy+off);c.rotate(ang);c.fillStyle=`rgba(0,0,0,${.18+.17*(1-al)})`;c.beginPath();c.ellipse(0,0,s*.55,s*.2,0,0,7);c.fill();c.fillRect(-s*1.05,-s*.05,s*.6,s*.1);c.restore();
+    c.save();c.translate(sx,sy);c.rotate(ang);
+    c.strokeStyle="rgba(20,26,36,.95)";c.lineWidth=Math.max(1.2*dpr,s*.08);c.beginPath();c.moveTo(-s*.2,0);c.lineTo(-s*1.05,0);c.stroke();
+    c.fillStyle="#f2f4f7";c.strokeStyle="rgba(10,14,22,.9)";c.lineWidth=Math.max(1,s*.05);c.beginPath();c.ellipse(0,0,s*.5,s*.22,0,0,7);c.fill();c.stroke();
+    c.fillStyle="#1d2f4f";c.beginPath();c.ellipse(s*.22,0,s*.18,s*.15,0,0,7);c.fill();
+    c.fillStyle="#d7261e";c.fillRect(-s*.32,-s*.035,s*.36,s*.07);
+    const ra=now*(al>0.05?22:4)+h.ph;c.strokeStyle="rgba(30,36,48,.55)";c.lineWidth=Math.max(1,s*.06);c.beginPath();
+    for(const q of [0,Math.PI/2]){c.moveTo(Math.cos(ra+q)*s*.7,Math.sin(ra+q)*s*.7);c.lineTo(-Math.cos(ra+q)*s*.7,-Math.sin(ra+q)*s*.7)}c.stroke();
+    if(Math.floor(now*1.6+h.ph)%2===0){c.fillStyle="#ff3b30";c.beginPath();c.arc(-s*1.02,0,Math.max(1.6*dpr,s*.07),0,7);c.fill()}
+    c.restore()}}
+let HH=null;
+function heliNear(px,py){if(!heliOn())return null;let b=null,bd=16*dpr;for(const h of HELS){const [x,y]=heliPos(h),[sx,sy]=w2s(x,y),d=Math.hypot(sx-px,sy-py);if(d<bd){bd=d;b=h}}return b}
+function heliHi(c,tp){if(!HH||!heliOn()||!HELS.includes(HH))return;const [x,y,al]=heliPos(HH),[sx,sy]=w2s(x,y);
+  if(!HH.lab){const s=nearest(HH.b[0],HH.b[1],600);HH.lab=["Helicopter",`to ${HH.b[2]||(s?"a helipad by "+s[0]:"a helipad")}`]}
+  const st=HH.t<0?"lifting off":HH.t>HH.tf?"landed":al<1?"landing":`${Math.max(1,Math.round((HH.tf-HH.t)/60))} min to go`;
+  c.strokeStyle="#ffd36b";c.lineWidth=2*dpr;c.beginPath();c.arc(sx,sy,22*dpr,0,7);c.stroke();c.strokeStyle="rgba(255,211,107,.35)";c.lineWidth=6*dpr;c.beginPath();c.arc(sx,sy,27*dpr,0,7);c.stroke();
+  const l1=`${HH.lab[0]} · ${st}`;c.font=`700 ${12.5*dpr}px "Public Sans",sans-serif`;const w1=c.measureText(l1).width;c.font=`600 ${10.5*dpr}px "Public Sans",sans-serif`;const w2=c.measureText(HH.lab[1]).width;
+  const bw=Math.max(w1,w2)+20*dpr,bh=40*dpr;let bx=sx+24*dpr,by=sy-bh/2;if(bx+bw>cv.width-6*dpr)bx=sx-24*dpr-bw;by=Math.max(6*dpr,Math.min(cv.height-bh-6*dpr,by));
+  c.fillStyle="rgba(8,12,20,.94)";c.strokeStyle="#ffd36b";c.lineWidth=1.5*dpr;c.beginPath();c.roundRect?c.roundRect(bx,by,bw,bh,8*dpr):c.rect(bx,by,bw,bh);c.fill();c.stroke();
+  c.textAlign="left";c.textBaseline="middle";c.fillStyle="#fff";c.font=`700 ${12.5*dpr}px "Public Sans",sans-serif`;c.fillText(l1,bx+10*dpr,by+13*dpr);c.fillStyle="#ffd36b";c.font=`600 ${10.5*dpr}px "Public Sans",sans-serif`;c.fillText(HH.lab[1],bx+10*dpr,by+28*dpr)}
+/* TRAINS_V1 (Rosser 19 Nov): in Metrô mode the trains run on the real lines, on São Paulo time (UTC-3, no DST): trains leave
+   each end of every line at the line's headway (Metrô ~2 min at rush hour, ~4 min midday, longer at night and weekends;
+   CPTM 6-12 min; Expresso Aeroporto hourly), run at line speed and stop ~25-40 s at each station. Service 4:40-24:00.
+   Linha 6-Laranja is in assisted operation (opened 2 Jul 2026): 2 shuttle trains, weekdays 10-15 h, ~19 min apart, slow. */
+let TRP=null,TH=null;
+function trPrep(){if(TRP)return TRP;TRP=D.lines.map(l=>{const P=l.xy,cum=[0];for(let i=1;i<P.length;i++)cum.push(cum[i-1]+Math.hypot(P[i][0]-P[i-1][0],P[i][1]-P[i-1][1]));
+  const L=cum[cum.length-1],st=(l.st||[]).map(q=>({n:q.n,ch:Math.max(0,Math.min(L,q.ch||0))})).sort((a,b)=>a.ch-b.ch);
+  const r=String(l.ref),metro=["1","2","3","4","5","15"].includes(r),kind=r==="6"?"l6":r==="AEX"?"aex":r==="17"?"mono":metro?"metro":"cptm";
+  return {l,P,cum,L,st,kind,len:kind==="cptm"||kind==="aex"?170:kind==="mono"?90:132}});return TRP}
+function spSec(){return ((Date.now()/1000-3*3600)%86400+86400)%86400}
+function trCfg(T){const S=spNow(),h=S.h,peak=S.peak,wk=S.work;
+  if(T.kind==="l6")return wk&&h>=10&&h<15?{H:19*60,v:8.3,dw:40,start:10*3600,end:15*3600,n:1}:null;
+  const start=4*3600+40*60,end=24*3600;
+  if(T.kind==="aex")return {H:3600,v:20,dw:60,start,end};
+  if(T.kind==="cptm")return {H:wk?(peak?360:h>=21?900:720):900,v:20,dw:40,start:4*3600,end};
+  if(T.kind==="mono")return {H:wk?(peak?240:420):480,v:13,dw:25,start:6*3600,end:24*3600};
+  return {H:wk?(peak?120:h>=21?360:240):300,v:18,dw:25,start,end}}
+// distance along the line after e seconds, travelling dir (1 = up the chainage, -1 = down), stopping at each station
+function trAt(T,c,e,dir){const st=dir>0?T.st.map(q=>q.ch):T.st.map(q=>T.L-q.ch).reverse();let t=0,d=0;
+  for(let i=0;i<=st.length;i++){const nx=i<st.length?st[i]:T.L,run=(nx-d)/c.v;if(e<=t+run)return [d+(e-t)*c.v,i];t+=run;d=nx;if(i<st.length){if(e<=t+c.dw)return [d,i+1,1];t+=c.dw}}return null}
+function trList(T,sec){const c=trCfg(T);if(!c||T.L<300)return [];const T1=T.L/c.v+T.st.length*c.dw,o=[];
+  for(const dir of [1,-1]){if(c.n===1&&dir<0&&false)continue;const k0=Math.ceil((sec-c.start-T1)/c.H),k1=Math.floor((Math.min(sec,c.end)-c.start)/c.H);
+    for(let k=Math.max(0,k0);k<=k1;k++){const e=sec-(c.start+k*c.H);if(e<0||e>T1)continue;const r=trAt(T,c,e,dir);if(!r)continue;const d=dir>0?r[0]:T.L-r[0];o.push({T,d,dir,next:r[1],dwell:!!r[2]})}}return o}
+function trXY(T,d){const cum=T.cum;let i=1;while(i<cum.length-1&&cum[i]<d)i++;const a=T.P[i-1],b=T.P[i],l=cum[i]-cum[i-1]||1,u=(d-cum[i-1])/l;return [a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u,Math.atan2(b[1]-a[1],b[0]-a[0])]}
+function trDraw(c){if(mode!=="mt")return;const ppm=base()*scale,sec=spSec();TH=[];
+  for(const T of trPrep())for(const t of trList(T,sec)){const [x,y,a]=trXY(T,t.d),[sx,sy]=w2s(x,y);if(sx<-80||sy<-80||sx>cv.width+80||sy>cv.height+80)continue;
+    const L=Math.max(9*dpr,T.len*ppm),W=Math.max(4*dpr,3.2*ppm);c.save();c.translate(sx,sy);c.rotate(-a);
+    c.fillStyle="rgba(0,0,0,.55)";c.beginPath();c.roundRect?c.roundRect(-L/2-1.8*dpr,-W/2-1.8*dpr,L+3.6*dpr,W+3.6*dpr,W):c.rect(-L/2-1.8*dpr,-W/2-1.8*dpr,L+3.6*dpr,W+3.6*dpr);c.fill();c.fillStyle=T.l.c;c.strokeStyle="#fff";c.lineWidth=1.3*dpr;c.beginPath();c.roundRect?c.roundRect(-L/2,-W/2,L,W,W/2):c.rect(-L/2,-W/2,L,W);c.fill();c.stroke();
+    if(L>40*dpr){c.strokeStyle="rgba(255,255,255,.55)";c.lineWidth=1*dpr;const n=T.kind==="cptm"?8:6;for(let k=1;k<n;k++){const xx=-L/2+L*k/n;c.beginPath();c.moveTo(xx,-W/2);c.lineTo(xx,W/2);c.stroke()}}
+    c.fillStyle="#fff";c.beginPath();c.arc(t.dir>0?L/2-W*.35:-L/2+W*.35,0,Math.max(1.2*dpr,W*.18),0,7);c.fill();c.restore();TH.push([sx,sy,t])}}
+let TRH=null;
+function trNear(px,py){if(mode!=="mt"||!TH)return null;let b=null,bd=14*dpr;for(const q of TH){const d=Math.hypot(q[0]-px,q[1]-py);if(d<bd){bd=d;b=q[2]}}return b}
+function trHi(c){if(!TRH||mode!=="mt")return;const T=TRH.T,t=(TH||[]).find(q=>q[2].T===T&&q[2].dir===TRH.dir&&Math.abs(q[2].d-TRH.d)<400);if(!t){TRH=null;return}
+  const [sx,sy,q]=t,st=q.dir>0?T.st:T.st.slice().reverse(),to=st.length?st[st.length-1].n:"",nx=st[Math.min(q.next,st.length-1)];
+  const l1=T.l.name+(q.dwell?" · at the platform":""),l2=(to?`towards ${to}`:"")+(nx&&!q.dwell?` · next: ${nx.n}`:nx&&q.dwell?` · ${st[Math.max(0,q.next-1)].n}`:"");
+  c.strokeStyle="#fff";c.lineWidth=2*dpr;c.beginPath();c.arc(sx,sy,16*dpr,0,7);c.stroke();
+  c.font=`700 ${12.5*dpr}px "Public Sans",sans-serif`;const w1=c.measureText(l1).width;c.font=`600 ${10.5*dpr}px "Public Sans",sans-serif`;const w2=c.measureText(l2).width;
+  const bw=Math.max(w1,w2)+20*dpr,bh=40*dpr;let bx=sx+20*dpr,by=sy-bh/2;if(bx+bw>cv.width-6*dpr)bx=sx-20*dpr-bw;by=Math.max(6*dpr,Math.min(cv.height-bh-6*dpr,by));
+  c.fillStyle="rgba(8,12,20,.94)";c.strokeStyle=T.l.c;c.lineWidth=1.5*dpr;c.beginPath();c.roundRect?c.roundRect(bx,by,bw,bh,8*dpr):c.rect(bx,by,bw,bh);c.fill();c.stroke();
+  c.textAlign="left";c.textBaseline="middle";c.fillStyle="#fff";c.font=`700 ${12.5*dpr}px "Public Sans",sans-serif`;c.fillText(l1,bx+10*dpr,by+13*dpr);c.fillStyle="#c9d4e5";c.font=`600 ${10.5*dpr}px "Public Sans",sans-serif`;c.fillText(l2,bx+10*dpr,by+28*dpr)}
+/* BUSES_V1 (Rosser 19 Nov): every OpenStreetMap bus route in the map (route=bus relations, each direction its own route) runs
+   buses on São Paulo time: one every ~8 min at rush hour, ~12 midday, 15-20 evenings and weekends, a few night buses; ~20 km/h,
+   slower at rush hour. Shown from neighbourhood zoom (too many to draw city-wide). Data loads on first use (buses.json). */
+let BUSON=true,BUSD=null,BH=null,BUH=null;try{BUSON=localStorage.getItem("sd_bus")!=="0"}catch(e){}
+const BUS_MIN=60,BCOL=["#1f5fbf","#d7261e","#2f8f46","#e6b422","#3fa9d6","#e8762b","#7b3fa0","#8c2131"];
+function busLoad(){if(BUSD)return;BUSD=1;fetch("buses.json?v=1").then(r=>r.json()).then(d=>{const R=[];let h=0;
+  for(const rt of d.routes){h=0;for(const ch of (rt.r||rt.n||""))h=(h*31+ch.charCodeAt(0))>>>0;
+    for(const f of rt.s){const P=[];let x=0,y=0;for(let i=0;i<f.length;i+=2){x+=f[i];y+=f[i+1];P.push([x,y])}const cum=[0];let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+      for(let i=0;i<P.length;i++){if(i)cum.push(cum[i-1]+Math.hypot(P[i][0]-P[i-1][0],P[i][1]-P[i-1][1]));x0=Math.min(x0,P[i][0]);y0=Math.min(y0,P[i][1]);x1=Math.max(x1,P[i][0]);y1=Math.max(y1,P[i][1])}
+      R.push({rt,P,cum,L:cum[cum.length-1],bb:[x0,y0,x1,y1],ph:(h%997)/997,col:BCOL[h%BCOL.length],lg:/ANTT|ARTESP|Cometa|Crist[aá]lia|Rodovi[aá]ri|Expresso|Pássaro|Itapemirim|Viação Águia/i.test((rt.net||"")+" "+(rt.f||"")+" "+(rt.t||""))||/→ (Rio|Campinas|Santos|Curitiba|Belo)/.test(rt.n||"")})}}
+  BUSD={R,src:d.src};draw();mtGo()}).catch(()=>{BUSD=null})}
+function busOn(tp){return BUSON&&tp>=BUS_MIN*dpr&&(mode==="img"||mode==="st")}
+function busCfg(){const S=spNow(),h=S.h;if(h<4)return {H:3600,v:6.5};const v=S.peak?4.2:5.6;
+  if(!S.work)return {H:h>=7&&h<21?1080:1800,v};return {H:S.peak?480:h<7?900:h<17?720:h<22?900:1500,v}}
+function busDraw(c,tp){BH=[];if(!busOn(tp))return;busLoad();if(!BUSD||!BUSD.R)return;const ppm=base()*scale,sec=spSec(),cf=busCfg(),[ax,ay]=s2w(0,0),[bx,by]=s2w(cv.width,cv.height),m=60;
+  const big=tp>400*dpr;c.textAlign="center";c.textBaseline="middle";
+  const occ=[];for(const R of BUSD.R){if(R.bb[2]<ax-m||R.bb[0]>bx+m||R.bb[3]<by-m||R.bb[1]>ay+m)continue;const HH_=R.lg?Math.max(3600,cf.H*6):cf.H,T1=R.L/cf.v,off=R.ph*HH_;
+    const k0=Math.ceil((sec-off-T1)/HH_),k1=Math.floor((sec-off)/HH_);
+    for(let k=k0;k<=k1;k++){const d=(sec-off-k*HH_)*cf.v;if(d<0||d>R.L)continue;const cum=R.cum;let i=1;while(i<cum.length-1&&cum[i]<d)i++;
+      const a=R.P[i-1],b=R.P[i],u=(d-cum[i-1])/((cum[i]-cum[i-1])||1),x=a[0]+(b[0]-a[0])*u,y=a[1]+(b[1]-a[1])*u;if(x<ax-m||x>bx+m||y<by-m||y>ay+m)continue;
+      const [sx,sy]=w2s(x,y),ang=Math.atan2(b[1]-a[1],b[0]-a[0]),L=Math.max(8*dpr,12*ppm),W=Math.max(3.4*dpr,2.6*ppm);
+      c.save();c.translate(sx,sy);c.rotate(-ang);c.fillStyle="rgba(0,0,0,.4)";c.fillRect(-L/2+1.2*dpr,-W/2+1.2*dpr,L,W);c.fillStyle=R.col;c.fillRect(-L/2,-W/2,L,W);
+      c.fillStyle="rgba(255,255,255,.85)";c.fillRect(-L/2,-W*.12,L,W*.24);c.fillStyle="rgba(20,30,45,.85)";c.fillRect(L/2-W*.55,-W/2+W*.12,W*.4,W*.76);c.restore();
+      if(big&&R.rt.r){c.font=`700 ${9*dpr}px "Public Sans",sans-serif`;const tw=c.measureText(R.rt.r).width/2+3*dpr,ly=sy-W-6*dpr;if(!occ.some(o=>Math.abs(o[0]-sx)<o[2]+tw&&Math.abs(o[1]-ly)<12*dpr)){occ.push([sx,ly,tw]);c.lineWidth=2.6*dpr;c.strokeStyle="rgba(5,10,20,.85)";c.strokeText(R.rt.r,sx,ly);c.fillStyle="#fff";c.fillText(R.rt.r,sx,ly)}}
+      BH.push([sx,sy,R,k])}}}
+function busNear(px,py){if(!BH)return null;let b=null,bd=12*dpr;for(const q of BH){const d=Math.hypot(q[0]-px,q[1]-py);if(d<bd){bd=d;b=q}}return b?{R:b[2],k:b[3]}:null}
+function busHi(c){if(!BUH||!BH)return;const q=BH.find(q=>q[2]===BUH.R&&q[3]===BUH.k);if(!q){BUH=null;return}const [sx,sy,R]=q,rt=R.rt;
+  const l1=`Bus ${rt.r||""}`.trim()+(rt.tb?" · trolleybus":""),l2=rt.f&&rt.t?`${rt.f} → ${rt.t}`:(rt.n||"");
+  c.strokeStyle="#fff";c.lineWidth=2*dpr;c.beginPath();c.arc(sx,sy,14*dpr,0,7);c.stroke();
+  c.font=`700 ${12.5*dpr}px "Public Sans",sans-serif`;const w1=c.measureText(l1).width;c.font=`600 ${10.5*dpr}px "Public Sans",sans-serif`;const w2=c.measureText(l2).width;
+  const bw=Math.max(w1,w2)+20*dpr,bh=40*dpr;let bx=sx+18*dpr,by=sy-bh/2;if(bx+bw>cv.width-6*dpr)bx=sx-18*dpr-bw;by=Math.max(6*dpr,Math.min(cv.height-bh-6*dpr,by));
+  c.fillStyle="rgba(8,12,20,.94)";c.strokeStyle=R.col;c.lineWidth=1.5*dpr;c.beginPath();c.roundRect?c.roundRect(bx,by,bw,bh,8*dpr):c.rect(bx,by,bw,bh);c.fill();c.stroke();
+  c.textAlign="left";c.textBaseline="middle";c.fillStyle="#fff";c.font=`700 ${12.5*dpr}px "Public Sans",sans-serif`;c.fillText(l1,bx+10*dpr,by+13*dpr);c.fillStyle="#c9d4e5";c.font=`600 ${10.5*dpr}px "Public Sans",sans-serif`;c.fillText(l2,bx+10*dpr,by+28*dpr)}
 /* PLHOVER_V1: the point of interest under the pointer lights up (glow + ring) and says what it is. */
 let PLH=null;
 function plHi(c){if(!PLH||!PLON||!PLD||!PLD.p)return;const tp=500*base()*scale;if(tp<40*dpr)return;const k=PLD.c[PLH[0]],[x,y]=w2s(PLH[1],PLH[2]),R=(tp>150*dpr?13:7)*dpr;
@@ -649,14 +792,23 @@ function draw(){const c=cx,Wc=cv.width;c.clearRect(0,0,Wc,Wc);
   if(mode==="mt"){c.fillStyle="rgba(10,15,25,.45)";c.fillRect(0,0,Wc,Wc);c.lineCap="round";c.lineJoin="round";for(const l of D.lines){c.strokeStyle=l.c;c.lineWidth=4*dpr;c.beginPath();l.xy.forEach((p,n)=>{const [x,y]=w2s(p[0],p[1]);n?c.lineTo(x,y):c.moveTo(x,y)});c.stroke();
     for(const s of l.st){const [x,y]=w2s(s.x,s.y);c.fillStyle="#fff";c.strokeStyle=l.c;c.lineWidth=2.2*dpr;c.beginPath();c.arc(x,y,3.6*dpr,0,7);c.fill();c.stroke()}}
     if(scale>1.7){c.font=`700 ${11*dpr}px "Public Sans",sans-serif`;c.textBaseline="middle";const seen=new Set();for(const l of D.lines)for(const s of l.st){if(seen.has(s.n))continue;seen.add(s.n);const [x,y]=w2s(s.x,s.y);if(x<0||y<0||x>Wc||y>Wc)continue;c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.85)";c.strokeText(s.n,x+7*dpr,y);c.fillStyle="#fff";c.fillText(s.n,x+7*dpr,y)}}}
-  mtDraw(c,tp);plDraw(c);plHi(c);
+  mtDraw(c,tp);plDraw(c);
   if(selTile){const [x,y]=w2s(selTile.i*500-250,selTile.j*500+250);c.strokeStyle="#ffd36b";c.lineWidth=3*dpr;c.strokeRect(x,y,tp,tp)}
   if(hover&&hover.t){const [x,y]=w2s(hover.t.i*500-250,hover.t.j*500+250);c.strokeStyle="#fff";c.lineWidth=2*dpr;c.strokeRect(x,y,tp,tp)}
   const LG={img:"",qa:["A","B","C","D","F"].map(g=>`<span><i style="background:${GC[g]}"></i>${g}</span>`).join(""),st:`<span><i style="background:#ffd36b"></i>avenues</span><span><i style="background:#fff"></i>collectors</span><span><i style="background:#aacdff"></i>local</span><span>➤ one-way (zoom in)</span><span><i style="background:#5fd0ff;border-radius:50%"></i>landmarks</span>`,mt:D.lines.map(l=>`<span><i style="background:${l.c}"></i>${l.ref}</span>`).join(""),nb:`<span><i style="background:#1f9d63"></i>built</span><span><i style="background:#2563c9"></i>building</span><span><i style="background:rgba(255,255,255,.3)"></i>not yet</span>`};
-  $("legend").innerHTML=LG[mode]}
+  $("legend").innerHTML=LG[mode];
+  bufSave();drawDyn(c,tp)}
+/* ANIM_V1: the map is drawn once per change into a buffer; moving things (cars, helicopters, the hover highlight, the clock
+   panel) are drawn on top of that buffer every frame, so animation never redraws the whole city. */
+const BUF=document.createElement("canvas"),bx_=BUF.getContext("2d");let bufOK=false;
+function bufSave(){if(BUF.width!==cv.width||BUF.height!==cv.height){BUF.width=cv.width;BUF.height=cv.height}bx_.clearRect(0,0,BUF.width,BUF.height);bx_.drawImage(cv,0,0);bufOK=true}
+function drawDyn(c,tp){if(mtOn(tp)){mtCars(c,tp)}busDraw(c,tp);if(mtOn(tp))plDraw(c);trDraw(c);heliDraw(c,tp);plHi(c);heliHi(c,tp);trHi(c);busHi(c);if(mtOn(tp))spHud(c,mtHudT)}
+function frame(){if(!bufOK||BUF.width!==cv.width||BUF.height!==cv.height){draw();return}const c=cx;c.clearRect(0,0,cv.width,cv.height);c.drawImage(BUF,0,0);drawDyn(c,500*base()*scale)}
 img.onload=draw; sm.onload=draw;
-function setMode(m){mode=m;for(const b of document.querySelectorAll(".modes button[data-m]"))b.setAttribute("aria-pressed",String(b.dataset.m===m));draw()}
+function setMode(m){mode=m;for(const b of document.querySelectorAll(".modes button[data-m]"))b.setAttribute("aria-pressed",String(b.dataset.m===m));draw();mtGo()}
 function showNorth(){scale=2;const [mx,my]=w2s(-750,9250);ox+=cv.width/2-mx;oy+=cv.height/2-my;clamp();setMode("nb")}
+$("m_bus").setAttribute("aria-pressed",String(BUSON));$("m_bus").onclick=()=>{BUSON=!BUSON;try{localStorage.setItem("sd_bus",BUSON?"1":"0")}catch(_){}$("m_bus").setAttribute("aria-pressed",String(BUSON));draw();mtGo()};
+$("m_hl").setAttribute("aria-pressed",String(HELON));$("m_hl").onclick=()=>{HELON=!HELON;try{localStorage.setItem("sd_hl",HELON?"1":"0")}catch(_){}$("m_hl").setAttribute("aria-pressed",String(HELON));if(!HELON)HELS=[];draw();mtGo()};
 $("m_tr").setAttribute("aria-pressed",String(MTON));$("m_tr").onclick=()=>{MTON=!MTON;try{localStorage.setItem("sd_tr",MTON?"1":"0")}catch(_){}$("m_tr").setAttribute("aria-pressed",String(MTON));draw();mtGo()};
 $("m_pl").onclick=()=>{PLON=!PLON;if(PLON)plLoad();plUI();draw()};plUI();
 $("pcats").onclick=e=>{const b=e.target.closest("button[data-g]");if(!b)return;PLS[b.dataset.g]=!PLS[b.dataset.g];try{localStorage.setItem("sd_pl",JSON.stringify(PLS))}catch(_){}plUI();draw()};
@@ -671,10 +823,10 @@ cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect(),px=(e.c
   if(drag){moved=Math.hypot(e.clientX-drag[0],e.clientY-drag[1]);ox=drag[2]+(e.clientX-drag[0])*dpr;oy=drag[3]+(e.clientY-drag[1])*dpr;clamp();draw();return}
   const [wx,wy]=s2w(px,py),t=TL[`T_${Math.round(wx/500)<0?"m"+(-Math.round(wx/500)):"p"+Math.round(wx/500)}_${Math.round(wy/500)<0?"m"+(-Math.round(wy/500)):"p"+Math.round(wy/500)}`];
   const s=nearest(wx,wy,Math.max(12,40/scale));hover={t};
-  const pq=plNear(px,py);PLH=pq;cv.style.cursor=pq?"pointer":"";if(pq){$("banner").style.opacity=0}   // PLHOVER_V1: the place itself lights up and is labelled on the map
+  HH=heliNear(px,py);TRH=HH?null:trNear(px,py);BUH=(HH||TRH)?null:busNear(px,py);const pq=(HH||TRH||BUH)?null:plNear(px,py);PLH=pq;cv.style.cursor=(pq||HH||TRH||BUH)?"pointer":"";if(pq||HH||TRH||BUH){$("banner").style.opacity=0}   // PLHOVER_V1: the place itself lights up and is labelled on the map
   else if(s){$("bn").textContent=s[0];$("ba").textContent=s[1]||"";$("banner").style.opacity=1}else{$("banner").style.opacity=t?0.0:0}
   draw()});
-cv.addEventListener("pointerleave",()=>{hover=null;PLH=null;$("banner").style.opacity=0;draw()});
+cv.addEventListener("pointerleave",()=>{hover=null;PLH=null;HH=null;TRH=null;BUH=null;$("banner").style.opacity=0;draw()});
 const tname=(i,j)=>`T_${i<0?"m"+(-i):"p"+i}_${j<0?"m"+(-j):"p"+j}`;
 const LMHERO={"MASP":"img/masp.jpg","Ponte Estaiada":"img/estaiada_aerial.jpg","Estação da Luz":"img/luz.jpg","Aeroporto de Congonhas":"img/cgh.jpg","Congonhas":"img/cgh.jpg"};
 function lmCard(l){const el=$("lmcard"),i=Math.round(l.x/500),j=Math.round(l.y/500),t=tname(i,j),h=LMHERO[l.n];
@@ -700,7 +852,7 @@ function showTile(t){selTile=t;
 const SX=$("ex_sx"),sxc=SX.getContext("2d"),STIP=$("ex_stip");let SD=null,SDt=null,hov=null;
 let LD=null,DIRON=true;try{DIRON=localStorage.getItem("sp_dir")!=="0"}catch(e){}
 async function loadLanes(t){LD=null;$("dir_k").textContent="";if(!t)return;try{const r=await fetch("lanes/"+t.t+".json");if(!r.ok)return;const d=await r.json();if(SDt!==t.t)return;LD=d;initCars();
-  const k=d.k;$("dir_k").textContent=`${k.oneway} one-way of ${k.pieces} road pieces · ${k.signals} signals`+(k.bus_lanes?` · ${k.bus_lanes} bus lanes`:"")+(k.cameras?` · ${k.cameras} speed cameras`:"");drawSX()}catch(e){}}
+  const k=d.k;$("dir_k").textContent=`${k.oneway} one-way of ${k.pieces} road pieces · ${k.signals} signals`+(k.bus_lanes?` · ${k.bus_lanes} bus lanes`:"")+(k.cameras?` · ${k.cameras} speed cameras`:"")+(()=>{const S=spNow();return S.rod&&tileInRod(t.t)?` · rodízio now: plates ending ${S.rod[0]} and ${S.rod[1]} off the road`:tileInRod(t.t)?" · inside the rodízio zone":""})();drawSX()}catch(e){}}
 
 // Live traffic on the tile render: little cars driving the real lanes (direction, lane count, speed limit), like the AI page.
 let CARS=[],CEDGE=[],carT=0,carRAF=0;const CCOL=["#f4f6f8","#c9ced6","#1d2430","#8b929c","#b3261e","#1f4fa3","#e8e2d0","#2f6b3a","#f2c230","#5a5f68"];
@@ -722,17 +874,17 @@ function initCars(){CARS=[];CEDGE=[];if(!LD)return;
   const tot=CEDGE.reduce((a,E)=>a+E.L*E.n,0),N=Math.min(90,Math.round(tot/170));
   for(let k=0;k<N;k++){let r=Math.random()*tot,E=CEDGE[0];for(const F of CEDGE){r-=F.L*F.n;if(r<=0){E=F;break}}CARS.push(newCar(E,Math.random()*E.L))}
   carT=performance.now();if(!carRAF)carRAF=requestAnimationFrame(carTick)}
-function newCar(E,d){return{E,d,ln:Math.floor(Math.random()*E.n),c:CCOL[Math.floor(Math.random()*CCOL.length)],sp:.75+Math.random()*.4,bus:Math.random()<.06,moto:Math.random()<.18}}
+function newCar(E,d){return{E,d,pl:Math.floor(Math.random()*10),r:Math.random(),ln:Math.floor(Math.random()*E.n),c:CCOL[Math.floor(Math.random()*CCOL.length)],sp:.75+Math.random()*.4,bus:Math.random()<.06,moto:Math.random()<.18}}
 function carPos(C){const E=C.E,dd=E.dir>0?C.d:E.L-C.d,P=E.P,cum=E.cum;let k=1;while(k<cum.length-1&&cum[k]<dd)k++;const a=cum[k-1],b=cum[k],t=b>a?(dd-a)/(b-a):0;
   const x0=P[2*k-2],y0=P[2*k-1],x1=P[2*k],y1=P[2*k+1];let ux=x1-x0,uy=y1-y0;const l=Math.hypot(ux,uy)||1;ux/=l;uy/=l;if(E.dir<0){ux=-ux;uy=-uy}
   const off=(C.ln+.5)*7*(E.dir<0||!E.P?1:1);return[x0+(x1-x0)*t-uy*off,y0+(y1-y0)*t+ux*off,ux,uy]}
 function carTick(now){carRAF=0;const dt=Math.min(.1,(now-carT)/1000);carT=now;
   if(!DIRON||!LD||!CARS.length||document.hidden){return}
-  for(const C of CARS){C.d+=C.E.v*C.sp*(C.moto?1.15:1)*dt;if(C.d>=C.E.L){const nx=C.E.next;if(nx.length){const F=nx[Math.floor(Math.random()*nx.length)];Object.assign(C,{E:F,d:C.d-C.E.L,ln:Math.min(C.ln,F.n-1)})}else{const F=CEDGE[Math.floor(Math.random()*CEDGE.length)];Object.assign(C,{E:F,d:0,ln:Math.floor(Math.random()*F.n)})}}}
+  const SF=spNow().sf;for(const C of CARS){C.d+=C.E.v*C.sp*SF*(C.moto?1.15:1)*dt;if(C.d>=C.E.L){const nx=C.E.next;if(nx.length){const F=nx[Math.floor(Math.random()*nx.length)];Object.assign(C,{E:F,d:C.d-C.E.L,ln:Math.min(C.ln,F.n-1)})}else{const F=CEDGE[Math.floor(Math.random()*CEDGE.length)];Object.assign(C,{E:F,d:0,ln:Math.floor(Math.random()*F.n)})}}}
   drawSX();carRAF=requestAnimationFrame(carTick)}
-function drawCars(c,w,h){drawCarsD(c,CARS,w,h)}
-function drawCarsD(c,CARS,w,h){if(!CARS.length)return;const sx=w/1000,sy=h/1000;c.save();
-  for(const C of CARS){const [x,y,ux,uy]=carPos(C),Lc=C.bus?30:C.moto?8:16,Wc=C.bus?8.5:C.moto?3.4:7.5;c.setTransform(ux*sx,uy*sy,-uy*sx,ux*sy,x*sx,y*sy);
+function drawCars(c,w,h){drawCarsD(c,CARS,w,h,SDt?carVis(SDt):null)}
+function drawCarsD(c,CARS,w,h,vis){if(!CARS.length)return;const sx=w/1000,sy=h/1000;c.save();
+  for(const C of CARS){if(vis&&!vis(C))continue;const [x,y,ux,uy]=carPos(C),Lc=C.bus?30:C.moto?8:16,Wc=C.bus?8.5:C.moto?3.4:7.5;c.setTransform(ux*sx,uy*sy,-uy*sx,ux*sy,x*sx,y*sy);
     c.fillStyle="rgba(0,0,0,.35)";c.fillRect(-Lc/2+.8,-Wc/2+.8,Lc,Wc);c.fillStyle=C.bus?"#d9452b":C.moto?"#ffd36b":C.c;c.fillRect(-Lc/2,-Wc/2,Lc,Wc);
     if(!C.moto){c.fillStyle="rgba(20,30,45,.75)";c.fillRect(Lc*.08,-Wc/2+.6,Lc*.22,Wc-1.2)}}
   c.restore()}
@@ -790,7 +942,7 @@ $("q").addEventListener("input",()=>{const q=norm($("q").value.trim());if(q.leng
   [...$("res").querySelectorAll("button")].forEach(b=>b.onclick=()=>{const h=hits[b.dataset.k];focusTile(h.tiles[Math.floor(h.tiles.length/2)]);$("bn").textContent=h.n;$("ba").textContent=h.tiles[0].ar[0]||"";$("banner").style.opacity=1})});
 new ResizeObserver(size).observe(card); size();
 // initial view: centred on Paulista / MASP
-scale=1.6*ZK; const [mx,my]=w2s(0,-300); ox=cv.width/2-mx; oy=cv.height/2-my; clamp(); draw();
+scale=1.6*ZK; const [mx,my]=w2s(0,-300); ox=cv.width/2-mx; oy=cv.height/2-my; clamp(); draw();setTimeout(mtGo,0);
 
 // ---------------- metro plan + profile
 const UNDER=new Set(["1","2","3","4","5","6"]); let sel=D.lines.find(l=>l.ref==="4")||D.lines[0];
@@ -839,9 +991,9 @@ $("hist").innerHTML=(D.history||[]).map(h=>{const n=tot_(h.g),gr=(h.g.A||0)+(h.g
 // ---------------- film: H.264 MP4 (1080p or 720p by screen width) with a VP9 WebM fallback; plays muted while on screen
 (function(){const v=$("filmv");if(!v)return;let loaded=false;
   const load=()=>{if(loaded)return;loaded=true;const add=(src,type)=>{const e=document.createElement("source");e.src=src;e.type=type;v.appendChild(e)};
-    add(window.innerWidth>=900?v.dataset.hd:v.dataset.sd,"video/mp4");add(v.dataset.webm,"video/webm");v.load()};const calm=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    add(window.innerWidth>=900?v.dataset.hd:v.dataset.sd,"video/mp4");if(v.dataset.webm)add(v.dataset.webm,"video/webm");v.load()};const calm=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   new IntersectionObserver(es=>{for(const e of es){if(e.isIntersecting){load();if(!calm)v.play().catch(()=>{})}else if(!v.paused)v.pause()}},{threshold:.35}).observe(v);
-  for(const b of document.querySelectorAll(".chapters button"))b.onclick=()=>{load();v.currentTime=parseFloat(b.dataset.t);v.play().catch(()=>{})}})();
+  for(const b of document.querySelectorAll(".chapters button"))b.onclick=()=>{load();const t=parseFloat(b.dataset.t),go=()=>{v.currentTime=t;v.play().catch(()=>{})};if(v.readyState>=1)go();else v.addEventListener("loadedmetadata",go,{once:true})}})();   // seek after the metadata is in, so a chapter works on the first click
 // ---------------- the blocks: cards + both blocks on one grid (block 2 above block 1)
 (function(){const BL=D.blocks;if(!BL){$("blocks").hidden=true;return}
   $("blocks").innerHTML=BL.map(b=>{const A=b.grades?(b.grades.A||0):0;
