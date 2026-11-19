@@ -305,7 +305,7 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
     <div class="eyebrow tp_area" id="ex_area"></div>
     <div><div class="tileimg"><img id="ex_img" src="tiles/T_p0_p0.jpg" alt="Top-down render of the selected tile"><div class="ph" id="ex_ph" hidden></div><canvas class="sx" id="ex_sx" aria-label="Hover a street to see its name and CEP"></canvas><div class="tag" id="ex_tag">T_p0_p0</div><div class="stip" id="ex_stip" role="status"></div></div>
       <div class="sxhint">Hover a street on the render to light it up. CEPs come from Correios via ViaCEP and are still being filled in.</div>
-      <div class="dirbar" id="dirbar"><button id="dir_t" aria-pressed="false">Traffic direction</button><span class="lg" hidden id="dir_lg"><span class="lg"><i style="background:#7fe0ff"></i>one-way</span><span class="lg"><i style="background:#e9eef2"></i>two-way</span><span class="lg"><i style="background:#ff5a4f;width:8px;height:8px;border-radius:50%"></i>signal</span><span class="lg"><i style="background:#fff;width:8px;height:8px;border-radius:50%"></i>PARE</span></span><span id="dir_k"></span></div></div>
+      <div class="dirbar" id="dirbar"><button id="dir_t" aria-pressed="false">Traffic direction</button><span class="lg" hidden id="dir_lg"><span class="lg"><i style="background:#7fe0ff"></i>one-way</span><span class="lg"><i style="background:#e9eef2"></i>two-way</span><span class="lg"><i style="background:#ff5a4f;width:8px;height:8px;border-radius:50%"></i>signal</span><span class="lg"><i style="background:#fff;width:11px;height:11px;border-radius:50%;box-shadow:inset 0 0 0 2px #d7261e"></i>speed limit</span><span class="lg"><i style="background:#fff;width:8px;height:8px;border-radius:50%"></i>PARE</span></span><span id="dir_k"></span></div></div>
     <div class="kv" id="ex_kv"></div>
     <div class="slist" id="ex_sl"></div>
   </aside>
@@ -694,6 +694,16 @@ function drawLanes(c,w,h){if(!LD)return;const sx=w/1000,sy=h/1000,U=w/760;c.save
       let s0=60-acc;while(s0<l){const ux=dx/l,uy=dy/l,x=(ax+ux*s0)*sx,y=(ay+uy*s0)*sy,a=7*U;c.beginPath();c.moveTo(x+ux*a,y+uy*a);c.lineTo(x-ux*a-uy*a*0.75,y-uy*a+ux*a*0.75);c.lineTo(x-ux*a+uy*a*0.75,y-uy*a-ux*a*0.75);c.closePath();c.fillStyle="#7fe0ff";c.fill();c.strokeStyle="rgba(6,19,28,.9)";c.lineWidth=1*U;c.stroke();s0+=110}
       acc=(acc+l)%110}}
   for(const [x,y,t] of LD.n){if(t==="r")continue;c.beginPath();c.arc(x*sx,y*sy,(t==="s"?5:3.6)*U,0,7);c.fillStyle=t==="s"?"#ff5a4f":"#ffffff";c.fill();c.lineWidth=1.2*U;c.strokeStyle="rgba(0,0,0,.8)";c.stroke()}
+  /* SPEEDSIGN_V1: Brazilian R-19 speed-limit signs (white disc, red ring, black number), one per road piece at its middle,
+     bigger roads first, never two signs closer than ~35 m on the render, and only one per road and limit nearby. */
+  {const occ=[],R=9.5*U,es=LD.e.filter(e=>e[3]>0).slice().sort((a,b)=>b[4]-a[4]||b[3]-a[3]);
+   c.textAlign="center";c.textBaseline="middle";
+   for(const e of es){const P=e.slice(5);let L=0;const seg=[];for(let k=2;k<P.length;k+=2){const l=Math.hypot(P[k]-P[k-2],P[k+1]-P[k-1]);seg.push(l);L+=l}
+     if(L<110)continue;let m=L/2,x=P[0],y=P[1];for(let k=2,i=0;k<P.length;k+=2,i++){if(m<=seg[i]){const t=m/seg[i];x=P[k-2]+(P[k]-P[k-2])*t;y=P[k-1]+(P[k+1]-P[k-1])*t;break}m-=seg[i]}
+     if(x<20||y<20||x>980||y>980)continue;if(occ.some(q=>Math.hypot(q[0]-x,q[1]-y)<(q[2]===e[3]?150:70)))continue;occ.push([x,y,e[3]]);
+     const X=x*sx,Y=y*sy;c.beginPath();c.arc(X,Y,R,0,7);c.fillStyle="#ffffff";c.fill();c.lineWidth=2.6*U;c.strokeStyle="#d7261e";c.stroke();
+     c.beginPath();c.arc(X,Y,R+1.6*U,0,7);c.lineWidth=0.9*U;c.strokeStyle="rgba(0,0,0,.55)";c.stroke();
+     c.fillStyle="#111";c.font=`800 ${(e[3]>=100?8.4:10)*U}px "Public Sans",Arial,sans-serif`;c.fillText(String(e[3]),X,Y+0.5*U)}}
   c.restore()}
 function laneAt(u,v){if(!LD)return null;let best=null,bd=26;for(const e of LD.e){const P=e.slice(5);for(let k=2;k<P.length;k+=2){const ax=P[k-2],ay=P[k-1],dx=P[k]-ax,dy=P[k+1]-ay,l2=dx*dx+dy*dy||1;
   let q=((u-ax)*dx+(v-ay)*dy)/l2;q=Math.max(0,Math.min(1,q));const d=Math.hypot(ax+dx*q-u,ay+dy*q-v);if(d<bd){bd=d;best=e}}}return best}
