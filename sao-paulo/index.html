@@ -47,7 +47,7 @@ header.hero{padding-block:clamp(28px,5vw,56px) 28px}
 .facts{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:22px;font:500 13px var(--mono);color:var(--mute)}
 .facts b{color:var(--ink);font-weight:600}
 /* map */
-.mapcard{position:relative;background:#141a22;border-radius:10px;overflow:hidden;aspect-ratio:1/1;max-width:100%;touch-action:none;box-shadow:0 30px 60px -40px rgba(0,0,0,.6)}
+.mapcard{position:relative;background:transparent;border-radius:10px;overflow:hidden;aspect-ratio:1/1;max-width:100%;touch-action:none}   /* Rosser 19 Nov: the map floats in its loop shape, no box */
 #map{width:100%;height:100%;display:block;cursor:grab}#map.drag{cursor:grabbing}
 .banner{position:absolute;right:16px;bottom:16px;text-align:right;pointer-events:none;transition:opacity .25s;max-width:80%}
 .banner .n{font:900 italic clamp(22px,3vw,34px)/1 var(--display);color:#fff;text-transform:none;letter-spacing:.01em;text-shadow:0 0 2px #000,0 2px 8px rgba(0,0,0,.9)}
@@ -206,7 +206,7 @@ header.hero{padding-top:0}
 
 /* Dark-first look: night-city glow behind the page, glassy cards */
 :root[data-theme="dark"] body{background:radial-gradient(1200px 600px at 85% -10%,rgba(42,100,214,.16),transparent 60%),radial-gradient(900px 500px at -10% 30%,rgba(236,74,60,.10),transparent 60%),var(--bg);background-attachment:fixed}
-:root[data-theme="dark"] .tilepanel,:root[data-theme="dark"] .mapcard{box-shadow:0 30px 80px -40px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.04)}
+:root[data-theme="dark"] .tilepanel{box-shadow:0 30px 80px -40px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.04)}
 :root[data-theme="dark"] h2{text-shadow:0 0 40px rgba(42,100,214,.25)}
 
 .lmcard{position:absolute;left:14px;bottom:56px;width:min(300px,60%);background:rgba(10,14,22,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.14);border-radius:12px;overflow:hidden;box-shadow:0 20px 50px -20px rgba(0,0,0,.9);z-index:5;animation:ddin .18s ease-out}
@@ -576,10 +576,10 @@ function plNear(px,py){if(!PLON||!PLD||!PLD.p)return null;const tp=500*base()*sc
   for(const q of L){const k=PLD.c[q[0]];if(!PLS[k[4]])continue;const [x,y]=w2s(q[1],q[2]),d=Math.hypot(x-px,y-py);if(d<bd){bd=d;b=q}}return b}
 function plUI(){$("m_pl").setAttribute("aria-pressed",String(PLON));$("pcats").hidden=!PLON;
   $("pcats").innerHTML=PLG.map(g=>`<button data-g="${g[0]}" aria-pressed="${!!PLS[g[0]]}">${g[1]}</button>`).join("")+`<span class="pcnote">© OpenStreetMap contributors</span>`}
-function draw(){const c=cx,Wc=cv.width;c.fillStyle="#141a22";c.fillRect(0,0,Wc,Wc);
+function draw(){const c=cx,Wc=cv.width;c.clearRect(0,0,Wc,Wc);
   const dw=MW*base()*scale,dh=MH*base()*scale;
   const im=(dw>sm.naturalWidth*1.1&&img.complete&&img.naturalWidth)?img:(sm.complete&&sm.naturalWidth?sm:null);
-  if(RD)rodoDraw(c,true);if(im){c.imageSmoothingQuality="high";const [mx0,my0]=w2s(MX0,MY1);c.drawImage(im,mx0,my0,dw,dh)}
+  if(RD)rodoDraw(c,true);if(im){c.imageSmoothingQuality="high";const [mx0,my0]=w2s(MX0,MY1),tq=500*base()*scale;c.save();c.beginPath();for(const t of HDL()){const [x,y]=w2s(t.i*500-250,t.j*500+250);c.rect(x-.3,y-.3,tq+.6,tq+.6)}c.clip();c.drawImage(im,mx0,my0,dw,dh);c.restore()}   // only the built tiles: the map keeps the city's real shape, no rectangle
   const tp=500*base()*scale;
   if(tp>HD_MIN*dpr&&mode!=="nb")hdDraw(c,tp);
   setTimeout(()=>{},0);   // HD: past the mosaic's own resolution, draw each visible tile's 640 px render on top
