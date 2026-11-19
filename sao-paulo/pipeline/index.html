@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/sao-paulo/pipeline/">
+<title>The pipeline · Sem Destino</title>
+<meta name="description" content="How Sem Destino turns public data into a checked, drivable 1:1 São Paulo: every stage of the tile pipeline, from data to engine, and every trick that makes one developer and rented machines fast enough.">
+<meta property="og:title" content="Sem Destino · The pipeline">
+<meta property="og:description" content="From public data to a drivable city: the whole tile pipeline and the efficiency tricks behind it.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/pipeline/">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#06080d;--paper:#0d121b;--paper2:#111827;--ink:#eef2f8;--mute:#8e9bb0;--line:#1c2534;--plate:#2a64d6;--masp:#ec4a3c;--good:#36c483;--warn:#f0b43a;--hot:#ffd36b;
+ --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;--body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace;color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-padding-top:74px;scroll-behavior:smooth}
+body{margin:0;background:radial-gradient(1200px 600px at 85% -10%,rgba(42,100,214,.16),transparent 60%),radial-gradient(900px 500px at -10% 30%,rgba(236,74,60,.10),transparent 60%),var(--bg);background-attachment:fixed;color:var(--ink);font:16.5px/1.65 var(--body)}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:clamp(16px,4vw,40px)}
+h1,h2,h3{font-family:var(--display);margin:0;line-height:.95;text-wrap:balance;text-transform:uppercase}
+h1{font-size:clamp(52px,9vw,112px);font-weight:900}
+h2{font-size:clamp(38px,5.6vw,68px);font-weight:800}
+h3{font-size:22px;font-weight:800;letter-spacing:.02em}
+p{margin:0 0 14px;max-width:72ch}
+a{color:#7fb0ff}
+code,.mono{font-family:var(--mono);font-size:.86em}
+code{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+/* bar */
+.sitebar{position:sticky;top:0;z-index:60;background:color-mix(in srgb,var(--bg) 74%,transparent);-webkit-backdrop-filter:saturate(1.5) blur(16px);backdrop-filter:saturate(1.5) blur(16px);border-bottom:1px solid color-mix(in srgb,var(--line) 75%,transparent)}
+.sb-in{display:flex;align-items:center;gap:18px;height:62px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);margin-right:auto}
+.brand .plate{display:grid;place-items:center;width:40px;height:26px;border-radius:5px;background:var(--plate);color:#fff;font:900 13px/1 var(--display);letter-spacing:.06em;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.85)}
+.brand .wm{white-space:nowrap;font:800 21px/1 var(--display);text-transform:uppercase;letter-spacing:.03em}.brand .wm i{font-style:normal;color:var(--masp)}
+.sb-in nav{display:flex;gap:4px;font:600 14px var(--body)}
+.sb-in nav a{color:var(--ink);text-decoration:none;padding:8px 12px;border-radius:8px}.sb-in nav a:hover{background:rgba(42,100,214,.14);color:#9cc0ff}
+@media (max-width:760px){.sb-in nav a.hide-sm{display:none}}
+/* hero */
+header.hero{padding-block:clamp(48px,8vw,110px) clamp(30px,5vw,60px)}
+.lede{font-size:clamp(18px,1.9vw,22px);max-width:62ch;margin-top:22px;color:#d9e1ec}
+.lede em{font-style:normal;color:var(--hot)}
+.stats{display:flex;flex-wrap:wrap;gap:10px 28px;margin-top:28px;font:600 13px var(--mono);color:var(--mute)}.stats b{color:var(--ink);font-weight:600}
+/* toc */
+.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:34px}
+.toc a{display:block;text-decoration:none;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px 16px;transition:border-color .2s,transform .2s}
+.toc a:hover{border-color:#2a64d6;transform:translateY(-2px)}
+.toc a span{font:700 11px var(--mono);color:var(--masp);letter-spacing:.1em}.toc a b{display:block;font:800 19px/1.1 var(--display);text-transform:uppercase;margin-top:6px}
+/* principle */
+.principle{border-top:1px solid var(--line);padding-block:clamp(44px,6vw,80px)}
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:26px}
+@media (max-width:900px){.flow{grid-template-columns:1fr 1fr}}
+.flow div{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;position:relative}
+.flow div b{display:block;font:800 17px/1.1 var(--display);text-transform:uppercase;margin-bottom:6px}.flow div small{color:var(--mute);font-size:13px;line-height:1.45;display:block}
+.flow div i{position:absolute;top:10px;right:12px;font:700 11px var(--mono);color:var(--mute);font-style:normal}
+/* layers */
+section.layer{border-top:1px solid var(--line);padding-block:clamp(52px,7vw,96px)}
+.lhead{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:end;margin-bottom:26px}
+.num{font:900 clamp(64px,10vw,120px)/.8 var(--display);color:transparent;-webkit-text-stroke:2px var(--masp)}
+.status{font:700 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.status.plan{color:#9cc0ff;border-color:#24427a}.status.part{color:var(--hot);border-color:#6b5522}.status.live{color:var(--good);border-color:#1f6f43}
+@media (max-width:700px){.lhead{grid-template-columns:auto 1fr}.lhead .status{grid-column:1/-1;justify-self:start}}
+.grid2{display:grid;grid-template-columns:1.25fr 1fr;gap:22px}
+@media (max-width:960px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:0 30px 80px -40px rgba(0,0,0,.9)}
+.card h4{margin:0 0 10px;font:700 12px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.card+.card{margin-top:16px}
+ol.steps{margin:0;padding-left:20px}ol.steps li{margin:0 0 10px}ol.steps li b{color:#fff}
+ul.tight{margin:0;padding-left:18px}ul.tight li{margin:0 0 6px}
+pre{margin:0;background:#080b11;border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto;font:12.5px/1.55 var(--mono);color:#cdd6e4}
+pre .c{color:#6b7a90}pre .k{color:#7fb0ff}pre .s{color:#ffd36b}pre .n{color:#36c483}
+table{border-collapse:collapse;width:100%;font-size:14px}td,th{border-bottom:1px solid var(--line);padding:8px 8px;text-align:left;vertical-align:top}th{font:700 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.budget{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}.budget span{font:600 12.5px var(--mono);background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;padding:6px 10px}.budget span b{color:var(--hot);font-weight:600}
+.note{border-left:3px solid var(--masp);padding:4px 0 4px 14px;color:#cfd8e5;margin-top:16px}
+/* proof */
+.proof{border-top:1px solid var(--line);padding-block:clamp(52px,7vw,96px)}
+.limits{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:22px}
+footer{border-top:1px solid var(--line);padding-block:36px 56px;color:var(--mute);font-size:13.5px}
+footer .row{display:flex;justify-content:space-between;gap:16px 40px;flex-wrap:wrap;align-items:center}
+footer .fplate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:#fff;border:2px solid #fff;outline:1px solid var(--plate);border-radius:6px;padding:8px 14px}
+footer .fplate b{font:900 20px/.9 var(--display);text-transform:uppercase}footer .fplate span{font:600 9.5px/1.2 var(--body);letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
+
+.pipe{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:26px;counter-reset:st}
+.pipe a{display:block;text-decoration:none;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;position:relative;transition:border-color .2s,transform .2s}
+.pipe a:hover{border-color:#2a64d6;transform:translateY(-2px)}
+.pipe a::before{counter-increment:st;content:counter(st,decimal-leading-zero);font:700 11px var(--mono);color:var(--masp);letter-spacing:.1em}
+.pipe a b{display:block;font:800 18px/1.1 var(--display);text-transform:uppercase;margin-top:6px}.pipe a small{display:block;color:var(--mute);font-size:12.5px;line-height:1.4;margin-top:4px}
+.trick{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:22px}
+.trick .card h3{font-size:19px;margin-bottom:8px}.trick .card p{font-size:15px;margin:0}
+.trick .card .gain{display:inline-block;margin-top:10px;font:600 12px var(--mono);color:var(--hot);background:rgba(255,211,107,.08);border:1px solid #6b5522;border-radius:7px;padding:4px 8px}
+.kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:22px}
+.kpi div{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px}.kpi b{display:block;font:900 34px/1 var(--display);color:#fff}.kpi span{display:block;color:var(--mute);font-size:13px;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="sitebar"><div class="wrap sb-in">
+  <a class="brand" href="../"><span class="plate">SP</span><span class="wm">Sem <i>Destino</i></span></a>
+  <nav><a href="../#explore" class="hide-sm">The map</a><a href="../detail/" class="hide-sm">Hand-crafted, by rules</a><a href="../">← Main page</a></nav>
+</div></div>
+
+<header class="hero"><div class="wrap">
+  <div class="eyebrow">Engineering notes · from public data to a drivable city</div>
+  <h1>The<br>pipeline</h1>
+  <p class="lede">Sem Destino is not modelled, it is <em>manufactured</em>. Every 500 m square of São Paulo goes through the same assembly line: fetched, built, repaired, checked, named, cleaned, verified and shipped, by scripts running on a laptop, rented cloud machines and a rented GPU. This page walks the whole line, stage by stage, and lists every trick we found that makes it fast and cheap enough for one person.</p>
+  <div class="stats"><span><b>2,509</b> tiles built</span><span><b>627 km²</b> today</span><span><b>4,613</b> tiles queued inside the Rodoanel</span><span><b>~40–60</b> tiles/h per machine</span></div>
+  <div class="pipe">
+    <a href="#s1"><b>Sources</b><small>Public survey data, OSM, terrain, street photos</small></a>
+    <a href="#s2"><b>Tile build</b><small>Build → detail → finalize</small></a>
+    <a href="#s3"><b>Repair chain</b><small>QA + nine automatic fix passes</small></a>
+    <a href="#s4"><b>Surface sweep</b><small>The green loop: 0.5 m grid checks</small></a>
+    <a href="#s5"><b>Streets &amp; lanes</b><small>Names, directions, signs, lane graph</small></a>
+    <a href="#s6"><b>Props cleanup</b><small>Nothing in the road or in a wall</small></a>
+    <a href="#s7"><b>Landmarks</b><small>Hand-built heroes on top</small></a>
+    <a href="#s8"><b>Ship</b><small>Verify, upload, proxies, site</small></a>
+    <a href="#s9"><b>Render &amp; engine</b><small>Film, previews, Unity</small></a>
+  </div>
+</div></header>
+
+<section class="principle"><div class="wrap">
+  <div class="eyebrow">The unit of work</div>
+  <h2>Everything is a tile</h2>
+  <p style="margin-top:18px">The world is cut into <b>500 × 500 m tiles</b>, each its own Blender file in a shared world frame (metres from MASP, x east, y north). A tile can be built, repaired, checked, uploaded or rebuilt on its own, on any machine, in any order. That one decision is what makes everything else on this page possible: parallel work, cheap restarts after a crash, cloud machines that can disappear at any moment, and a progress map where every square has a state.</p>
+  <div class="kpi">
+    <div><b>~70 MB</b><span>a dense city tile on disk</span></div>
+    <div><b>~19 MB</b><span>a forest or water tile</span></div>
+    <div><b>145 s</b><span>median build + detail + finalize</span></div>
+    <div><b>1</b><span>file per tile, plus a light proxy for distance</span></div>
+  </div>
+</div></section>
+
+<section class="layer" id="s1"><div class="wrap">
+  <div class="lhead"><div class="num">01</div><div><div class="eyebrow">Stage one</div><h2>Sources</h2></div><span class="status live">Running</span></div>
+  <div class="grid2">
+    <div><div class="card"><h4>What goes in</h4><ol class="steps">
+      <li><b>GeoSampa</b> (Prefeitura de São Paulo): 3D building footprints with heights, lots, sidewalks, street trees, lighting, the official street register with house-number ranges, districts, terrain.</li>
+      <li><b>OpenStreetMap:</b> roads and their classes, one-ways and lanes, land use, shops and amenities, rail, landmarks, and everything outside the São Paulo municipality (Guarulhos, the ABC cities, Osasco), where GeoSampa doesn't reach.</li>
+      <li><b>Terrain:</b> a 2 m elevation model per tile.</li>
+      <li><b>Street-level photos:</b> 2.3 million indexed by tile with camera position and heading, used only as measurement reference, never as textures.</li>
+      <li><b>Published facts</b> for the hand-built parts: station depths, runway dimensions, bridge geometry.</li>
+    </ol></div></div>
+    <div><div class="card"><h4>Efficiency</h4><ul class="tight">
+      <li><b>Offline map extract instead of live queries.</b> Public OSM query servers regularly time out or wait 100+ s per tile. One regional extract, cut to the São Paulo box, is downloaded once per machine and read locally.</li>
+      <li><b>Fetch once, reuse everywhere.</b> Terrain and source data are cached per tile, so re-running a later stage never re-downloads.</li>
+      <li><b>Photos indexed as metadata first.</b> Positions and headings for millions of images take minutes; pixels are fetched only for the buildings that need them.</li>
+    </ul></div></div>
+  </div>
+</div></section>
+
+<section class="layer" id="s2"><div class="wrap">
+  <div class="lhead"><div class="num">02</div><div><div class="eyebrow">Stage two</div><h2>Tile build</h2></div><span class="status live">Running · Rodoanel ring 1</span></div>
+  <div class="grid2">
+    <div><div class="card"><h4>Three steps per tile</h4><ol class="steps">
+      <li><b>Build (~80 s):</b> terrain mesh, roads cut into it, sidewalks and curbs, buildings extruded from footprints with parametric façades (family, colour, glazing, floor height, bay width), trees, poles, bins and street furniture placed from survey layers.</li>
+      <li><b>Detail (~55 s):</b> residential refinement: lots, front walls, gates, roofs and water tanks, driveways, yard paving. Near-empty tiles (forest, reservoir) skip it automatically.</li>
+      <li><b>Finalize (~10 s):</b> materials unified, a lightweight proxy model built for distant views, a top-down render for the map and the website.</li>
+    </ol></div></div>
+    <div><div class="card"><h4>Efficiency</h4><ul class="tight">
+      <li><b>Parallelism set by memory, not cores.</b> Build peaks near 3 GB and detail near 5 GB, so a guard reads free RAM every minute and raises or lowers how many tiles run at once. CPU is rarely the limit.</li>
+      <li><b>Build in rings outward.</b> New tiles are ordered by distance from what is already built, so the map is always one connected piece, never islands.</li>
+      <li><b>Failures are isolated.</b> A crash costs one tile, gets logged with its error, and is rebuilt later in a targeted fix run (the north block: 45 failures, all 45 rebuilt in one 30-minute pass).</li>
+    </ul></div></div>
+  </div>
+</div></section>
+
+<section class="layer" id="s3"><div class="wrap">
+  <div class="lhead"><div class="num">03</div><div><div class="eyebrow">Stage three</div><h2>Repair chain</h2></div><span class="status live">Built · runs per block</span></div>
+  <div class="grid2">
+    <div><div class="card"><h4>QA, then nine fix passes, then QA again</h4>
+      <p style="font-size:15px">Each tile is opened headless and graded A–F on objects standing in the road, floating or buried buildings, terrain poking through asphalt, missing bridge decks, steps between tiles, and props inside walls. Then the fix passes run in a fixed order, each a script that changes one kind of thing:</p>
+      <ul class="tight"><li>street furniture and duplicates out of the carriageway</li><li>lane paint re-seated; building bases dropped to the ground on slopes</li><li>road surface smoothed; terrain carved under every street</li><li>poles off the road; old footprints hidden; gaps in the street network filled</li><li>level-aware smoothing so viaducts don't blend into the streets under them</li><li>bridge decks; floating towers grounded</li><li>parks pass and a physics tag for every object</li></ul></div></div>
+    <div><div class="card"><h4>Efficiency</h4><ul class="tight">
+      <li><b>Measure before trusting a fix.</b> Every pass is judged by the score, not by intuition. One cross-slope re-fit looked right and passed the old checker, but the new surface checker showed it made tiles up to 30× worse, so it was removed from the chain.</li>
+      <li><b>Hide, never delete.</b> Fixes hide objects and keep undo logs, so any repair can be reversed exactly.</li>
+      <li><b>Versioned cloud storage.</b> Every upload keeps the previous version, so a whole block can be restored to a timestamp if a pass goes wrong.</li>
+    </ul></div></div>
+  </div>
+</div></section>
+
+<section class="layer" id="s4"><div class="wrap">
+  <div class="lhead"><div class="num">04</div><div><div class="eyebrow">Stage four</div><h2>Surface sweep</h2></div><span class="status live">Running daily</span></div>
+  <div class="grid2">
+    <div><div class="card"><h4>The green loop</h4>
+      <p style="font-size:15px">Driving exposes what screenshots hide: a 4 cm step at a road seam, a sidewalk sitting under the road, a gutter flickering against the asphalt. The surface checker samples every road and sidewalk on a <b>0.5 m grid</b>, scores each defect type, and the sweep tries the safe fixes tile by tile. A tile turns green when its completion score reaches 95%.</p>
+      <div class="budget"><span>last 24 h: <b>575</b> improvements kept</span><span><b>728</b> tiles props-cleaned</span></div></div></div>
+    <div><div class="card"><h4>Efficiency</h4><ul class="tight">
+      <li><b>A gate on every change.</b> A fix is kept only if the score improves and nothing else gets worse; otherwise the tile is left exactly as it was.</li>
+      <li><b>Re-run only when the fixes change.</b> Each tile records a fingerprint of the fix scripts it last saw; a tile is reconsidered only when that set changes, so the sweep never repeats work.</li>
+      <li><b>Easiest wins first.</b> The queue is ordered by how close a tile is to green, and tiles that can't reach green with the current fixes are skipped instead of retried.</li>
+      <li><b>Calibrated checker.</b> 3,147 flagged spots on 28 tiles were checked against real features (driveways, crossings, speed bumps) so legitimate shapes aren't "fixed" away.</li>
+    </ul></div></div>
+  </div>
+</div></section>
+
+<section class="layer" id="s5"><div class="wrap">
+  <div class="lhead"><div class="num">05</div><div><div class="eyebrow">Stage five</div><h2>Streets &amp; lanes</h2></div><span class="status live">Built · per block</span></div>
+  <div class="grid2">
+    <div><div class="card"><h4>Names, directions, signs</h4><ol class="steps">
+      <li><b>Names</b> matched between OpenStreetMap and the official street register, down to each block's house-number range.</li>
+      <li><b>Lane graph:</b> every road piece gets direction, lane count, turn rules, signals, PARE signs, bus lanes, speed bumps and cameras.</li>
+      <li><b>Paint and signs:</b> lane markings and the city's blue corner name plates, each showing its block's real number range.</li>
+    </ol>
+    <div class="budget"><span><b>159,063</b> travel lanes</span><span><b>35,263</b> one-way pieces</span><span><b>4,187</b> signalised crossings</span></div></div></div>
+    <div><div class="card"><h4>Efficiency</h4><ul class="tight">
+      <li><b>One graph, many uses.</b> The same lane graph draws the paint, places the signs, drives the AI traffic and the cars on this website's tile renders.</li>
+      <li><b>Only the new tiles.</b> When a ring is built, the street pass runs on exactly those tiles, not the whole map.</li>
+    </ul></div></div>
+  </div>
+</div></section>
+
+<section class="layer" id="s6"><div class="wrap">
+  <div class="lhead"><div class="num">06</div><div><div class="eyebrow">Stage six</div><h2>Props cleanup</h2></div><span class="status live">Built</span></div>
+  <div class="grid2">
+    <div><div class="card"><h4>What it does</h4><p style="font-size:15px">Every bin, pole, bench and tree is ray-tested. Anything inside a building, duplicated, or standing in the carriageway is moved to the nearest free spot on the sidewalk within 6 m, or hidden if there is none. The object grade must not get worse, and the surface must not get worse, or the tile is left alone.</p>
+    <div class="budget"><span><b>728</b> tiles processed</span><span><b>512</b> cleaned and uploaded</span></div></div></div>
+    <div><div class="card"><h4>Efficiency</h4><ul class="tight">
+      <li><b>Fresh grades, not stale ones.</b> A tile whose stored grade was out of date is re-graded and published even when nothing needed moving, so the map never lies about a tile.</li>
+      <li><b>Isolated scratch copies.</b> Each run works in its own folder and compares against the cloud copy before uploading, so two machines can never overwrite each other's work.</li>
+    </ul></div></div>
+  </div>
+</div></section>
+
+<section class="layer" id="s7"><div class="wrap">
+  <div class="lhead"><div class="num">07</div><div><div class="eyebrow">Stage seven</div><h2>Landmarks</h2></div><span class="status part">Ongoing</span></div>
+  <div class="grid2">
+    <div><div class="card"><h4>Hand-built heroes</h4><p style="font-size:15px">A few structures get unique models placed on top of the procedural tiles: MASP, the Ponte Estaiada, Estação da Luz, the Congonhas terminal and airfield, the Line 17 monorail. Next: Guarulhos airport, scoped from 302 taxiway sections, 52 jet bridges and three terminals in the map data.</p></div></div>
+    <div><div class="card"><h4>Efficiency</h4><ul class="tight">
+      <li><b>Toolkits, not one-offs.</b> The Congonhas airfield work (runway profiles, markings, lighting, stands) is a reusable toolkit, so Guarulhos starts most of the way there.</li>
+      <li><b>Audited by numbers.</b> Each landmark has a scorecard (runways, markings, lighting, terminal, surroundings) measured before and after.</li>
+    </ul></div></div>
+  </div>
+</div></section>
+
+<section class="layer" id="s8"><div class="wrap">
+  <div class="lhead"><div class="num">08</div><div><div class="eyebrow">Stage eight</div><h2>Ship</h2></div><span class="status live">Running</span></div>
+  <div class="grid2">
+    <div><div class="card"><h4>From a finished tile to everywhere it's used</h4><ol class="steps">
+      <li><b>Upload</b> to versioned cloud storage, copy-only, and verify the uploaded file is identical before anything local is removed.</li>
+      <li><b>Proxies</b> for distant viewing and streaming.</li>
+      <li><b>Website data:</b> top-down renders, street lists, lane files and landmark pins feed this site's map and tile explorer.</li>
+      <li><b>Live monitor:</b> a local dashboard shows every machine's current task and every tile's state.</li>
+    </ol></div></div>
+    <div><div class="card"><h4>Efficiency</h4><ul class="tight">
+      <li><b>Offload as you go.</b> A laptop disk can't hold a whole block (30–40 GB), so each tile is moved to the cloud a minute after it finishes and the local copy is freed only after a byte-for-byte check.</li>
+      <li><b>A job inbox in the bucket.</b> Work is handed to cloud machines as small scripts dropped in shared storage; the machines pick them up, run them once and post results back. No machine needs to be reachable from outside.</li>
+      <li><b>Cache-busting for the site.</b> Big images carry a version tag so visitors always get the current map without fighting caches.</li>
+    </ul></div></div>
+  </div>
+</div></section>
+
+<section class="layer" id="s9"><div class="wrap">
+  <div class="lhead"><div class="num">09</div><div><div class="eyebrow">Stage nine</div><h2>Render &amp; engine</h2></div><span class="status part">Trailer rendering · Unity import ongoing</span></div>
+  <div class="grid2">
+    <div><div class="card"><h4>Film and game</h4><ol class="steps">
+      <li><b>Film:</b> a camera path is written as keyframes in world metres with heights above the real terrain, cut into shots; the renderer loads only the tiles each stretch of path can see.</li>
+      <li><b>Engine:</b> tiles are exported to Unity with a material-name contract, so the same procedural materials map to engine shaders.</li>
+    </ol></div></div>
+    <div><div class="card"><h4>Efficiency</h4><ul class="tight">
+      <li><b>Build the scene once per stretch.</b> Loading the city for a single frame took ~25 s; rendering frames back to back in one session dropped it to ~7.6 s per 1080p frame.</li>
+      <li><b>Only what the camera sees.</b> At most seven full-detail tiles near the camera; everything farther uses the light proxies.</li>
+      <li><b>Storyboard first.</b> A one-frame-per-second preview of the whole cut costs a fraction of the real render and catches bad camera moves (a shot that flew into a rooftop, a landing aimed 19° off the runway) before money is spent.</li>
+      <li><b>The right processor for the job.</b> City building runs on many CPU cores; rendering runs on a rented GPU, ten times faster per frame than CPU.</li>
+    </ul></div></div>
+  </div>
+</div></section>
+
+<section class="proof"><div class="wrap">
+  <div class="eyebrow">Machines &amp; money</div>
+  <h2>Three kinds of machine, one queue</h2>
+  <div class="trick">
+    <div class="card"><h3>The laptop</h3><p>Builds tiles one at a time at low priority, runs the dashboards and relays jobs between the cloud and the scripts. A RAM guard and a disk guard keep it usable while it works.</p><span class="gain">free · always on</span></div>
+    <div class="card"><h3>Cloud CPU workers</h3><p>32- and 64-core machines rented on the spot market at about a third of the normal price. They can be reclaimed with two minutes' notice, so every job saves its progress to the bucket every few minutes and resumes where it stopped.</p><span class="gain">~67% cheaper than on-demand</span></div>
+    <div class="card"><h3>A rented GPU</h3><p>Rented by the hour only for rendering: one test frame first to measure the real cost, then the full job, then shut down.</p><span class="gain">cents per minute, only when needed</span></div>
+  </div>
+  <div class="eyebrow" style="margin-top:40px">Rules that keep it safe</div>
+  <div class="limits">
+    <div class="card"><h4>Copy, don't move</h4><p style="margin:0">Uploads never delete anything in the cloud; old versions stay restorable.</p></div>
+    <div class="card"><h4>Idle machines stop</h4><p style="margin:0">Every cloud machine has a dead-man timer, so a forgotten machine can't keep billing.</p></div>
+    <div class="card"><h4>Keep only what helps</h4><p style="margin:0">Every automated change is scored before and after, and rolled back if it doesn't help.</p></div>
+    <div class="card"><h4>One tile, one owner</h4><p style="margin:0">Machines claim tiles and check the cloud copy before uploading, so parallel work never collides.</p></div>
+  </div>
+</div></section>
+
+<footer><div class="wrap row">
+  <div class="fplate"><b>Sem Destino</b><span>Solo game project · 2026</span></div>
+  <div>Map data: GeoSampa (Prefeitura de São Paulo), © OpenStreetMap contributors. Street-level imagery is used as reference only, under its licence.</div>
+</div></footer>
+<script src="/sao-paulo/i18n.js" defer></script>
+</body>
+</html>
