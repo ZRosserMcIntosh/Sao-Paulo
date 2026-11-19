@@ -561,8 +561,7 @@ function hdDraw(c,tp){const W=cv.width,H=cv.height;c.imageSmoothingQuality="high
 function rodoDraw(c){const tp=500*base()*scale,W=cv.width,H=cv.height;
   if(tp>3*dpr){c.strokeStyle=tp>14*dpr?"rgba(255,255,255,.10)":"rgba(255,255,255,.07)";c.fillStyle="rgba(255,255,255,.025)";c.lineWidth=1;
     for(const [i,j] of RD.todo){const [x,y]=w2s(i*500-250,j*500+250);if(x>W||y>H||x+tp<0||y+tp<0)continue;c.fillRect(x+1,y+1,tp-2,tp-2);if(tp>6*dpr)c.strokeRect(x+.5,y+.5,tp-1,tp-1)}}
-  c.beginPath();RD.o.forEach((p,k)=>{const [x,y]=w2s(p[0],p[1]);k?c.lineTo(x,y):c.moveTo(x,y)});c.closePath();
-  c.setLineDash([7*dpr,6*dpr]);c.strokeStyle="rgba(255,211,107,.9)";c.lineWidth=1.8*dpr;c.stroke();c.setLineDash([])}
+}   // Rosser 19 Nov: no dashed outline - the faint unbuilt squares show the loop's shape
 /* PLACES_V1: 36,596 places from OpenStreetMap inside the Rodoanel loop, loaded on first use (places.json). */
 let PLON=false,PLD=null,PLB=null;const PLG=[["emer","Police · fire · hospitals",1],["fuel","Gas stations",1],["heli","Helipads",1],["food","Food & bars",0],["shop","Shops & pharmacies",0],["cars","Cars · parking · cameras",0],["serv","Services",0],["city","City life",0]];
 const PLS={};try{Object.assign(PLS,JSON.parse(localStorage.getItem("sd_pl")||"{}"))}catch(e){}PLG.forEach(g=>{if(PLS[g[0]]===undefined)PLS[g[0]]=!!g[2]});
