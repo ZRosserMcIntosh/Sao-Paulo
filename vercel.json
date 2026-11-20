@@ -243,7 +243,7 @@
       ]
     },
     {
-      "source": "/sao-paulo/streetlab/(.*\\.(wasm|mjs|json))",
+      "source": "/sao-paulo/streetlab/(.*\\.wasm)",
       "headers": [
         {
           "key": "Cache-Control",
