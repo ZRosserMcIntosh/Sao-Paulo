@@ -155,6 +155,42 @@ export class CarAudio {
     const g = ctx.createGain(); g.gain.value = 0.25 + 0.75 * k;
     src.connect(lp).connect(g).connect(this.master); src.start();
   }
+  // Gated manual gear lever. part 0: the lever leaving its gear (a light, dry click of the
+  // detent); part 1: the clunk into the next gear - the knob's steel stalk striking the gate's
+  // edge, then the synchro ring and the dog teeth meshing: a short metallic ring (inharmonic
+  // modes of a steel rod and plate) over a low thunk through the shifter body. Synthesised, no
+  // samples; the two parts are heard ~0.3 s apart (the shift time). Inside the car it is louder.
+  shiftClunk(part = 1, inside = false) {
+    if (!this.ready || !this.ctx || this.ctx.state !== 'running') return;
+    const ctx = this.ctx, sr = ctx.sampleRate;
+    this.clunkBufs = this.clunkBufs || [this.makeClunk(sr, 0), this.makeClunk(sr, 1)];
+    const src = ctx.createBufferSource(); src.buffer = this.clunkBufs[part];
+    src.playbackRate.value = 0.94 + 0.12 * Math.random();   // no two shifts exactly alike
+    const g = ctx.createGain(); g.gain.value = (part ? 0.55 : 0.3) * (inside ? 1 : 0.45);
+    src.connect(g).connect(this.master); src.start();
+  }
+  makeClunk(sr, part) {
+    const len = Math.floor(sr * (part ? 0.22 : 0.08)), buf = this.ctx.createBuffer(1, len, sr), d = buf.getChannelData(0);
+    // steel modes: Hz, decay (s), level
+    const modes = part
+      ? [[1150, 0.045, 0.5], [1790, 0.035, 0.42], [2660, 0.03, 0.32], [3920, 0.022, 0.22], [5610, 0.015, 0.14]]
+      : [[2240, 0.012, 0.35], [3610, 0.009, 0.28], [5320, 0.007, 0.18]];
+    let seed = part ? 9 : 4; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+    for (let i = 0; i < len; ++i) {
+      const t = i / sr;
+      let x = 0;
+      // part 1: the stalk hits the gate edge ~7 ms before the gear engages - two strikes
+      for (const t0 of part ? [0, 0.007] : [0]) {
+        const u = t - t0; if (u < 0) continue;
+        const k = t0 ? 1 : 0.55;
+        for (const [f, tau, a] of modes) x += k * a * Math.sin(2 * Math.PI * f * u + f) * Math.exp(-u / tau);
+        x += k * rnd() * 0.5 * Math.exp(-u / 0.0015);                              // the contact click
+      }
+      if (part) x += 0.9 * Math.sin(2 * Math.PI * (95 + 60 * Math.exp(-t * 40)) * t) * Math.exp(-t / 0.035);  // thunk
+      d[i] = x * 0.6;
+    }
+    return buf;
+  }
   // Glass breaking: a sharp crack, then a shower of short ringing partials as the shards land.
   shatter(k = 1) {
     if (!this.ready || !this.ctx || this.ctx.state !== 'running') return;
