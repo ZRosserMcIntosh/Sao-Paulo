@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/sao-paulo/detail/">
+<title>Hand-crafted, by rules · Sem Destino</title>
+<meta name="description" content="How Sem Destino aims for the lived-in, hand-crafted feel of the biggest open-world cities, procedurally: seven layers of rules, data and street-level reference, explained in technical detail.">
+<meta property="og:title" content="Sem Destino · Hand-crafted, by rules">
+<meta property="og:description" content="Seven procedural layers that turn 1,780 km² of real São Paulo data into a city that feels authored, street by street.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/detail/">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#06080d;--paper:#0d121b;--paper2:#111827;--ink:#eef2f8;--mute:#8e9bb0;--line:#1c2534;--plate:#2a64d6;--masp:#ec4a3c;--good:#36c483;--warn:#f0b43a;--hot:#ffd36b;
+ --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;--body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace;color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-padding-top:74px;scroll-behavior:smooth}
+body{margin:0;background:radial-gradient(1200px 600px at 85% -10%,rgba(42,100,214,.16),transparent 60%),radial-gradient(900px 500px at -10% 30%,rgba(236,74,60,.10),transparent 60%),var(--bg);background-attachment:fixed;color:var(--ink);font:16.5px/1.65 var(--body)}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:clamp(16px,4vw,40px)}
+h1,h2,h3{font-family:var(--display);margin:0;line-height:.95;text-wrap:balance;text-transform:uppercase}
+h1{font-size:clamp(52px,9vw,112px);font-weight:900}
+h2{font-size:clamp(38px,5.6vw,68px);font-weight:800}
+h3{font-size:22px;font-weight:800;letter-spacing:.02em}
+p{margin:0 0 14px;max-width:72ch}
+a{color:#7fb0ff}
+code,.mono{font-family:var(--mono);font-size:.86em}
+code{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+/* bar */
+.sitebar{position:sticky;top:0;z-index:60;background:color-mix(in srgb,var(--bg) 74%,transparent);-webkit-backdrop-filter:saturate(1.5) blur(16px);backdrop-filter:saturate(1.5) blur(16px);border-bottom:1px solid color-mix(in srgb,var(--line) 75%,transparent)}
+.sb-in{display:flex;align-items:center;gap:18px;height:62px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);margin-right:auto}
+.brand .plate{display:grid;place-items:center;width:40px;height:26px;border-radius:5px;background:var(--plate);color:#fff;font:900 13px/1 var(--display);letter-spacing:.06em;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.85)}
+.brand .wm{white-space:nowrap;font:800 21px/1 var(--display);text-transform:uppercase;letter-spacing:.03em}.brand .wm i{font-style:normal;color:var(--masp)}
+.sb-in nav{display:flex;gap:4px;font:600 14px var(--body)}
+.sb-in nav a{color:var(--ink);text-decoration:none;padding:8px 12px;border-radius:8px}.sb-in nav a:hover{background:rgba(42,100,214,.14);color:#9cc0ff}
+@media (max-width:760px){.sb-in nav a.hide-sm{display:none}}
+/* hero */
+header.hero{padding-block:clamp(48px,8vw,110px) clamp(30px,5vw,60px)}
+.lede{font-size:clamp(18px,1.9vw,22px);max-width:62ch;margin-top:22px;color:#d9e1ec}
+.lede em{font-style:normal;color:var(--hot)}
+.stats{display:flex;flex-wrap:wrap;gap:10px 28px;margin-top:28px;font:600 13px var(--mono);color:var(--mute)}.stats b{color:var(--ink);font-weight:600}
+/* toc */
+.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:34px}
+.toc a{display:block;text-decoration:none;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px 16px;transition:border-color .2s,transform .2s}
+.toc a:hover{border-color:#2a64d6;transform:translateY(-2px)}
+.toc a span{font:700 11px var(--mono);color:var(--masp);letter-spacing:.1em}.toc a b{display:block;font:800 19px/1.1 var(--display);text-transform:uppercase;margin-top:6px}
+/* principle */
+.principle{border-top:1px solid var(--line);padding-block:clamp(44px,6vw,80px)}
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:26px}
+@media (max-width:900px){.flow{grid-template-columns:1fr 1fr}}
+.flow div{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;position:relative}
+.flow div b{display:block;font:800 17px/1.1 var(--display);text-transform:uppercase;margin-bottom:6px}.flow div small{color:var(--mute);font-size:13px;line-height:1.45;display:block}
+.flow div i{position:absolute;top:10px;right:12px;font:700 11px var(--mono);color:var(--mute);font-style:normal}
+/* layers */
+section.layer{border-top:1px solid var(--line);padding-block:clamp(52px,7vw,96px)}
+.lhead{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:end;margin-bottom:26px}
+.num{font:900 clamp(64px,10vw,120px)/.8 var(--display);color:transparent;-webkit-text-stroke:2px var(--masp)}
+.status{font:700 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.status.plan{color:#9cc0ff;border-color:#24427a}.status.part{color:var(--hot);border-color:#6b5522}.status.live{color:var(--good);border-color:#1f6f43}
+@media (max-width:700px){.lhead{grid-template-columns:auto 1fr}.lhead .status{grid-column:1/-1;justify-self:start}}
+.grid2{display:grid;grid-template-columns:1.25fr 1fr;gap:22px}
+@media (max-width:960px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:0 30px 80px -40px rgba(0,0,0,.9)}
+.card h4{margin:0 0 10px;font:700 12px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.card+.card{margin-top:16px}
+ol.steps{margin:0;padding-left:20px}ol.steps li{margin:0 0 10px}ol.steps li b{color:#fff}
+ul.tight{margin:0;padding-left:18px}ul.tight li{margin:0 0 6px}
+pre{margin:0;background:#080b11;border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto;font:12.5px/1.55 var(--mono);color:#cdd6e4}
+pre .c{color:#6b7a90}pre .k{color:#7fb0ff}pre .s{color:#ffd36b}pre .n{color:#36c483}
+table{border-collapse:collapse;width:100%;font-size:14px}td,th{border-bottom:1px solid var(--line);padding:8px 8px;text-align:left;vertical-align:top}th{font:700 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.budget{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}.budget span{font:600 12.5px var(--mono);background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;padding:6px 10px}.budget span b{color:var(--hot);font-weight:600}
+.note{border-left:3px solid var(--masp);padding:4px 0 4px 14px;color:#cfd8e5;margin-top:16px}
+/* proof */
+.proof{border-top:1px solid var(--line);padding-block:clamp(52px,7vw,96px)}
+.limits{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:22px}
+footer{border-top:1px solid var(--line);padding-block:36px 56px;color:var(--mute);font-size:13.5px}
+footer .row{display:flex;justify-content:space-between;gap:16px 40px;flex-wrap:wrap;align-items:center}
+footer .fplate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:#fff;border:2px solid #fff;outline:1px solid var(--plate);border-radius:6px;padding:8px 14px}
+footer .fplate b{font:900 20px/.9 var(--display);text-transform:uppercase}footer .fplate span{font:600 9.5px/1.2 var(--body);letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="sitebar"><div class="wrap sb-in">
+  <a class="brand" href="../"><span class="plate">SP</span><span class="wm">Sem <i>Destino</i></span></a>
+  <nav><a href="../#explore" class="hide-sm">The map</a><a href="../ai/" class="hide-sm">How the AI thinks</a><a href="../">← Main page</a></nav>
+</div></div>
+
+<header class="hero"><div class="wrap">
+  <div class="eyebrow">Engineering notes · how the city gets its soul</div>
+  <h1>Hand-crafted,<br>by rules</h1>
+  <p class="lede">The biggest open-world cities feel authored because every corner looks like someone lived there and something happened there. That feeling comes from <em>intent</em>, not polygon counts. This page explains, layer by layer, how Sem Destino turns intent into rules, so one developer and a lot of compute can give 1,780 km² of real São Paulo the lived-in detail that normally takes hundreds of artists.</p>
+  <div class="stats"><span><b>1,780 km²</b> inside the Rodoanel</span><span><b>~1.46 M</b> buildings in today's 627 km²</span><span><b>2.3 M</b> street-level reference photos indexed</span><span><b>7</b> layers</span></div>
+  <div class="toc">
+    <a href="#l1"><span>01</span><b>Context-aware set dressing</b></a>
+    <a href="#l2"><span>02</span><b>Wear as history</b></a>
+    <a href="#l3"><span>03</span><b>Photo-learned style</b></a>
+    <a href="#l4"><span>04</span><b>Micro-stories</b></a>
+    <a href="#l5"><span>05</span><b>Hand-crafted where it counts</b></a>
+    <a href="#l6"><span>06</span><b>Life</b></a>
+    <a href="#l7"><span>07</span><b>Light &amp; weather</b></a>
+  </div>
+</div></header>
+
+<section class="principle"><div class="wrap">
+  <div class="eyebrow">The principle</div>
+  <h2>Store intent, not pixels</h2>
+  <p style="margin-top:18px">A hand-built city stores its detail as millions of unique meshes and textures, which is why AAA cities take years and hundreds of gigabytes. Sem Destino stores <b>facts and rules</b>: what a building is, how old it is, which way it faces, what the street is used for, what the neighbourhood looks like in real photos. A shared library of modular kits and tileable materials turns those facts into geometry at build time and at runtime. Disk size then grows with the number of <i>unique kits and rules</i>, not with the area of the city.</p>
+  <div class="flow">
+    <div><i>A</i><b>Public data</b><small>GeoSampa footprints &amp; heights, OpenStreetMap use &amp; roads, terrain, the lane graph, street names.</small></div>
+    <div><i>B</i><b>Reference</b><small>Street-level photos, used only to measure (colours, materials, clutter). Never pasted in as textures.</small></div>
+    <div><i>C</i><b>Rules</b><small>Per building type, street type and district: what belongs here, how it ages, what happens here.</small></div>
+    <div><i>D</i><b>Kits</b><small>Modular meshes &amp; tileable PBR materials: storefronts, balconies, AC units, signage, clutter, decals.</small></div>
+    <div><i>E</i><b>Review</b><small>A human approves or rejects; every criticism becomes a new rule or a regression test.</small></div>
+  </div>
+  <p class="note">Every random choice is <b>seeded by position</b> (the same building always gets the same shutters, the same graffiti, the same broken chair), so the city is identical on every machine, survives rebuilds, and can be reviewed and corrected like hand-made content.</p>
+</div></section>
+
+<!-- 01 -->
+<section class="layer" id="l1"><div class="wrap">
+  <div class="lhead"><div class="num">01</div><div><div class="eyebrow">Layer one</div><h2>Context-aware set dressing</h2></div><span class="status part">Partly built · props, poles &amp; trees exist</span></div>
+  <div class="grid2">
+    <div>
+      <p>Random clutter is what makes procedural cities look procedural. The fix is to never place an object without a <b>reason</b>: every prop is chosen by what the place is, and positioned by how people actually use the space.</p>
+      <div class="card"><h4>Method</h4><ol class="steps">
+        <li><b>Classify every lot and frontage.</b> Each building gets a use class from GeoSampa land use and OSM tags (<code>shop=*</code>, <code>amenity=*</code>, <code>building=*</code>): boteco, padaria, bank, pharmacy, school, church, garage, condominium gate, construction site, favela edge, and about forty more. The frontage (the wall segment facing the street) inherits it.</li>
+        <li><b>Pick a kit for the class.</b> A boteco frontage gets a roll-up steel shutter, a beer-brand awning, plastic tables and chairs spilling onto the sidewalk, a crate stack. A bank gets bollards, a guard booth and an ATM vestibule. A school gets a painted mural wall and a bus-stop shelter. A condominium gets a gated <i>guarita</i>, an intercom post and spiked railings.</li>
+        <li><b>Place by use zones, not scatter.</b> The sidewalk is split into bands: kerb strip (poles, trees, bins, signs), walking lane (kept clear, minimum 1.2 m), frontage zone (tables, displays, parked motorcycles). Objects only spawn in the band their type belongs to, and the walking lane stays walkable. The pole and tree placement already uses this band model.</li>
+        <li><b>Density follows reality.</b> Clutter density per street comes from Layer 03's photo measurements, so Rua 25 de Março is packed and a Jardins side street is calm.</li>
+        <li><b>Collision and clearance checks.</b> Every placed prop is ray-tested against buildings, roads and other props; anything blocking a door, ramp, crossing or driveway is moved or dropped. The same checker has already cleaned misplaced props across 728 tiles.</li>
+      </ol></div>
+    </div>
+    <div>
+      <div class="card"><h4>Rule example</h4>
+<pre><span class="c"># frontage rule (YAML-like), evaluated per wall segment</span>
+<span class="k">class</span>: <span class="s">boteco</span>
+<span class="k">when</span>: <span class="s">shop in [bar, pub] or amenity == bar</span>
+<span class="k">kit</span>:
+  shutter:   <span class="s">roll_up_steel</span>   <span class="c"># 1 per opening</span>
+  awning:    <span class="s">beer_brand_generic</span> p=<span class="n">0.7</span>
+  furniture: <span class="s">plastic_table_set</span> n=<span class="n">2..6</span>
+             <span class="k">zone</span>: frontage, <span class="k">only_if</span>: sidewalk_w &gt; <span class="n">2.4</span>
+  crates:    <span class="s">beer_crate_stack</span> p=<span class="n">0.5</span>
+<span class="k">hours</span>: <span class="s">furniture out 11:00–02:00</span>
+<span class="k">seed</span>:  hash(frontage_id)</pre></div>
+      <div class="card"><h4>Budget</h4><div class="budget"><span>kit meshes <b>GPU-instanced</b></span><span>per tile data <b>&lt; 200 KB</b> of placements</span><span>kits shared city-wide</span></div>
+      <p style="margin:10px 0 0;color:var(--mute);font-size:14px">A placement is a kit ID plus a position, rotation and seed: around 24 bytes. A million props cost about 24 MB, not 24 GB.</p></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 02 -->
+<section class="layer" id="l2"><div class="wrap">
+  <div class="lhead"><div class="num">02</div><div><div class="eyebrow">Layer two</div><h2>Wear as history</h2></div><span class="status plan">Planned</span></div>
+  <div class="grid2">
+    <div>
+      <p>New-looking cities feel fake. Real São Paulo is 470 years of rain, sun, pollution and repainting. Instead of modelling dirt, the game <b>simulates the causes</b> and lets the materials respond.</p>
+      <div class="card"><h4>Method</h4><ol class="steps">
+        <li><b>Age per building.</b> GeoSampa's construction-year field where present, otherwise estimated from typology and district. Age drives paint fade, render cracking, stain intensity and how many repaint layers show at the base.</li>
+        <li><b>Orientation and exposure.</b> Wall normal plus the sun path at latitude 23.5°S gives a per-wall sun dose. North-facing walls fade and bleach more. Shaded, south-facing walls grow moss and dark streaks, more so near parks and the rivers.</li>
+        <li><b>Rain streaks from geometry.</b> Every window sill, AC unit, balcony slab and parapet emits a streak decal downward, with length scaled by building height and age. This is computed once per facade from the existing facade parameters, so it is cheap and consistent.</li>
+        <li><b>Ground-level grime.</b> A dirt gradient at the base of walls, stronger on busy roads (from the lane graph's traffic class) and next to bus stops.</li>
+        <li><b>Pixação and graffiti by reachability.</b> Tags appear where a person could physically reach: ground-floor walls, shutters and, on certain typologies, the infamous high-floor pixação climbs. Density by district comes from Layer 03. Original designs only, never copied artwork.</li>
+        <li><b>Sidewalk damage.</b> Cracks and lifted slabs where tree roots are (the tree list is already placed), patched asphalt where utilities cross the road.</li>
+      </ol></div>
+    </div>
+    <div>
+      <div class="card"><h4>How it renders</h4>
+      <p style="font-size:15px">A <b>layered master material</b> per facade family blends clean albedo with wear layers driven by per-building parameters: <code>age</code>, <code>sun_dose</code>, <code>moisture</code>, <code>traffic</code>. Wear lives in the shader and in world-space decals, not in unique textures.</p>
+<pre><span class="c">// facade shader, simplified</span>
+fade   = saturate(age/<span class="n">40</span>) * sun_dose
+streak = streakMask(uv_sill) * rain(age, height)
+grime  = baseGradient(z) * traffic
+moss   = (<span class="n">1</span>-sun_dose) * moisture * age_noise
+albedo = lerp(paint, faded(paint), fade)
+       * (<span class="n">1</span>-<span class="n">0.5</span>*streak) * (<span class="n">1</span>-<span class="n">0.4</span>*grime)
+albedo = lerp(albedo, mossCol, moss)</pre></div>
+      <div class="card"><h4>Budget</h4><div class="budget"><span>4 floats <b>per building</b></span><span>~10 shared wear textures</span><span>decals instanced</span></div></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 03 -->
+<section class="layer" id="l3"><div class="wrap">
+  <div class="lhead"><div class="num">03</div><div><div class="eyebrow">Layer three</div><h2>Photo-learned style</h2></div><span class="status part">Started · photo index &amp; matching built</span></div>
+  <div class="grid2">
+    <div>
+      <p>This is the unfair advantage. An art team looks at a neighbourhood and paints it by eye. Sem Destino <b>measures</b> it, block by block, from millions of real street-level photos, and feeds the numbers into every other layer.</p>
+      <div class="card"><h4>Method</h4><ol class="steps">
+        <li><b>Index.</b> 2.3 million street-level images, about 1 million from 2021 onwards, are already indexed by tile, with camera position and heading.</li>
+        <li><b>Match photos to buildings.</b> For each building, keep only photos within 60 m that face it and have a clear line of sight to its wall. This step is built and running on the first pilot districts.</li>
+        <li><b>Rectify.</b> Each façade view is warped to a front-on image using the photo's full camera model. The pilot on Avenida Paulista produced straight, front-on façades for 23 of the 40 largest buildings.</li>
+        <li><b>Measure, don't copy (next).</b> Neural models will segment each rectified view (wall, window, balcony, signage, shutter, vegetation, vehicles) and extract numbers: dominant wall colour, window grid and floor count, balcony type, ground-floor use, sign density, clutter density, graffiti coverage.</li>
+        <li><b>Aggregate per block.</b> Medians per block and per district become the style profile that Layers 01, 02 and 04 read.</li>
+        <li><b>Confidence, kept separate from accuracy.</b> A building with 12 good recent photos gets photo-driven parameters. One with none falls back to its district profile and is marked as such. Nothing is invented without evidence.</li>
+      </ol></div>
+    </div>
+    <div>
+      <div class="card"><h4>Per-block style profile (example)</h4>
+<pre>{
+  <span class="k">"block"</span>: <span class="s">"T_x_y/b142"</span>,
+  <span class="k">"wall_palette"</span>: [<span class="s">"#d9cbb3"</span>, <span class="s">"#b9472e"</span>, <span class="s">"#e8e4dc"</span>],
+  <span class="k">"window_grid"</span>: {<span class="k">"floor_m"</span>: <span class="n">2.85</span>, <span class="k">"bay_m"</span>: <span class="n">3.1</span>},
+  <span class="k">"balcony"</span>: <span class="s">"glass_rail"</span>,
+  <span class="k">"ground_use"</span>: {<span class="k">"retail"</span>: <span class="n">.62</span>, <span class="k">"gate"</span>: <span class="n">.30</span>},
+  <span class="k">"clutter_per_100m"</span>: <span class="n">41</span>,
+  <span class="k">"graffiti_cover"</span>: <span class="n">.18</span>,
+  <span class="k">"photos_used"</span>: <span class="n">57</span>, <span class="k">"newest"</span>: <span class="n">2025</span>,
+  <span class="k">"confidence"</span>: <span class="s">"high"</span>
+}</pre></div>
+      <div class="card"><h4>Rules we keep</h4><ul class="tight">
+        <li>Photos are <b>reference only</b> under their licence; no photo pixel ever becomes a game texture.</li>
+        <li>Exteriors only: no interiors, no people, no plates, no security details.</li>
+        <li>Every parameter records which photos it came from.</li>
+      </ul></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 04 -->
+<section class="layer" id="l4"><div class="wrap">
+  <div class="lhead"><div class="num">04</div><div><div class="eyebrow">Layer four</div><h2>Micro-stories</h2></div><span class="status plan">Planned</span></div>
+  <div class="grid2">
+    <div>
+      <p>The real secret of the great authored cities: tiny scenes that imply a story. A car with its hood up and a toolbox beside it. A birthday banner on a balcony. A queue outside a bakery at 7 am. Sem Destino writes these <b>as a library of templates with placement rules</b>, so they appear everywhere, sensibly, and never in the same place twice.</p>
+      <div class="card"><h4>Method</h4><ol class="steps">
+        <li><b>Author templates, not instances.</b> Each micro-story is a small prefab plus a rule: required context, time window, frequency, spacing, and optional ambient audio or an NPC behaviour.</li>
+        <li><b>Context query.</b> The placer searches the city graph for spots that satisfy the rule (for example a residential street, a kerb-side parking spot, within 30 m of a mechanic) and samples them with a position seed.</li>
+        <li><b>Rarity and spacing.</b> Blue-noise sampling keeps stories from clustering. Each template has a city-wide budget so nothing feels repeated.</li>
+        <li><b>Time and calendar.</b> Stories turn on and off with the clock and the day of the week: feira livre stalls on their real weekday, football flags on match days, Paulista closed to cars on Sundays.</li>
+        <li><b>Hooks for gameplay.</b> Some stories can escalate into activities or encounters, so the ambient city and the game share one system.</li>
+      </ol></div>
+    </div>
+    <div>
+      <div class="card"><h4>Template example</h4>
+<pre><span class="k">story</span>: <span class="s">breakdown_hood_up</span>
+<span class="k">needs</span>:  street.class in [residential, local]
+        kerb_parking == true
+<span class="k">near</span>:   shop == car_repair  &lt;= <span class="n">150</span> m  <span class="c"># optional, x3 weight</span>
+<span class="k">time</span>:   <span class="n">07:00</span>–<span class="n">19:00</span>
+<span class="k">rate</span>:   <span class="n">1</span> per <span class="n">2.5</span> km of matching street
+<span class="k">spawn</span>:  car(random_local_model, hood=open)
+        toolbox, jack, npc(mechanic_idle) p=<span class="n">.6</span>
+<span class="k">audio</span>:  <span class="s">ratchet_loop</span>  r=<span class="n">12</span> m</pre></div>
+      <div class="card"><h4>Library target</h4><div class="budget"><span><b>300+</b> templates</span><span>each a few KB</span><span>placed at load time, not stored</span></div></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 05 -->
+<section class="layer" id="l5"><div class="wrap">
+  <div class="lhead"><div class="num">05</div><div><div class="eyebrow">Layer five</div><h2>Hand-crafted where it counts</h2></div><span class="status part">Ongoing · first landmarks built</span></div>
+  <div class="grid2">
+    <div>
+      <p>Players remember a few dozen places and pass through the rest. Those few dozen get <b>art direction</b>; the procedural layers carry everything else. The two meet cleanly because the hand-made work sits <i>on top</i> of the procedural base and is protected from being regenerated.</p>
+      <div class="card"><h4>Method</h4><ol class="steps">
+        <li><b>A hero list of 50–100 places,</b> ranked by recognisability and gameplay importance: Avenida Paulista, MASP, Faria Lima, the Ponte Estaiada, the Sé, Liberdade, Rua Augusta, both airports, Ibirapuera, the Marginais.</li>
+        <li><b>Unique models where the silhouette matters.</b> MASP, the Ponte Estaiada and the Congonhas terminal are already hand-built landmarks in the map.</li>
+        <li><b>Overrides, not forks.</b> Within a hero zone, the artist edits parameters and placements (move this kiosk, change that awning, add this mural) and the edits are stored as overrides keyed to stable IDs. Rebuilding the procedural base keeps them.</li>
+        <li><b>Locks.</b> Approved elements are locked: no later procedural pass may change them without review.</li>
+        <li><b>Human review is authoritative.</b> A review tool shows the real reference next to the game render; approve or reject with a note. Every rejection is filed as either a one-off fix or a new general rule, plus a regression test so it never breaks again.</li>
+      </ol></div>
+    </div>
+    <div>
+      <div class="card"><h4>Criticism → rule pipeline</h4>
+<pre>review: <span class="s">"Paulista trees sit in raised granite
+         planters with grass, not flush pits"</span>
+  ↓ classify
+scope:  <span class="k">street</span> (Av. Paulista)  <span class="c"># not universal</span>
+  ↓ encode
+rule:   tree_pit.style = raised_granite_planter
+        where street == "Avenida Paulista"
+  ↓ protect
+test:   paulista_planters_present (all tiles)</pre>
+      <p style="margin:12px 0 0;font-size:14px;color:var(--mute)">That example is a real finding from comparing game renders with street photos on Paulista.</p></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 06 -->
+<section class="layer" id="l6"><div class="wrap">
+  <div class="lhead"><div class="num">06</div><div><div class="eyebrow">Layer six</div><h2>Life</h2></div><span class="status part">Simulated in the browser · engine port next</span></div>
+  <div class="grid2">
+    <div>
+      <p>Detail you drive past at 60 km/h matters less than a city that <b>moves like São Paulo</b>. Life is built on data the map already has: every lane, signal, crossing and one-way street.</p>
+      <div class="card"><h4>Method</h4><ol class="steps">
+        <li><b>The lane graph.</b> Every street is split into directed lanes with turn connections, signal phases and speed limits. It already drives the traffic shown on the <a href="../ai/">How the AI thinks</a> page.</li>
+        <li><b>Traffic by time.</b> Demand curves by road class and hour: the Marginais jammed at 18:00, empty at 03:00. Bus corridors follow the real exclusive lanes.</li>
+        <li><b>Motoboys.</b> Motorcycles use the <i>corredor</i> between lanes, a behaviour unique to São Paulo and modelled explicitly, including mirror-to-mirror gaps.</li>
+        <li><b>Pedestrians with purposes.</b> Agents spawn from building use (offices empty at lunch, schools at 12:00 and 18:00) and walk the sidewalk bands from Layer 01 to real destinations: bus stops, Metrô entrances, bakeries.</li>
+        <li><b>Level of detail for life.</b> Full simulation within about 300 m of the player, statistical flow farther out, and distant cars as instanced light streams on the highways at night.</li>
+        <li><b>Events.</b> Paulista Avenue on Sundays, feiras, football traffic, rain changing behaviour (motoboys under overpasses, umbrellas, slower traffic).</li>
+      </ol></div>
+    </div>
+    <div>
+      <div class="card"><h4>Simulation tiers</h4><table>
+        <tr><th>Range</th><th>Model</th><th>Cost</th></tr>
+        <tr><td>0–300 m</td><td>Full agents: steering, signals, collisions</td><td>Highest, a few hundred agents</td></tr>
+        <tr><td>300 m–2 km</td><td>Lane-level flow, cars as points</td><td>Low</td></tr>
+        <tr><td>&gt; 2 km</td><td>Density field + light streams</td><td>Near zero</td></tr>
+      </table></div>
+      <div class="card"><h4>Already in the data</h4><div class="budget"><span><b>159,063</b> travel lanes</span><span><b>35,263</b> one-way pieces</span><span><b>4,187</b> signalised crossings</span></div></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- 07 -->
+<section class="layer" id="l7"><div class="wrap">
+  <div class="lhead"><div class="num">07</div><div><div class="eyebrow">Layer seven</div><h2>Light &amp; weather</h2></div><span class="status part">Physical sun in renders · night &amp; rain planned</span></div>
+  <div class="grid2">
+    <div>
+      <p>A wet street at night with warm windows and red tail-lights in the reflections beats any amount of geometry. Light is the cheapest realism there is, and São Paulo is a city of drizzle and haze.</p>
+      <div class="card"><h4>Method</h4><ol class="steps">
+        <li><b>Physical sky.</b> Sun position for latitude 23.55°S by date and time, physical atmosphere, and the city's typical haze (higher in the dry winter) as height fog.</li>
+        <li><b>Streetlights by district and era.</b> Older districts get warm sodium orange, newer corridors white LED, following the city's ongoing LED replacement. Each pole from the pole layer carries its fixture type, so the light comes from where the real lamps are.</li>
+        <li><b>Windows that tell time.</b> Interior light is a per-window parameter driven by building use and the clock: offices go dark floor by floor after 19:00, residential windows light up and flicker with TV glow. No random lit windows.</li>
+        <li><b>Rain as a system.</b> A wetness value drives road roughness, puddles in low spots (from the terrain model), drips under awnings, and spray behind vehicles. Garoa, the light drizzle, is its own state.</li>
+        <li><b>Reflections.</b> Wet asphalt and glass towers need good reflections: ray-traced on capable hardware, screen-space plus probes otherwise.</li>
+      </ol></div>
+    </div>
+    <div>
+      <div class="card"><h4>Window lighting rule</h4>
+<pre><span class="k">window_on</span>(w, t) =
+  use == office      ? t in <span class="n">07:30</span>–<span class="s">depart(floor)</span>
+  use == residential ? t in <span class="n">06:00</span>–<span class="n">08:00</span> or <span class="n">18:00</span>–<span class="s">bed(w)</span>
+  use == retail      ? t in <span class="s">opening_hours</span>
+<span class="c"># depart / bed are seeded per window, so
+# every building empties and sleeps its own way</span></pre></div>
+      <div class="card"><h4>Budget</h4><div class="budget"><span>1 byte <b>per window</b></span><span>lights from the pole layer</span><span>weather is global state</span></div></div>
+    </div>
+  </div>
+</div></section>
+
+<section class="proof"><div class="wrap">
+  <div class="eyebrow">The proof point</div>
+  <h2>One district, all seven layers</h2>
+  <p style="margin-top:18px">Before the whole city, one pilot district gets layers 01, 02, 04 and 07 in full. Shown next to the rest of the map, it demonstrates that the same system will reach all 1,780 km², and gives every rule its first round of human review before it scales.</p>
+  <div class="eyebrow" style="margin-top:34px">What rules can't do, honestly</div>
+  <div class="limits">
+    <div class="card"><h4>Story &amp; missions</h4><p style="margin:0">Written by people. The procedural city is the stage, not the play.</p></div>
+    <div class="card"><h4>Characters &amp; animation</h4><p style="margin:0">Performances, faces and motion are crafted work, with real voices.</p></div>
+    <div class="card"><h4>Interiors</h4><p style="margin:0">A few hand-built ones where the story goes; everything else is lit windows.</p></div>
+    <div class="card"><h4>Feel</h4><p style="margin:0">How it drives, fights and flows is tuned by playing it, again and again.</p></div>
+  </div>
+</div></section>
+
+<footer><div class="wrap row">
+  <div class="fplate"><b>Sem Destino</b><span>Solo game project · 2026</span></div>
+  <div>Map data: GeoSampa (Prefeitura de São Paulo), © OpenStreetMap contributors. Street-level imagery is used as reference only, under its licence.</div>
+</div></footer>
+<script src="/sao-paulo/i18n.js" defer></script>
+</body>
+</html>

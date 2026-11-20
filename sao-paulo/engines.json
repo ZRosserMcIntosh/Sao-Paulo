@@ -1,0 +1,80 @@
+{
+  "about": "The engine build each page ships: repository, commit, and the sha256 of each file. 'verified' is the date the commit was rebuilt (wasi-sdk 25) and matched byte for byte. Check with: node scripts/engines.mjs",
+  "engines": [
+    {
+      "page": "poles",
+      "repo": "ZRosserMcIntosh/Destruction-Dynamics",
+      "path": "native/pole-dynamics",
+      "commit": "249189d67df6c347b39f625aebe1fa46df101be9",
+      "verified": "2026-11-18",
+      "files": {
+        "poles/poles.wasm": "ffbca0df5db6756d990791615b126ada5d3ad18e429dd88012f2d442b95f8d3e",
+        "poles/poles.mjs": "5ea5ea7600a6c9d28ab591244cb5ccdcd06a60c55378090ad6bee4ab39966d19"
+      }
+    },
+    {
+      "page": "liquids",
+      "repo": "ZRosserMcIntosh/liquid",
+      "commit": "b92e531ce4c9d95ef46b83a43bc2e0462d497b34",
+      "verified": "2026-11-18",
+      "files": {
+        "liquids/liquid.wasm": "4b7904eedbc0652f3aee56c4f705218a902afb0f6df204ac773e7958dc24e254",
+        "liquids/liquid.mjs": "6655233b2156580be1e4c7e79ad40e4c2b7e3a060a71e1fb62df99c6c69b7e64",
+        "liquids/library.json": "e80950b51e498296583d3e358a7b1469e2d7b3bbeb6946f28f121ca74175cc07"
+      }
+    },
+    {
+      "page": "glass",
+      "repo": "ZRosserMcIntosh/Glass",
+      "commit": "c378c23a08dfe68f9ee06a79128edcff791e1205",
+      "verified": "2026-11-18",
+      "files": {
+        "glass/glass.wasm": "e8fcf930c5382f6e70a0d5e3502fe9efc3794bcb3b45bf8507174bb49ac7588a",
+        "glass/glass-scalar.wasm": "86d534958c5b60c893bd86ca0f961d29cab7e1e384aa282b415f923238866f01"
+      },
+      "note": "Glass main with membrane action (Glass #3). Also loaded by glass/drop and glass/grenade."
+    },
+    {
+      "page": "ballistics",
+      "repo": "ZRosserMcIntosh/ballistic-dynamics",
+      "commit": "97814825537c65703a00818b7be68b8130a925a5",
+      "verified": "2026-11-18",
+      "note": "Main has since added the shooter layer (#11), which this page does not use.",
+      "files": {
+        "ballistics/ballistic.wasm": "1ea97ed42d6c96fe982e621107117c54457a59d3e2ea2a6cfb99c19d19316d21"
+      }
+    },
+    {
+      "page": "flying",
+      "repo": "ZRosserMcIntosh/Aviation-Dynamics",
+      "commit": "3e3c6639bf1771a258ed45d5d4a753d39d4ab1fa",
+      "verified": "2026-11-18",
+      "note": "Rebuilt with AVD_BUILD_ID=\"3e3c6639bf17 2026-11-08\" (the build id embeds the build date). Also used by wake/.",
+      "files": {
+        "flying/avd.wasm": "92a0e3b684281381462fff53e88ca321d686f52fa8277ca8f452edc8a4420f81",
+        "flying/avd.mjs": "1d5c484195e36bd6e089326c23c6190b63df93290f57bb79b064f6230409586c"
+      }
+    },
+    {
+      "page": "driving",
+      "repo": "ZRosserMcIntosh/vehicle-dynamics",
+      "commit": "b3fcc3e2f498a51db595aa7d600b099d2004aa75",
+      "verified": "2026-11-18",
+      "files": {
+        "driving/ord.wasm": "59e38e29ab9d2c7f0f34489708b99ed686084fb7e65c1c3c900a083aa135678e"
+      }
+    },
+    {
+      "page": "golf/play",
+      "repo": "ZRosserMcIntosh/golf",
+      "commit": "0ae14c12642dd6731fa2184079873d836e588839",
+      "verified": "2026-11-18",
+      "note": "Updated from 13ddd57 (what PR #91 shipped, rebuilt and matched byte for byte) to main. The newer commit only adds map-polygon outlines, which the Varzea course does not use; the smoke round is identical.",
+      "files": {
+        "golf/play/golf.wasm": "21ecba431892f5d740c13c0339fe4c910597a86667377e8a87316d2fc5888db4",
+        "golf/play/golf.mjs": "5117a2538910c16ce933a2cd42069e32c51f78ef96f06764bcf11e022de7a0af",
+        "golf/play/varzea.json": "ba123c6be2373f4bcbbb71c45caf6aaf01b31f98802eff9a71d172fe69cfac73"
+      }
+    }
+  ]
+}

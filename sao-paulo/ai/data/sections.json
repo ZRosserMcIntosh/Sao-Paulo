@@ -1,0 +1,62 @@
+[
+ {
+  "key": "paulista",
+  "title": "Av. Paulista at MASP",
+  "sub": "Big avenue, signals, bus lanes, crowds",
+  "bairro": "Bela Vista",
+  "tile": "T_p0_p0",
+  "kb": 78,
+  "lanes": 200,
+  "signals": 13,
+  "cross": 31,
+  "bus": 5
+ },
+ {
+  "key": "marginal",
+  "title": "Marginal Pinheiros",
+  "sub": "Express and local carriageways, ramps, motorcycles",
+  "bairro": "Morumbi",
+  "tile": "T_m9_m3",
+  "kb": 56,
+  "lanes": 131,
+  "signals": 0,
+  "cross": 0,
+  "bus": 1
+ },
+ {
+  "key": "jardins",
+  "title": "Jardins grid",
+  "sub": "One-way streets: Oscar Freire, Augusta, Lorena",
+  "bairro": "Jardim Paulista",
+  "tile": "T_m2_m1",
+  "kb": 44,
+  "lanes": 111,
+  "signals": 6,
+  "cross": 41,
+  "bus": 0
+ },
+ {
+  "key": "europa",
+  "title": "Av. Europa roundabouts",
+  "sub": "Give way on entry, circulate",
+  "bairro": "Cidade Jardim",
+  "tile": "T_m5_m3",
+  "kb": 65,
+  "lanes": 183,
+  "signals": 0,
+  "cross": 0,
+  "bus": 1
+ },
+ {
+  "key": "novejulho",
+  "title": "Nove de Julho bus corridor",
+  "sub": "Median bus lanes and stops",
+  "bairro": "Santa Ifigênia",
+  "tile": "T_p3_p3",
+  "kb": 121,
+  "lanes": 336,
+  "signals": 11,
+  "cross": 33,
+  "bus": 17
+ }
+]

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/sao-paulo/ai/">
+<title>How the AI thinks · São Paulo World</title>
+<meta name="description" content="Watch the game's AI on real São Paulo streets: traffic following real lanes and signals, motorcycles in the corredor, pedestrians at crosswalks, a pursuit, panic, and a GPS that respects one-way streets.">
+<meta property="og:title" content="São Paulo World · How the AI thinks">
+<meta property="og:description" content="Traffic, motorcycles, pedestrians, pursuits, panic and GPS, simulated on real São Paulo street data.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/ai/">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b111b; --paper:#111a27; --ink:#e7ecf2; --mute:#93a0b2; --line:#233044;
+  --plate:#1d57c2; --plate-ink:#fff; --masp:#ec4a3c; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--body);margin:0;padding-top:env(safe-area-inset-top,0px)}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(14px,4vw,40px)}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:.95}
+h1{font-size:clamp(46px,8vw,96px);font-weight:900;text-transform:uppercase}
+h2{font-size:clamp(36px,5.5vw,64px);font-weight:800;text-transform:uppercase}
+h3{font-size:24px;font-weight:800;text-transform:uppercase}
+p{margin:0;max-width:64ch}
+a{color:#7fb0ff}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.mute{color:var(--mute)}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:14px;flex-wrap:wrap}
+.topbar nav{display:flex;flex-wrap:wrap;gap:8px 18px;font:600 13.5px var(--body)}
+.topbar nav a{color:var(--ink);text-decoration:none}.topbar nav a:hover{color:#7fb0ff}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:6px;padding:6px 14px;text-decoration:none}
+.plate b{font:900 22px/.9 var(--display);text-transform:uppercase;white-space:nowrap}.plate span{font:600 9.5px/1.2 var(--body);letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
+header{padding-block:clamp(26px,5vw,52px) 22px}
+.lede{font-size:clamp(17px,1.6vw,19px);margin-top:20px}
+.lede em{font-style:normal;color:var(--masp);font-weight:600}
+section{padding-block:clamp(40px,6vw,72px);border-top:1px solid var(--line)}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:99px;padding:6px 12px;font:600 12.5px var(--body);cursor:pointer;display:inline-flex;align-items:baseline;gap:7px}
+.chip small{color:var(--mute);font-weight:500}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}.chip[aria-pressed="true"] small{color:#4a5566}
+button:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+.btn{font:600 12.5px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:7px;padding:6px 10px;cursor:pointer}
+.btn:hover{background:rgba(255,255,255,.12)}.btn[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+.lab{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;margin-top:14px;align-items:start}
+@media (max-width:980px){.lab{grid-template-columns:1fr}}
+.stage{position:relative;border-radius:10px;overflow:hidden;background:#151d28;border:1px solid var(--line);aspect-ratio:1/1;max-height:calc(100vh - 40px);touch-action:none}
+@media (min-width:981px){.stage{aspect-ratio:auto;height:min(78vh,760px)}}
+#cv{width:100%;height:100%;display:block;cursor:crosshair}
+.ovtop{position:absolute;left:10px;top:10px;right:56px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.ovtop>*{pointer-events:auto}
+.banner b{font:900 italic clamp(18px,3vw,30px)/1 var(--display);color:#fff;text-shadow:0 0 2px #000,0 2px 8px rgba(0,0,0,.9);display:block}
+.banner span{font:700 clamp(10px,1.4vw,12px)/1.4 var(--body);color:var(--hot);letter-spacing:.04em;text-shadow:0 1px 6px #000}
+.zoom{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:6px}
+.zoom button{width:34px;height:34px;border:0;border-radius:7px;background:rgba(10,18,30,.78);color:#dfe6ef;font:600 16px var(--body);cursor:pointer}
+.clock{position:absolute;right:10px;bottom:10px;font:600 13px var(--mono);background:rgba(10,18,30,.78);padding:4px 8px;border-radius:6px}
+.hint{position:absolute;left:10px;bottom:10px;font:600 12px var(--body);background:rgba(10,18,30,.78);padding:5px 9px;border-radius:6px;max-width:calc(100% - 90px)}
+#agent{position:absolute;left:10px;bottom:44px;max-width:min(320px,calc(100% - 20px));background:rgba(10,17,28,.92);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:13px;line-height:1.4}
+#agent b{display:block;font-size:15px;margin:3px 0}
+.side{display:flex;flex-direction:column;gap:12px}
+.ctl{display:grid;grid-template-columns:auto 1fr auto;gap:6px 10px;align-items:center;font-size:13px;color:var(--mute)}
+.ctl b{font:600 12px var(--mono);color:var(--ink)}
+input[type=range]{width:100%;accent-color:var(--hot)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#explain h3{margin-bottom:8px}#explain p{font-size:14.5px;color:#cfd8e3;margin-top:8px}
+#feed,#gpslist{list-style:none;margin:8px 0 0;padding:0;font-size:13.5px;display:flex;flex-direction:column;gap:6px}
+#feed li{border-left:2px solid var(--hot);padding-left:8px}
+#gpslist li{display:grid;grid-template-columns:52px 1fr;gap:8px;align-items:start}
+#gpslist .m{font:600 12px var(--mono);color:var(--mute);text-align:right;padding-top:2px}
+#gpslist small{display:block;color:var(--mute);font-size:12px}
+#stats{display:flex;flex-wrap:wrap;gap:4px 14px;font:500 12.5px var(--mono);color:var(--mute);margin-top:10px}
+#stats b{color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--mute);margin-top:8px}
+.legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:22px}
+.grid3 .panel p{font-size:14.5px;color:#cfd8e3;margin-top:8px}
+footer{border-top:1px solid var(--line);padding-block:36px 52px;color:var(--mute);font-size:13.5px}
+footer .row{justify-content:space-between;gap:16px 40px;align-items:flex-start}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap topbar">
+  <a class="plate" href="../"><b>São Paulo World</b><span>Back to the city</span></a>
+  <nav aria-label="Site"><a href="../#updates">What's new</a><a href="../#explore">Map &amp; tiles</a><a href="../driving/">Drive the car</a><a href="../physics/">Physics engine</a></nav>
+</div>
+<header class="wrap">
+  <div class="eyebrow">Game AI · on real streets</div>
+  <h1>How the AI thinks</h1>
+  <p class="lede">These are <em>real pieces of São Paulo</em>, cut straight from the game's street data: every lane, its direction, the turns allowed from it, the signals, PARE signs, crosswalks and bus stops. The cars, bikes and people below run on the same rules the game's AI will use. Pick a street and a scenario, then watch, or tap something to see what it's thinking.</p>
+</header>
+
+<section style="border-top:0;padding-top:0"><div class="wrap">
+  <div class="eyebrow">Street</div>
+  <div class="chips" id="secs" style="margin-top:8px"></div>
+  <div class="eyebrow" style="margin-top:14px">Scenario</div>
+  <div class="chips" id="scens" style="margin-top:8px">
+    <button class="chip" data-s="traffic" aria-pressed="true"><b>Traffic</b><small>cars, motorcycles, people</small></button>
+    <button class="chip" data-s="pursuit"><b>Pursuit</b><small>pursuing party</small></button>
+    <button class="chip" data-s="panic"><b>Panic</b><small>tap to set off</small></button>
+    <button class="chip" data-s="gps"><b>GPS</b><small>tap two points</small></button>
+  </div>
+  <div class="lab">
+    <div>
+      <div class="stage">
+        <canvas id="cv" aria-label="Top-down simulation of the selected São Paulo street section"></canvas>
+        <div class="ovtop"><div class="banner"><b id="secname">Loading…</b><span id="secsub"></span></div></div>
+        <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit the section" style="font-size:12px">⤢</button></div>
+        <div id="agent" hidden></div>
+        <div class="hint" id="hint"></div>
+        <div class="clock" id="clock">08:00</div>
+      </div>
+      <div id="stats"></div>
+      <div class="legend"><span><i style="background:rgba(196,58,44,.7)"></i>bus lane (faixa exclusiva)</span><span><i style="background:#1d57c2"></i>bus stop / street name</span><span><i style="background:#36c483"></i><i style="background:#f0b43a;margin-left:-4px"></i><i style="background:#ef5d4f;margin-left:-4px"></i>signal</span><span><i style="background:#ff5a3c"></i>target car</span><span><i style="background:#1b2028;border:1px solid #9fd6ff"></i>pursuing party</span></div>
+    </div>
+    <div class="side">
+      <div class="panel">
+        <div class="row"><button class="btn" id="play">Pause</button><span class="mute" style="font-size:13px;margin-left:auto">Speed <b id="speedv" style="font:600 12px var(--mono);color:var(--ink)">1×</b></span></div>
+        <input type="range" id="speed" min="0" max="4" value="2" aria-label="Simulation speed">
+        <div class="ctl" style="margin-top:8px"><span>Time of day</span><input type="range" id="tod" min="0" max="23.9" step="0.1" value="8.5" aria-label="Time of day"><span></span>
+          <span>Busyness</span><input type="range" id="dens" min="30" max="150" value="100" aria-label="Traffic and pedestrian density"><b id="densv">100%</b></div>
+        <div id="heatbar" hidden style="margin-top:10px"><div class="ctl"><span>Heat level</span><input type="range" id="heat" min="1" max="5" value="2" aria-label="Pursuit heat level"><b id="heatv">2</b></div><p class="mute" id="heatd" style="font-size:12.5px;margin-top:4px">Ramming allowed.</p></div>
+        <div id="panicbar" hidden style="margin-top:10px" class="row"><span class="mute" style="font-size:13px">Event:</span><button class="btn" data-p="explosion" aria-pressed="true">Explosion</button><button class="btn" data-p="shots" aria-pressed="false">Shots fired</button><button class="btn" data-p="fire" aria-pressed="false">Car fire</button></div>
+        <div class="eyebrow" style="margin-top:14px">Show the logic</div>
+        <div class="row" id="ovl" style="margin-top:8px"><button class="btn" data-o="state">States</button><button class="btn" data-o="perc">Perception</button><button class="btn" data-o="route">Routes</button><button class="btn" data-o="lanes">Lane choice</button><button class="btn" data-o="sig">Signal phases</button></div>
+      </div>
+      <div class="panel" id="gpsbar" hidden><div class="row"><div class="eyebrow">Turn by turn</div><button class="btn" id="lang" style="margin-left:auto">Português</button></div><ol id="gpslist"></ol></div>
+      <div class="panel" id="explain"></div>
+      <div class="panel"><div class="eyebrow">What just happened</div><ul id="feed"></ul></div>
+    </div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">Under the hood</div>
+  <h2>One map, many minds</h2>
+  <div class="grid3">
+    <div class="panel"><h3>The lane map</h3><p>Every street in the game is broken into lanes with a direction, a width, a speed limit and the turns allowed from it. Lane 0 is always the leftmost lane in the direction of travel, and Brazil drives on the right. Signals, PARE signs, roundabouts, bus lanes, crosswalks and bus stops all hang off the same map, so nothing has to be guessed from the 3D models.</p></div>
+    <div class="panel"><h3>One route planner</h3><p>The GPS, normal traffic, the pursuing parties and fleeing drivers all ask the same route planner for directions. The only difference is the rules they're told to follow: the GPS obeys everything, a pursuing party may ignore signals and bus lanes, and a panicking driver may break almost any rule to get away.</p></div>
+    <div class="panel"><h3>Seeing and hearing</h3><p>Big events (an explosion, shots, a crash) are heard within a radius. People inside it react in their own way: pedestrians run, drivers stop or flee, pursuing parties note where it happened. Panic spreads to anyone who sees someone running, then fades.</p></div>
+    <div class="panel"><h3>Near and far</h3><p>In the game, only the traffic close to you runs full car physics. Further out, cars glide along their lanes with the same rules but much less work, and beyond that the city just keeps count of how busy each street is. That's how a whole city of traffic fits in a normal PC.</p></div>
+    <div class="panel"><h3>Safe by default</h3><p>In normal traffic, drivers always stop for pedestrians. Contact can only happen in chaos, during a pursuit or a panic, and then it's a fall: the person gets up and limps away. Motorcycle falls are rare, a few per hour of play, and clear quickly.</p></div>
+    <div class="panel"><h3>What this page simplifies</h3><p>This browser version draws the city flat, uses a simple driving model for every car, builds the sidewalks from the road outlines (the game will use a dedicated pedestrian map), and only shows one 300–400 m piece at a time. The rules are the same.</p></div>
+  </div>
+</div></section>
+
+<footer><div class="wrap row">
+  <div><div class="plate"><b>São Paulo World</b><span>Solo game project · 2026</span></div></div>
+  <div style="max-width:60ch">Street data: © OpenStreetMap contributors (ODbL); GeoSampa, Prefeitura de São Paulo (street register, districts). Lanes, signals and road features generated for the game from these sources. Signal timings are defaults, not real CET plans.</div>
+</div></footer>
+<script type="module" src="app.js"></script>
+</body>
+</html>

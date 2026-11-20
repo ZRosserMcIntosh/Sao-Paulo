@@ -27,6 +27,11 @@
       "permanent": true
     },
     {
+      "source": "/sao-paulo/golf/play",
+      "destination": "/sao-paulo/golf/play/",
+      "permanent": true
+    },
+    {
       "source": "/sao-paulo/glass",
       "destination": "/sao-paulo/glass/",
       "permanent": true
@@ -57,6 +62,11 @@
       "permanent": true
     },
     {
+      "source": "/sao-paulo/impact",
+      "destination": "/sao-paulo/impact/",
+      "permanent": true
+    },
+    {
       "source": "/sao-paulo/challenges",
       "destination": "/sao-paulo/challenges/",
       "permanent": true
@@ -64,6 +74,11 @@
     {
       "source": "/sao-paulo/destruction",
       "destination": "/sao-paulo/destruction/",
+      "permanent": true
+    },
+    {
+      "source": "/sao-paulo/poles",
+      "destination": "/sao-paulo/poles/",
       "permanent": true
     },
     {
@@ -161,6 +176,24 @@
       ]
     },
     {
+      "source": "/sao-paulo/golf/play/(.*\\.wasm)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/golf/play/(.*\\.json)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
       "source": "/sao-paulo/glass/(.*)",
       "headers": [
         {
@@ -183,6 +216,15 @@
         {
           "key": "Cross-Origin-Embedder-Policy",
           "value": "credentialless"
+        }
+      ]
+    },
+    {
+      "source": "/sao-paulo/impact/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
         }
       ]
     },
