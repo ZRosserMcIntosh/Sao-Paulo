@@ -46,8 +46,11 @@ const statePtr = M._ord_state() / 8;
 const S = (i) => M.HEAPF64[statePtr + i];
 const W = (w, i) => M.HEAPF64[statePtr + HEADER + PER_WHEEL * w + i];
 // Per site car id: 0-5 generic cars + Rosser V8, 6-8 two-wheelers, 9-13 real-car approximations
-// (engine indices 6-10: 911 Carrera S, 911 Carrera 4S, AMG S 63, S 600 Guard, F1 2026).
-const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55, 0, 0, 0, 0.50, 0.50, 0.54, 0.52, 0.30]; // full-lock road-wheel angle (rad)
+// (engine indices 6-10: 911 Carrera S, 911 Carrera 4S, AMG S 63, S 600 Guard, F1 2026), 14 the
+// Rosser V8 Manuale (engine index 11: six-speed gated manual).
+const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55, 0, 0, 0, 0.50, 0.50, 0.54, 0.52, 0.30, 0.55]; // full-lock road-wheel angle (rad)
+// Cars with a gated manual: shifted by hand by default, and a metallic clunk on every change.
+const GATED_MANUAL = new Set([14]);
 const engineCar = (c) => (c >= 9 ? c - 3 : c);
 // Two-wheelers (vehicle 6 bicycle, 7 e-scooter, 8 motorcycle): their own state buffer.
 const bikePtr = M._ord_bike_state() / 8;
@@ -55,9 +58,9 @@ const B = (i) => M.HEAPF64[bikePtr + i];
 const BIKE_LOCK = [1.2, 0.9, 0.55];
 const BIKE_NAMES = ['Bicycle', 'E-scooter', 'Motorcycle'];
 const isBike = () => settings.car >= 6 && settings.car <= 8;
-const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000, 0, 0, 12500, 7500, 7500, 6500, 5800, 15000];
+const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000, 0, 0, 12500, 7500, 7500, 6500, 5800, 15000, 9000];
 // Engine voice per car (audio/engines.js): each layout sounds like itself. Index 8 = motorcycle.
-const VOICE = ['refSports', 'refHatch', 'refSaloon', 'refHyper', 'refRace', 'stella', null, null, 'motorcycle', 'porsche911', 'porsche911', 'amgS63', 's600Guard', 'f1'];
+const VOICE = ['refSports', 'refHatch', 'refSaloon', 'refHyper', 'refRace', 'stella', null, null, 'motorcycle', 'porsche911', 'porsche911', 'amgS63', 's600Guard', 'f1', 'stella'];
 const setVoice = () => { try { audio.setVoice(VOICES[VOICE[settings.car]] || VOICES.stella); } catch { /* audio not built yet */ } };
 const G = 9.81;
 
@@ -92,7 +95,7 @@ async function deflateSetup(json) {
   let s = ''; for (const b of bin) s += String.fromCharCode(b);
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-if (SHARE?.car !== null && SHARE?.car !== undefined && SHARE.car >= 0 && SHARE.car <= 13) { store.set('car', SHARE.car); store.set('stellaPhysics', true); }
+if (SHARE?.car !== null && SHARE?.car !== undefined && SHARE.car >= 0 && SHARE.car <= 14) { store.set('car', SHARE.car); store.set('stellaPhysics', true); }
 if (SHARE?.setup && SHARE.car !== null) {
   try { store.set('setup' + SHARE.car, JSON.parse(await inflateSetup(SHARE.setup))); } catch (e) { console.warn('shared setup unreadable', e); }
 }
@@ -1473,7 +1476,11 @@ for (const [id, dir] of [['tUp', 1], ['tDown', -1]]) {
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
 }
 $('car').value = settings.car;
-$('car').onchange = (e) => { settings.car = +e.target.value; camInit = true; store.set('car', settings.car); store.set('stellaPhysics', true); createCar(); e.target.blur(); };
+$('car').onchange = (e) => {
+  settings.car = +e.target.value; camInit = true; store.set('car', settings.car); store.set('stellaPhysics', true); createCar(); e.target.blur();
+  // a gated manual is shifted by hand (G still hands it to the automatic)
+  if (GATED_MANUAL.has(settings.car) && settings.auto) { settings.auto = false; applyAids(); toast('Six-speed gated manual: E / Q (or + / −, RB / LB) to shift · G for automatic'); }
+};
 $('bReset').onclick = (e) => { placeAt(ZONES[0]); e.currentTarget.blur(); };
 $('bCam').onclick = (e) => { cycleCam(); e.currentTarget.blur(); };
 function togglePanel() {
@@ -2479,6 +2486,7 @@ async function shareLink() {
 }
 window.__spwShare = shareLink;
 let rewindHold = false;
+const SHIFT_SND = { gear: null, pending: false };
 
 // The controller's buttons, once a frame, whatever is on screen (driving, a menu, the replay, the
 // tunnel); the sticks and triggers that drive the car are read in readInput.
@@ -2721,6 +2729,14 @@ function frameOnce(now, draw) {
     weather.update(simDt, camera.position, carRoot.position, Math.abs(S(7)), wheels, (k) => { try { audio.splash(k); } catch { /* audio not ready */ } });
   }
   try { audio.update({ dt, rpm: S(14), load: S(17), limiter: LIMITER[settings.car], gear: S(15), speed: S(7), tyre: tyreState(), interior: settings.cam === 2, rain: weather.rain, wet: weather.rain }); } catch (e) { console.warn('audio update', e); }
+  // gated manual: the lever leaving the gear (a light click), then the clunk as it goes into the
+  // next one through the open gate when the shift completes
+  if (GATED_MANUAL.has(settings.car)) {
+    const gear = S(15), shifting = S(24) > 0.5;
+    if (gear !== SHIFT_SND.gear && SHIFT_SND.gear !== null) { try { audio.shiftClunk(0, settings.cam === 2); } catch { /* audio not ready */ } SHIFT_SND.pending = true; }
+    if (SHIFT_SND.pending && !shifting) { try { audio.shiftClunk(1, settings.cam === 2); } catch { /* audio not ready */ } SHIFT_SND.pending = false; }
+    SHIFT_SND.gear = gear;
+  } else SHIFT_SND.gear = null;
   recordRow();
   const z = zoneAt(S(0), S(1));
   if (z !== currentZone) { currentZone = z; $('zone').textContent = z; $('zone').classList.toggle('on', !!z); }
