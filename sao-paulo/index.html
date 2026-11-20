@@ -955,11 +955,13 @@ function carTick(now){carRAF=0;const dt=Math.min(.1,(now-carT)/1000);carT=now;
   const SF=spNow().sf;for(const C of CARS){C.d+=C.E.v*C.sp*SF*(C.moto?1.15:1)*dt;if(C.d>=C.E.L){const nx=C.E.next;if(nx.length){const F=nx[Math.floor(Math.random()*nx.length)];Object.assign(C,{E:F,d:C.d-C.E.L,ln:Math.min(C.ln,F.n-1)})}else{const F=CEDGE[Math.floor(Math.random()*CEDGE.length)];Object.assign(C,{E:F,d:0,ln:Math.floor(Math.random()*F.n)})}}}
   drawSX();carRAF=requestAnimationFrame(carTick)}
 function drawCars(c,w,h){drawCarsD(c,CARS,w,h,SDt?carVis(SDt):null)}
-function drawCarsD(c,CARS,w,h,vis){if(!CARS.length)return;const sx=w/1000,sy=h/1000;c.save();
-  for(const C of CARS){if(vis&&!vis(C))continue;const [x,y,ux,uy]=carPos(C),Lc=C.bus?30:C.moto?8:16,Wc=C.bus?8.5:C.moto?3.4:7.5;c.setTransform(ux*sx,uy*sy,-uy*sx,ux*sy,x*sx,y*sy);
+function drawCarsD(c,CARS,w,h,vis){if(!CARS.length)return;const sx=w/1000,sy=h/1000;
+  /* FIX 19 Nov (Rosser: "cars driving over houses"): each car is placed with transform(), RELATIVE to whatever the caller set up.
+     It used setTransform(), which threw away the big map's per-tile translate, so every visible tile's cars were drawn as if
+     that tile sat at the canvas corner - right lanes, wrong place, on top of houses. The tile explorer was unaffected. */
+  for(const C of CARS){if(vis&&!vis(C))continue;const [x,y,ux,uy]=carPos(C),Lc=C.bus?30:C.moto?8:16,Wc=C.bus?8.5:C.moto?3.4:7.5;c.save();c.transform(ux*sx,uy*sy,-uy*sx,ux*sy,x*sx,y*sy);
     c.fillStyle="rgba(0,0,0,.35)";c.fillRect(-Lc/2+.8,-Wc/2+.8,Lc,Wc);c.fillStyle=C.bus?"#d9452b":C.moto?"#ffd36b":C.c;c.fillRect(-Lc/2,-Wc/2,Lc,Wc);
-    if(!C.moto){c.fillStyle="rgba(20,30,45,.75)";c.fillRect(Lc*.08,-Wc/2+.6,Lc*.22,Wc-1.2)}}
-  c.restore()}
+    if(!C.moto){c.fillStyle="rgba(20,30,45,.75)";c.fillRect(Lc*.08,-Wc/2+.6,Lc*.22,Wc-1.2)}c.restore()}}
 function setDir(on){DIRON=on;if(on&&LD&&!carRAF){carT=performance.now();carRAF=requestAnimationFrame(carTick)}$("dir_t").setAttribute("aria-pressed",on?"true":"false");$("dir_lg").hidden=!on;try{localStorage.setItem("sp_dir",on?"1":"0")}catch(e){}drawSX()}
 $("dir_t").onclick=()=>setDir(!DIRON);setDir(DIRON);
 function drawLanes(c,w,h){drawLanesD(c,LD,w,h)}
