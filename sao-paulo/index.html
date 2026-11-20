@@ -62,6 +62,12 @@ header.hero{padding-block:clamp(28px,5vw,56px) 28px}
 .modes button:focus-visible,.zoom button:focus-visible,.chip:focus-visible{outline:2px solid #ffd36b;outline-offset:2px}
 .zoom{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:6px}
 .zoom button{width:34px;height:34px;font-size:17px;padding:0}
+.zoom #mshare{display:grid;place-items:center;margin-top:6px}
+.tlbar{position:absolute;left:50%;bottom:52px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;width:min(560px,calc(100% - 28px));background:rgba(10,14,22,.9);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);border-radius:11px;padding:8px 12px;z-index:4}
+.tlbar[hidden]{display:none}.tlbar button{flex:none;width:32px;height:32px;border-radius:50%;border:0;background:#ffd36b;color:#0a1830;font-size:13px;cursor:pointer}.tlbar button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.tlbar input{flex:1;accent-color:#ffd36b;min-width:0}.tlbar span{flex:none;font:600 12px var(--mono);color:#dfe6ef;min-width:150px;text-align:right}
+@media (max-width:560px){.tlbar span{min-width:0;font-size:11px}}
+.mtoast{position:absolute;left:50%;top:14px;transform:translate(-50%,-8px);background:rgba(10,14,22,.94);color:#fff;font:600 13px var(--body);padding:9px 14px;border-radius:9px;border:1px solid rgba(255,255,255,.16);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:6;max-width:80%;text-align:center}.mtoast.on{opacity:1;transform:translate(-50%,0)}
 .lmtier{position:absolute;right:12px;bottom:14px;display:flex;gap:6px;align-items:center}
 .lmtier .lbl{font:600 11px var(--mono);color:#dfe6ef;text-shadow:0 1px 3px #000;margin-right:2px}
 .lmtier button{font:600 12px var(--body);border:0;border-radius:6px;padding:6px 9px;background:rgba(10,18,30,.72);color:#dfe6ef;cursor:pointer;backdrop-filter:blur(4px)}
@@ -162,6 +168,10 @@ footer .row{display:flex;flex-wrap:wrap;gap:16px 40px;justify-content:space-betw
 .sb-in{display:flex;align-items:center;gap:22px;height:62px}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);margin-right:auto}
 .brand .sbplate{display:grid;place-items:center;width:40px;height:26px;padding:0;margin:0;line-height:1;border-radius:5px;background:var(--plate);color:#fff;font:900 13px/1 var(--display);letter-spacing:.06em;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.85),0 6px 16px -8px var(--plate)}
+.brand .minisign{position:relative;display:inline-flex;align-items:center;gap:.36em;background:#0a4a9e;color:#fff;font:700 18px/1 "Public Sans",Arial,Helvetica,sans-serif;padding:.42em .7em .46em .58em;border-radius:6px;white-space:nowrap;box-shadow:0 6px 16px -8px rgba(10,74,158,.9)}
+.brand .minisign::before{content:"";position:absolute;inset:3px;border:1.5px solid #fff;border-radius:4px;pointer-events:none}
+.brand .minisign svg{height:.82em;width:auto}
+@media (max-width:900px){.brand .minisign{font-size:15px}}
 .brand .wm{white-space:nowrap;font:800 21px/1 var(--display);text-transform:uppercase;letter-spacing:.03em}.brand .wm i{font-style:normal;color:var(--masp)}
 .sbnav{display:flex;align-items:center;gap:4px;font:600 14px var(--body)}
 .sbnav .plain,.dd>summary{color:var(--ink);text-decoration:none;padding:8px 12px;border-radius:8px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;transition:background .15s,color .15s}
@@ -212,6 +222,7 @@ header.hero{padding-top:0}
 .lmcard{position:absolute;left:14px;bottom:56px;width:min(300px,60%);background:rgba(10,14,22,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.14);border-radius:12px;overflow:hidden;box-shadow:0 20px 50px -20px rgba(0,0,0,.9);z-index:5;animation:ddin .18s ease-out}
 .lmcard .lmimg{height:170px;background:#111 center/cover no-repeat}
 .lmcard .lmt{padding:10px 12px}.lmcard .lmn{display:block;font:800 19px/1.05 var(--display);text-transform:uppercase;color:#fff}.lmcard .lmk{display:block;font:500 11.5px/1.35 var(--mono);color:#9aa7ba;margin-top:4px}
+.lmcard .lmgo{display:inline-block;margin-top:9px;font:700 12.5px var(--body);color:#0a1830;background:#ffd36b;border-radius:7px;padding:6px 10px;text-decoration:none}.lmcard .lmgo:hover{background:#fff}.lmcard .lmgo:focus-visible{outline:2px solid #fff;outline-offset:2px}.lmcard .lmll{display:block;font:500 10.5px var(--mono);color:#6f7d92;margin-top:6px}
 .lmcard .lmx{position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:16px;line-height:1;cursor:pointer}
 /* BGVIDEO_V2 (Rosser 19 Nov 13:02): rotates Ponte Estaiada -> Paulista -> Faria Lima (crossfaded, seamless loop), no static hero image.
    BGVIDEO_V1: the website background clips, softly blurred (blur is baked into the file), behind the whole page.
@@ -251,6 +262,25 @@ body,:root body,:root[data-theme="dark"] body{background:transparent}
 .keys2{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 14px;font-size:14px;align-items:center}
 .herotop{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(20px,3vw,40px);align-items:end}@media (max-width:900px){.herotop{grid-template-columns:1fr}}
 .herotop .plate b{font-size:clamp(46px,5.4vw,84px)}
+/* ROADSIGN_V1 (20 Nov, Rosser): one hero column; the name on one line as a real Brazilian urban guide sign (CONTRAN placa de
+   indicação: blue panel, white inset border, white mixed-case lettering, direction arrow, SP route shield, on two posts) */
+.heroband .herotop{align-items:center}
+.heroband{background:none}.heroband::after{display:none}   /* no band edge: the hero sits on the same sitewide video veil as everything below */
+.heroband .lede{text-shadow:0 1px 14px rgba(0,0,0,.75)}
+.herosign{display:flex;flex-direction:column;align-items:flex-start;gap:16px;max-width:100%}
+.herobody{display:flex;flex-direction:column;align-items:flex-start}
+.herobody .lede{margin-top:0}
+@media (max-width:900px){.rs-panel{font-size:clamp(28px,8vw,40px)}.heroband .herotop{justify-items:center;text-align:center}.herosign,.herobody{align-items:center}.heroband .ctas,.heroband .facts{justify-content:center}}
+.rsign{display:flex;flex-direction:column;align-items:center;max-width:100%;filter:drop-shadow(0 22px 30px rgba(0,0,0,.45))}
+.rs-panel{position:relative;display:flex;align-items:center;gap:.32em;background:#0a4a9e;color:#fff;font:700 clamp(30px,3.3vw,46px)/1 "Public Sans",Arial,Helvetica,sans-serif;letter-spacing:-.005em;
+  padding:.2em .36em .22em;border-radius:.16em;white-space:nowrap;max-width:100%}
+.rs-panel::before{content:"";position:absolute;inset:.075em;border:max(2px,.035em) solid #fff;border-radius:.11em;pointer-events:none}
+.rs-arrow{height:.78em;width:auto;flex:none;color:#fff}
+.rs-name{display:block;padding-bottom:.04em}
+.rs-shield{height:.86em;width:auto;flex:none;margin-left:.08em}
+.rs-posts{display:flex;justify-content:space-between;width:58%;height:clamp(22px,2.6vw,36px)}
+.rs-posts i{width:clamp(5px,.55vw,8px);height:100%;background:linear-gradient(90deg,#5d646d,#c9ced4 45%,#7a828c);border-radius:1px 1px 0 0;
+  -webkit-mask-image:linear-gradient(#000 55%,transparent);mask-image:linear-gradient(#000 55%,transparent)}
 .lede.intro{margin-top:0;font-size:clamp(18px,1.7vw,21px);line-height:1.5}
 .sublede{color:var(--mute);margin-top:14px;font-size:15.5px}
 .mapgrid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:clamp(18px,2.4vw,30px);align-items:start;margin-top:clamp(26px,4vw,40px)}@media (max-width:900px){.mapgrid{grid-template-columns:1fr}}
@@ -286,13 +316,16 @@ kbd{font:600 11.5px var(--mono);border:1px solid var(--line);border-bottom-width
 if(rm||sd)return;v.src='video/bg_loop.mp4';var p=v.play();if(p&&p.catch)p.catch(function(){});
 document.addEventListener('visibilitychange',function(){if(document.hidden)v.pause();else{var q=v.play();if(q&&q.catch)q.catch(function(){})}});})();</script>
 
-<div class="sitebar"><div class="wrap sb-in"><a class="brand" href="#top" aria-label="Sem Destino: Sem Destino, top"><span class="sbplate">SP</span><span class="wm">Sem <i>Destino</i></span></a><nav aria-label="Sections" class="sbnav"><details class="dd "><summary>The city</summary><div class="menu"><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a><a href="detail/"><b>Hand-crafted, by rules</b><small>How the detail gets made</small></a><a href="pipeline/"><b>The pipeline</b><small>From data to a drivable city</small></a></div></details><details class="dd "><summary>Play</summary><div class="menu"><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a></div></details><details class="dd wide"><summary>Labs</summary><div class="menu"><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a></div></details><a class="plain" href="ai/">How the AI thinks</a></nav><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive</b></a><button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button></div><div class="mpanel" hidden><div class="wrap"><h6>The city</h6><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a><a href="detail/"><b>Hand-crafted, by rules</b><small>How the detail gets made</small></a><a href="pipeline/"><b>The pipeline</b><small>From data to a drivable city</small></a><h6>Play</h6><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a><h6>Labs</h6><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a><h6>More</h6><a href="ai/"><b>How the AI thinks</b></a></div></div></div><header class="hero" id="top">
+<div class="sitebar"><div class="wrap sb-in"><a class="brand" href="#top" aria-label="Sem Destino, back to top"><span class="minisign"><svg viewBox="0 0 40 52" aria-hidden="true"><path d="M20 0 L40 22 H27 V52 H13 V22 H0 Z" fill="currentColor"/></svg>Sem Destino</span></a><nav aria-label="Sections" class="sbnav"><details class="dd "><summary>The city</summary><div class="menu"><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a><a href="detail/"><b>Hand-crafted, by rules</b><small>How the detail gets made</small></a><a href="pipeline/"><b>The pipeline</b><small>From data to a drivable city</small></a></div></details><details class="dd "><summary>Play</summary><div class="menu"><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a></div></details><details class="dd wide"><summary>Labs</summary><div class="menu"><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a></div></details><a class="plain" href="ai/">How the AI thinks</a></nav><a class="drivebtn sm" href="driving/"><span class="ico" aria-hidden="true">▶</span><b>Drive</b></a><button class="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button></div><div class="mpanel" hidden><div class="wrap"><h6>The city</h6><a href="#film"><b>Film</b><small>The 30-second flight over the city</small></a><a href="#explore"><b>Map &amp; tiles</b><small>Pick any 500 m square</small></a><a href="#north"><b>The blocks</b><small>Build status, block by block</small></a><a href="#metro"><b>Metrô</b><small>14 lines at their real depth</small></a><a href="#qa"><b>Quality</b><small>Grades and repair passes</small></a><a href="#balneario"><b>Balneário</b><small>The second city</small></a><a href="detail/"><b>Hand-crafted, by rules</b><small>How the detail gets made</small></a><a href="pipeline/"><b>The pipeline</b><small>From data to a drivable city</small></a><h6>Play</h6><a href="driving/"><b>Drive the car</b><small>Test track in your browser</small></a><a href="flying/"><b>Fly the 172</b><small>Cessna over the city</small></a><a href="golf/play/"><b>Play golf</b><small>Wind, slope and spin</small></a><h6>Labs</h6><a href="physics/"><b>Physics engine</b></a><a href="vehicle-dynamics/"><b>Vehicle dynamics</b><small>The math</small></a><a href="destruction/"><b>Destruction lab</b></a><a href="poles/"><b>Pole lab</b></a><a href="ballistics/"><b>Ballistics range</b></a><a href="glass/"><b>Glass lab</b></a><a href="liquids/"><b>Liquids lab</b></a><a href="wake/"><b>Wake lab</b></a><a href="golf/"><b>Golf ball wind tunnel</b></a><a href="bloco/"><b>Bloco</b></a><h6>More</h6><a href="ai/"><b>How the AI thinks</b></a></div></div></div><header class="hero" id="top">
 <div class="heroband"><div class="wrap herotop">
-  <div>
+  <div class="herosign">
     <div class="eyebrow">An open-world game, one tile at a time</div>
-    <div style="margin-top:18px"><div class="plate"><b>Sem<br>Destino</b><span>São Paulo &nbsp;·&nbsp; 1 : 1</span></div></div>
+    <div class="rsign" role="img" aria-label="Road sign: Sem Destino, São Paulo, 1 to 1">
+      <div class="rs-panel"><svg class="rs-arrow" viewBox="0 0 40 52" aria-hidden="true"><path d="M20 0 L40 22 H27 V52 H13 V22 H0 Z" fill="currentColor"/></svg><span class="rs-name">Sem Destino</span><svg class="rs-shield" viewBox="0 0 60 66" aria-hidden="true"><path d="M3 4 H57 V34 C57 50 44 60 30 64 C16 60 3 50 3 34 Z" fill="#fff" stroke="#111" stroke-width="2.5"/><path d="M3 4 H57 V18 H3 Z" fill="#111"/><text x="30" y="15" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="11" fill="#fff">SP</text><text x="30" y="43" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="19" fill="#111">1:1</text></svg></div>
+      <div class="rs-posts" aria-hidden="true"><i></i><i></i></div>
+    </div>
   </div>
-  <div>
+  <div class="herobody">
     <p class="lede intro">A block-by-block rebuild of São Paulo for an open-world driving game: 627 km² (242 sq mi) of the real city so far, built in blocks of 576 tiles from public survey data, with every building footprint, street tree, lamp post and named street, plus the Metrô running underneath at its real depth.</p>
     <div class="ctas"><a class="drivebtn" href="driving/"><span class="ico" aria-hidden="true">▶</span><span><b>Drive the car</b><small>Vehicle physics test track, in your browser</small></span></a><a class="drivebtn fly" href="flying/"><span class="ico" aria-hidden="true">▲</span><span><b>Fly the 172</b><small>Or the Top G jet: flight test bed over the city</small></span></a><a class="drivebtn glass" href="glass/"><span class="ico" aria-hidden="true">✦</span><span><b>Break glass</b><small>Fracture lab, down to 1/100,000 speed</small></span></a><a class="drivebtn liquid" href="liquids/"><span class="ico" aria-hidden="true">●</span><span><b>Spill and splash</b><small>Liquids lab: wine, glass and spatter</small></span></a><a class="drivebtn" href="bloco/"><span class="ico" aria-hidden="true">■</span><span><b>Play Bloco</b><small>São Paulo in blocks: drive, fly, break glass</small></span></a><a class="drivebtn fly" href="wake/"><span class="ico" aria-hidden="true">≈</span><span><b>Near miss</b><small>Wake turbulence lab: a 737 over a 172 on final</small></span></a><a class="drivebtn liquid" href="destruction/"><span class="ico" aria-hidden="true">▼</span><span><b>Topple a tower</b><small>Destruction lab: 85 storeys into the Atlantic</small></span></a><a class="drivebtn" href="poles/"><span class="ico" aria-hidden="true">⚡</span><span><b>Hit a pole</b><small>Pole lab: snapped poles, live wires, blackouts</small></span></a><a class="drivebtn range" href="ballistics/"><span class="ico" aria-hidden="true">⊕</span><span><b>Shoot two miles</b><small>Ballistics range, in bullet time</small></span></a><a class="ghost" href="#film">▶ Watch the 3-minute film</a><a class="ghost" href="#north" id="northlink">Two blocks built: 1,152 tiles</a></div>
     <div class="facts" id="facts"></div>
@@ -304,15 +337,15 @@ document.addEventListener('visibilitychange',function(){if(document.hidden)v.pau
     <div class="mapcard" id="mapcard">
       <canvas id="map" aria-label="Top-down mosaic of the map and the north block as it is built; hover to read street names"></canvas>
       <div class="modes" role="group" aria-label="Map layer">
-        <button id="m_img" aria-pressed="true" data-m="img">Imagery</button><button id="m_qa" aria-pressed="false" data-m="qa">QA grades</button><button id="m_st" aria-pressed="false" data-m="st">Streets</button><button id="m_mt" aria-pressed="false" data-m="mt">Metrô</button><button id="m_nb" aria-pressed="false" data-m="nb">North build</button><button id="m_pl" aria-pressed="false" title="Gas stations, police, hospitals, helipads and 30 more kinds of places">Places</button><button id="m_tr" aria-pressed="true" title="Live traffic on the map when you zoom all the way in">Traffic</button><button id="m_hl" aria-pressed="true" title="Helicopters flying between the city's real helipads">Helicopters</button><button id="m_bus" aria-pressed="true" title="Buses on every OpenStreetMap bus route, on São Paulo time (zoom in to a neighbourhood)">Buses</button>
+        <button id="m_img" aria-pressed="true" data-m="img">Imagery</button><button id="m_qa" aria-pressed="false" data-m="qa">QA grades</button><button id="m_st" aria-pressed="false" data-m="st">Streets</button><button id="m_mt" aria-pressed="false" data-m="mt">Metrô</button><button id="m_nb" aria-pressed="false" data-m="nb">North build</button><button id="m_pl" aria-pressed="false" title="Gas stations, police, hospitals, helipads and 30 more kinds of places">Places</button><button id="m_tr" aria-pressed="true" title="Live traffic on the map when you zoom all the way in">Traffic</button><button id="m_hl" aria-pressed="true" title="Helicopters flying between the city's real helipads">Helicopters</button><button id="m_bus" aria-pressed="true" title="Buses on every OpenStreetMap bus route, on São Paulo time (zoom in to a neighbourhood)">Buses</button><button id="m_tl" hidden aria-pressed="false" title="Watch the map get built, tile by tile">Timelapse</button>
       </div>
       <div id="pcats" class="pcats" hidden></div>
-      <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button></div>
+      <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="mshare" aria-label="Copy a link to this view" title="Copy a link to exactly this view"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L11.6 6"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.6-1.6"/></svg></button></div><div class="mtoast" id="mtoast" role="status" aria-live="polite"></div><div class="tlbar" id="tlbar" hidden><button id="tlplay" aria-label="Play the build timelapse">▶</button><input type="range" id="tlr" min="0" max="1000" value="1000" aria-label="Build date"><span id="tld" aria-live="off"></span></div>
       <div class="lmtier" role="group" aria-label="Landmark tiers"><span class="lbl">Landmarks</span><button data-tr="1" aria-pressed="true">★ Major</button><button data-tr="2" aria-pressed="true">Medium</button><button data-tr="3" aria-pressed="true">Minor</button></div>
       <div class="legend" id="legend"></div>
-      <div class="lmcard" id="lmcard" hidden><button class="lmx" aria-label="Close" onclick="this.parentNode.hidden=true">×</button><div class="lmimg"></div><div class="lmt"><b class="lmn"></b><span class="lmk"></span></div></div><div class="banner" id="banner"><div class="n" id="bn"></div><div class="a" id="ba"></div></div>
+      <div class="lmcard" id="lmcard" hidden><button class="lmx" aria-label="Close" onclick="this.parentNode.hidden=true">×</button><div class="lmimg"></div><div class="lmt"><b class="lmn"></b><span class="lmk"></span><a class="lmgo" target="_blank" rel="noopener">See the real street here&nbsp;↗</a><span class="lmll"></span></div></div><div class="banner" id="banner"><div class="n" id="bn"></div><div class="a" id="ba"></div></div>
     </div>
-    <div class="hint">Drag to pan · scroll or +/− to zoom · hover for the in-game street banner · click a tile</div>
+    <div class="hint">Drag to pan · scroll or +/− to zoom · hover for the in-game street banner · click any spot to compare it with the real street</div>
   </div>
   <aside class="tilepanel" aria-label="Selected tile">
     <div class="eyebrow">Tile explorer · click any square on the map</div>
@@ -773,6 +806,7 @@ function draw(){const c=cx,Wc=cv.width;c.clearRect(0,0,Wc,Wc);
     const [bx,by]=w2s(I0*500-250,NJ1*500+250),[ex,ey]=w2s(I1*500+250,NJ0*500-250);
     if(!RD){c.setLineDash([6*dpr,5*dpr]);c.strokeStyle="rgba(255,211,107,.85)";c.lineWidth=1.5*dpr;c.strokeRect(bx,by,ex-bx,ey-by);c.setLineDash([]);}
     if(scale<5*ZK&&(!RD||w2s(0,RD.bb[2])[1]<=cv.height)){c.font=`800 ${14*dpr}px "Big Shoulders Display",sans-serif`;c.textBaseline="bottom";c.textAlign="right";c.lineWidth=3*dpr;c.strokeStyle="rgba(5,10,20,.9)";const lb=RD?`RODOANEL LOOP · ${fmt(RD.inside-RD.todo.length)} OF ${fmt(RD.inside)} TILES BUILT`:`NORTH BLOCK · ${N.built} OF 576 BUILT`,lx=Math.min(RD?w2s(RD.bb[1],0)[0]:ex,cv.width)-8*dpr,ly=Math.min(RD?w2s(0,RD.bb[2])[1]:ey,cv.height)-8*dpr;c.strokeText(lb,lx,ly);c.fillStyle="#ffd36b";c.fillText(lb,lx,ly);c.textAlign="left"}}
+  if(TLON&&TLD)tlDraw(c,tp);
   if(mode==="qa"){c.globalAlpha=.55;for(const t of D.tiles){const [x,y]=w2s(t.i*500-250,t.j*500+250);c.fillStyle=GC[t.g];c.fillRect(x+1,y+1,tp-2,tp-2)}c.globalAlpha=1}
   if(mode==="st"){c.lineCap="round";const wd=[3.2,2.4,1.6,.9];for(const lv of [3,2,1,0])for(const s of D.streets){if(s[2]!==lv)continue;c.strokeStyle=lv<2?"#ffd36b":lv===2?"rgba(255,255,255,.9)":"rgba(170,205,255,.55)";c.lineWidth=wd[lv]*dpr*Math.min(2.2,.7+scale*.25);c.beginPath();s[3].forEach((p,n)=>{const [x,y]=w2s(p[0],p[1]);n?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()}}
   if(mode==="st"&&base()*scale>.33){c.fillStyle="rgba(255,255,255,.95)";const step=55;for(const s of D.streets){if(!s[4])continue;const P=s[3];let acc=step/2;for(let n=1;n<P.length;n++){const a=P[n-1],b=P[n],L_=Math.hypot(b[0]-a[0],b[1]-a[1]);while(acc<L_){const t=acc/L_,[sx,sy]=w2s(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t);if(sx>-20&&sy>-20&&sx<cv.width+20&&sy<cv.height+20){const r=3.6*dpr;c.save();c.translate(sx,sy);c.rotate(Math.atan2(-(b[1]-a[1]),b[0]-a[0]));c.beginPath();c.moveTo(r,0);c.lineTo(-r,-r*.75);c.lineTo(-r*.4,0);c.lineTo(-r,r*.75);c.closePath();c.fill();c.restore()}acc+=step}acc-=L_}}}
@@ -797,16 +831,31 @@ function draw(){const c=cx,Wc=cv.width;c.clearRect(0,0,Wc,Wc);
   if(hover&&hover.t){const [x,y]=w2s(hover.t.i*500-250,hover.t.j*500+250);c.strokeStyle="#fff";c.lineWidth=2*dpr;c.strokeRect(x,y,tp,tp)}
   const LG={img:"",qa:["A","B","C","D","F"].map(g=>`<span><i style="background:${GC[g]}"></i>${g}</span>`).join(""),st:`<span><i style="background:#ffd36b"></i>avenues</span><span><i style="background:#fff"></i>collectors</span><span><i style="background:#aacdff"></i>local</span><span>➤ one-way (zoom in)</span><span><i style="background:#5fd0ff;border-radius:50%"></i>landmarks</span>`,mt:D.lines.map(l=>`<span><i style="background:${l.c}"></i>${l.ref}</span>`).join(""),nb:`<span><i style="background:#1f9d63"></i>built</span><span><i style="background:#2563c9"></i>building</span><span><i style="background:rgba(255,255,255,.3)"></i>not yet</span>`};
   $("legend").innerHTML=LG[mode];
-  bufSave();drawDyn(c,tp)}
+  bufSave();drawDyn(c,tp);if(typeof shareMark==="function")shareMark()}
 /* ANIM_V1: the map is drawn once per change into a buffer; moving things (cars, helicopters, the hover highlight, the clock
    panel) are drawn on top of that buffer every frame, so animation never redraws the whole city. */
 const BUF=document.createElement("canvas"),bx_=BUF.getContext("2d");let bufOK=false;
 function bufSave(){if(BUF.width!==cv.width||BUF.height!==cv.height){BUF.width=cv.width;BUF.height=cv.height}bx_.clearRect(0,0,BUF.width,BUF.height);bx_.drawImage(cv,0,0);bufOK=true}
-function drawDyn(c,tp){if(mtOn(tp)){mtCars(c,tp)}busDraw(c,tp);if(mtOn(tp))plDraw(c);trDraw(c);heliDraw(c,tp);plHi(c);heliHi(c,tp);trHi(c);busHi(c);if(mtOn(tp))spHud(c,mtHudT)}
+function drawDyn(c,tp){spotDraw(c);if(TLON)return;   // the timelapse shows the build alone, without the moving traffic
+  if(mtOn(tp)){mtCars(c,tp)}busDraw(c,tp);if(mtOn(tp))plDraw(c);trDraw(c);heliDraw(c,tp);plHi(c);heliHi(c,tp);trHi(c);busHi(c);if(mtOn(tp))spHud(c,mtHudT)}
 function frame(){if(!bufOK||BUF.width!==cv.width||BUF.height!==cv.height){draw();return}const c=cx;c.clearRect(0,0,cv.width,cv.height);c.drawImage(BUF,0,0);drawDyn(c,500*base()*scale)}
 img.onload=draw; sm.onload=draw;
 function setMode(m){mode=m;for(const b of document.querySelectorAll(".modes button[data-m]"))b.setAttribute("aria-pressed",String(b.dataset.m===m));draw();mtGo()}
 function showNorth(){scale=2;const [mx,my]=w2s(-750,9250);ox+=cv.width/2-mx;oy+=cv.height/2-my;clamp();setMode("nb")}
+// TIMELAPSE_V1: each tile appears at the time it was first built (buildtimes.json, from the B2 file history); new tiles glow for a day
+var TLON=false,TLD=null,TLT=Infinity,tlRAF=0;
+function tlLoad(){if(TLD)return Promise.resolve(TLD);return fetch("buildtimes.json").then(r=>r.json()).then(d=>{const m=new Map();let lo=Infinity,hi=-Infinity;for(const k in d.t){const v=d.t0+d.t[k]*d.u;m.set(k,v);lo=Math.min(lo,v);hi=Math.max(hi,v)}TLD={m,lo,hi,src:d.src||""};return TLD})}
+function tlDraw(c,tp){const T=TLT,day=86400;for(const [k,v] of TLD.m){if(v<=T-day)continue;const t=TL[k];if(!t)continue;const [x,y]=w2s(t.i*500-250,t.j*500+250);if(x>cv.width||y>cv.height||x+tp<0||y+tp<0)continue;
+    if(v>T){c.fillStyle="#0b111b";c.fillRect(x-.5,y-.5,tp+1,tp+1)}else{const a=1-(T-v)/day;c.fillStyle=`rgba(255,211,107,${(.35*a).toFixed(3)})`;c.fillRect(x,y,tp,tp)}}}
+function tlLabel(){let n=0;for(const v of TLD.m.values())if(v<=TLT)n++;const d=new Date(Math.min(TLT,TLD.hi)*1e3);
+  $("tld").textContent=d.toLocaleDateString("en-GB",{day:"numeric",month:"short",timeZone:"America/Sao_Paulo"})+" · "+fmt(n)+" tiles · "+fmt(Math.round(n/4))+" km²"}
+function tlSet(f){TLT=TLD.lo+(TLD.hi-TLD.lo)*f;$("tlr").value=String(Math.round(f*1000));tlLabel();draw()}
+function tlStop(){cancelAnimationFrame(tlRAF);tlRAF=0;$("tlplay").textContent="▶";$("tlplay").setAttribute("aria-label","Play the build timelapse")}
+function tlPlay(){if(tlRAF){tlStop();return}let f=+$("tlr").value/1000;if(f>=.999)f=0;const t0=performance.now()-f*20000;$("tlplay").textContent="❚❚";$("tlplay").setAttribute("aria-label","Pause");
+  const step=now=>{const g=Math.min(1,(now-t0)/20000);tlSet(g);if(g<1)tlRAF=requestAnimationFrame(step);else tlStop()};tlRAF=requestAnimationFrame(step)}
+$("m_tl").onclick=()=>{TLON=!TLON;$("m_tl").setAttribute("aria-pressed",String(TLON));$("tlbar").hidden=!TLON;
+  if(!TLON){tlStop();draw();return}$("tld").textContent="Loading…";tlLoad().then(()=>{tlSet(0);tlPlay()}).catch(()=>{$("tld").textContent="Build history unavailable"})};
+$("tlplay").onclick=tlPlay;$("tlr").oninput=e=>{tlStop();tlSet(+e.target.value/1000)};
 $("m_bus").setAttribute("aria-pressed",String(BUSON));$("m_bus").onclick=()=>{BUSON=!BUSON;try{localStorage.setItem("sd_bus",BUSON?"1":"0")}catch(_){}$("m_bus").setAttribute("aria-pressed",String(BUSON));draw();mtGo()};
 $("m_hl").setAttribute("aria-pressed",String(HELON));$("m_hl").onclick=()=>{HELON=!HELON;try{localStorage.setItem("sd_hl",HELON?"1":"0")}catch(_){}$("m_hl").setAttribute("aria-pressed",String(HELON));if(!HELON)HELS=[];draw();mtGo()};
 $("m_tr").setAttribute("aria-pressed",String(MTON));$("m_tr").onclick=()=>{MTON=!MTON;try{localStorage.setItem("sd_tr",MTON?"1":"0")}catch(_){}$("m_tr").setAttribute("aria-pressed",String(MTON));draw();mtGo()};
@@ -829,13 +878,36 @@ cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect(),px=(e.c
 cv.addEventListener("pointerleave",()=>{hover=null;PLH=null;HH=null;TRH=null;BUH=null;$("banner").style.opacity=0;draw()});
 const tname=(i,j)=>`T_${i<0?"m"+(-i):"p"+i}_${j<0?"m"+(-j):"p"+j}`;
 const LMHERO={"MASP":"img/masp.jpg","Ponte Estaiada":"img/estaiada_aerial.jpg","Estação da Luz":"img/luz.jpg","Aeroporto de Congonhas":"img/cgh.jpg","Congonhas":"img/cgh.jpg"};
+// PHOTO_V1: click a spot -> our render of it + a link to the real street on Mapillary (photos are never hosted here)
+// EPSG:31983 (SIRGAS 2000 / UTM 23S) <-> lat/lon, Snyder formulas; local frame = UTM minus the T_p0_p0 centre
+const UTM=(()=>{const a=6378137,f=1/298.257222101,e2=f*(2-f),ep2=e2/(1-e2),k0=.9996,L0=-45*Math.PI/180,FN=1e7,FE=5e5,R=Math.PI/180;
+ const M=p=>a*((1-e2/4-3*e2*e2/64-5*e2**3/256)*p-(3*e2/8+3*e2*e2/32+45*e2**3/1024)*Math.sin(2*p)+(15*e2*e2/256+45*e2**3/1024)*Math.sin(4*p)-(35*e2**3/3072)*Math.sin(6*p));
+ function fwd(lat,lon){const p=lat*R,l=lon*R,N=a/Math.sqrt(1-e2*Math.sin(p)**2),T=Math.tan(p)**2,C=ep2*Math.cos(p)**2,A=Math.cos(p)*(l-L0);
+  return [FE+k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T*T+72*C-58*ep2)*A**5/120),FN+k0*(M(p)+N*Math.tan(p)*(A*A/2+(5-T+9*C+4*C*C)*A**4/24+(61-58*T+T*T+600*C-330*ep2)*A**6/720))]}
+ function inv(E,Nn){const m=(Nn-FN)/k0,mu=m/(a*(1-e2/4-3*e2*e2/64-5*e2**3/256)),e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
+  const p1=mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)+(21*e1*e1/16-55*e1**4/32)*Math.sin(4*mu)+(151*e1**3/96)*Math.sin(6*mu)+(1097*e1**4/512)*Math.sin(8*mu);
+  const N1=a/Math.sqrt(1-e2*Math.sin(p1)**2),T1=Math.tan(p1)**2,C1=ep2*Math.cos(p1)**2,R1=a*(1-e2)/(1-e2*Math.sin(p1)**2)**1.5,D=(E-FE)/(N1*k0);
+  const lat=p1-(N1*Math.tan(p1)/R1)*(D*D/2-(5+3*T1+10*C1-4*C1*C1-9*ep2)*D**4/24+(61+90*T1+298*C1+45*T1*T1-252*ep2-3*C1*C1)*D**6/720);
+  const lon=L0+(D-(1+2*T1+C1)*D**3/6+(5-2*C1+28*T1-3*C1*C1+8*ep2+24*T1*T1)*D**5/120)/Math.cos(p1);return [lat/R,lon/R]}
+ const O=fwd(-23.561509,-46.655960);return {fwd,inv,ll:(x,y)=>inv(O[0]+x,O[1]+y),xy:(lat,lon)=>{const u=fwd(lat,lon);return [u[0]-O[0],u[1]-O[1]]}}})();
+let SPOT=null;
+function mlyURL(x,y){const [la,lo]=UTM.ll(x,y);return [`https://www.mapillary.com/app/?lat=${la.toFixed(6)}&lng=${lo.toFixed(6)}&z=18`,`${la.toFixed(5)}, ${lo.toFixed(5)}`]}
+function cardLink(el,x,y){const [u,ll]=mlyURL(x,y);const a=el.querySelector(".lmgo");a.href=u;a.title="Opens Mapillary street photos at this point in a new tab";el.querySelector(".lmll").textContent=ll+" · photos by Mapillary contributors"}
+function cropCSS(x,y,Z){const i=Math.round(x/500),j=Math.round(y/500),fx=(x-(i*500-250))/500,fy=((j*500+250)-y)/500,c=v=>Math.max(0,Math.min(100,(v*Z-.5)/(Z-1)*100));
+  return `background-image:url(tiles/${tname(i,j)}.jpg);background-size:${Z*100}% ${Z*100}%;background-position:${c(fx)}% ${c(fy)}%`}
+function spotCard(x,y,t){const el=$("lmcard"),has=!t.north||t.img;SPOT={x,y};
+  el.querySelector(".lmimg").style.cssText=has?cropCSS(x,y,3):"background:#111";
+  el.querySelector(".lmn").textContent=t.ar&&t.ar[0]||t.d||t.t;el.querySelector(".lmk").textContent=has?"In-game render · "+t.t:"Not rendered yet · "+t.t;cardLink(el,x,y);el.hidden=false;
+  let n=0;const w=()=>{if(SPOT&&SPOT.x===x&&SPOT.y===y&&SD&&SDt===t.t){const u=(x-(t.i*500-250))*2,v=((t.j*500+250)-y)*2,[si]=nearestStreet(u,v,120);if(si>=0)el.querySelector(".lmn").textContent=SD.s[si].n;return}if(++n<80)setTimeout(w,100)};w()}
+function spotDraw(c){if(!SPOT||$("lmcard").hidden)return;const [x,y]=w2s(SPOT.x,SPOT.y);c.save();c.lineWidth=2.5*dpr;c.strokeStyle="#ffd36b";c.fillStyle="rgba(255,211,107,.25)";c.beginPath();c.arc(x,y,9*dpr,0,7);c.fill();c.stroke();c.fillStyle="#ffd36b";c.beginPath();c.arc(x,y,2.5*dpr,0,7);c.fill();c.restore()}
+$("lmcard").querySelector(".lmx").addEventListener("click",()=>{SPOT=null;draw()});
 function lmCard(l){const el=$("lmcard"),i=Math.round(l.x/500),j=Math.round(l.y/500),t=tname(i,j),h=LMHERO[l.n];
   const fx=(l.x-(i*500-250))/500,fy=((j*500+250)-l.y)/500,Z=2.4;   // tile render is a top-down 500 m square; zoom in around the landmark
   el.querySelector(".lmimg").style.cssText=h?`background-image:url(${h});background-size:cover;background-position:center`:`background-image:url(tiles/${t}.jpg);background-size:${Z*100}% ${Z*100}%;background-position:${Math.max(0,Math.min(100,(fx*Z-.5)/(Z-1)*100))}% ${Math.max(0,Math.min(100,(fy*Z-.5)/(Z-1)*100))}%`;
-  el.querySelector(".lmn").textContent=l.n;el.querySelector(".lmk").textContent=(h?"Hand-built landmark · in-game render":"In-game render · "+t)+(l.c?" · "+l.c:"");el.hidden=false}
+  el.querySelector(".lmn").textContent=l.n;el.querySelector(".lmk").textContent=(h?"Hand-built landmark · in-game render":"In-game render · "+t)+(l.c?" · "+l.c:"");SPOT={x:l.x,y:l.y};cardLink(el,l.x,l.y);el.hidden=false}
 function pick(e){const r=cv.getBoundingClientRect(),[wx,wy]=s2w((e.clientX-r.left)*dpr,(e.clientY-r.top)*dpr);
-  {const px=(e.clientX-r.left)*dpr,py=(e.clientY-r.top)*dpr;let bl=null,bd=(14*dpr)**2;for(const l of LMS()){if(!LT[l.tr||3])continue;const [x,y]=w2s(l.x,l.y),d=(x-px)**2+(y-py)**2;if(d<bd){bd=d;bl=l}}if(bl){lmCard(bl)}else $("lmcard").hidden=true}
-const t=TL[tname(Math.round(wx/500),Math.round(wy/500))];if(t)showTile(t)}
+  {const px=(e.clientX-r.left)*dpr,py=(e.clientY-r.top)*dpr;let bl=null,bd=(14*dpr)**2;for(const l of LMS()){if(!LT[l.tr||3])continue;const [x,y]=w2s(l.x,l.y),d=(x-px)**2+(y-py)**2;if(d<bd){bd=d;bl=l}}const t=TL[tname(Math.round(wx/500),Math.round(wy/500))];if(t)showTile(t);
+  if(bl)lmCard(bl);else if(t&&500*base()*scale>=110*dpr)spotCard(wx,wy,t);else{$("lmcard").hidden=true;SPOT=null}draw()}}
 let selTile=null;
 function showTile(t){selTile=t;
   if(t.north){const km=`${(t.i*0.5).toFixed(1)} km E, ${(t.j*0.5).toFixed(1)} km N of MASP`;$("ex_h").textContent=t.d;$("ex_ph").hidden=!!t.img;$("ex_img").hidden=!t.img;
@@ -943,6 +1015,33 @@ $("q").addEventListener("input",()=>{const q=norm($("q").value.trim());if(q.leng
 new ResizeObserver(size).observe(card); size();
 // initial view: centred on Paulista / MASP
 scale=1.6*ZK; const [mx,my]=w2s(0,-300); ox=cv.width/2-mx; oy=cv.height/2-my; clamp(); draw();setTimeout(mtGo,0);
+// SHARE_V1: the view lives in the URL (#at=lat,lng&mpp=metres per pixel&mode=…&on=…&pin=lat,lng) once you use the map; the link button copies it
+var shareLive=false,shareT=0;const LAY=[["traffic","m_tr"],["helis","m_hl"],["buses","m_bus"],["places","m_pl"]];
+const r5=v=>v.toFixed(5);
+function shareHash(){const [cx_,cy_]=s2w(cv.width/2,cv.height/2),[la,lo]=UTM.ll(cx_,cy_),mpp=dpr/(base()*scale),on=[];
+  if(MTON)on.push("traffic");if(HELON)on.push("helis");if(BUSON)on.push("buses");if(PLON)on.push("places");
+  let h=`#at=${r5(la)},${r5(lo)}&mpp=${+mpp.toPrecision(3)}&mode=${mode}&on=${on.join(",")||"none"}`;
+  if(SPOT&&!$("lmcard").hidden){const [pa,po]=UTM.ll(SPOT.x,SPOT.y);h+=`&pin=${r5(pa)},${r5(po)}`}return h}
+function shareMark(){if(!shareLive||shareT)return;shareT=setTimeout(()=>{shareT=0;try{history.replaceState(null,"",location.pathname+location.search+shareHash())}catch(_){}},450)}
+for(const ev of ["pointerdown","wheel","keydown"])card.addEventListener(ev,()=>{shareLive=true},{passive:true});
+function shareApply(hs){if(!hs||!hs.startsWith("#at="))return false;const q=new URLSearchParams(hs.slice(1)),at=(q.get("at")||"").split(",").map(Number);
+  if(at.length<2||!at.every(isFinite)||Math.abs(at[0]+23.6)>1.5||Math.abs(at[1]+46.6)>1.5)return false;
+  const md=q.get("mode");if(["img","qa","st","mt"].includes(md))setMode(md);
+  if(q.has("on")){const on=new Set((q.get("on")||"").split(","));MTON=on.has("traffic");HELON=on.has("helis");BUSON=on.has("buses");if(!HELON)HELS=[];
+    const pl=on.has("places");if(pl!==PLON){PLON=pl;if(PLON)plLoad();plUI()}
+    for(const [k,id] of LAY.slice(0,3))$(id).setAttribute("aria-pressed",String(on.has(k)))}
+  const mpp=+q.get("mpp");if(mpp>0)scale=dpr/(base()*mpp);clamp();
+  const [wx,wy]=UTM.xy(at[0],at[1]),[px,py]=w2s(wx,wy);ox+=cv.width/2-px;oy+=cv.height/2-py;clamp();
+  const pin=(q.get("pin")||"").split(",").map(Number);
+  if(pin.length===2&&pin.every(isFinite)){const [x,y]=UTM.xy(pin[0],pin[1]),t=TL[tname(Math.round(x/500),Math.round(y/500))];
+    let bl=null,bd=25;for(const l of LMS()){const d=Math.hypot(l.x-x,l.y-y);if(d<bd){bd=d;bl=l}}
+    if(t)showTile(t);if(bl)lmCard(bl);else if(t)spotCard(x,y,t)}
+  draw();mtGo();return true}
+if(shareApply(location.hash))requestAnimationFrame(()=>card.scrollIntoView({block:"center"}));
+addEventListener("hashchange",()=>{if(shareApply(location.hash))card.scrollIntoView({behavior:"smooth",block:"center"})});
+function toast(m){const el=$("mtoast");el.textContent=m;el.classList.add("on");clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove("on"),2600)}
+$("mshare").onclick=async()=>{const u=location.origin+location.pathname+location.search+shareHash();try{history.replaceState(null,"",u)}catch(_){}
+  try{await navigator.clipboard.writeText(u);toast("Link copied: it opens the map right here")}catch(_){prompt("Copy this link:",u)}};
 
 // ---------------- metro plan + profile
 const UNDER=new Set(["1","2","3","4","5","6"]); let sel=D.lines.find(l=>l.ref==="4")||D.lines[0];
@@ -967,7 +1066,7 @@ function prof(){const l=sel,P=l.pr;if(!P.length)return;const Wd=760,Hd=330,ml=46
   h+=`<text x="${ml}" y="${mt-3}" font-size="11" fill="var(--mute)">ground ▲ · track ━ (${l.m||""})</text>`;
   $("prof").innerHTML=h}
 chips();plan();prof();
-showTile(D.tiles.find(t=>t.t==="T_p0_p0")||D.tiles[0]);
+if(!selTile)showTile(D.tiles.find(t=>t.t==="T_p0_p0")||D.tiles[0]);   // a shared link (#at=…&pin=) may already have picked the tile
 // ---------------- stations
 $("stgrid").innerHTML=(D.stations||[]).map(st=>`<article class="scard" data-r="${st.ref}"><div class="ph"><img src="img/st_${st.id}.jpg" alt="${st.title} station interior" loading="lazy"><div class="mplate">${st.title}</div></div>
   <div class="bd"><span class="lchip"><i style="background:${st.c}"></i>${st.line}</span><div class="meta"><span><b>${st.depth}</b> m below street</span>${st.layout?`<span>${st.layout} platforms</span>`:""}</div><p>${st.note}</p></div></article>`).join("");
