@@ -96,5 +96,32 @@ export default async function createBallisticModule(wasmBytes) {
     JSON.parse(B.text(ex.bd_table(cartridge, zeroRange, sightHeight, maxRange, step, azimuth, t0)))
       .map(([range, drop, windage, time, speed, energy, mach, stability]) =>
         ({ range, drop, windage, time, speed, energy, mach, stability }));
+  // The shooter layer (ADR 0005). flags: {trigger, ads, sprinting, airborne, reload, holdBreath}.
+  B.weaponInput = ({ trigger = false, ads = false, sprinting = false, airborne = false, reload = false, holdBreath = false } = {},
+    turnRate = 0, moveSpeed = 0, mode = 0) =>
+    ex.bd_weapon_input((trigger ? 1 : 0) | (ads ? 2 : 0) | (sprinting ? 4 : 0) | (airborne ? 8 : 0) | (reload ? 16 : 0) | (holdBreath ? 32 : 0),
+      turnRate, moveSpeed, mode);
+  const KINDS = ['shot', 'dryFire', 'reloadStart', 'reloadEnd'];
+  // Advances the weapon to engine time t; returns this frame's events.
+  B.weaponAdvance = (t) => {
+    const n = ex.bd_weapon_advance(t), out = [];
+    for (let i = 0; i < n; ++i) {
+      const a = view(Float64Array, ex.bd_weapon_event(i), 14);
+      out.push({ index: i, kind: KINDS[a[0]], time: a[1], step: a[2], shot: a[3], seed: a[4], stream: a[5],
+        direction: [a[6], a[7], a[8]], coneUp: a[9], coneRight: a[10], kick: a[11], magazine: a[12],
+        tracer: [null, 'red', 'green'][a[13]] });
+    }
+    return out;
+  };
+  B.weaponState = () => {
+    const a = view(Float64Array, ex.bd_weapon_state(), 15);
+    return { viewPitch: a[0], viewYaw: a[1], kickPitch: a[2], kickYaw: a[3], gunPitch: a[4], gunYaw: a[5], ads: a[6],
+      cone: a[7], bloom: a[8], magazine: a[9], reloading: a[10] !== 0, shots: a[11], breathHeld: a[12], breathDebt: a[13],
+      gasping: a[14] !== 0 };
+  };
+  B.recoil = (rifle, cartridge, stance) => {
+    const a = view(Float64Array, ex.bd_recoil(rifle, cartridge, stance), 4);
+    return { momentum: a[0], velocity: a[1], energy: a[2], kickRate: a[3] };
+  };
   return B;
 }
