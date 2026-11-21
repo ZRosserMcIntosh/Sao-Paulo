@@ -41,7 +41,7 @@
       "verified": "2026-11-18",
       "note": "Main has since added the shooter layer (#11), which this page does not use.",
       "files": {
-        "ballistics/ballistic.wasm": "1ea97ed42d6c96fe982e621107117c54457a59d3e2ea2a6cfb99c19d19316d21"
+        "ballistics/ballistic.wasm": "a0f0c459bddc38884c9b4de09ec63f9e1cab106b00ec410873857ae3b0315296"
       }
     },
     {
@@ -75,6 +75,33 @@
         "golf/play/golf.mjs": "5117a2538910c16ce933a2cd42069e32c51f78ef96f06764bcf11e022de7a0af",
         "golf/play/varzea.json": "ba123c6be2373f4bcbbb71c45caf6aaf01b31f98802eff9a71d172fe69cfac73"
       }
+    },
+    {
+      "page": "streetlab",
+      "repo": "ZRosserMcIntosh/Destruction-Dynamics",
+      "path": "native/pedestrian-dynamics",
+      "commit": "679b912076304d91866faf92a00c3ee433329bd0",
+      "verified": "2026-11-20",
+      "files": {
+        "streetlab/ped.wasm": "e0b8c236c1c8683b204911b53c680adc33638279b6e5f8505d25172703266fc9",
+        "streetlab/ped.mjs": "495554bd0dbf353d45fc2e1f933e314a368df46cc8969607e4bd626d747a7b40",
+        "streetlab/pedestrian_body.json": "87beb658a000ec3b3f7cb70492cdeba0d759496323b85d763c2282c0db99d895",
+        "streetlab/vehicle_profiles.json": "366bc7608510d21b26dcd0a22c26d8905d880705d74a4b92d8ef404bbbb2c655"
+      },
+      "note": "Pedestrian Dynamics, on the feature/pedestrian-dynamics branch (not yet merged to main)."
+    },
+    {
+      "page": "streetlab",
+      "repo": "ZRosserMcIntosh/Destruction-Dynamics",
+      "path": "native/street-dynamics",
+      "commit": "679b912076304d91866faf92a00c3ee433329bd0",
+      "verified": "2026-11-20",
+      "files": {
+        "streetlab/street.wasm": "a27305bac1c2477190128dc81862caacccb9b9ad99f879729bf0366dbd90d1c7",
+        "streetlab/street.mjs": "517b9cfbb6e31e07266212518148f064a6aa3b237943dae94ea2e2231e34cd33",
+        "streetlab/street_library.json": "5f4fe23b40d8551905f99490636d3f41f16129d84f67c8e5e9af1db4c8ce3808"
+      },
+      "note": "Street Dynamics, on the feature/pedestrian-dynamics branch (not yet merged to main)."
     }
   ]
 }
