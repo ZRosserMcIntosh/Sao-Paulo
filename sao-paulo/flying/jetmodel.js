@@ -594,5 +594,7 @@ export function buildJet(def) {
   }
   // The cabin lining follows this type's skin.
   const own = (x, a, off = 0) => skinOf(st, x, a, off);
-  return { root, update, glass: glassMat, skin: own };
+  // Where the lamps are (body axes), for lights.js.
+  const lamps = { left: tipL, right: new THREE.Vector3(tipL.x, -tipL.y, tipL.z), tail: new THREE.Vector3(-Lf - 0.04, 0, st[st.length - 1][2]), beacons: beacons.map((b) => b.position), strobes: strobes.map((b) => b.position) };
+  return { root, update, glass: glassMat, skin: own, lamps };
 }
