@@ -26,7 +26,7 @@ import { buildRain } from './rain.js';
 import { mountNet } from './net.js';
 import { mountReplay } from './replay.js';
 import { initPlay } from './play.js';
-import { createDayNight } from './daynight.js';
+import { createDayNight, TIMES } from './daynight.js';
 import { nightGround, nightBuildings } from './nightcity.js';
 import { buildRunwayLights, buildAircraftLights, buildLandingLight, tickLights, lightFlagsOf, LIGHT } from './lights.js';
 
@@ -2580,7 +2580,7 @@ function netSpawn(spot) {
 // (Play: Casual hides the simulator's toasts; a friend joining or leaving is said in its own note.)
 const netToast = (msg, sec) => (play?.casual ? play.note(msg, sec) : toast(msg, sec));
 const net = mountNet({ scene, camera, store, toast: netToast, MOBILE, PROFILES, fetchDef, buildAircraft, buildJet, groundAt, debug: /[?&]debug\b/.test(location.search),
-  profile: () => P, verticalSpeed: () => c[53], frameStart: () => clock.oldTime, sunDir: () => SUN_DIR, spawn: netSpawn, closeMenus: () => togglePanel(false), sound: () => (ui.sound && !ui.paused ? ui.vol / 100 : 0), cockpit: () => ui.cam === 1 });
+  profile: () => P, verticalSpeed: () => c[53], frameStart: () => clock.oldTime, sunDir: () => SUN_DIR, shadowStrength: () => 1 - night.state.dark, lights: buildAircraftLights, dark: () => night.state.dark, spawn: netSpawn, closeMenus: () => togglePanel(false), sound: () => (ui.sound && !ui.paused ? ui.vol / 100 : 0), cockpit: () => ui.cam === 1 });
 // This flight recorded, and flown again beside its ghost (replay.js; its buttons are in the Fly together panel).
 // (Play: a Casual flight's start is the game layer's, a challenge or the free flight, and so is flying it again.)
 const replay = mountReplay(net, { toast: netToast, MOBILE, startIndex: () => (play?.casual ? play.token() : ui.start),
@@ -2716,6 +2716,26 @@ if (net.available) play.setFriends(({ from }) => { if (from === 'home') { play.f
 play.setGhost(() => replay.flyMine());
 let sharedK = 0, offered = '', offeredAt = -1e9;
 play.on((ev) => { if (ev.type === 'start' && net.room && net.isHost) net.setShared({ c: ev.id, s: ev.seed ?? null, k: ++sharedK }); });
+// The host's time of day reaches whoever joins (theirs is kept for when they fly alone again).
+net.world('tod', {
+  get: () => ({ h: Math.round(night.state.hours * 100) / 100, l: night.state.live ? 1 : 0 }),
+  apply: (o) => { if (o && typeof o === 'object' && Number.isFinite(o.h) && o.h >= 0 && o.h <= 24) night.setTime(o.h, { live: !!o.l, save: false }); },
+});
+// Casual's time of day: one button round Day, Golden hour and Night (the simulator's Weather menu has every hour).
+{
+  const cycle = ['day', 'golden', 'night'].map((id) => TIMES.find((t) => t.id === id)), b = document.createElement('button');
+  const icons = [
+    '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.500v2.500M12 19v2.500M2.500 12h2.500M19 12h2.500M5.300 5.300l1.800 1.800M16.900 16.900l1.800 1.800M5.300 18.700l1.800-1.800M16.900 7.100l1.800-1.800"/></svg>',
+    '<svg viewBox="0 0 24 24"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 7v2.500M4.600 11.600l1.800 1.800M19.400 11.600l-1.800 1.800"/></svg>',
+    '<svg viewBox="0 0 24 24"><path d="M20 14.500A8 8 0 1 1 9.500 4a6.500 6.500 0 0 0 10.500 10.500z"/></svg>',
+  ];
+  const at = () => (night.state.dark > 0.5 ? 2 : night.state.elevation < 15 ? 1 : 0);
+  const show = () => { const k = at(); b.innerHTML = icons[k]; b.title = `Time of day: ${cycle[k].name}`; b.setAttribute('aria-label', b.title); };
+  b.id = 'pTodB';
+  b.addEventListener('click', () => { night.setTime(cycle[(at() + 1) % cycle.length].hours); b.blur(); });
+  night.onChange(show); show();
+  $('pSndB')?.before(b);
+}
 net.onShared((o, hostId) => {
   // (What arrives is another browser's: only a challenge this page knows, and not more often than every few seconds.)
   if (net.isHost || !o || typeof o !== 'object' || typeof o.c !== 'string') return;

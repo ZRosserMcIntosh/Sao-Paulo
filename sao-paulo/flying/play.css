@@ -148,7 +148,8 @@ body.casual #pLand{top:calc(64px + env(safe-area-inset-top))}
 #prompt:not([hidden]) ~ #pLand{top:calc(250px + env(safe-area-inset-top))}
 @media (pointer:coarse){body:not(.casual) #pLand{top:calc(74px + var(--instr-h,96px) + env(safe-area-inset-top))}}
 @media (max-width:760px){
-  #pTop button{min-width:36px;height:34px;padding:0 9px;font-size:12px}
+  #pTop{gap:4px}
+  #pTop button{min-width:34px;height:34px;padding:0 7px;font-size:12px}
   #pTop button span{display:none}
   #pGoal{top:calc(56px + env(safe-area-inset-top));max-width:calc(100% - 24px);font-size:13px;padding:7px 13px}
   #pGoal b{font-size:18px}

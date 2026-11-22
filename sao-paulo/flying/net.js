@@ -145,7 +145,7 @@ function buildKind(profile, def, builders) {
     ...quad(bb.min.x, bb.min.x + 0.1 * L, fw, 0.19 * span), ...quad(bb.min.x, bb.min.x + 0.1 * L, -0.19 * span, -fw)];
   const shadow = new THREE.BufferGeometry();
   shadow.setAttribute('position', new THREE.Float32BufferAttribute(flat, 3));
-  return { profile, def, make, primary, body, tint, gear, far, shadow, span, length: L, top: bb.max.z, spare: model };
+  return { profile, def, make, primary, body, tint, gear, far, shadow, span, length: L, top: bb.max.z, spare: model, lamps: model.lamps || null };
 }
 
 // ---- One other player (or a ghost) ---------------------------------------------------
@@ -181,6 +181,8 @@ class Remote {
     if (this.legs) this.baked.add(this.legs);
     this.far = new THREE.Mesh(kind.far, this.mats.far);
     this.group.add(this.baked, this.far);
+    // Its navigation lights, beacon and strobes (lights.js, through the page): one set of points, whichever shape is drawn.
+    if (this.net.ctx.lights) { this.lights = this.net.ctx.lights({ root: this.baked, lamps: kind.lamps }); this.group.add(this.lights.points); }
     // A soft shadow on the ground under it (the sun's shadow map follows the player's own aircraft only).
     this.shadow = new THREE.Mesh(kind.shadow, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
     this.shadow.matrixAutoUpdate = false; this.shadow.frustumCulled = false; this.shadow.visible = false; this.shadow.renderOrder = 1;
@@ -210,6 +212,7 @@ class Remote {
   }
   clearMeshes() {
     if (this.model) { this.group.remove(this.model.root); disposeTree(this.model.root); this.model = null; this.tintMat = null; }
+    if (this.lights) { this.group.remove(this.lights.points); this.lights.points.geometry.dispose(); this.lights.points.material.dispose(); this.lights = null; }
     if (this.baked) { this.group.remove(this.baked, this.far); this.baked = this.far = this.legs = null; }
     if (this.mats) { for (const m of Object.values(this.mats)) m.dispose(); this.mats = null; }
     if (this.shadow) { this.net.ctx.scene.remove(this.shadow); this.shadow.material.dispose(); this.shadow = null; }
@@ -256,6 +259,11 @@ class Remote {
     }
     if (lod === 0) this.animate(dt);
     else if (this.legs) this.legs.visible = o.gear > 0.5;
+    // Lights while its engines run: beacon and strobes by day; after dark the navigation lights too, and the landing light with the wheels down.
+    if (this.lights) {
+      const on = (o.flags & F.lights) && !(o.flags & F.crashed) && this.alpha >= 1, dark = ctx.dark ? ctx.dark() : 0;
+      this.lights.set(!on ? 0 : dark > 0.3 ? 7 | (o.gear > 0.5 ? 8 : 0) : 6);
+    }
     const fade = this.alpha < 1, ms = this.mats;
     if (ms.body.transparent !== fade) for (const m of [ms.body, ms.tint, ms.far]) { m.transparent = fade; m.needsUpdate = true; }
     ms.body.opacity = ms.tint.opacity = ms.far.opacity = this.alpha;
