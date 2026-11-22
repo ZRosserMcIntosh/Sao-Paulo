@@ -4,16 +4,18 @@
 //
 // The ground: where the map photo is, its streets glow. They are picked out
 // of the photo once, on the GPU (the dark, colourless lines between the
-// roofs), into a small one-channel texture with mipmaps, so from far away the
-// street grid melts into a district's glow instead of vanishing. Beyond the
-// photo, where the building tiles say there is city, a drawn street grid
-// glows as brightly as the tiles are full.
+// roofs), into a small one-channel texture with mipmaps. Close by the streets
+// themselves are lit; from afar, where a street is thinner than a pixel, the
+// ground shows separate lamps (a few pixels apart at every distance), as
+// many as there are streets there: a sea of lights to the horizon, not an
+// even glow. Beyond the photo, where the building tiles say there is city, a
+// drawn street grid and the same lamps, as bright as the tiles are full.
 //
 // The buildings: each wall is already tiled in window bays (3 m by one 3.2 m
 // floor, the facade texture's repeat), so a bay's number picks whether its
-// window is lit, and how warm. Far away, where bays are smaller than a pixel,
-// a wall takes the average glow of its lit windows (no sparkle, no flicker).
-// The lower floors catch the street lamps' light.
+// window is lit, and how warm. From afar, where bays are smaller than a
+// pixel, several bays share one light (so a far wall shows a few lights and
+// does not flicker). The lower floors catch the street lamps' light.
 //
 // By day neither is in the shaders at all: the night's part is compiled in
 // (a define, NIGHT_ON) only while the lights are on, so the day's programs
@@ -58,20 +60,20 @@ vec2 nightLamps( vec2 p, float s ) { vec2 c = p / s; float h = nightHash( floor(
       .replace('#include <color_fragment>', `#include <color_fragment>
 #if defined( USE_MAP ) && defined( NIGHT_ON )
 {
-	float inMap = step( mapBox.x, vGroundXZ.x ) * step( vGroundXZ.x, mapBox.z ) * step( mapBox.y, vGroundXZ.y ) * step( vGroundXZ.y, mapBox.w );
 	vec2 w2 = fwidth( vGroundXZ );
 	float mpp = max( w2.x, w2.y );  // metres across a pixel
-	float streets = texture2D( nightMap, vMapUv ).r;
-	// Beyond the photo: blocks of about 90 m (a grid turned 27° off north), as full as the tiles there.
-	vec2 q = mat2( 0.0098, 0.005, -0.005, 0.0098 ) * vGroundXZ;
-	vec2 fw = 0.011 * w2, g = abs( fract( q ) - 0.5 );
-	vec2 ln = smoothstep( 0.46 - fw, 0.46 + fw, g );
-	float grid = mix( max( ln.x, ln.y ), 0.15, clamp( 2.0 * max( fw.x, fw.y ), 0.0, 1.0 ) );
-	float city = texture2D( cityMap, ( vGroundXZ - cityBox.xy ) * cityBox.zw ).r;
-	// Close by, the lit streets themselves. From afar a street is thinner than a pixel: there the ground
-	// shows separate lamps, as many as the streets' share of it (cells two to four pixels across, two sizes
-	// blended as the distance grows), and only a little of the streets' mean glow under them.
-	float lit = mix( 0.5 * grid * city, streets, inMap );
+	// Close by, the lit streets themselves: the photo's (the unused sample beyond it is cheap), or beyond the
+	// photo blocks of about 90 m (a grid turned 27° off north), as full as the building tiles there.
+	// From afar a street is thinner than a pixel: there the ground shows separate lamps, as many as the
+	// streets' share of it (cells two to four pixels across, two sizes blended as the distance grows), and
+	// only a little of the streets' mean glow under them.
+	float lit = texture2D( nightMap, vMapUv ).r;
+	if ( vGroundXZ.x < mapBox.x || vGroundXZ.x > mapBox.z || vGroundXZ.y < mapBox.y || vGroundXZ.y > mapBox.w ) {
+		vec2 fw = 0.011 * w2, g = abs( fract( mat2( 0.0098, 0.005, -0.005, 0.0098 ) * vGroundXZ ) - 0.5 );
+		vec2 ln = smoothstep( 0.46 - fw, 0.46 + fw, g );
+		// (cityMap has no mipmaps: it may be read inside the branch.)
+		lit = 0.5 * mix( max( ln.x, ln.y ), 0.15, clamp( 2.0 * max( fw.x, fw.y ), 0.0, 1.0 ) ) * texture2D( cityMap, ( vGroundXZ - cityBox.xy ) * cityBox.zw ).r;
+	}
 	float far = clamp( ( mpp - 2.5 ) / 5.0, 0.0, 1.0 );
 	float lvl = log2( max( 2.6 * mpp, 6.0 ) ), l0 = floor( lvl ), s0 = exp2( l0 );
 	vec2 la = nightLamps( vGroundXZ, s0 ), lb = nightLamps( vGroundXZ, 2.0 * s0 );

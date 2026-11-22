@@ -61,6 +61,8 @@ void main() {
     size *= 1.0 + min( depth, 1.5 );  // its halo in the fog
   }
   // The glow's size on screen: never under a couple of pixels (dimmer instead), never a ball in the face.
+  // Drawn a little toward the eye: clear of its own lamp housing and the skin round it (an aircraft's), of the ground under it (a runway's).
+  wp.xyz += v * ( kind > 3.5 ? 0.35 : min( 0.6, 0.001 * dist ) );
   float px = size * uPx / dist, least = kind > 1.5 && kind < 2.5 ? 1.6 * uMin : uMin;
   float a = g * T * max( sqrt( min( 1.0, px / least ) ), 0.16 );
   vCol = vec4( col, min( a, 1.6 ) );
