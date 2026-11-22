@@ -789,6 +789,7 @@ async function loadModel(buffer, name, announce = true, user = false) {
   }
   inner.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   model = { wrapper, rigs, hasWheels, turn };
+  setupBrakeGlow();
   applySeeThrough();
   setupLights(inner);
   setupPaint(inner);
@@ -2347,6 +2348,7 @@ window.__spwCam = (cam, yaw, pitch, dist) => { settings.cam = cam; if (yaw !== u
 window.__spwDamage = (m) => { if (m) setDamage(m); let mx = 0; for (const mm of crumple.meshes) for (let i = 0; i < mm.offset.length; i += 3) mx = Math.max(mx, Math.hypot(mm.offset[i], mm.offset[i + 1], mm.offset[i + 2])); return { mode: settings.damage, dents: crumpleLog.length, rawMax: mx, cap: crumple.cap(), card: $('crash').classList.contains('on'), phys: realisticOn() ? Array.from(damageState().slice(0, 46)) : null, panel: !$('dmgPanel').hidden, panelText: $('dmgPanel').innerText, debris: DMG.debris.length, ...(() => { let f0 = -1e9, f = -1e9; for (const mm of crumple.meshes) for (let i = 0; i < mm.body.length; i += 3) { f0 = Math.max(f0, mm.body[i]); f = Math.max(f, mm.body[i] + mm.offset[i]); } return { meshFront0: f0, meshFront: f }; })() }; };
 window.__spwBody = () => crumple; // debugging: the deformable body meshes
 window.__spwCageN = () => cageNodes(); // debugging
+window.__spwBrakeT = (w) => Math.round(W(w, 17)); // debugging: brake disc surface temperature
 window.__spwLaunch = (kmh, back = 40) => { const z = ZONES.find((q) => q.name === "Crash barrier"); placeAt(z); M._ord_launch(M._ord_crash_barrier_x() - back, M._ord_crash_lane_y(), 0, kmh / 3.6, 0); }; // debugging
 window.__spwRewind = () => ({ hold: rewindHold, active: rewind.active, cursor: rewind.cursor, frames: rewind.frames.length, snaps: M._ord_snap_count() });
 window.__spwLab = (id) => runLabTest(LAB_TESTS.find((t) => t.id === id));
@@ -2418,7 +2420,8 @@ let frameNo = 0;
 function poseNow() {
   return { id: frameNo, x: S(0), y: S(1), z: S(2), qw: S(3), qx: S(4), qy: S(5), qz: S(6),
     wx: [W(0, 0), W(1, 0), W(2, 0), W(3, 0)], wy: [W(0, 1), W(1, 1), W(2, 1), W(3, 1)],
-    wz: [W(0, 2), W(1, 2), W(2, 2), W(3, 2)], steer: [W(0, 4), W(1, 4), W(2, 4), W(3, 4)], omega: [W(0, 5), W(1, 5), W(2, 5), W(3, 5)] };
+    wz: [W(0, 2), W(1, 2), W(2, 2), W(3, 2)], steer: [W(0, 4), W(1, 4), W(2, 4), W(3, 4)], omega: [W(0, 5), W(1, 5), W(2, 5), W(3, 5)],
+    bt: PER_WHEEL > 17 ? [W(0, 17), W(1, 17), W(2, 17), W(3, 17)] : null };
 }
 function drawPose(p, dt) {
   qIso.set(p.qx, p.qz, -p.qy, p.qw);
@@ -2434,6 +2437,59 @@ function drawPose(p, dt) {
     if (p.wx && restWheelXY[w]) { r.steer.position.x += p.wx[w] - restWheelXY[w][0]; r.steer.position.z -= p.wy[w] - restWheelXY[w][1]; }
     r.steer.rotation.y = p.steer[w];
     r.spin.rotation.z = -spinAngle[w];
+  }
+  if (glowTest || p.bt) brakeGlow(glowTest || p.bt);
+}
+// ---------- Brake discs glowing with their temperature ----------
+// The physics gives each disc's surface temperature (deg C). Steel and carbon-ceramic discs start
+// to glow a dull red at ~450-500 C, orange by ~750 C and yellow-orange near 1,000 C. The model's
+// own discs glow (meshes with a rotor/disc material, each wheel its own copy of the material);
+// a car without separate discs gets a glowing ring behind the spokes instead.
+const _glowCol = new THREE.Color();
+function glowColor(t) {
+  const k = Math.min(1, Math.max(0, (t - 430) / 570));     // 430 C: nothing; 1,000 C: full
+  if (k <= 0) return 0;
+  // dark red -> orange -> yellow-orange (a blackbody, roughly)
+  if (k < 0.5) _glowCol.setRGB(0.55 + 0.9 * k, 0.04 + 0.5 * k * k, 0.0);
+  else _glowCol.setRGB(1.0, 0.17 + 0.9 * (k - 0.5), 0.02 + 0.3 * (k - 0.5));
+  return k;
+}
+function setupBrakeGlow() {
+  if (!model) return;
+  const glow = [[], [], [], []];
+  for (let w = 0; w < 4; ++w) {
+    const r = model.rigs?.[w];
+    r?.spin.traverse((o) => {
+      if (!o.isMesh || Array.isArray(o.material) || !/rotor|disc|disk/i.test(o.material?.name || '')) return;
+      o.material = o.material.clone();
+      if (!o.material.emissive) return;
+      o.material.emissive.set(0); o.material.emissiveIntensity = 0;
+      glow[w].push({ mat: o.material });
+    });
+    if (glow[w].length) continue;
+    // no disc in the model: a ring at the wheel centre, just inboard, seen through the spokes
+    const rad = W(w, 3) || 0.33;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.42 * rad, 0.8 * rad, 40),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    ring.userData.noCrumple = true; ring.visible = false;
+    const zBody = -W(w, 1);                                   // car frame: z = -ISO y
+    if (r) { r.steer.add(ring); ring.position.set(0, 0, -Math.sign(zBody) * 0.07); }
+    else { model.wrapper.add(ring); ring.position.set(W(w, 0), W(w, 2), zBody - Math.sign(zBody) * 0.07); }
+    glow[w].push({ ring });
+  }
+  model.glow = glow;
+}
+let glowTest = null;                      // debug: fixed disc temperatures
+window.__spwGlowTest = (t) => { glowTest = t; };
+window.__spwGlow = () => model?.glow?.map((g) => g.map((x) => x.mat ? "mat:" + x.mat.emissiveIntensity.toFixed(2) : "ring:" + x.ring.visible + ":" + x.ring.material.opacity.toFixed(2)));
+function brakeGlow(bt) {
+  const glow = model?.glow; if (!glow) return;
+  for (let w = 0; w < 4; ++w) {
+    const k = glowColor(bt[w]);
+    for (const g of glow[w]) {
+      if (g.mat) { g.mat.emissive.copy(k > 0 ? _glowCol : _glowCol.setRGB(0, 0, 0)); g.mat.emissiveIntensity = k > 0 ? 0.6 + 3.4 * k : 0; }
+      else { g.ring.visible = k > 0; if (k > 0) { g.ring.material.color.copy(_glowCol); g.ring.material.opacity = Math.min(1, 0.35 + 1.2 * k); } }
+    }
   }
 }
 // Shadow car: the same inputs, another setup or model, from where you are now.
