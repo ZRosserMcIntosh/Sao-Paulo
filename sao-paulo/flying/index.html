@@ -313,6 +313,7 @@ body.g1000 #instr{width:min(1100px,calc(100% - 24px))}
 
   </section>
   <section class="menu" data-menu="weather" role="tabpanel" aria-label="Weather" hidden>
+  <div id="todUi"></div><!-- the time of day: built by daynight.js -->
   <h2>Wind and weather</h2>
   <label class="ctl">Wind <input id="wind" type="range" min="0" max="30" value="0"><output id="windV">calm</output></label>
   <label class="ctl">From <input id="windDir" type="range" min="0" max="350" step="10" value="120"><output id="windDirV">120°</output></label>

@@ -298,5 +298,6 @@ export function buildAircraft(def) {
       else l.pivot.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), l.side * c * 65 * DEG);
     });
   }
-  return { root, update, glass: glassMat };
+  // Where the lamps are (body axes), for lights.js.
+  return { root, update, glass: glassMat, lamps: { left: [-1.04, 5.55, 1.15], right: [-1.04, -5.55, 1.15], tail: [-6.3, 0, 0.34] } };
 }
