@@ -14,11 +14,12 @@
 //   link.onmessage(event, data)   from anyone else: UNTRUSTED, validate before use
 //   link.onpeers(Map id → meta)   everyone in the room now, this player included: UNTRUSTED metas
 //   link.onstatus(status, detail) 'connecting' | 'open' | 'reconnecting' | 'failed' | 'closed'
+//   link.onclash()                another tab is in the room under this player's id (a duplicated tab)
 
 const VENDOR = './vendor/supabase-realtime-js-2.119.2.esm.min.mjs';
 
 export function openLink({ relay, room, peer, meta }) {
-  const link = { kind: relay.kind, room, peer, peers: new Map(), status: 'connecting', onmessage() {}, onpeers() {}, onstatus() {}, send() {}, setMeta() {}, close() {}, impair: null };
+  const link = { kind: relay.kind, room, peer, peers: new Map(), status: 'connecting', onmessage() {}, onpeers() {}, onstatus() {}, onclash() {}, send() {}, setMeta() {}, close() {}, impair: null };
   const status = (s, detail) => { if (link.status === 'closed') return; link.status = s; link.onstatus(s, detail); };
   if (relay.kind === 'local') openLocal(link, meta, status);
   else openSupabase(link, relay, meta, status);
@@ -34,7 +35,9 @@ function openLocal(link, meta, status) {
   const deliver = (m) => { if (!closed) link.onmessage(m.ev, m.d); };
   ch.onmessage = (e) => {
     const m = e.data;
-    if (closed || !m || typeof m !== 'object' || m.id === link.peer) return;
+    if (closed || !m || typeof m !== 'object') return;
+    // (A channel never hears itself: this id from elsewhere is another tab using it.)
+    if (m.id === link.peer) { if (m.k === 'hello') link.onclash(); return; }
     if (m.k === 'hello') {
       const had = link.peers.get(m.id);
       seen.set(m.id, Date.now());
@@ -79,6 +82,9 @@ function openSupabase(link, relay, meta, status) {
   const peersNow = () => {
     const st = ch.presenceState(), peers = new Map();
     for (const id of Object.keys(st)) { const metas = st[id]; if (Array.isArray(metas) && metas.length) peers.set(id, metas[metas.length - 1]); }
+    // Two presences under this player's key: another tab has the same id; the later one changes its own.
+    const mine = st[link.peer];
+    if (Array.isArray(mine) && mine.length > 1 && mine.some((m) => m && m.since < meta.since)) { link.onclash(); return; }
     // This player shows at once, whatever the server has said so far.
     if (!peers.has(link.peer)) peers.set(link.peer, meta);
     link.peers = peers;

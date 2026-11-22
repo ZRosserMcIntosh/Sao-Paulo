@@ -256,8 +256,9 @@ class Remote {
     }
     if (lod === 0) this.animate(dt);
     else if (this.legs) this.legs.visible = o.gear > 0.5;
-    const fade = this.alpha < 1;
-    for (const m of [this.mats.body, this.mats.tint, this.mats.far]) { if (m.transparent !== fade) { m.transparent = fade; m.needsUpdate = true; } m.opacity = this.alpha; }
+    const fade = this.alpha < 1, ms = this.mats;
+    if (ms.body.transparent !== fade) for (const m of [ms.body, ms.tint, ms.far]) { m.transparent = fade; m.needsUpdate = true; }
+    ms.body.opacity = ms.tint.opacity = ms.far.opacity = this.alpha;
     // The shadow: straight down the sun's rays onto the ground, fainter with height.
     const sun = ctx.sunDir(), h = this.p[2] - ctx.groundAt(this.p[0], this.p[1]);
     if (h < 400 && sun.y > 0.08 && this.dist < 6000) {
@@ -346,34 +347,32 @@ export function mountNet(ctx) {
 
   // ---- This player's own state, out ----
   const own = { p: [0, 0, 0], q: [0, 0, 0, 1], v: [0, 0, 0], w: [0, 0, 0], type: 0, flags: 0, gear: 1, flap: 0, e1: 0, e2: 0, aux: 0, ail: 0, elev: 0, rud: 0, spd: 0, t: 0 };
-  const prev = { q: [0, 0, 0, 1], p: [0, 0, 0], has: false, wall: 0 }, sentSt = { ...own, p: [0, 0, 0], q: [0, 0, 0, 1], v: [0, 0, 0], w: [0, 0, 0], at: 0 };
+  const prev = { q: [0, 0, 0, 1], p: [0, 0, 0], has: false, t42: 0 }, sentSt = { ...own, p: [0, 0, 0], q: [0, 0, 0, 1], v: [0, 0, 0], w: [0, 0, 0], at: 0 };
   let rate = 1, epoch = 0, forceSend = false, away = false;
   const RW_N = 64, rw = { s: new Float64Array(RW_N), w: new Float64Array(RW_N), i: 0, n: 0, sim: 0, wall: 0 };
   const qPred = [0, 0, 0, 1];
   // Reads the aircraft (avd_state s, avd_jet j, the turboprop's indication) once a frame.
-  function readOwn(now, simDt, s, j, tp, P, crashed) {
-    const wallDt = prev.has ? (now - prev.wall) / 1000 : 0;
-    prev.wall = now;
-    // Seconds of flight per second of wall clock, over the last half second: 1,
-    // less in slow motion or while frames run long (the core steps 0.1 s at most), 0 paused.
-    if (simDt <= 0) { rate = 0; rw.n = 0; rw.sim = rw.wall = 0; }
-    else if (wallDt > 1e-4) {
-      while (rw.n && (rw.n === RW_N || rw.wall > 0.5)) { const old = (rw.i - rw.n + RW_N) % RW_N; rw.sim -= rw.s[old]; rw.wall -= rw.w[old]; rw.n--; }
-      rw.s[rw.i] = Math.min(simDt, wallDt); rw.w[rw.i] = wallDt; rw.sim += rw.s[rw.i]; rw.wall += wallDt; rw.i = (rw.i + 1) % RW_N; rw.n++;
-      const r = clamp(rw.sim / rw.wall, 0, 1);
-      rate = r > 0.97 ? 1 : r;
-    }
+  // Velocity and turn rate from the state's own change over the core's clock
+  // (s[42]): exactly how it is moving, whatever the frame's length.
+  function readOwn(now, s, j, tp, P, crashed) {
     own.t = now;
     own.q[0] = s[4]; own.q[1] = s[5]; own.q[2] = s[6]; own.q[3] = s[3];
-    // Turn rate from the attitude's own change (world axes), smoothed a little.
-    const jump = prev.has && Math.hypot(s[0] - prev.p[0], s[1] - prev.p[1], s[2] - prev.p[2]) > 400 * Math.max(simDt, 0.02) + 5;
-    if (jump || !prev.has) { epoch = (epoch + 1) & F.epochMask; own.w[0] = own.w[1] = own.w[2] = 0; forceSend = true; }
-    else if (simDt > 1e-5) { qDelta(prev.q, own.q, _w3); for (let i = 0; i < 3; ++i) own.w[i] += (_w3[i] / simDt - own.w[i]) * 0.5; }
+    const dts = s[42] - prev.t42;
+    const jump = !prev.has || dts < 0 || Math.hypot(s[0] - prev.p[0], s[1] - prev.p[1], s[2] - prev.p[2]) > 400 * Math.max(dts, 0.02) + 5;
+    if (jump) {
+      // A restart or a new spot: another stretch of flight (the others snap to it), its velocity as the core reports it.
+      const gs = s[12] * 0.514444, tr = s[61] * DEG;
+      own.v[0] = gs * Math.sin(tr); own.v[1] = gs * Math.cos(tr); own.v[2] = ctx.verticalSpeed() * 0.00508;
+      own.w[0] = own.w[1] = own.w[2] = 0;
+      epoch = (epoch + 1) & F.epochMask; forceSend = true;
+    } else if (dts > 1e-4) {
+      qDelta(prev.q, own.q, _w3);
+      for (let i = 0; i < 3; ++i) { own.v[i] = (s[i] - prev.p[i]) / dts; own.w[i] += (_w3[i] / dts - own.w[i]) * 0.6; }
+    }
+    if (jump || dts > 1e-4) {
+      prev.p[0] = s[0]; prev.p[1] = s[1]; prev.p[2] = s[2]; prev.q[0] = own.q[0]; prev.q[1] = own.q[1]; prev.q[2] = own.q[2]; prev.q[3] = own.q[3]; prev.t42 = s[42]; prev.has = true;
+    }
     own.p[0] = s[0]; own.p[1] = s[1]; own.p[2] = s[2];
-    prev.p[0] = s[0]; prev.p[1] = s[1]; prev.p[2] = s[2]; prev.q[0] = own.q[0]; prev.q[1] = own.q[1]; prev.q[2] = own.q[2]; prev.q[3] = own.q[3]; prev.has = true;
-    // Velocity over the ground (kt along the track) and the true vertical speed (ft/min).
-    const gs = s[12] * 0.514444, tr = s[61] * DEG;
-    own.v[0] = gs * Math.sin(tr); own.v[1] = gs * Math.cos(tr); own.v[2] = ctx.verticalSpeed() * 0.00508;
     own.type = Math.max(0, TYPES.indexOf(P.id));
     const running = tp ? tp.engines.some((e) => e.running) : P.jet ? !!(j[13] || j[21]) : !!s[30];
     own.flags = (s[28] ? F.ground : 0) | (crashed ? F.crashed : 0) | (running ? F.lights : 0) | (rate === 0 ? F.frozen : 0) | (away ? F.away : 0) | (epoch << F.epochShift);
@@ -438,7 +437,7 @@ export function mountNet(ctx) {
   }
 
   // ---- Who is here (presence), the host and the room's settings ----
-  let firstSync = 0, openAt = 0, wantFly = null;
+  let firstSync = 0, openAt = 0, wantFly = null, nPresent = 0;
   const present = () => [...net.remotes.values()].filter((r) => r.present);
   const players = () => 1 + present().length;
   const hostOf = () => {
@@ -476,6 +475,7 @@ export function mountNet(ctx) {
         dropRemote(r);
       }
     }
+    nPresent = seen.size;
     if (!firstSync && (seen.size || performance.now() - openAt > 1500)) firstSync = performance.now();
     // Full: this player arrived after the room filled.
     const before = present().filter((r) => r.meta.since < me.since || (r.meta.since === me.since && r.id < me.id)).length;
@@ -523,6 +523,7 @@ export function mountNet(ctx) {
   }
   // The host: its settings, read once a second; a change goes out on presence.
   function hostTick() {
+    if (net.link && net.status === 'open') roomLogic();  // (a host who left in this player's first seconds: noticed here)
     if (!me.host || !net.link) return;
     const w = {};
     for (const [name, p] of net.providers) { if (p.get) { try { const v = p.get(); if (v !== undefined) w[name] = v; } catch { /* skip */ } } }
@@ -564,6 +565,8 @@ export function mountNet(ctx) {
     if (ctx.debug && params.get('netlag')) link.impair = { lag: +params.get('netlag') || 0, jitter: +params.get('netjitter') || 0, loss: +params.get('netloss') || 0 };
     link.onmessage = onMessage;
     link.onpeers = onPeers;
+    // A duplicated tab carries this tab's id with it: one of the two takes a new one and joins again.
+    link.onclash = () => { if (net.link !== link) return; me.id = newId(8); session.set('peer', me.id); connect(room, { host: false, fly: false }); };
     link.onstatus = (s, detail) => {
       if (net.link !== link) return;
       net.status = s; net.detail = detail || '';
@@ -578,6 +581,7 @@ export function mountNet(ctx) {
     net.link = null;
     if (link) link.close();
     for (const r of [...net.remotes.values()]) { r.present = false; dropRemote(r); }
+    nPresent = 0;
     net.room = null; net.status = why === 'full' ? 'full' : 'off'; me.host = 0; wantFly = null;
     session.set('room', null); session.set('host', null);
     try {
@@ -650,25 +654,38 @@ export function mountNet(ctx) {
   // ---- Each frame ----
   const order = [];
   // dt: wall seconds this frame; simDt: seconds of flight it advanced; s, j, tp: the core's state.
-  // The wall-clock time this frame's flight state belongs to: the frame's own
-  // start, which the app's step (dt) counts from. Reading the clock here
-  // instead, some milliseconds into the frame and never the same number,
-  // would put every aircraft that far off along its path: at 120 kt a
-  // 10 ms wobble is over half a metre. A frame the app cut short (dt at
-  // its 0.1 s cap) or a stall re-anchors it to the clock.
-  let frameT = 0, frameLag = 0;
+  // Every time here is the frame's own start on the wall clock (ctx.frameStart:
+  // where the app's step counts from), for this aircraft's state and for
+  // where the others are drawn. Reading the clock at this point instead, some
+  // milliseconds into the frame and never the same number, would put every
+  // aircraft that far off along its path: at 120 kt, 10 ms is over half a metre.
+  // The core flies in whole 1/240 s steps, so its state is up to one step
+  // older than the frame's start: in real time that remainder comes off too.
+  let startWas = 0, t42Was = 0, simAcc = 0, drawWas = 0;
   net.update = (dt, simDt, s, j, tp, P, crashed) => {
-    const wall = wallNow(), was = frameT;
-    if (!frameT || dt >= 0.0999 || Math.abs(wall - (frameT + dt * 1000) - frameLag) > 60) frameT = wall - frameLag;
-    else frameT += dt * 1000;
-    frameLag += (wall - frameT - frameLag) * 0.05;
-    const now = net.now = frameT;
-    dt = was ? Math.min((now - was) / 1000, 0.5) : dt;  // the others move on the wall clock, whatever this frame's flight step was
-    readOwn(now, simDt, s, j, tp, P, crashed);
+    const start = performance.timeOrigin + ctx.frameStart();
+    // Seconds of flight per second of wall clock, over the last half second: 1,
+    // less in slow motion or while frames run long (the core steps 0.1 s at most), 0 paused.
+    const wallDt = startWas ? (start - startWas) / 1000 : 0, flew = s[42] - t42Was;
+    startWas = start; t42Was = s[42];
+    if (simDt <= 0) { rate = 0; rw.n = 0; rw.sim = rw.wall = 0; }
+    else if (wallDt > 1e-4 && wallDt < 2 && flew >= 0 && flew < 0.2) {
+      while (rw.n && (rw.n === RW_N || rw.wall > 0.5)) { const old = (rw.i - rw.n + RW_N) % RW_N; rw.sim -= rw.s[old]; rw.wall -= rw.w[old]; rw.n--; }
+      rw.s[rw.i] = flew; rw.w[rw.i] = wallDt; rw.sim += flew; rw.wall += wallDt; rw.i = (rw.i + 1) % RW_N; rw.n++;
+      const r = clamp(rw.sim / rw.wall, 0, 1);
+      rate = r > 0.97 || rw.wall < 0.1 ? 1 : r;
+    }
+    simAcc += simDt;
+    let behind = simAcc - s[42];
+    if (behind < 0 || behind > 0.02) { simAcc = s[42]; behind = 0; }
+    const now = net.now = start - (rate === 1 ? behind * 1000 : 0);
+    dt = drawWas ? clamp((now - drawWas) / 1000, 0, 0.5) : dt;  // the others move on the wall clock, whatever this frame's flight step was
+    drawWas = now;
+    readOwn(now, s, j, tp, P, crashed);
     if (net.recordFrame) net.recordFrame(now, own, rate, encodeOwn);
-    if (net.link && net.status === 'open' && present().length && due(now)) sendOwn(now);
+    if (net.link && net.status === 'open' && nPresent && due(now)) sendOwn(now);
     autoFly();
-    if (!net.remotes.size) return;
+    if (!net.remotes.size) { net.sound.update(own); return; }
     // The game's own animated model for the nearest few only.
     order.length = 0;
     for (const r of net.remotes.values()) order.push(r);
@@ -679,6 +696,7 @@ export function mountNet(ctx) {
       // A player the room no longer lists, silent: gone.
       if (!r.present && !r.sampler && (r.age === null || r.age > STALE_FADE[1])) dropRemote(r);
     }
+    net.sound.update(own);
   };
   // Seen off-tab: tell the others this aircraft is parked in the sky for now.
   document.addEventListener('visibilitychange', () => {
@@ -756,6 +774,7 @@ export function mountNet(ctx) {
     return blips;
   };
 
+  net.sound = mountSound(net, ctx);
   const ui = mountUi(net, ctx, STR, { connect, leave, players, present });
   net.ui = ui;
   // A link with a room: ask (name, in the air or on the runway); a reload of a
@@ -766,6 +785,71 @@ export function mountNet(ctx) {
     else ui.invite(linked);
   }
   return net;
+}
+
+// ---- The others' engines, heard when they are near -------------------------------------------
+// Two voices at most (the nearest two within earshot), on an audio context of
+// its own, apart from the player's own aircraft's sound (audio.js): a
+// propeller's beat or a jet's hiss and rumble, louder close by, shifted by
+// the speed they close or open at. On only while the game's sound is on.
+const EARSHOT = 900;
+function mountSound(net, ctx) {
+  let ac = null, voices = null, master = null;
+  function start() {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    master = ac.createGain(); master.gain.value = 0; master.connect(ac.destination);
+    const buf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; ++i) d[i] = Math.random() * 2 - 1;
+    voices = [0, 1].map(() => {
+      const out = ac.createGain(); out.gain.value = 0; out.connect(master);
+      const osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 80;
+      const tone = ac.createGain(); tone.gain.value = 0;
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+      osc.connect(lp).connect(tone).connect(out); osc.start();
+      const noise = ac.createBufferSource(); noise.buffer = buf; noise.loop = true;
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.7;
+      const hiss = ac.createGain(); hiss.gain.value = 0;
+      noise.connect(bp).connect(hiss).connect(out); noise.start();
+      return { out, osc, tone, bp, hiss, id: null };
+    });
+  }
+  const near = [];
+  return {
+    get on() { return !!ac && ac.state === 'running'; },
+    voices: () => voices,
+    update(own) {
+      const vol = ctx.sound ? ctx.sound() : 0;
+      if (!ac) { if (vol <= 0 || !net.remotes.size) return; try { start(); } catch { return; } }
+      if (vol <= 0 || !net.remotes.size) { if (ac.state === 'running') ac.suspend(); return; }
+      if (ac.state === 'suspended') ac.resume();
+      const t = ac.currentTime;
+      master.gain.setTargetAtTime(vol * (ctx.cockpit?.() ? 0.45 : 1), t, 0.1);
+      near.length = 0;
+      for (const r of net.remotes.values()) if (r.has && r.alpha > 0 && r.kind && r.dist < EARSHOT && !(r.pose.flags & F.frozen)) near.push(r);
+      near.sort((a, b) => a.dist - b.dist);
+      for (let i = 0; i < 2; ++i) {
+        const v = voices[i], r = near[i];
+        if (!r) { v.out.gain.setTargetAtTime(0, t, 0.15); continue; }
+        const o = r.pose, p = r.kind.profile, d = Math.max(r.dist, 12);
+        // Closing speed along the line between the two (m/s, + approaching): the pitch shift.
+        const ux = (r.p[0] - own.p[0]) / d, uy = (r.p[1] - own.p[1]) / d, uz = (r.p[2] - own.p[2]) / d;
+        const closing = -((o.v[0] - own.v[0]) * ux + (o.v[1] - own.v[1]) * uy + (o.v[2] - own.v[2]) * uz);
+        const dop = clamp(1 + closing / 340, 0.7, 1.4), gain = clamp(30 / d, 0, 1) * clamp(1 - d / EARSHOT, 0, 1) * 1.6;
+        if (p.jet && !p.turboprop) {
+          const n1 = clamp(o.e1 / 1000, 0, 1.1);
+          v.osc.frequency.setTargetAtTime((55 + 70 * n1) * dop, t, 0.1); v.tone.gain.setTargetAtTime(0.25 * n1, t, 0.1);
+          v.bp.frequency.setTargetAtTime((900 + 2600 * n1) * dop, t, 0.1); v.hiss.gain.setTargetAtTime(0.1 + 0.5 * n1, t, 0.1);
+        } else {
+          // Blade-pass: a 172's two blades at engine speed; a King Air's four at propeller speed.
+          const rpm = o.e1, f = rpm / 60 * (p.turboprop ? 4 : 2);
+          v.osc.frequency.setTargetAtTime(Math.max(20, f) * dop, t, 0.08); v.tone.gain.setTargetAtTime(rpm > 200 ? 0.55 : 0, t, 0.1);
+          v.bp.frequency.setTargetAtTime(1200 * dop, t, 0.1); v.hiss.gain.setTargetAtTime(p.turboprop ? 0.2 : 0.06, t, 0.1);
+        }
+        v.out.gain.setTargetAtTime(gain, t, 0.12);
+        v.id = r.id;
+      }
+    },
+  };
 }
 
 // ---- The panel, the invitation and the status chip ------------------------------------------
