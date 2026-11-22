@@ -299,5 +299,5 @@ export function buildAircraft(def) {
     });
   }
   // Where the lamps are (body axes), for lights.js.
-  return { root, update, glass: glassMat, lamps: { left: [-1.04, 5.55, 1.15], right: [-1.04, -5.55, 1.15], tail: [-6.3, 0, 0.34] } };
+  return { root, update, glass: glassMat, lamps: { left: [-1.04, 5.55, 1.15], right: [-1.04, -5.55, 1.15], tail: [-6.3, 0, 0.34], landing: [[0.95, 0, -0.35]] } };
 }
