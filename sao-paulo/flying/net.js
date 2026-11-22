@@ -453,11 +453,12 @@ export function mountNet(ctx) {
   }
   function onPeers(peers) {
     const seen = new Set();
-    let n = 0;
+    let n = 0, before = 0;
     for (const [id, raw] of peers) {
       if (id === me.id || !validId(id) || ++n > 2 * MAX_PLAYERS) continue;
       const meta = cleanMeta(raw);
       if (!meta) continue;
+      if (meta.since < me.since || (meta.since === me.since && id < me.id)) before++;  // here before this player
       const r = remoteFor(id);
       if (!r || r.sampler) continue;
       seen.add(id);
@@ -476,7 +477,6 @@ export function mountNet(ctx) {
     nPresent = seen.size;
     if (!firstSync && (seen.size || performance.now() - openAt > 1500)) firstSync = performance.now();
     // Full: this player arrived after the room filled.
-    const before = present().filter((r) => r.meta.since < me.since || (r.meta.since === me.since && r.id < me.id)).length;
     if (before >= MAX_PLAYERS) { leave('full'); return; }
     roomLogic();
     net.hz = sendHz(players(), budget);
@@ -588,6 +588,7 @@ export function mountNet(ctx) {
       history.replaceState(null, '', u.pathname + u.search.replace(/=(&|$)/g, '$1') + u.hash);
     } catch { /* sandboxed */ }
     ui.refresh();
+    if (why === 'full') { ctx.toast(STR.full, 5); ui.open(); }
   }
   // Start a room (this player hosts): returns { room, link } or null where live
   // rooms are off. opts.shared: the room's small shared object (a challenge, a seed).
@@ -744,7 +745,9 @@ export function mountNet(ctx) {
   let tagW = 0, tagH = 0, tagD = 0;
   const _p = new THREE.Vector3();
   function pill(x, y, label, color, tw) {
-    g.fillStyle = 'rgba(10,17,28,.8)'; g.beginPath(); g.roundRect(x, y - 10, tw, 20, 10); g.fill();
+    g.fillStyle = 'rgba(10,17,28,.8)'; g.beginPath();
+    if (g.roundRect) g.roundRect(x, y - 10, tw, 20, 10); else g.rect(x, y - 10, tw, 20);  // (older browsers: square corners)
+    g.fill();
     g.fillStyle = color; g.beginPath(); g.arc(x + 11, y, 4, 0, 6.2832); g.fill();
     g.fillStyle = '#e7ecf2'; g.fillText(label, x + 20, y + 0.5);
   }
