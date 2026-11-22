@@ -67,11 +67,12 @@ export function makeLaw() {
   // In the air. x: -1 left .. 1 right; y: -1 down .. 1 up; vT: the speed to hold (kt);
   // L: casualLimits(); path0: the path flown with the stick centred (deg; null: level
   // and hold the height), thrust: false leaves the throttle closed (a glide, a flare);
-  // floor: the speed the climb gives way to (kt; with flaps out it is lower than L.floor).
-  function fly(s, dt, { x = 0, y = 0, vT, L, path0 = null, thrust = true, bank = L.bank, floor = L.floor }) {
+  // floor: the speed the climb gives way to (kt; with flaps out it is lower than L.floor);
+  // overGround: the path angle is the one over the ground (an approach: the wind must not move the touchdown).
+  function fly(s, dt, { x = 0, y = 0, vT, L, path0 = null, thrust = true, bank = L.bank, floor = L.floor, overGround = false }) {
     const { phi, p, q, vs } = rates(s, dt);
     const ias = s[10], tas = Math.max(s[11] * KT, 15), qS = qScale(ias);
-    const gamma = Math.asin(clamp(vs / tas, -1, 1));
+    const gamma = Math.asin(clamp(vs / (overGround ? Math.max(s[12] * KT, 15) : tas), -1, 1));
     // Roll: a bank angle from the stick; released, level the wings and hold the heading it then has.
     let phiCmd;
     if (Math.abs(x) > 0.02) { st.hdg = null; phiCmd = x * bank * DEG; }

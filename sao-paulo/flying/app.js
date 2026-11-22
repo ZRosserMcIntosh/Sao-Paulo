@@ -2555,13 +2555,11 @@ restart(0);
 // each of them steps aside.
 // A start of the game layer's own, through the same restart as every other.
 function playSpawn(st) { const own = STARTS; STARTS = [...own, st]; restart(STARTS.length - 1); STARTS = own; }
-// "Land for me": the autoland to that airport's runway into the wind. The simulator's saved destination is left alone.
-function playLandAt(icao) {
+// "Land for me": the destination for the autoland (runway end k of a region airport). The simulator's saved one is left alone.
+function playDestination(icao, k) {
   const keep = store.get('dest', '');
-  chooseApproach({ icao }, preferredApproach(approachesOf({ icao })), false);
+  chooseApproach({ icao }, k, false);
   store.set('dest', keep);
-  setAutoland(true);
-  return autoland;
 }
 // Back from Casual: the simulator's own hazard, front, terrain alerts and destination (its restart applies the rest).
 function playSimRestore() {
@@ -2574,7 +2572,7 @@ play = initPlay({
   THREE, A, scene, camera, canvas, store, MOBILE, input, ui, look, PROFILES, RW, AP, groundAt, regionN: REGION_N,
   state: () => s, jet: () => j, profile: () => P, region: () => REGION, dests: () => DESTS, audio: () => audio.ctx,
   spawn: playSpawn, restart, selectAircraft, setControl, controlPos, cycleCam, toggleSound,
-  autoland: () => autoland, autolandStatus: () => alStatus, setAutoland, landAt: playLandAt, simRestore: playSimRestore,
+  autoland: () => autoland, autolandStatus: () => alStatus, setAutoland, destination: playDestination, simRestore: playSimRestore,
 });
 
 $('loading').hidden = true;
