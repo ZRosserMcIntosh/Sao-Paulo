@@ -34,7 +34,23 @@ const DEG = Math.PI / 180;
 // ---- A clip as text: 'z' + base64url(deflate(bytes)) or 'j' + base64url(bytes) -----------------
 const b64url = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const unb64url = (s) => { const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), out = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i); return out; };
-const pipe = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+// Through a (de)compression stream, never holding more than `max` bytes of output: a link from anyone could
+// be a few kilobytes that inflate to hundreds of megabytes, so the stream is cancelled the moment it goes over.
+const pipe = async (bytes, stream, max = 1e6) => {
+  const rd = new Blob([bytes]).stream().pipeThrough(stream).getReader(), parts = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await rd.read();
+    if (done) break;
+    n += value.length;
+    if (n > max) { rd.cancel().catch(() => {}); throw new Error('too large'); }
+    parts.push(value);
+  }
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const q of parts) { out.set(q, at); at += q.length; }
+  return out;
+};
 // [1, colour, name length, name…] then the rows (netstate packRows).
 export async function encodeClip({ rows, name, color }) {
   const nm = new TextEncoder().encode(cleanName(name)).subarray(0, 64), body = packRows(rows);
