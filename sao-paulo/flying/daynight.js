@@ -9,7 +9,8 @@
 //
 // For the other modules (import { timeOfDay } from './daynight.js'):
 //   timeOfDay.get()                 the time now, hours
-//   timeOfDay.set(hours, { live })  set it (live: follow São Paulo's clock from then on)
+//   timeOfDay.set(hours, { live, save })  set it (live: follow São Paulo's clock from then on; save: false for a
+//                                   time that is not the player's own choice, a challenge's or a host's: it is not kept)
 //   timeOfDay.onChange(fn)          fn(hours, state) on every change; returns its remover
 //   timeOfDay.state                 { hours, live, elevation (deg), dark 0..1, city 0..1 }
 // The page (app.js) makes the one instance with createDayNight and calls its
