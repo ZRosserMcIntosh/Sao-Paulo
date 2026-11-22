@@ -334,6 +334,10 @@ body.tunnelmode #telemetry canvas.trace{max-height:96px}
 
   <h2>World</h2>
   <div class="row"><button id="wCity">São Paulo · MASP</button><button id="wTrack">Test track</button></div>
+  <div class="row" id="trafficRow" style="margin-top:6px" role="group" aria-label="Traffic" hidden>
+    <span class="lbl">Traffic</span><button data-traffic="off" aria-pressed="true">Off</button><button data-traffic="light">Light</button><button data-traffic="normal">Normal</button><button data-traffic="heavy">Heavy</button>
+  </div>
+  <p class="note" id="trafficNote" hidden>The site's traffic AI on the Paulista lane graph: signals, buses, motorcycles in the corridor, drivers with personalities. They see your car, keep their distance behind it and change lanes around it. Hit one and it is knocked loose by the physics and left where it stops; traffic queues and changes lanes around the wreck, which clears after 30 s.</p>
 
   <h2>Go to</h2>
   <div class="row" id="zones"></div>

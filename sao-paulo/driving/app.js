@@ -26,6 +26,7 @@ import { TelemetryPanel, captureTelemetry, REC } from './telemetry.js';
 import { ReplayViewer } from './replay.js';
 import { WindTunnel } from './tunnel.js';
 import { GamePad, PadMenu, BTN, padName } from './gamepad.js';
+import { Traffic } from './traffic.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -1395,6 +1396,25 @@ for (const z of ZONES) {
   const b = document.createElement('button'); b.textContent = z.name; b.onclick = () => { placeAt(z); b.blur(); };
   $('zones').append(b);
 }
+// ---------- Traffic (city only): the site's traffic AI on the Paulista lane graph ----------
+const traffic = CITY ? new Traffic({ scene, M, toast }) : null;
+function setTraffic(level, say) {
+  if (!traffic) return;
+  store.set('traffic', level);
+  document.querySelectorAll('[data-traffic]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.traffic === level));
+  traffic.set(level).then(() => { if (say) toast(level === 'off' ? 'Traffic off' : `Traffic: ${level}`); }).catch((e) => { console.error(e); toast('The traffic could not be loaded'); });
+}
+$('trafficRow').hidden = !traffic; $('trafficNote').hidden = !traffic;
+document.querySelectorAll('[data-traffic]').forEach((b) => (b.onclick = (e) => { setTraffic(b.dataset.traffic, true); e.currentTarget.blur(); }));
+if (traffic) setTraffic(new URLSearchParams(location.search).get('traffic') || store.get('traffic', 'off'), false);
+window.__spwTrafficHit = (kmh) => {   // debugging: launch at the nearest moving traffic car from 30 m behind it
+  const c = traffic?.list?.filter((v) => v.kind === 'car' && v.v > 3).sort((a, b) => Math.hypot(a.x + traffic.ox - S(0), a.y + traffic.oy - S(1)) - Math.hypot(b.x + traffic.ox - S(0), b.y + traffic.oy - S(1)))[0];
+  if (!c) return null;
+  const x = c.x + traffic.ox - 14 * Math.cos(c.h), y = c.y + traffic.oy - 14 * Math.sin(c.h);
+  launch(x, y, c.h, kmh / 3.6); return [c.id, Math.round(c.v * 3.6)];
+};
+window.__spwTrafficCar = (id) => { const v = traffic?.world?.vehicles.find((u) => u.id === id); return v && [v.kind, v.body, +(v.x + traffic.ox).toFixed(1), +(v.y + traffic.oy).toFixed(1), +v.v.toFixed(1)]; };
+window.__spwTraffic = () => traffic?.list?.map((v) => [v.body || v.kind, Math.round(v.x + traffic.ox), Math.round(v.y + traffic.oy), v.kind === 'wreck' ? 1 : 0]) ?? null;
 for (const [w, label] of [['city', 'São Paulo · MASP'], ['track', 'Test track']]) {
   const b = $(w === 'city' ? 'wCity' : 'wTrack');
   b.setAttribute('aria-pressed', WORLD === w);
@@ -2711,7 +2731,9 @@ function frameOnce(now, draw) {
   if (tunnel.on) inp = tunnel.drive(simDt, S, carRoot.position, M._ord_ground_height(S(0), S(1)));
   const snap = rewind.beforeFrame();
   M._ord_set_input(inp.steer, inp.throttle, inp.brake, inp.hand, inp.shiftUp ? 1 : 0, inp.shiftDown ? 1 : 0);
+  traffic?.beforeAdvance(simDt, S);
   M._ord_advance(simDt);
+  traffic?.afterAdvance(); traffic?.draw();
   ++frameNo;
   const pose = poseNow();
   VIEW.simTime += simDt;
