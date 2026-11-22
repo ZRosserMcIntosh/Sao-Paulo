@@ -61,7 +61,7 @@ const T = {
   parts: { sink: 'Touchdown', line: 'Centre', spot: 'Spot', speed: 'Speed', bounce: 'Bounces' },
   sinkText: (v, u) => [`soft as butter (${v} ${u})`, `smooth (${v} ${u})`, `firm (${v} ${u})`, `hard (${v} ${u})`, `a real thump (${v} ${u})`],
   lineText: (m) => [`on the line (${m} m off)`, `close to the line (${m} m off)`, `off to one side (${m} m)`, `near the edge (${m} m off)`, 'off the runway'],
-  spotText: ['right in the landing zone', 'a little early', 'a little long', 'before the runway', 'far down the runway', 'not on a runway'],
+  spotText: ['right in the landing zone', 'a little early', 'a little long', 'before the runway', 'far down the runway', 'not on a runway', 'beside the runway'],
   speedText: (d) => [`right speed (${d > 0 ? '+' : ''}${d} kt)`, `a bit fast (+${d} kt)`, `fast (+${d} kt)`, `slow (${d} kt)`],
   bounceText: (n) => (n ? `${n} bounce${n > 1 ? 's' : ''}` : 'no bounce'),
 };
@@ -87,7 +87,7 @@ export function scoreLanding(td, { metric = false } = {}) {
     const a = td.along, z1 = Math.min(600, td.length / 3), half = td.length / 2;
     const spotK = a < 0 ? 3 : a < 100 ? 1 : a <= z1 ? 0 : a <= half ? 2 : 4;
     const spot = a < 0 ? 0 : a < 100 ? lerp(a, 0, 100, 60, 100) : a <= z1 ? 100 : a <= half ? lerp(a, z1, half, 100, 55) : lerp(a, half, td.length, 55, 0);
-    parts.push({ key: 'spot', score: spot, text: T.spotText[spotK] });
+    parts.push(off > hw ? { key: 'spot', score: 0, text: T.spotText[6] } : { key: 'spot', score: spot, text: T.spotText[spotK] });
   }
   const d = Math.round(td.kias - td.vref);
   // (A flare spends speed: well under the approach speed is as it should be; only close to the stall is slow.)
@@ -170,7 +170,7 @@ export function initPlay(ctx) {
     <div id="pAlert" hidden></div><div id="pNote"></div>
     <div id="pTip" hidden><span></span><button aria-label="OK">✕</button></div>
   </div>`);
-  const mark = el('<div id="pMark"><i></i><b></b></div>');
+  const mark = el('<div id="pMark"><i></i><svg viewBox="-13 -17 26 34"><path d="M0-16L12 14 0 7-12 14z"/></svg><b></b></div>');
   const stickEl = el('<div id="pStick"><i></i></div>');
   const over = el('<div id="pOver" class="pOver" hidden></div>');
   const landEl = el('<div id="pLand" hidden></div>');
@@ -501,6 +501,7 @@ export function initPlay(ctx) {
   function startFree(ph = 'fly', respawn = true) {
     if (act.def && !act.over) emit('quit');
     act = { kind: 'free', target: -1 };
+    body.classList.remove('p-task');
     if (respawn) spawnFree(ph); else { phase = ph; refreshButtons(); }
     sightRings();
   }
@@ -525,6 +526,7 @@ export function initPlay(ctx) {
     closeScreen();
     if (P().id !== def.aircraft) await ctx.selectAircraft(def.aircraft);
     act = { kind: def.kind, def, seed, i: 0, missed: 0, t0: 0, started: false, over: false };
+    body.classList.add('p-task');  // (a challenge shows its own goals: the landmark labels step aside)
     speed = 1;
     const here = ctx.region().flatMap((ap) => ap.ends.map((r) => ({ r, ap }))).find(({ r }) => Math.hypot(r.east - RW[0], r.north - RW[1]) < 2);
     if (def.kind === 'rings') {
@@ -662,8 +664,7 @@ export function initPlay(ctx) {
     lastSim = s[42];
     if (!landing || landing.done) return;
     if (ui.crashed) { landing = null; return; }
-    if (!s[28] || s[42] - landing.last < 2.5) return;
-    if (s[12] > 0.8 * landing.gs0 && s[12] > 25 && s[42] - landing.last < 6) return;  // still rolling fast: a bounce may come
+    if (!s[28] || s[42] - landing.last < 3) return;  // three seconds on the wheels: no more bounces to count
     landing.done = true;
     const res = scoreLanding(landing, { metric: mode === 'casual' });
     if (mode === 'casual' && act.kind === 'landing' && !act.over) { act.result = res; return; }
@@ -672,7 +673,8 @@ export function initPlay(ctx) {
   const partsHtml = (parts) => `<div class="pParts">${parts.map((p) => `<div><span>${T.parts[p.key]}</span><span><i style="--v:${Math.round(p.score)}%;--c:${p.score >= 80 ? 'var(--good)' : p.score >= 50 ? 'var(--warn)' : 'var(--bad)'}"></i><b>${p.text}</b></span></div>`).join('')}</div>`
     .replace(/<span><i /g, '<span style="display:grid;gap:3px"><i ');
   function showLanding(res) {
-    landEl.innerHTML = `<header><span>${T.landingScore} · ${res.word}</span><b>${res.grade}</b></header>${partsHtml(res.parts)}`;
+    landEl.innerHTML = `<header><span>${T.landingScore} · ${res.word}</span><b>${res.grade}</b></header><ul>${res.parts.map((p) =>
+      `<li class="${p.score >= 80 ? 'ok' : p.score >= 50 ? 'so' : 'bad'}"><span>${T.parts[p.key]}</span><b>${p.text}</b></li>`).join('')}</ul>`;
     landEl.hidden = false; landT = 10;
   }
   landEl.addEventListener('click', () => { landEl.hidden = true; });
@@ -885,7 +887,7 @@ export function initPlay(ctx) {
   function enterSim() {
     if (act.def && !act.over) emit('quit');
     if (ctx.autoland()) ctx.setAutoland(false);
-    mode = 'sim'; body.classList.remove('casual');
+    mode = 'sim'; body.classList.remove('casual', 'p-task');
     act = { kind: 'free', target: -1 }; setRings([]); setDots([]);
     mark.classList.remove('on'); landEl.hidden = true; tipEl.hidden = true; tipKey = null;
     look.held = false; ui.paused = false; api.subDt = undefined;
