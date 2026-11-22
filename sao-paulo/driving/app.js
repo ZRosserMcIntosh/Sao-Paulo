@@ -1508,6 +1508,27 @@ function togglePanel() {
   const side = $('side'); side.hidden = !side.hidden; $('bPanel').setAttribute('aria-expanded', !side.hidden); store.set('panel', !side.hidden);
 }
 $('bPanel').onclick = (e) => { togglePanel(); e.currentTarget.blur(); };
+// Settings tabs: Car, Damage, World, Tools, Controls (the last one is remembered).
+const TABS = [...document.querySelectorAll('#side [role=tab]')].map((b) => b.dataset.tab);
+function showTab(k) {
+  if (!TABS.includes(k)) k = TABS[0];
+  document.querySelectorAll('#side [role=tab]').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === k));
+  document.querySelectorAll('#side section.tab').forEach((sec) => (sec.hidden = sec.dataset.tab !== k));
+  store.set('tab', k); $('side').scrollTop = 0;
+  return k;
+}
+document.querySelectorAll('#side [role=tab]').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+showTab(store.get('tab', 'car'));
+// the test-track features (moose test, stunt park, crash lab) only exist on the test track
+if (WORLD !== 'track') for (const h of document.querySelectorAll('#side h2')) {
+  if (!/^(Moose test|Stunt park|Crash lab)$/.test(h.textContent)) continue;
+  for (let e = h; e && (e === h || e.tagName !== 'H2'); e = e.nextElementSibling) e.hidden = true;
+}
+function cycleTab(d) {
+  const cur = document.querySelector('#side [role=tab][aria-selected="true"]')?.dataset.tab;
+  const k = showTab(TABS[(TABS.indexOf(cur) + d + TABS.length) % TABS.length]);
+  return document.querySelector(`#side [role=tab][data-tab="${k}"]`);
+}
 if (store.get('panel', innerWidth > 900) === false) togglePanel();
 
 let toastTimer;
@@ -2581,6 +2602,8 @@ function padFrame(dt) {
     const g = garage.panel && !garage.panel.hidden ? garage.panel : null;
     if (g && padMenu.scope !== g) padMenu.open(g);
     else if (!g && padMenu.scope !== $('side')) padMenu.open($('side'));
+    // LB / RB: the settings tabs
+    if (!g && (e(B.LB) || e(B.RB))) { const t = cycleTab(e(B.RB) ? 1 : -1); const i = padMenu.items().indexOf(t); padMenu.focus(Math.max(0, i)); }
     if (gpad.repeat(B.UP, dt)) padMenu.move(-1);
     if (gpad.repeat(B.DOWN, dt)) padMenu.move(1);
     if (gpad.repeat(B.LEFT, dt)) padMenu.adjust(-1);

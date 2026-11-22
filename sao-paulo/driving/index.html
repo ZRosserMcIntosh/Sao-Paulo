@@ -41,7 +41,19 @@ kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2
 /* side panel */
 .panel{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:12px}
 #side{position:fixed;right:12px;top:66px;width:300px;max-height:calc(100% - 78px);overflow:auto;z-index:2}
-#side[hidden]{display:none}
+#side[hidden],#side [hidden]{display:none!important}
+@media (max-width:700px){#side{z-index:6}}
+#side .tabs{position:sticky;top:-12px;z-index:1;display:flex;gap:3px;margin:-2px -4px 10px;padding:4px;background:#0f1622;border-bottom:1px solid var(--line)}
+#side .tabs button{flex:1;padding:5px 2px;font:700 11.5px var(--body);border-radius:6px}
+#side .tabs button[aria-selected="true"]{background:var(--hot,#ffd36b);color:#111}
+#side .tab h2:first-child{margin-top:2px}
+#side details.more{margin:6px 0 0}
+#side details.more summary{cursor:pointer;color:var(--mute);font:600 11.5px var(--body);list-style:none}
+#side details.more summary::-webkit-details-marker{display:none}
+#side details.more summary::before{content:'▸ ';}
+#side details.more[open] summary::before{content:'▾ ';}
+#side details.more .note{margin-top:4px}
+#side details[hidden]{display:none}
 #side h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px}
 #side h2:first-child{margin-top:0}
 .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -205,193 +217,207 @@ body.tunnelmode #telemetry canvas.trace{max-height:96px}
 </div>
 
 <aside id="side" class="panel" aria-label="Settings">
-  <h2>Car</h2>
-  <div class="row">
-    <select id="car" aria-label="Car">
-      <option value="5">Rosser V8 · 9,000 rpm</option>
-      <option value="0">Sports RWD · 300 kW · 1450 kg</option>
-      <option value="1">Hatch FWD · 130 kW · 1250 kg</option>
-      <option value="2">Saloon AWD · 1600 kg</option>
-      <option value="3">Hypercar AWD · ~476 km/h</option>
-      <option value="4">Race car · high downforce</option>
-      <optgroup label="Real cars (approximations from published specs)">
-        <option value="9">Porsche 911 Carrera S (992.2) · 353 kW · RWD</option>
-        <option value="10">Porsche 911 Carrera 4S (992.2) · 353 kW · AWD</option>
-        <option value="11">Mercedes-AMG S 63 4MATIC+ (W222) · 450 kW</option>
-        <option value="12">Mercedes-Benz S 600 Guard · VR9 armoured · 4.2 t</option>
-        <option value="13">Formula 1 car · 2026 regulations</option>
-        <option value="14">Rosser V8 Manuale · six-speed gated manual</option>
-      </optgroup>
-      <optgroup label="Two-wheelers (new)">
-        <option value="6">Bicycle · benchmark geometry · pedalling 350 W</option>
-        <option value="7">E-scooter · 500 W hub motor · 25 km/h</option>
-        <option value="8">Motorcycle · sport · 80 kW</option>
-      </optgroup>
-    </select>
-  </div>
-  <div class="row" style="margin-top:8px">
-    <button id="bModel" title="Load a .glb car model from your computer">Load .glb model…</button>
-    <button id="bTurn" title="Turn the loaded model 90°">Turn model 90°</button>
-    <input id="file" type="file" accept=".glb,.gltf" hidden>
-  </div>
-  <p class="note" id="modelNote">Showing the placeholder body. Drop a <b>.glb</b> exported from Blender anywhere on the page to drive it.</p>
+  <nav class="tabs" role="tablist" aria-label="Settings"><button role="tab" data-tab="car" aria-selected="false">Car</button><button role="tab" data-tab="damage" aria-selected="false">Damage</button><button role="tab" data-tab="world" aria-selected="false">World</button><button role="tab" data-tab="tools" aria-selected="false">Tools</button><button role="tab" data-tab="controls" aria-selected="false">Controls</button></nav>
+  <section class="tab" data-tab="car" role="tabpanel" aria-label="Car" hidden>
+    <h2>Car</h2>
+    <div class="row">
+      <select id="car" aria-label="Car">
+        <option value="5">Rosser V8 · 9,000 rpm</option>
+        <option value="0">Sports RWD · 300 kW · 1450 kg</option>
+        <option value="1">Hatch FWD · 130 kW · 1250 kg</option>
+        <option value="2">Saloon AWD · 1600 kg</option>
+        <option value="3">Hypercar AWD · ~476 km/h</option>
+        <option value="4">Race car · high downforce</option>
+        <optgroup label="Real cars (approximations from published specs)">
+          <option value="9">Porsche 911 Carrera S (992.2) · 353 kW · RWD</option>
+          <option value="10">Porsche 911 Carrera 4S (992.2) · 353 kW · AWD</option>
+          <option value="11">Mercedes-AMG S 63 4MATIC+ (W222) · 450 kW</option>
+          <option value="12">Mercedes-Benz S 600 Guard · VR9 armoured · 4.2 t</option>
+          <option value="13">Formula 1 car · 2026 regulations</option>
+          <option value="14">Rosser V8 Manuale · six-speed gated manual</option>
+        </optgroup>
+        <optgroup label="Two-wheelers (new)">
+          <option value="6">Bicycle · benchmark geometry · pedalling 350 W</option>
+          <option value="7">E-scooter · 500 W hub motor · 25 km/h</option>
+          <option value="8">Motorcycle · sport · 80 kW</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="bModel" title="Load a .glb car model from your computer">Load .glb model…</button>
+      <button id="bTurn" title="Turn the loaded model 90°">Turn model 90°</button>
+      <input id="file" type="file" accept=".glb,.gltf" hidden>
+    </div>
+    <p class="note" id="modelNote">Showing the placeholder body. Drop a <b>.glb</b> exported from Blender anywhere on the page to drive it.</p>
 
-  <h2>Sound</h2>
-  <div class="row"><button id="bSound" aria-pressed="true" title="M">Sound on</button>
-    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)">Volume <input id="vol" type="range" min="0" max="100" value="80" style="width:110px"></label></div>
-  <p class="note">Synthesized flat-plane V8 (no recordings): every firing pulse is generated from the engine rpm and load, with tyre squeal from the physics' slip, wind and road noise. The Bonnet camera hears it from the cabin.</p>
+    <h2>Driving preset</h2>
+    <div class="row" role="group" aria-label="Driving preset">
+      <button data-preset="0" aria-pressed="true">Fun</button>
+      <button data-preset="1" aria-pressed="false">Sport</button>
+      <button data-preset="2" aria-pressed="false">Simulation</button>
+      <button data-preset="3" aria-pressed="false">Drift</button>
+    </div>
+    <p class="note">Presets only change the driver aids. Grip, power and weight are identical in all three.</p>
 
-  <h2>Driving preset</h2>
-  <div class="row" role="group" aria-label="Driving preset">
-    <button data-preset="0" aria-pressed="true">Fun</button>
-    <button data-preset="1" aria-pressed="false">Sport</button>
-    <button data-preset="2" aria-pressed="false">Simulation</button>
-    <button data-preset="3" aria-pressed="false">Drift</button>
-  </div>
-  <p class="note">Presets only change the driver aids. Grip, power and weight are identical in all three.</p>
+    <h2>Aids</h2>
+    <div class="row">
+      <button id="aAbs" aria-pressed="true" title="B">ABS</button>
+      <button id="aTcs" title="T">TCS: full</button>
+      <button id="aEsc" title="Y">ESC: full</button>
+      <button id="aBox" aria-pressed="true" title="G">Auto gearbox</button>
+      <button id="aDrift" aria-pressed="false" title="X">Drift assist</button>
+    </div>
+    <details class="more"><summary>More</summary><p class="note"><b>Drifting:</b> pick Drift (<kbd>4</kbd>); it fits the drift kit (52° lock, tight LSD). Turn in hard on the throttle and the assist kicks the clutch so the rear steps out (or use the handbrake), keep the throttle in, then steer where you want to go: hold the steering into the corner to keep drifting (more steering, more angle and a tighter line) and let go once the car points down the road to straighten out. The drift assist countersteers for you and only ever trims power. <b>Throttle</b> is part of it: full power holds the angle, easing off lets the car come back straight. <b>Handbrake</b> (<kbd>Space</kbd>) puts the clutch in like a drifter would, so it locks the rear even with the throttle held; let go with the revs up for a clutch kick. <b>Donuts</b>: from walking pace, full lock and full throttle, and the assist steps aside; ease off the lock or the throttle and it catches the car and straightens it. Burnouts: TCS off (<kbd>T</kbd>) or Simulation (<kbd>3</kbd>).</p></details>
 
-  <h2>Aids</h2>
-  <div class="row">
-    <button id="aAbs" aria-pressed="true" title="B">ABS</button>
-    <button id="aTcs" title="T">TCS: full</button>
-    <button id="aEsc" title="Y">ESC: full</button>
-    <button id="aBox" aria-pressed="true" title="G">Auto gearbox</button>
-    <button id="aDrift" aria-pressed="false" title="X">Drift assist</button>
-  </div>
-  <p class="note"><b>Drifting:</b> pick Drift (<kbd>4</kbd>); it fits the drift kit (52° lock, tight LSD). Turn in hard on the throttle and the assist kicks the clutch so the rear steps out (or use the handbrake), keep the throttle in, then steer where you want to go: hold the steering into the corner to keep drifting (more steering, more angle and a tighter line) and let go once the car points down the road to straighten out. The drift assist countersteers for you and only ever trims power. <b>Throttle</b> is part of it: full power holds the angle, easing off lets the car come back straight. <b>Handbrake</b> (<kbd>Space</kbd>) puts the clutch in like a drifter would, so it locks the rear even with the throttle held; let go with the revs up for a clutch kick. <b>Donuts</b>: from walking pace, full lock and full throttle, and the assist steps aside; ease off the lock or the throttle and it catches the car and straightens it. Burnouts: TCS off (<kbd>T</kbd>) or Simulation (<kbd>3</kbd>).</p>
+    <h2>Drift setup</h2>
+    <div class="row">
+      <button id="bLock" aria-pressed="false" title="More steering lock: catch bigger drift angles">Drift steering lock (52°)</button>
+      <button id="bDiff" aria-pressed="false" title="Rear differential: stock, open, locked, tight LSD">Rear diff: stock</button>
+    </div>
+    <details class="more"><summary>More</summary><p class="note">Garage settings, not aids: the same physics with more steering lock (an angle kit; stock cars have ~32°, so drifts past ~35° can't be caught) and a different rear differential. A locked or tight LSD keeps both rear wheels spinning together, which holds a drift on the throttle but pushes on corner entry. Best with Simulation (<kbd>3</kbd>) or Drift (<kbd>4</kbd>), mouse steering and the Drift camera (<kbd>C</kbd>).</p></details>
 
-  <h2>Drift setup</h2>
-  <div class="row">
-    <button id="bLock" aria-pressed="false" title="More steering lock: catch bigger drift angles">Drift steering lock (52°)</button>
-    <button id="bDiff" aria-pressed="false" title="Rear differential: stock, open, locked, tight LSD">Rear diff: stock</button>
-  </div>
-  <p class="note">Garage settings, not aids: the same physics with more steering lock (an angle kit; stock cars have ~32°, so drifts past ~35° can't be caught) and a different rear differential. A locked or tight LSD keeps both rear wheels spinning together, which holds a drift on the throttle but pushes on corner entry. Best with Simulation (<kbd>3</kbd>) or Drift (<kbd>4</kbd>), mouse steering and the Drift camera (<kbd>C</kbd>).</p>
+    <h2>Garage</h2>
+    <div class="row"><button id="bGarage2" title="U">Open the garage</button></div>
+    <details class="more"><summary>More</summary><p class="note">A design test bed, not a menu of cheats. Set camber, toe, caster and camber gain; springs, ride height, slow and fast dampers and anti-roll bars per axle; tyre compound (off-road to racing slick, rain) and pressure; brake balance; final drive; splitter, rear body downforce and a rear wing that really stalls; altitude, air temperature and wind. The HUD shows each tyre's tread temperature and camber, plus the downforce and drag. Slicks are slow until they are warm (or use tyre warmers), and too little brake balance spins the car. Setups are saved per car and can be shared as .json files.</p></details>
 
-  <h2>Garage</h2>
-  <div class="row"><button id="bGarage2" title="U">Open the garage</button></div>
-  <p class="note">A design test bed, not a menu of cheats. Set camber, toe, caster and camber gain; springs, ride height, slow and fast dampers and anti-roll bars per axle; tyre compound (off-road to racing slick, rain) and pressure; brake balance; final drive; splitter, rear body downforce and a rear wing that really stalls; altitude, air temperature and wind. The HUD shows each tyre's tread temperature and camber, plus the downforce and drag. Slicks are slow until they are warm (or use tyre warmers), and too little brake balance spins the car. Setups are saved per car and can be shared as .json files.</p>
+    <h2>Two-wheelers</h2>
+    <div class="row"><button id="bBar" aria-pressed="false" title="L">Bar-torque steering</button></div>
+    <details class="more"><summary>More</summary><p class="note">Pick the bicycle, e-scooter or motorcycle above. By default the steer input asks for a <b>lean angle</b> and the virtual rider finds the handlebar torque, counter-steer included: to go left at speed the bars first turn right, watch the steering bar. <b>Bar-torque steering</b> (<kbd>L</kbd>) gives you the handlebar directly: push left to lean right. Hard, real, best with mouse steering. Brake = both brakes, handbrake (<kbd>Space</kbd>) = rear brake only. Presets: Fun = ABS, traction and wheelie control; Sport = ABS; Simulation = nothing; <kbd>4</kbd> = wheelie assist (hold the throttle, the front stays up). Full throttle on the motorcycle without it loops the bike. The tyres lean (camber thrust, rounded crown); there's no suspension or gearbox yet, and a crash stops the ride for 2 s.</p></details>
 
-  <h2>Showcases</h2>
-  <div class="row">
-    <button id="bTunnel" title="The car on a rolling road in a wind tunnel">Wind tunnel</button>
-    <button id="bFlow" aria-pressed="false" title="V: off, streamlines, smoke">Airflow</button>
-    <button id="bTelemetry" aria-pressed="false" title="P: suspension, tyres, aero, g-forces, drivetrain">Telemetry</button>
-    <button id="bReplay" title="` (backquote): the last 25 s in slow motion">Replay</button>
-  </div>
-  <div class="row" style="margin-top:6px" role="group" aria-label="Slow motion">
-    <span class="lbl">Slow motion</span><button data-time="1" aria-pressed="true">1×</button><button data-time="0.5">½×</button><button data-time="0.25">¼×</button><button data-time="0.1">0.1×</button><button data-time="0.05">0.05×</button>
-  </div>
-  <div class="row" style="margin-top:6px">
-    <button id="bOverlay" aria-pressed="false" title="O">Physics overlay</button>
-    <button id="bRewind" title="Hold Backspace (or hold this) to rewind">⟲ Hold to rewind</button>
-    <button id="bGhost" aria-pressed="true" title="N">Ghost</button>
-    <button id="bShare" title="Copy a link to this car, its setup, the weather and the place">Share link</button>
-  </div>
-  <div class="row" style="margin-top:6px">
-    <button id="bShadow" aria-pressed="false" title="J">Shadow car</button>
-    <select id="shadowCar" aria-label="Shadow car"><option value="-1">Stock version of this car</option></select>
-  </div>
-  <div class="row" style="margin-top:6px" role="group" aria-label="Weather">
-    <button data-rain="0" aria-pressed="true" title="I cycles">Dry</button><button data-rain="1">Drizzle</button><button data-rain="2">Rain</button><button data-rain="3">Downpour</button>
-  </div>
-  <p class="note"><b>Wind tunnel</b>: the car on a rolling road (it really drives at the tunnel's speed, held in place), a cross wind for yaw; the panel shows the physics' own downforce front and rear, the wing, drag, CdA, ClA, balance, L/D and the floor clearance and stall. <b>Airflow</b> (<kbd>V</kbd>, also while you drive): streamlines released ahead of the car, or smoke from a wand, through a field built to carry the drag and downforce the physics reports this frame: the car as an equivalent body over the road, each downforce element (floor at each axle, rear wing) a vortex system with its ground image, and a wake that carries the drag. Colour is local air speed (grey: undisturbed). It shows where the air goes and how hard the car works it, not CFD of its surfaces. <b>Telemetry</b> (<kbd>P</kbd> for the next page): suspension travel, damper speed and load per corner, tyre temperature, slip and grip used, aero, a g-g diagram, drivetrain, with 5 s traces. <b>Slow motion</b> (<kbd>[</kbd> <kbd>]</kbd>): the whole world runs slower, physics included. <b>Replay</b> (<kbd>`</kbd>): the last 25 s at down to 0.05×, smooth between frames, scrub and orbit, the telemetry following; <i>Drive from here</i> carries on from the frame shown.</p>
-  <p class="note"><b>Physics overlay</b> (<kbd>O</kbd>): each tyre's friction circle (how much force it can give at its load) and the force it gives now, the loads, the g vector, the roll centres and the roll axis. <b>Rewind</b>: hold <kbd>Backspace</kbd>; let go and you carry on from that moment (the physics is deterministic, so the replay is exact). <b>Ghost</b> (<kbd>N</kbd>): your last run from the same start drives beside you. <b>Shadow car</b> (<kbd>J</kbd>): a second car driven by your exact inputs, the stock version of yours or another model, through nothing: your setup against stock, same hands. <b>Rain</b> (<kbd>I</kbd>): wet grip, a water film, slick paint and cobbles, and puddles that can make a tyre hydroplane (water deeper than the tread clears, near 0.5-1 × the hydroplaning speed, Horne's 6.35 √p km/h) and pull the car toward them. <b>Share link</b>: this car, its setup, the weather and the place.</p>
-  <h2>Moose test</h2>
-  <div class="row">
-    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute)">Robot <input id="mooseSpeed" type="range" min="40" max="110" step="1" value="70" style="width:110px"> <b id="mooseSpeedV" style="color:var(--ink)">70 km/h</b></label>
-  </div>
-  <div class="row" style="margin-top:6px"><button id="bMooseRun">Robot run</button><button id="bMooseLadder">Speed ladder</button><button id="bMooseStop">Stop</button></div>
-  <p class="note">ISO 3888-2 double lane change, the lane sized to your car's width. Drive in at a steady speed and lift off at the yellow line, or let the robot test driver do it (pure-pursuit steering, throttle released at the gate as the standard asks). The ladder raises the speed 4 km/h a run until a cone falls or the car rolls. Results are kept per car: try the 911 against the 4.2 t S 600 Guard.</p>
-  <h2>Crash lab</h2>
-  <div class="row"><select id="labTest" aria-label="Crash test"></select><button id="bLabRun">Run test</button></div>
-  <p class="note">The car goes on a sled at the test speed into the rigid barrier or, for the side test, the pole, on its full node/beam crash structure whatever the Damage setting. Every 1/360 s step is recorded, the structure's shape with it, and the impact replays at a tenth of real speed: the nose folds as the car stops. Then the report: chest, HIC15, head, excursion and injury risk per seat, the crush and any cabin intrusion, and the pulse, measured from the car's own deceleration (the dummies ride exactly that). Leave the lab and your Damage setting comes back. <kbd>F</kbd> repairs.</p>
-  <h2>Stunt park</h2>
-  <div class="row"><button id="bLoopAssist" aria-pressed="true">Loop assist</button></div>
-  <p class="note">North of the smash lanes (Go to: Stunt). Two kickers (1.5 m and 3 m) with landing ramps, a half-pipe with 50° walls and parapets, and a 36 m clothoid loop that gets a road car over the top at ~100 km/h with about 4 g of centripetal acceleration at the bottom (a circular loop needs over 6 g); with gravity and the suspension settling, the toast's felt peak reads higher. Airtime, jump length and landing g after every jump. The loop is drawn on the inside of a cylinder and shifts sideways so the way in and out pass side by side; the assist steers the small corrections to stay on it.</p>
+    <h2>Sound</h2>
+    <div class="row"><button id="bSound" aria-pressed="true" title="M">Sound on</button>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)">Volume <input id="vol" type="range" min="0" max="100" value="80" style="width:110px"></label></div>
+    <details class="more"><summary>More</summary><p class="note">Synthesized flat-plane V8 (no recordings): every firing pulse is generated from the engine rpm and load, with tyre squeal from the physics' slip, wind and road noise. The Bonnet camera hears it from the cabin.</p></details>
 
-  <h2>Damage</h2>
-  <div class="row">
-    <button data-damage="cosmetic" aria-pressed="true" title="Game-like: dents and scuffs, the car always drives on">Cosmetic</button>
-    <button data-damage="realistic" aria-pressed="false" title="The crash structure crushes and parts break">Realistic</button>
-    <button data-damage="off" aria-pressed="false">Off</button>
-    <button id="bRepair" title="F">Repair</button>
-    <button id="bCrashSlow" aria-pressed="true" title="Realistic: a big hit plays at a quarter speed for ~2 s">Crash slow-mo</button>
-  </div>
-  <p class="note"><b>Cosmetic</b> is the game setting: hits leave shallow dents (a few centimetres, never folding the body in), there is no injury report, a car left on its side or roof is put back on its wheels by itself, and the car always drives the same. <b>Realistic</b> is the full model: the car's body is a node/beam crash structure (about 110 nodes, 380 elastic-plastic beams that yield, harden and tear) solved with the physics, so the nose crushes as it soaks up the hit and the car decelerates over the crush (about 0.5 m and 27 g into a rigid wall at 56 km/h), the roof caves in a rollover, a pole bites into a door. And parts break: a hard corner hit bends the suspension (the car pulls), tears a wheel off, pinches a tyre flat on a kerb; a crushed radiator leaks, the engine runs hot, loses power and seizes; a bent rack steers off-centre. The panel on the left lists what is broken. <kbd>F</kbd> repairs; Go to gives you a new car. <b>Crash slow-mo</b>: a big hit plays at a quarter speed for about two seconds, then eases back.</p>
+  </section>
+  <section class="tab" data-tab="damage" role="tabpanel" aria-label="Damage" hidden>
+    <h2>Damage</h2>
+    <div class="row">
+      <button data-damage="cosmetic" aria-pressed="true" title="Game-like: dents and scuffs, the car always drives on">Cosmetic</button>
+      <button data-damage="realistic" aria-pressed="false" title="The crash structure crushes and parts break">Realistic</button>
+      <button data-damage="off" aria-pressed="false">Off</button>
+      <button id="bRepair" title="F">Repair</button>
+      <button id="bCrashSlow" aria-pressed="true" title="Realistic: a big hit plays at a quarter speed for ~2 s">Crash slow-mo</button>
+    </div>
+    <details class="more"><summary>More</summary><p class="note"><b>Cosmetic</b> is the game setting: hits leave shallow dents (a few centimetres, never folding the body in), there is no injury report, a car left on its side or roof is put back on its wheels by itself, and the car always drives the same. <b>Realistic</b> is the full model: the car's body is a node/beam crash structure (about 110 nodes, 380 elastic-plastic beams that yield, harden and tear) solved with the physics, so the nose crushes as it soaks up the hit and the car decelerates over the crush (about 0.5 m and 27 g into a rigid wall at 56 km/h), the roof caves in a rollover, a pole bites into a door. And parts break: a hard corner hit bends the suspension (the car pulls), tears a wheel off, pinches a tyre flat on a kerb; a crushed radiator leaks, the engine runs hot, loses power and seizes; a bent rack steers off-centre. The panel on the left lists what is broken. <kbd>F</kbd> repairs; Go to gives you a new car. <b>Crash slow-mo</b>: a big hit plays at a quarter speed for about two seconds, then eases back.</p></details>
 
-  <h2>Crash dummies</h2>
-  <div class="row">
-    <button id="bDummies" aria-pressed="true" title="Two crash test dummies in the front seats">Dummies</button>
-    <button id="bBelt" aria-pressed="true">Seat belts</button>
-    <button id="bAirbag" aria-pressed="true">Airbags</button>
-    <button id="bXray" aria-pressed="false" title="See-through body">See-through</button>
-  </div>
-  <p class="note">Speed doesn't hurt; suddenly stopping does. Each hit's speed change becomes the crash pulse a crumple zone would give (front ~0.9 m of crush, sides ~0.3 m), and each dummy (torso + head on a neck, belt, airbags, door, wheel and dash) rides it out. The report gives chest g (3 ms), the Head Injury Criterion (HIC15) and the risk of life-threatening injury from NHTSA's published risk curves, plus a delta-V fatality statistic (Joksch). A game estimate that ranks crashes sensibly, not a validated crash test. Try the <b>Crash barrier</b> on the test track (Go to), belted and unbelted. The <b>Smash</b> lanes next to it end in walls that give way: a glass storefront breaks at a walking pace and barely slows you, a hollow-block wall holds below ~20 km/h and is breached above it, a double-brick wall needs ~45 km/h. Each is three sections, so you punch a hole and leave the rest; a wall that holds is weakened, and ramming again brings it down. The dummies feel only the speed you actually lose. <kbd>R</kbd> rebuilds the walls.</p>
+    <h2>Crash dummies</h2>
+    <div class="row">
+      <button id="bDummies" aria-pressed="true" title="Two crash test dummies in the front seats">Dummies</button>
+      <button id="bBelt" aria-pressed="true">Seat belts</button>
+      <button id="bAirbag" aria-pressed="true">Airbags</button>
+      <button id="bXray" aria-pressed="false" title="See-through body">See-through</button>
+    </div>
+    <details class="more"><summary>More</summary><p class="note">Speed doesn't hurt; suddenly stopping does. Each hit's speed change becomes the crash pulse a crumple zone would give (front ~0.9 m of crush, sides ~0.3 m), and each dummy (torso + head on a neck, belt, airbags, door, wheel and dash) rides it out. The report gives chest g (3 ms), the Head Injury Criterion (HIC15) and the risk of life-threatening injury from NHTSA's published risk curves, plus a delta-V fatality statistic (Joksch). A game estimate that ranks crashes sensibly, not a validated crash test. Try the <b>Crash barrier</b> on the test track (Go to), belted and unbelted. The <b>Smash</b> lanes next to it end in walls that give way: a glass storefront breaks at a walking pace and barely slows you, a hollow-block wall holds below ~20 km/h and is breached above it, a double-brick wall needs ~45 km/h. Each is three sections, so you punch a hole and leave the rest; a wall that holds is weakened, and ramming again brings it down. The dummies feel only the speed you actually lose. <kbd>R</kbd> rebuilds the walls.</p></details>
 
-  <h2>Two-wheelers</h2>
-  <div class="row"><button id="bBar" aria-pressed="false" title="L">Bar-torque steering</button></div>
-  <p class="note">Pick the bicycle, e-scooter or motorcycle above. By default the steer input asks for a <b>lean angle</b> and the virtual rider finds the handlebar torque, counter-steer included: to go left at speed the bars first turn right, watch the steering bar. <b>Bar-torque steering</b> (<kbd>L</kbd>) gives you the handlebar directly: push left to lean right. Hard, real, best with mouse steering. Brake = both brakes, handbrake (<kbd>Space</kbd>) = rear brake only. Presets: Fun = ABS, traction and wheelie control; Sport = ABS; Simulation = nothing; <kbd>4</kbd> = wheelie assist (hold the throttle, the front stays up). Full throttle on the motorcycle without it loops the bike. The tyres lean (camber thrust, rounded crown); there's no suspension or gearbox yet, and a crash stops the ride for 2 s.</p>
+    <h2>Crash lab</h2>
+    <div class="row"><select id="labTest" aria-label="Crash test"></select><button id="bLabRun">Run test</button></div>
+    <details class="more"><summary>More</summary><p class="note">The car goes on a sled at the test speed into the rigid barrier or, for the side test, the pole, on its full node/beam crash structure whatever the Damage setting. Every 1/360 s step is recorded, the structure's shape with it, and the impact replays at a tenth of real speed: the nose folds as the car stops. Then the report: chest, HIC15, head, excursion and injury risk per seat, the crush and any cabin intrusion, and the pulse, measured from the car's own deceleration (the dummies ride exactly that). Leave the lab and your Damage setting comes back. <kbd>F</kbd> repairs.</p></details>
+  </section>
+  <section class="tab" data-tab="world" role="tabpanel" aria-label="World" hidden>
+    <h2>World</h2>
+    <div class="row"><button id="wCity">São Paulo · MASP</button><button id="wTrack">Test track</button></div>
+    <div class="row" id="trafficRow" style="margin-top:6px" role="group" aria-label="Traffic" hidden>
+      <span class="lbl">Traffic</span><button data-traffic="off" aria-pressed="true">Off</button><button data-traffic="light">Light</button><button data-traffic="normal">Normal</button><button data-traffic="heavy">Heavy</button>
+    </div>
+    <details class="more" id="trafficNote" hidden><summary>More</summary><p class="note">The site's traffic AI on the Paulista lane graph: signals, buses, motorcycles in the corridor, drivers with personalities. They see your car, keep their distance behind it and change lanes around it. Hit one and it is knocked loose by the physics and left where it stops; traffic queues and changes lanes around the wreck, which clears after 30 s.</p></details>
 
-  <h2>World</h2>
-  <div class="row"><button id="wCity">São Paulo · MASP</button><button id="wTrack">Test track</button></div>
-  <div class="row" id="trafficRow" style="margin-top:6px" role="group" aria-label="Traffic" hidden>
-    <span class="lbl">Traffic</span><button data-traffic="off" aria-pressed="true">Off</button><button data-traffic="light">Light</button><button data-traffic="normal">Normal</button><button data-traffic="heavy">Heavy</button>
-  </div>
-  <p class="note" id="trafficNote" hidden>The site's traffic AI on the Paulista lane graph: signals, buses, motorcycles in the corridor, drivers with personalities. They see your car, keep their distance behind it and change lanes around it. Hit one and it is knocked loose by the physics and left where it stops; traffic queues and changes lanes around the wreck, which clears after 30 s.</p>
+    <h2>Weather</h2>
+    <div class="row" role="group" aria-label="Weather">
+      <button data-rain="0" aria-pressed="true" title="I cycles">Dry</button><button data-rain="1">Drizzle</button><button data-rain="2">Rain</button><button data-rain="3">Downpour</button>
+    </div>
+    <p class="note">Wet grip, a water film, slick paint and cobbles, and puddles that can make a tyre hydroplane. <kbd>I</kbd> cycles.</p>
+    <h2>Go to</h2>
+    <div class="row" id="zones"></div>
 
-  <h2>Go to</h2>
-  <div class="row" id="zones"></div>
+    <h2>Moose test</h2>
+    <div class="row">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute)">Robot <input id="mooseSpeed" type="range" min="40" max="110" step="1" value="70" style="width:110px"> <b id="mooseSpeedV" style="color:var(--ink)">70 km/h</b></label>
+    </div>
+    <div class="row" style="margin-top:6px"><button id="bMooseRun">Robot run</button><button id="bMooseLadder">Speed ladder</button><button id="bMooseStop">Stop</button></div>
+    <details class="more"><summary>More</summary><p class="note">ISO 3888-2 double lane change, the lane sized to your car's width. Drive in at a steady speed and lift off at the yellow line, or let the robot test driver do it (pure-pursuit steering, throttle released at the gate as the standard asks). The ladder raises the speed 4 km/h a run until a cone falls or the car rolls. Results are kept per car: try the 911 against the 4.2 t S 600 Guard.</p></details>
+    <h2>Stunt park</h2>
+    <div class="row"><button id="bLoopAssist" aria-pressed="true">Loop assist</button></div>
+    <details class="more"><summary>More</summary><p class="note">North of the smash lanes (Go to: Stunt). Two kickers (1.5 m and 3 m) with landing ramps, a half-pipe with 50° walls and parapets, and a 36 m clothoid loop that gets a road car over the top at ~100 km/h with about 4 g of centripetal acceleration at the bottom (a circular loop needs over 6 g); with gravity and the suspension settling, the toast's felt peak reads higher. Airtime, jump length and landing g after every jump. The loop is drawn on the inside of a cylinder and shifts sideways so the way in and out pass side by side; the assist steers the small corrections to stay on it.</p></details>
 
-  <h2>Telemetry</h2>
-  <div class="row"><button id="bRec" aria-pressed="false">Record CSV</button><button id="bCsv" disabled>Download</button></div>
-  <p class="note" id="recNote">Records every frame: speed, g-forces, inputs, rpm and per-wheel load and slip.</p>
+  </section>
+  <section class="tab" data-tab="tools" role="tabpanel" aria-label="Tools" hidden>
+    <h2>Showcases</h2>
+    <div class="row">
+      <button id="bTunnel" title="The car on a rolling road in a wind tunnel">Wind tunnel</button>
+      <button id="bFlow" aria-pressed="false" title="V: off, streamlines, smoke">Airflow</button>
+      <button id="bTelemetry" aria-pressed="false" title="P: suspension, tyres, aero, g-forces, drivetrain">Telemetry</button>
+      <button id="bReplay" title="` (backquote): the last 25 s in slow motion">Replay</button>
+    </div>
+    <div class="row" style="margin-top:6px" role="group" aria-label="Slow motion">
+      <span class="lbl">Slow motion</span><button data-time="1" aria-pressed="true">1×</button><button data-time="0.5">½×</button><button data-time="0.25">¼×</button><button data-time="0.1">0.1×</button><button data-time="0.05">0.05×</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button id="bOverlay" aria-pressed="false" title="O">Physics overlay</button>
+      <button id="bRewind" title="Hold Backspace (or hold this) to rewind">⟲ Hold to rewind</button>
+      <button id="bGhost" aria-pressed="true" title="N">Ghost</button>
+      <button id="bShare" title="Copy a link to this car, its setup, the weather and the place">Share link</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button id="bShadow" aria-pressed="false" title="J">Shadow car</button>
+      <select id="shadowCar" aria-label="Shadow car"><option value="-1">Stock version of this car</option></select>
+    </div>
+    <details class="more"><summary>More</summary><p class="note"><b>Wind tunnel</b>: the car on a rolling road (it really drives at the tunnel's speed, held in place), a cross wind for yaw; the panel shows the physics' own downforce front and rear, the wing, drag, CdA, ClA, balance, L/D and the floor clearance and stall. <b>Airflow</b> (<kbd>V</kbd>, also while you drive): streamlines released ahead of the car, or smoke from a wand, through a field built to carry the drag and downforce the physics reports this frame: the car as an equivalent body over the road, each downforce element (floor at each axle, rear wing) a vortex system with its ground image, and a wake that carries the drag. Colour is local air speed (grey: undisturbed). It shows where the air goes and how hard the car works it, not CFD of its surfaces. <b>Telemetry</b> (<kbd>P</kbd> for the next page): suspension travel, damper speed and load per corner, tyre temperature, slip and grip used, aero, a g-g diagram, drivetrain, with 5 s traces. <b>Slow motion</b> (<kbd>[</kbd> <kbd>]</kbd>): the whole world runs slower, physics included. <b>Replay</b> (<kbd>`</kbd>): the last 25 s at down to 0.05×, smooth between frames, scrub and orbit, the telemetry following; <i>Drive from here</i> carries on from the frame shown.</p></details>
+    <details class="more"><summary>More</summary><p class="note"><b>Physics overlay</b> (<kbd>O</kbd>): each tyre's friction circle (how much force it can give at its load) and the force it gives now, the loads, the g vector, the roll centres and the roll axis. <b>Rewind</b>: hold <kbd>Backspace</kbd>; let go and you carry on from that moment (the physics is deterministic, so the replay is exact). <b>Ghost</b> (<kbd>N</kbd>): your last run from the same start drives beside you. <b>Shadow car</b> (<kbd>J</kbd>): a second car driven by your exact inputs, the stock version of yours or another model, through nothing: your setup against stock, same hands. <b>Rain</b> (<kbd>I</kbd>): wet grip, a water film, slick paint and cobbles, and puddles that can make a tyre hydroplane (water deeper than the tread clears, near 0.5-1 × the hydroplaning speed, Horne's 6.35 √p km/h) and pull the car toward them. <b>Share link</b>: this car, its setup, the weather and the place.</p></details>
+    <h2>Telemetry</h2>
+    <div class="row"><button id="bRec" aria-pressed="false">Record CSV</button><button id="bCsv" disabled>Download</button></div>
+    <p class="note" id="recNote">Records every frame: speed, g-forces, inputs, rpm and per-wheel load and slip.</p>
 
-  <h2>Mouse steering</h2>
-  <div class="row"><button id="bMouse" aria-pressed="false" title="K">Mouse steering</button></div>
-  <label class="note" style="display:flex;align-items:center;gap:8px">Sensitivity <input id="mSens" type="range" min="0.3" max="3" step="0.05" value="1" style="flex:1" aria-label="Mouse steering sensitivity"></label>
-  <label class="note" style="display:flex;align-items:center;gap:8px"><input id="mCentre" type="checkbox"> Self-centring (off = the wheel stays where you leave it)</label>
-  <p class="note">Click the view to grab the mouse: move left/right to turn the wheel, left button = throttle, right button = brake, middle button or <kbd>Z</kbd> centres the wheel, <kbd>Esc</kbd> lets go. Best with Simulation (<kbd>3</kbd>) for realistic, unfiltered steering.</p>
+  </section>
+  <section class="tab" data-tab="controls" role="tabpanel" aria-label="Controls" hidden>
+    <h2>Controller</h2>
+    <p class="note" id="padStatus">No controller: connect one and press any button.</p>
+    <label class="note" style="display:flex;align-items:center;gap:8px">Steering curve <input id="padCurve" type="range" min="1" max="2.5" step="0.1" value="1.3" style="flex:1" aria-label="Controller steering curve (1 = linear)"></label>
+    <label class="note" style="display:flex;align-items:center;gap:8px">Stick dead zone <input id="padDead" type="range" min="0.02" max="0.3" step="0.01" value="0.1" style="flex:1" aria-label="Controller stick dead zone"></label>
+    <label class="note" style="display:flex;align-items:center;gap:8px"><input id="padRumble" type="checkbox" checked> Vibration (hits, wheelspin and sliding, ABS)</label>
+    <div class="keys">
+      <span><kbd data-pad="LS">Left stick</kbd></span><span>Steer</span>
+      <span><kbd data-pad="RT">RT</kbd> · <kbd data-pad="LT">LT</kbd></span><span>Throttle · brake, both analog: squeeze for part throttle or a light brake (reverse when stopped)</span>
+      <span><kbd data-pad="B">B</kbd> · <kbd data-pad="A">A</kbd></span><span>Shift up · down (switches to manual; also <kbd data-pad="RB">RB</kbd> · <kbd data-pad="LB">LB</kbd>)</span>
+      <span><kbd data-pad="X">X</kbd></span><span>Handbrake</span>
+      <span><kbd data-pad="Y">Y</kbd> (hold)</span><span>Rewind</span>
+      <span><kbd data-pad="RS">Right stick</kbd> · <kbd data-pad="R3">RS click</kbd></span><span>Look around · look back</span>
+      <span><kbd data-pad="VIEW">View</kbd></span><span>Camera</span>
+      <span><kbd data-pad="MENU">Menu</kbd></span><span>This menu: <kbd data-pad="DPAD">D-pad</kbd> moves, left / right change a setting, <kbd data-pad="A">A</kbd> presses, <kbd data-pad="B">B</kbd> goes back, <kbd data-pad="LB">LB</kbd> / <kbd data-pad="RB">RB</kbd> change tab</span>
+      <span><kbd data-pad="DPAD">D-pad</kbd></span><span>Up telemetry · down reset · left / right slow motion</span>
+      <span><kbd data-pad="L3">LS click</kbd></span><span>Replay: <kbd data-pad="A">A</kbd> play / pause, triggers or left stick scrub, D-pad speed, <kbd data-pad="X">X</kbd> drive from here, <kbd data-pad="B">B</kbd> exit</span>
+    </div>
+    <details class="more"><summary>More</summary><p class="note">Xbox and PlayStation controllers work in Chrome and Edge (USB or Bluetooth; Safari and Firefox read Xbox pads, PlayStation ones vary). Press any button after plugging in: browsers only show a controller once it has been used on the page. Vibration needs Chrome or Edge. In the wind tunnel <kbd data-pad="B">B</kbd> leaves.</p></details>
 
-  <h2>Controller</h2>
-  <p class="note" id="padStatus">No controller: connect one and press any button.</p>
-  <label class="note" style="display:flex;align-items:center;gap:8px">Steering curve <input id="padCurve" type="range" min="1" max="2.5" step="0.1" value="1.3" style="flex:1" aria-label="Controller steering curve (1 = linear)"></label>
-  <label class="note" style="display:flex;align-items:center;gap:8px">Stick dead zone <input id="padDead" type="range" min="0.02" max="0.3" step="0.01" value="0.1" style="flex:1" aria-label="Controller stick dead zone"></label>
-  <label class="note" style="display:flex;align-items:center;gap:8px"><input id="padRumble" type="checkbox" checked> Vibration (hits, wheelspin and sliding, ABS)</label>
-  <div class="keys">
-    <span><kbd data-pad="LS">Left stick</kbd></span><span>Steer</span>
-    <span><kbd data-pad="RT">RT</kbd> · <kbd data-pad="LT">LT</kbd></span><span>Throttle · brake, both analog: squeeze for part throttle or a light brake (reverse when stopped)</span>
-    <span><kbd data-pad="B">B</kbd> · <kbd data-pad="A">A</kbd></span><span>Shift up · down (switches to manual; also <kbd data-pad="RB">RB</kbd> · <kbd data-pad="LB">LB</kbd>)</span>
-    <span><kbd data-pad="X">X</kbd></span><span>Handbrake</span>
-    <span><kbd data-pad="Y">Y</kbd> (hold)</span><span>Rewind</span>
-    <span><kbd data-pad="RS">Right stick</kbd> · <kbd data-pad="R3">RS click</kbd></span><span>Look around · look back</span>
-    <span><kbd data-pad="VIEW">View</kbd></span><span>Camera</span>
-    <span><kbd data-pad="MENU">Menu</kbd></span><span>This menu: <kbd data-pad="DPAD">D-pad</kbd> moves, left / right change a setting, <kbd data-pad="A">A</kbd> presses, <kbd data-pad="B">B</kbd> goes back</span>
-    <span><kbd data-pad="DPAD">D-pad</kbd></span><span>Up telemetry · down reset · left / right slow motion</span>
-    <span><kbd data-pad="L3">LS click</kbd></span><span>Replay: <kbd data-pad="A">A</kbd> play / pause, triggers or left stick scrub, D-pad speed, <kbd data-pad="X">X</kbd> drive from here, <kbd data-pad="B">B</kbd> exit</span>
-  </div>
-  <p class="note">Xbox and PlayStation controllers work in Chrome and Edge (USB or Bluetooth; Safari and Firefox read Xbox pads, PlayStation ones vary). Press any button after plugging in: browsers only show a controller once it has been used on the page. Vibration needs Chrome or Edge. In the wind tunnel <kbd data-pad="B">B</kbd> leaves.</p>
+    <h2>Mouse steering</h2>
+    <div class="row"><button id="bMouse" aria-pressed="false" title="K">Mouse steering</button></div>
+    <label class="note" style="display:flex;align-items:center;gap:8px">Sensitivity <input id="mSens" type="range" min="0.3" max="3" step="0.05" value="1" style="flex:1" aria-label="Mouse steering sensitivity"></label>
+    <label class="note" style="display:flex;align-items:center;gap:8px"><input id="mCentre" type="checkbox"> Self-centring (off = the wheel stays where you leave it)</label>
+    <details class="more"><summary>More</summary><p class="note">Click the view to grab the mouse: move left/right to turn the wheel, left button = throttle, right button = brake, middle button or <kbd>Z</kbd> centres the wheel, <kbd>Esc</kbd> lets go. Best with Simulation (<kbd>3</kbd>) for realistic, unfiltered steering.</p></details>
 
-  <h2>Controls</h2>
-  <div class="keys">
-    <span><kbd>W</kbd> <kbd>↑</kbd></span><span>Throttle</span>
-    <span><kbd>S</kbd> <kbd>↓</kbd></span><span>Brake (reverse when stopped)</span>
-    <span><kbd>A</kbd><kbd>D</kbd> <kbd>←</kbd><kbd>→</kbd></span><span>Steer</span>
-    <span><kbd>Space</kbd></span><span>Handbrake</span>
-    <span><kbd>+</kbd> / <kbd>−</kbd> · <kbd>E</kbd> / <kbd>Q</kbd></span><span>Shift up / down (switches to manual; <kbd>G</kbd> back to automatic)</span>
-    <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></span><span>Fun / Sport / Simulation / Drift</span>
-    <span><kbd>X</kbd></span><span>Drift assist on / off (any preset)</span>
-    <span><kbd>R</kbd> · <kbd>C</kbd> · <kbd>H</kbd></span><span>Reset (a car on its side or roof is put back on its wheels where it is) · camera · panel</span>
-    <span><kbd>F</kbd></span><span>Repair the car</span>
-    <span><kbd>V</kbd> · <kbd>P</kbd></span><span>Airflow (streamlines, smoke) · telemetry pages</span>
-    <span><kbd>[</kbd> <kbd>]</kbd> · <kbd>`</kbd></span><span>Slow motion slower / faster · replay the last 25 s</span>
-    <span><kbd>U</kbd></span><span>Tuning garage</span>
-    <span><kbd>M</kbd></span><span>Sound on / off</span>
-    <span><kbd>K</kbd> · <kbd>Z</kbd></span><span>Mouse steering on / off · centre the wheel</span>
-    <span><kbd>L</kbd></span><span>Two-wheelers: lean steering / bar-torque steering</span>
-    <span>Mouse</span><span>Drag the view to orbit the car (free camera), scroll to zoom</span>
-    <span>Controller</span><span>See Controller above</span>
-  </div>
-  <p class="note">Physics: the OpenRoad Dynamics core (the same C++ the game will use) compiled to WebAssembly, stepping at 360 Hz (two-wheelers at 500 Hz). Tire, suspension, drivetrain and aids are fully simulated; the car models here are fictional reference cars. This page doesn't run Unreal Engine or Chaos.</p>
+    <h2>Controls</h2>
+    <div class="keys">
+      <span><kbd>W</kbd> <kbd>↑</kbd></span><span>Throttle</span>
+      <span><kbd>S</kbd> <kbd>↓</kbd></span><span>Brake (reverse when stopped)</span>
+      <span><kbd>A</kbd><kbd>D</kbd> <kbd>←</kbd><kbd>→</kbd></span><span>Steer</span>
+      <span><kbd>Space</kbd></span><span>Handbrake</span>
+      <span><kbd>+</kbd> / <kbd>−</kbd> · <kbd>E</kbd> / <kbd>Q</kbd></span><span>Shift up / down (switches to manual; <kbd>G</kbd> back to automatic)</span>
+      <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></span><span>Fun / Sport / Simulation / Drift</span>
+      <span><kbd>X</kbd></span><span>Drift assist on / off (any preset)</span>
+      <span><kbd>R</kbd> · <kbd>C</kbd> · <kbd>H</kbd></span><span>Reset (a car on its side or roof is put back on its wheels where it is) · camera · panel</span>
+      <span><kbd>F</kbd></span><span>Repair the car</span>
+      <span><kbd>V</kbd> · <kbd>P</kbd></span><span>Airflow (streamlines, smoke) · telemetry pages</span>
+      <span><kbd>[</kbd> <kbd>]</kbd> · <kbd>`</kbd></span><span>Slow motion slower / faster · replay the last 25 s</span>
+      <span><kbd>U</kbd></span><span>Tuning garage</span>
+      <span><kbd>M</kbd></span><span>Sound on / off</span>
+      <span><kbd>K</kbd> · <kbd>Z</kbd></span><span>Mouse steering on / off · centre the wheel</span>
+      <span><kbd>L</kbd></span><span>Two-wheelers: lean steering / bar-torque steering</span>
+      <span>Mouse</span><span>Drag the view to orbit the car (free camera), scroll to zoom</span>
+      <span>Controller</span><span>See Controller (this tab)</span>
+    </div>
+    <details class="more"><summary>More</summary><p class="note">Physics: the OpenRoad Dynamics core (the same C++ the game will use) compiled to WebAssembly, stepping at 360 Hz (two-wheelers at 500 Hz). Tire, suspension, drivetrain and aids are fully simulated; the car models here are fictional reference cars. This page doesn't run Unreal Engine or Chaos.</p></details>
+
+  </section>
 </aside>
 
 <div id="hud">
