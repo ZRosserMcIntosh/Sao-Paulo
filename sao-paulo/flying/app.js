@@ -2643,7 +2643,7 @@ function cabinLights(cab, dark) {
   for (const q of cab.nightParts) {
     if (q.panel !== undefined) q.m.emissiveIntensity = q.panel + dark * (glass ? 0.9 - q.panel : lit ? 0.5 : -0.14);
     else if (q.basic) q.m.color.setScalar(1 - dark * (lit ? 0.35 : 0.75));
-    else q.m.emissive.copy(q.tint).multiplyScalar(dark * (lit ? 0.04 : 0.015));
+    else { q.m.color.copy(q.tint).multiplyScalar(1 - 0.55 * dark); q.m.emissive.copy(q.tint).multiplyScalar(dark * (lit ? 0.02 : 0.008)); }  // (less of the sky's light reaches in)
   }
 }
 let nightT = 1, nightDark = -1, nightWarm = false;
