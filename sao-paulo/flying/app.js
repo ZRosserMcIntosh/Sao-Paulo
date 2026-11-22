@@ -23,6 +23,7 @@ import { buildGround } from './ground.js';
 import { buildCrash } from './crash.js';
 import { buildIce } from './ice.js';
 import { buildRain } from './rain.js';
+import { initPlay } from './play.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -46,7 +47,11 @@ const LANDMARKS = [
 const loadMsg = (t) => { $('loadMsg').textContent = t; };
 const toastEl = $('toast');
 let toastT = 0;
-function toast(msg, sec = 3.5) { toastEl.textContent = msg; toastEl.classList.add('on'); toastT = sec; }
+let play = null;  // the game layer (play.js), once the page is up; its hooks here are marked "Play:"
+function toast(msg, sec = 3.5) {
+  if (play?.hush(msg, sec)) return;  // Play: Casual shows no simulator messages
+  toastEl.textContent = msg; toastEl.classList.add('on'); toastT = sec;
+}
 
 // ---------- Aircraft ----------
 // Chase distance, camera target and pilot's eye in body FLU metres from each datum.
@@ -2166,7 +2171,7 @@ function showPrompt(pr) {
 function checkPrompts() {
   const now = performance.now(), dt = clamp((now - (PROMPT.at || now)) / 1000, 0, 1);
   PROMPT.at = now;
-  if (ui.assist === 2 || ui.crashed) { PROMPT.st.clear(); if (PROMPT.cur) showPrompt(null); return; }
+  if (ui.assist === 2 || ui.crashed || play?.casual) { PROMPT.st.clear(); if (PROMPT.cur) showPrompt(null); return; }  // (Play: none in Casual)
   // Since when (simulation time) the carburettor has been free of ice with the heat on.
   PROMPT.carbClear = icing?.carburettor && controlPos('engine1.carb_heat') && icing.carbIceG < 0.01 ? PROMPT.carbClear ?? s[42] : null;
   const st = PROMPT.st, list = promptList((id) => !!st.get(id)?.up);
@@ -2417,6 +2422,7 @@ function drawLabels() {
 function handleEvents() {
   const plain = [];  // this frame's other events, one toast between them
   for (const e of A.events()) {
+    play?.event(e);  // Play: the landing score, and why a Casual flight ended
     if (e.startsWith('Touchdown')) {
       const fpm = Math.abs(+(e.match(/(-?\d+) fpm/)?.[1] || 0));
       toast(fpm > 600 ? `Hard landing: ${fpm} fpm` : fpm > 300 ? `Touchdown: ${fpm} fpm, firm` : `Touchdown: ${fpm} fpm, smooth`);
@@ -2495,6 +2501,7 @@ function applyProfileUi() {
   $('plateSub').textContent = `Flight test bed · ${P.name}`;
   loadSheet = mountLoadSheet($('loadPanel'), { A, id: P.id, jet: P.jet, store, onApply: () => { restart(ui.start); toast('Restarted with the planned load.', 2); } });
   document.title = `Flight Test Bed · ${P.name}`;
+  play?.label();  // Play: the header's label and the title follow the mode
 }
 async function selectAircraft(id) {
   if (P.id === id) return;
@@ -2540,6 +2547,36 @@ applyProfileUi();
 setAssist(ui.assist);
 setLevel(ui.level, false);
 restart(0);
+
+// ---------- Play: the game layer (play.js) ----------
+// The welcome screen, Casual flying, the challenges and the landing score. It
+// reaches the page through this object and the hooks marked "Play:" (toast,
+// checkPrompts, handleEvents, applyProfileUi, frame); in the simulator modes
+// each of them steps aside.
+// A start of the game layer's own, through the same restart as every other.
+function playSpawn(st) { const own = STARTS; STARTS = [...own, st]; restart(STARTS.length - 1); STARTS = own; }
+// "Land for me": the autoland to that airport's runway into the wind. The simulator's saved destination is left alone.
+function playLandAt(icao) {
+  const keep = store.get('dest', '');
+  chooseApproach({ icao }, preferredApproach(approachesOf({ icao })), false);
+  store.set('dest', keep);
+  setAutoland(true);
+  return autoland;
+}
+// Back from Casual: the simulator's own hazard, front, terrain alerts and destination (its restart applies the rest).
+function playSimRestore() {
+  A.avd_set_wind_hazard(+$('hazard').value); applyFront();
+  if (A.tawsConfig) A.tawsConfig({ cls: -1, dhFt: tawsCfg.dhFt, inhibit: tawsCfg.inhibit });
+  if (store.get('dest', '')) restoreDestination(); else if (DEST) setDestination(-1, 0, false);
+  requestAnimationFrame(applyInstrSize);
+}
+play = initPlay({
+  THREE, A, scene, camera, canvas, store, MOBILE, input, ui, look, PROFILES, RW, AP, groundAt, regionN: REGION_N,
+  state: () => s, jet: () => j, profile: () => P, region: () => REGION, dests: () => DESTS, audio: () => audio.ctx,
+  spawn: playSpawn, restart, selectAircraft, setControl, controlPos, cycleCam, toggleSound,
+  autoland: () => autoland, autolandStatus: () => alStatus, setAutoland, landAt: playLandAt, simRestore: playSimRestore,
+});
+
 $('loading').hidden = true;
 $('loading').style.display = 'none';
 const clock = new THREE.Clock();
@@ -2567,7 +2604,7 @@ function frame() {
   const S = SLOWS[ui.slow], running = !ui.paused && !ui.crashed;
   const simDt = running ? dt / S : 0;
   if (running) {
-    readInputs(dt);
+    if (!play?.inputs(dt)) readInputs(dt);  // Play: in Casual the co-pilot's laws read the player and fly the controls
     // Parking brake: Easy releases it for you when you open the throttle.
     if (s[49] && s[28] && input.throttle > 0.35) {
       if (ui.assist === 0) { setControl('brakes.parking', 0); toast('Parking brake released.', 2); }
@@ -2592,7 +2629,7 @@ function frame() {
     }
     A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, input.starter);
     if (input.levers) { A.setThrottle(0, input.levers[0]); A.setThrottle(1, input.levers[1]); }  // set_input rejoined them
-    A.avd_advance(simDt);
+    A.avd_advance(play?.subDt ?? simDt);  // (Play: Casual has flown the rest of a long frame in sub-steps)
     if (ap.on) {
       const st = A.autopilotStatus(), was = apStatus.apr || 0;
       if (st.apr === 4 && was !== 4) onMinimums(st);
@@ -2633,6 +2670,7 @@ function frame() {
   }
   lastIas = c[K.ias];
   handleEvents();
+  play?.update(dt);  // Play: challenges, the landing score, the Casual HUD
   // Airplane pose: datum position and body FLU → ENU attitude.
   acGroup.position.copy(enu(s[0], s[1], s[2]));
   // In slow motion the 240 Hz physics steps come seconds apart on screen:
@@ -2721,3 +2759,4 @@ function frame() {
 requestAnimationFrame(frame);
 // For checks (?debug): the core, the drawn ground and the page's state.
 if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl, prompts: () => promptList(() => false) };
+if (window.__fly) Object.assign(window.__fly, { play, renderer });
