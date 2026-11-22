@@ -20,7 +20,7 @@ import { openLink } from './netlink.js';
 import RELAY from './relay.js';
 import {
   TYPES, MAX_PLAYERS, F, BUDGET, STALE_FADE, encodeState, decodeState, cleanName, cleanMeta, validId, newId, sendHz, renderDelay,
-  Track, newPose, qAdvance, qAngle, qDelta, qSlerp,
+  Track, newPose, qAdvance, qAngle, qDelta, qSlerp, turnTime,
 } from './netstate.js';
 
 // Everything a player reads, in one place.
@@ -399,7 +399,7 @@ export function mountNet(ctx) {
     if (since >= (parked ? budget.parkedSec * 1000 : Math.max(gap, 1000 / budget.steadyHz))) return true;
     const dt = since / 1000, e = own.e1 - sentSt.e1;
     if (Math.hypot(sentSt.p[0] + sentSt.v[0] * dt - own.p[0], sentSt.p[1] + sentSt.v[1] * dt - own.p[1], sentSt.p[2] + sentSt.v[2] * dt - own.p[2]) > budget.posErr) return true;
-    if (qAngle(qAdvance(sentSt.q, sentSt.w, dt, qPred), own.q) > budget.angErr * DEG) return true;
+    if (qAngle(qAdvance(sentSt.q, sentSt.w, turnTime(dt), qPred), own.q) > budget.angErr * DEG) return true;
     return own.flags !== sentSt.flags || own.type !== sentSt.type || Math.abs(own.gear - sentSt.gear) > 0.08 || Math.abs(own.flap - sentSt.flap) > 1.5
       || Math.abs(e) > Math.max(60, 0.08 * sentSt.e1) || Math.abs(own.spd - sentSt.spd) > 0.1;
   }

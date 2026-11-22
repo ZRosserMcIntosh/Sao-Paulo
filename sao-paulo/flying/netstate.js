@@ -174,6 +174,12 @@ export const qAngle = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a[0] * b[0] +
 // ---- One remote player's updates, and where they are now --------------------------
 const MAX_BUF = 24;
 const MAX_EXTRAP = 2.5;   // s: carried on along the last velocity this long, then held
+// Turning is carried on less far than moving: a roll rate lasts a moment, and
+// a lost update must not leave an aircraft rolling on by itself. The time a
+// turn rate is applied for, t seconds after its update (sender and receiver
+// use the same, so the sender knows what the others see).
+const TURN_TAU = 0.4;
+export const turnTime = (t) => TURN_TAU * (1 - Math.exp(-t / TURN_TAU));
 export const STALE_FADE = [3, 5];  // s without an update: fading from, gone at
 const epochOf = (s) => (s.flags >> F.epochShift) & F.epochMask;
 
@@ -234,7 +240,7 @@ export class Track {
     // one update, carried along its velocity and turn rate for a while.
     const age = (T - a.t) / 1000, dt = Math.min(Math.max(age, 0), MAX_EXTRAP);
     for (let k = 0; k < 3; ++k) { o.p[k] = a.p[k] + a.v[k] * dt; o.v[k] = age > MAX_EXTRAP ? 0 : a.v[k]; o.w[k] = age > MAX_EXTRAP ? 0 : a.w[k]; }
-    qAdvance(a.q, a.w, dt, o.q);
+    qAdvance(a.q, a.w, turnTime(dt), o.q);
     o.type = a.type; o.flags = a.flags; o.gear = a.gear; o.flap = a.flap; o.e1 = a.e1; o.e2 = a.e2; o.aux = a.aux;
     o.ail = a.ail; o.elev = a.elev; o.rud = a.rud; o.spd = a.spd; o.epoch = epochOf(a);
     return c ? 0 : (T - b[n - 1].t) / 1000;

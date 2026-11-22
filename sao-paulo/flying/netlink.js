@@ -30,14 +30,19 @@ export function openLink({ relay, room, peer, meta }) {
 function openLocal(link, meta, status) {
   const ch = new BroadcastChannel('spw-fly-room-' + link.room), seen = new Map();
   let closed = false, deliverAt = 0;
-  const hello = (want) => ch.postMessage({ k: 'hello', id: link.peer, meta, want });
+  const born = [Date.now(), Math.random()];
+  const hello = (want) => ch.postMessage({ k: 'hello', id: link.peer, meta, want, born });
   const peersChanged = () => link.onpeers(link.peers);
   const deliver = (m) => { if (!closed) link.onmessage(m.ev, m.d); };
   ch.onmessage = (e) => {
     const m = e.data;
     if (closed || !m || typeof m !== 'object') return;
-    // (A channel never hears itself: this id from elsewhere is another tab using it.)
-    if (m.id === link.peer) { if (m.k === 'hello') link.onclash(); return; }
+    // (A channel never hears itself: this id from elsewhere is another tab using it. The later of the two changes its own.)
+    if (m.id === link.peer) {
+      const b = m.k === 'hello' && Array.isArray(m.born) ? m.born : null;
+      if (b && (b[0] < born[0] || (b[0] === born[0] && b[1] < born[1]))) link.onclash();
+      return;
+    }
     if (m.k === 'hello') {
       const had = link.peers.get(m.id);
       seen.set(m.id, Date.now());
