@@ -541,6 +541,9 @@ export function mountNet(ctx) {
   Object.defineProperty(net, 'shared', { get: () => net.roomState.s ?? null });
   Object.defineProperty(net, 'isHost', { get: () => me.host === 1 });
   Object.defineProperty(net, 'players', { get: players });
+  // Live rooms are switched on (a relay is configured): where they are not, the game layer's card says "soon".
+  Object.defineProperty(net, 'available', { get: () => !!relay });
+  net.nameOf = (id) => net.remotes.get(id)?.meta.name || '';
   // A room link waiting for the player's answer (the welcome screen can stand aside).
   Object.defineProperty(net, 'pending', { get: () => ui.inviteOpen() });
 

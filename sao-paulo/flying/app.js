@@ -25,6 +25,7 @@ import { buildIce } from './ice.js';
 import { buildRain } from './rain.js';
 import { mountNet } from './net.js';
 import { mountReplay } from './replay.js';
+import { initPlay } from './play.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -48,7 +49,11 @@ const LANDMARKS = [
 const loadMsg = (t) => { $('loadMsg').textContent = t; };
 const toastEl = $('toast');
 let toastT = 0;
-function toast(msg, sec = 3.5) { toastEl.textContent = msg; toastEl.classList.add('on'); toastT = sec; }
+let play = null;  // the game layer (play.js), once the page is up; its hooks here are marked "Play:"
+function toast(msg, sec = 3.5) {
+  if (play?.hush(msg, sec)) return;  // Play: Casual shows no simulator messages
+  toastEl.textContent = msg; toastEl.classList.add('on'); toastT = sec;
+}
 
 // ---------- Aircraft ----------
 // Chase distance, camera target and pilot's eye in body FLU metres from each datum.
@@ -2168,7 +2173,7 @@ function showPrompt(pr) {
 function checkPrompts() {
   const now = performance.now(), dt = clamp((now - (PROMPT.at || now)) / 1000, 0, 1);
   PROMPT.at = now;
-  if (ui.assist === 2 || ui.crashed) { PROMPT.st.clear(); if (PROMPT.cur) showPrompt(null); return; }
+  if (ui.assist === 2 || ui.crashed || play?.casual) { PROMPT.st.clear(); if (PROMPT.cur) showPrompt(null); return; }  // (Play: none in Casual)
   // Since when (simulation time) the carburettor has been free of ice with the heat on.
   PROMPT.carbClear = icing?.carburettor && controlPos('engine1.carb_heat') && icing.carbIceG < 0.01 ? PROMPT.carbClear ?? s[42] : null;
   const st = PROMPT.st, list = promptList((id) => !!st.get(id)?.up);
@@ -2419,6 +2424,7 @@ function drawLabels() {
 function handleEvents() {
   const plain = [];  // this frame's other events, one toast between them
   for (const e of A.events()) {
+    play?.event(e);  // Play: the landing score, and why a Casual flight ended
     if (e.startsWith('Touchdown')) {
       const fpm = Math.abs(+(e.match(/(-?\d+) fpm/)?.[1] || 0));
       toast(fpm > 600 ? `Hard landing: ${fpm} fpm` : fpm > 300 ? `Touchdown: ${fpm} fpm, firm` : `Touchdown: ${fpm} fpm, smooth`);
@@ -2497,6 +2503,7 @@ function applyProfileUi() {
   $('plateSub').textContent = `Flight test bed · ${P.name}`;
   loadSheet = mountLoadSheet($('loadPanel'), { A, id: P.id, jet: P.jet, store, onApply: () => { restart(ui.start); toast('Restarted with the planned load.', 2); } });
   document.title = `Flight Test Bed · ${P.name}`;
+  play?.label();  // Play: the header's label and the title follow the mode
 }
 async function selectAircraft(id) {
   if (P.id === id) return;
@@ -2539,18 +2546,25 @@ document.querySelectorAll('[data-aircraft]').forEach((b) => b.addEventListener('
 // In the air at a spot net.js works out (beside a friend, going their way):
 // a start like the others, so R comes back to the friend.
 function netSpawn(spot) {
+  const kias = (q) => { const lo = P.jet ? 1.3 * Math.max(j[32], 80) : 65, hi = P.jet ? (j[25] || 260) - 10 : 150; return clamp(q.kias || (P.turboprop ? 180 : P.jet ? 220 : 100), lo, hi); };
+  // Play: in Casual the spawn is the game layer's own (its co-pilot starts afresh there).
+  if (play?.casual) { const q = spot(); play.flyAt({ ...q, kias: kias(q) }); return; }
   const st = { name: 'Fly together', sub: 'next to your friend', trim: true, go: () => {
-    const q = spot(), lo = P.jet ? 1.3 * Math.max(j[32], 80) : 65, hi = P.jet ? (j[25] || 260) - 10 : 150;
-    A.avd_reset_air(q.e, q.n, Math.max(q.u, groundAt(q.e, q.n) + 150) - ELEV, q.hdg, clamp(q.kias || (P.turboprop ? 180 : P.jet ? 220 : 100), lo, hi), 0);
+    const q = spot();
+    A.avd_reset_air(q.e, q.n, Math.max(q.u, groundAt(q.e, q.n) + 150) - ELEV, q.hdg, kias(q), 0);
   } };
   STARTS = [...startsFor(), st];
   buildStarts();
   restart(STARTS.length - 1);
 }
-const net = mountNet({ scene, camera, store, toast, MOBILE, PROFILES, fetchDef, buildAircraft, buildJet, groundAt, debug: /[?&]debug\b/.test(location.search),
+// (Play: Casual hides the simulator's toasts; a friend joining or leaving is said in its own note.)
+const netToast = (msg, sec) => (play?.casual ? play.note(msg, sec) : toast(msg, sec));
+const net = mountNet({ scene, camera, store, toast: netToast, MOBILE, PROFILES, fetchDef, buildAircraft, buildJet, groundAt, debug: /[?&]debug\b/.test(location.search),
   profile: () => P, verticalSpeed: () => c[53], frameStart: () => clock.oldTime, sunDir: () => SUN_DIR, spawn: netSpawn, closeMenus: () => togglePanel(false), sound: () => (ui.sound && !ui.paused ? ui.vol / 100 : 0), cockpit: () => ui.cam === 1 });
 // This flight recorded, and flown again beside its ghost (replay.js; its buttons are in the Fly together panel).
-const replay = mountReplay(net, { toast, MOBILE, startIndex: () => ui.start, restart });
+// (Play: a Casual flight's start is the game layer's, a challenge or the free flight, and so is flying it again.)
+const replay = mountReplay(net, { toast: netToast, MOBILE, startIndex: () => (play?.casual ? play.token() : ui.start),
+  restart: (k) => { if (play?.casual) play.resume(typeof k === 'string' ? k : play.token()); else restart(typeof k === 'number' ? k : ui.start); } });
 // The host's weather basics reach whoever joins. (Time of day: the day/night
 // module adds its own the same way, net.world('tod', { get, apply }).)
 net.world('wx', {
@@ -2561,7 +2575,7 @@ net.world('wx', {
     const pick = (id, v) => { const e = $(id), ok = [...e.options].some((x) => x.value === String(v)); if (ok) e.value = String(v); return ok; };
     num('wind', o.w); num('windDir', o.d); num('turb', o.t); pick('vis', o.v);
     if (pick('rain', o.r)) wxx.rain = +$('rain').value;
-    applyWeather();
+    if (!play?.casual) applyWeather();  // (Casual flies in fair weather; the simulator's is applied when the player goes back to it)
   },
 });
 
@@ -2572,6 +2586,51 @@ applyProfileUi();
 setAssist(ui.assist);
 setLevel(ui.level, false);
 restart(0);
+
+// ---------- Play: the game layer (play.js) ----------
+// The welcome screen, Casual flying, the challenges and the landing score. It
+// reaches the page through this object and the hooks marked "Play:" (toast,
+// checkPrompts, handleEvents, applyProfileUi, frame); in the simulator modes
+// each of them steps aside.
+// A start of the game layer's own, through the same restart as every other.
+function playSpawn(st) { const own = STARTS; STARTS = [...own, st]; restart(STARTS.length - 1); STARTS = own; }
+// "Land for me": the destination for the autoland (runway end k of a region airport). The simulator's saved one is left alone.
+function playDestination(icao, k) {
+  const keep = store.get('dest', '');
+  chooseApproach({ icao }, k, false);
+  store.set('dest', keep);
+}
+// Back from Casual: the simulator's own hazard, front, terrain alerts and destination (its restart applies the rest).
+function playSimRestore() {
+  A.avd_set_wind_hazard(+$('hazard').value); applyFront();
+  if (A.tawsConfig) A.tawsConfig({ cls: -1, dhFt: tawsCfg.dhFt, inhibit: tawsCfg.inhibit });
+  if (store.get('dest', '')) restoreDestination(); else if (DEST) setDestination(-1, 0, false);
+  requestAnimationFrame(applyInstrSize);
+}
+play = initPlay({
+  THREE, A, scene, camera, canvas, store, MOBILE, input, ui, look, PROFILES, RW, AP, groundAt, regionN: REGION_N,
+  state: () => s, jet: () => j, profile: () => P, region: () => REGION, dests: () => DESTS, audio: () => audio.ctx,
+  spawn: playSpawn, restart, selectAircraft, setControl, controlPos, cycleCam, toggleSound,
+  autoland: () => autoland, autolandStatus: () => alStatus, setAutoland, destination: playDestination, simRestore: playSimRestore,
+  flowOff: () => { while (ui.flow) cycleFlow(); },
+});
+// Playing together: the welcome screen's "Fly with friends" card and Casual's Friends button open the room panel
+// (where live rooms are switched on); a finished challenge can be flown again beside its ghost; and a challenge
+// the room's host starts is offered to the others.
+if (net.available) play.setFriends(({ from }) => { if (from === 'home') { play.fly(); net.ui.open(); } else net.ui.toggle(); });
+play.setGhost(() => replay.flyMine());
+let sharedK = 0, offered = '', offeredAt = -1e9;
+play.on((ev) => { if (ev.type === 'start' && net.room && net.isHost) net.setShared({ c: ev.id, s: ev.seed ?? null, k: ++sharedK }); });
+net.onShared((o, hostId) => {
+  // (What arrives is another browser's: only a challenge this page knows, and not more often than every few seconds.)
+  if (net.isHost || !o || typeof o !== 'object' || typeof o.c !== 'string') return;
+  const def = play.challenges.find((c) => c.id === o.c), key = `${o.c}:${Number(o.k) || 0}`, now = performance.now();
+  if (!def || key === offered || now - offeredAt < 8000) return;
+  offered = key; offeredAt = now;
+  const seed = Number.isFinite(Number(o.s)) && o.s !== null ? Number(o.s) : null;
+  play.offer(`${net.nameOf(hostId) || 'Your friend'} started “${def.name}”`, 'Join', () => play.startChallenge(def.id, { seed }));
+});
+
 $('loading').hidden = true;
 $('loading').style.display = 'none';
 const clock = new THREE.Clock();
@@ -2599,7 +2658,7 @@ function frame() {
   const S = SLOWS[ui.slow], running = !ui.paused && !ui.crashed;
   const simDt = running ? dt / S : 0;
   if (running) {
-    readInputs(dt);
+    if (!play?.inputs(dt)) readInputs(dt);  // Play: in Casual the co-pilot's laws read the player and fly the controls
     // Parking brake: Easy releases it for you when you open the throttle.
     if (s[49] && s[28] && input.throttle > 0.35) {
       if (ui.assist === 0) { setControl('brakes.parking', 0); toast('Parking brake released.', 2); }
@@ -2624,7 +2683,7 @@ function frame() {
     }
     A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, input.starter);
     if (input.levers) { A.setThrottle(0, input.levers[0]); A.setThrottle(1, input.levers[1]); }  // set_input rejoined them
-    A.avd_advance(simDt);
+    A.avd_advance(play?.subDt ?? simDt);  // (Play: Casual has flown the rest of a long frame in sub-steps)
     if (ap.on) {
       const st = A.autopilotStatus(), was = apStatus.apr || 0;
       if (st.apr === 4 && was !== 4) onMinimums(st);
@@ -2665,6 +2724,7 @@ function frame() {
   }
   lastIas = c[K.ias];
   handleEvents();
+  play?.update(dt);  // Play: challenges, the landing score, the Casual HUD
   // Airplane pose: datum position and body FLU → ENU attitude.
   acGroup.position.copy(enu(s[0], s[1], s[2]));
   // In slow motion the 240 Hz physics steps come seconds apart on screen:
@@ -2755,3 +2815,4 @@ function frame() {
 requestAnimationFrame(frame);
 // For checks (?debug): the core, the drawn ground and the page's state.
 if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl, prompts: () => promptList(() => false), net, replay };
+if (window.__fly) Object.assign(window.__fly, { play, renderer });
