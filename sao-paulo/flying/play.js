@@ -39,7 +39,7 @@ const T = {
   tipSteerTouch: 'Drag anywhere to steer: left and right turn, up climbs, down descends.',
   tipHands: 'Let go and it flies itself, straight and level.',
   tipRing: 'Fly through the ring ahead. The yellow arrow points to it.',
-  tipFlare: 'Just before the wheels touch, ease up to land softly.',
+  tipFlare: 'For the last few metres, hold up: it touches down softly.',
   sight: (n, k, of) => `${n} — ${k} of ${of} sights`,
   sightsDone: 'Every sight in the city! Starting over.',
   goalSight: 'Next sight', goalRing: (i, n) => `Ring ${i} of ${n}`, goalRunway: (id) => `Runway ${id}`, goalLane: 'In the lane',
@@ -52,8 +52,8 @@ const T = {
   kinds: { rings: 'Rings', landing: 'Landing', lowpass: 'Low pass' },
   how: {
     rings: 'Fly through every ring, in order, as fast as you can. A missed ring costs time.',
-    landing: 'Keep it on the runway’s line. Ease up just before the wheels touch.',
-    glide: 'No engine: down is faster and steeper, up stretches the glide. Ease up just before the wheels touch.',
+    landing: 'Keep it on the runway’s line, and hold up for the last few metres to touch down softly.',
+    glide: 'No engine, one try: steer for the runway, push down if you are too high, and hold up for the last few metres.',
     lowpass: 'Stay between the two rows of lights, just above the rooftops, all the way along.',
   },
   shareText: (name, res) => `${res} on “${name}” in Fly São Paulo. Can you beat it?`,
@@ -304,9 +304,9 @@ export function initPlay(ctx) {
   // A free flight: over the city toward the centre, the sights ahead.
   function spawnFree(ph = 'fly') {
     const p = P(), k = p.turboprop ? 'turboprop' : p.jet ? 'jet' : 'piston';
+    speed = 1;
     if (k === 'piston') spawnAir(-900, -3600, 260, 28, 100, { ph });
     else spawnAir(-2600, -7400, k === 'jet' ? 520 : 420, 28, SPEEDS[k], { ph });
-    speed = 1;
   }
 
   // ---- The co-pilot: Casual's control, each physics sub-step ----
@@ -333,7 +333,7 @@ export function initPlay(ctx) {
     const out = -(dx * sh + dy * ch), lat = dx * ch - dy * sh;  // metres before the threshold; metres right of the centreline
     const v = L.speeds[0] * 0.5144 * 1.06, R = v * v / (9.81 * Math.tan(0.8 * L.bank * DEG));
     if (!g.side) g.side = lat >= 0 ? 1 : -1;
-    const zT = g.elev + 15 + (g.Df + 400) * Math.tan(3 * DEG), wOut = g.Df + 2.5 * R + 600;
+    const path = (d) => g.elev + 15.24 + d * Math.tan(3 * DEG), zT = path(g.Df + 400), wOut = g.Df + 3 * R + 800;
     let track;
     if (g.leg === 0) {
       const we = tx - sh * wOut + ch * g.side * 2.2 * R, wn = ty - ch * wOut - sh * g.side * 2.2 * R, d = Math.hypot(we - s[0], wn - s[1]);
@@ -341,18 +341,21 @@ export function initPlay(ctx) {
       if (d < Math.max(350, 1.2 * R) || (out > wOut && Math.abs(lat) < 2.2 * R + 300)) g.leg = 1;
     }
     if (g.leg === 1) {
-      track = r.heading - clamp(50 * lat / (1.6 * R), -50, 50);
-      if (out < g.Df - 700) { g.leg = 0; g.side = lat >= 0 ? 1 : -1; }  // through the final without catching it: round again
+      // Toward a point on the centreline a turn's length ahead: 50 degrees across from afar, easing onto it.
+      const vNow = s[11] * 0.5144, look = 1.2 * vNow * vNow / (9.81 * Math.tan(0.9 * L.bank * DEG));
+      track = r.heading - clamp(Math.atan2(lat, look) / DEG, -50, 50);
+      if (out < g.Df * 0.45) { g.leg = 0; g.side = lat >= 0 ? 1 : -1; }  // through the final without catching it: round again
     }
     g.out = out;
+    // Level until the path comes down to it, then down the path: whenever the centreline is caught, the height is right.
+    const want = g.leg === 1 && Math.abs(lat) < 400 ? Math.min(zT, path(out)) : zT, alt = s[53] * 0.3048;
     // On the centreline, on the heading, on the path: hand over.
-    const alt = s[53] * 0.3048;
-    if (g.leg === 1 && Math.abs(lat) < 50 && Math.abs(wrap180(s[9] - r.heading)) < 12 && out < 18000 && Math.abs(alt - (g.elev + 15.24 + out * Math.tan(3 * DEG))) < 35) {
+    if (g.leg === 1 && Math.abs(lat) < 120 && Math.abs(wrap180(s[9] - r.heading)) < 14 && out < 18000 && Math.abs(alt - path(out)) < 35) {
       ctx.setAutoland(true);
       if (ctx.autoland()) { phase = 'autoland'; refreshButtons(); }
     }
-    const dz = zT - s[2], near = Math.abs(dz) < 15;
-    return { x: clamp(wrap180(track - s[61]) / 20, -1, 1), y: near ? 0 : clamp(dz / 50, -1, 1), alt: near ? zT : null, vT: g.leg ? Math.round(1.4 * j[32] + 5) : L.speeds[1] };
+    const dz = want - s[2], near = Math.abs(dz) < 15 && want === zT;
+    return { x: clamp(wrap180(track - s[61]) / 20, -1, 1), y: near ? 0 : clamp(dz / 40, -1, 1), alt: near ? zT : null, vT: g.leg ? Math.round(1.4 * j[32] + 5) : L.speeds[1] };
   }
   const offFrom = (r, e, n) => (e - r.east) * Math.cos(r.heading * DEG) - (n - r.north) * Math.sin(r.heading * DEG);
   function configure(s, j, agl) {
@@ -403,17 +406,24 @@ export function initPlay(ctx) {
         const toAim = (act.aim[0] - s[0]) * Math.sin(r.heading * DEG) + (act.aim[1] - s[1]) * Math.cos(r.heading * DEG);
         const high = s[2] - act.gear - (act.aim[2] + Math.max(0, toAim) * Math.tan(3 * DEG));
         const path0 = dead || toAim < 150 ? -3 : clamp(-3 - 0.12 * high, -5.5, -0.8);
-        // Power off for the last few metres, and as soon as the nose is eased up near the ground: it settles instead of floating.
-        // Down there the speed floor steps aside too: the flare is speed spent on a soft touchdown (held off too
-        // long, the nose comes down a little at a time rather than the wing letting go).
-        const cut = agl < (kind === 'piston' ? 4 : 7) || (agl < 14 && y > 0.15);
-        o = law.fly(s, h, { x, y, vT: act.vApp, L, path0, overGround: true, bank: 22, floor: (dead ? (y > 0.15 ? 1.03 : 1.4) : agl < 15 ? 1.03 : 1.1) * j[32], thrust: !dead && !cut });
+        // Stick up in the last metres is the flare: the co-pilot rounds the path out as the wheels come down (the sink
+        // falling with the height, about 0.3 m/s left at the ground), power off, and the speed floor steps aside:
+        // the flare is speed spent on a soft touchdown. No stick, no flare: it arrives as it was descending.
+        const hW = Math.max(0, s[2] - act.gear - act.aim[2]), flare = y > 0.15 && hW < 14;
+        let p0 = path0, yy = y;
+        if (flare) {
+          const base = dead ? -7 : path0, round = Math.max(base, -Math.atan((hW / (kind === 'piston' ? 2 : 3.2) + 0.3) / Math.max(s[12] * 0.5144, 10)) / DEG);
+          p0 = base + clamp(y / 0.6, 0, 1) * (round - base); yy = 0;
+        }
+        const cut = flare || agl < (kind === 'piston' ? 4 : 7);
+        o = law.fly(s, h, { x, y: yy, vT: act.vApp, L, path0: p0, overGround: true, bank: 22, up: 3.5,
+          floor: (flare || (!dead && agl < 15) ? 1.03 : dead ? 1.4 : 1.1) * j[32], thrust: !dead && !cut });
       }
     } else if (phase === 'takeoff') {
-      if (air.off > 0.5) { phase = 'climbout'; law.st.hdg = toHdg; note(T.youFly); refreshButtons(); }
+      if (air.off > 0.5 && agl > groundGap() + 2.5) { phase = 'climbout'; law.st.hdg = toHdg; note(T.youFly); refreshButtons(); }
       else o = law.takeoff(s, h, { hdg: toHdg, vR, off: rwy ? offFrom(rwy.r, s[0], s[1]) : 0, nose: kind === 'piston' ? 9 : 11 });
     } else if (phase === 'climbout') {
-      if (gnd) phase = 'takeoff';
+      if (gnd) { phase = 'takeoff'; refreshButtons(); }
       else {
         // Up on the climb path until the player takes the height too, or it is well clear of the ground.
         const own = Math.abs(y) > 0.3;
@@ -590,6 +600,7 @@ export function initPlay(ctx) {
     showResult(result);
   }
   let prev = null;  // the aircraft's position a frame ago (rings are crossed between the two)
+  const prevBuf = [0, 0, 0];
   function playRings(s) {
     const r = rings[act.i];
     if (!r || !prev) return;
@@ -680,9 +691,13 @@ export function initPlay(ctx) {
   landEl.addEventListener('click', () => { landEl.hidden = true; });
 
   // ---- Buttons ----
+  // Where the core's autoland does not bring the type down in one piece, "Land for me" is not offered: the 737
+  // (from the simulator's own Final start too, it touches down at 400 ft/min and strikes both nacelles).
+  const NO_AUTOLAND = new Set(['b738']);
   function refreshButtons() {
     const flying = phase === 'fly' || phase === 'climbout';
-    const main = phase === 'autoland' || phase === 'tofinal' ? T.cancelLanding : phase === 'landed' ? `${ICON.up}${T.takeOff}` : act.kind === 'free' && flying ? `${ICON.land}${T.landForMe}` : '';
+    const main = phase === 'autoland' || phase === 'tofinal' ? T.cancelLanding : phase === 'landed' ? `${ICON.up}${T.takeOff}`
+      : act.kind === 'free' && flying && !NO_AUTOLAND.has(P().id) ? `${ICON.land}${T.landForMe}` : '';
     mainB.hidden = !main;
     if (main) mainB.innerHTML = main + (MOBILE ? '' : ' <kbd>L</kbd>');
     q('#pSpd').style.display = flying || phase === 'attract' ? '' : 'none';
@@ -707,12 +722,14 @@ export function initPlay(ctx) {
   // "Land for me": the nearest of the region's airports, the runway end whose final is the shortest way round.
   function landForMe() {
     const s = ctx.state(), names = ctx.dests(), Df = kind === 'piston' ? 2800 : 8000;
+    // An airliner's approach speed wants a long runway (Congonhas is too short for the autoland to stop it): Guarulhos.
+    const need = 1.3 * A.jet()[34] > 128 ? 2300 : 0;
     let pick = null;
     ctx.region().slice(0, ctx.regionN).forEach((ap, i) => ap.ends.forEach((r, k) => {
       const sh = Math.sin(r.heading * DEG), ch = Math.cos(r.heading * DEG), fx = r.east - sh * (Df + 600), fy = r.north - ch * (Df + 600);
       // The way to its final, a turn back counted double.
       const d = Math.hypot(fx - s[0], fy - s[1]) + Math.hypot(r.east - s[0], r.north - s[1]) + 2 * Math.max(0, (s[0] - fx) * sh + (s[1] - fy) * ch);
-      if (Math.hypot(r.east - s[0], r.north - s[1]) < 60000 && (!pick || d < pick.d)) pick = { d, r, k, i, elev: ap.elevation };
+      if (r.length - r.displaced >= need && Math.hypot(r.east - s[0], r.north - s[1]) < 60000 && (!pick || d < pick.d)) pick = { d, r, k, i, elev: ap.elevation };
     }));
     if (!pick) { note(T.noRunway, 3); return; }
     ctx.destination(names[pick.i].icao, pick.k);
@@ -722,8 +739,17 @@ export function initPlay(ctx) {
     note(T.landing(act.field.name), 3); refreshButtons();
   }
   function takeOff() {
-    const s = A.state(), j = A.jet();
-    rwy = runwayNear(s[0], s[1], s[9], 100); toHdg = rwy ? rwy.r.heading : s[9];
+    let s = A.state();
+    // Enough runway ahead for this aircraft? If not (stopped far down it, or not on one), from the head of the home runway.
+    const need = kind === 'piston' ? 550 : kind === 'turboprop' ? 1200 : 1.3 * A.jet()[34] > 128 ? 1750 : 1500;
+    rwy = runwayNear(s[0], s[1], s[9], 100);
+    if (!rwy || rwy.r.length - rwy.along < need) {
+      ctx.spawn({ name: T.takeOff, sub: '', thr: 0.1, go: () => { fairWeather(); A.avd_reset(1); } });
+      afterSpawn('landed', 0.1);
+      s = A.state(); rwy = runwayNear(s[0], s[1], s[9], 100);
+    }
+    const j = A.jet();
+    toHdg = rwy ? rwy.r.heading : s[9];
     vR = kind === 'piston' ? 55 : kind === 'turboprop' ? Math.round(1.1 * j[33]) : Math.round(1.2 * j[33]) - 6;
     ctx.setControl('brakes.parking', 0);
     if (ctx.controlPos('speedbrake.lever')) ctx.setControl('speedbrake.lever', 0);
@@ -761,7 +787,7 @@ export function initPlay(ctx) {
   // The front door. From the simulator it freezes the flight behind it; from Casual the co-pilot circles.
   function home() {
     homeFrom = mode === 'sim' ? 'sim' : store.get('play:mode', null) ? 'casual' : null;
-    if (mode === 'sim') { simPaused = ui.paused; ui.paused = true; }
+    if (mode === 'sim') { if (!screen) { simPaused = ui.paused; ui.paused = true; } }
     else {
       if (act.def && !act.over) { emit('quit'); act.over = true; }
       if (ui.paused) ui.paused = false;
@@ -772,7 +798,7 @@ export function initPlay(ctx) {
     openScreen('home', `<div class="pWrap">
       <h1 class="pTitle">${T.title}</h1><p class="pSub">${T.sub}</p>
       <div class="pCards">
-        <button class="pCardB main" data-go="fly" data-primary>${ICON.plane}<b>${T.justFly}</b><span>${T.justFlySub}</span></button>
+        <button class="pCardB main" data-go="fly" data-primary ${homeFrom === 'casual' ? 'data-back' : ''}>${ICON.plane}<b>${T.justFly}</b><span>${T.justFlySub}</span></button>
         <button class="pCardB" data-go="list">${ICON.rings}<b>${T.challenges}</b><span>${T.challengesSub}</span></button>
         <button class="pCardB" data-go="friends" ${fr ? '' : 'disabled'}>${ICON.friends}<b>${fr?.label || T.friends}${fr ? '' : `<i class="soon">${T.soon}</i>`}</b><span>${T.friendsSub}</span></button>
         <button class="pCardB" data-go="sim" ${homeFrom === 'sim' ? 'data-back' : ''}>${ICON.gauge}<b>${T.sim}</b><span>${T.simSub}</span></button>
@@ -880,6 +906,7 @@ export function initPlay(ctx) {
   function enterCasual() {
     mode = 'casual'; body.classList.add('casual');
     ui.instr = false;  // the instrument strip is not drawn at all in Casual (its saved setting is the simulator's)
+    ctx.flowOff();     // nor the airflow view's wind tunnel
     if (ui.cam > 1) cam();
     label();
   }
@@ -981,7 +1008,7 @@ export function initPlay(ctx) {
       }
       hints(s, dt);
     }
-    prev = [s[0], s[1], s[2]];
+    prevBuf[0] = s[0]; prevBuf[1] = s[1]; prevBuf[2] = s[2]; prev = prevBuf;
     // The goal ring breathes; a sight's ring turns to face the aircraft.
     pulseT += dt;
     if (rings.length && !ui.paused) {
@@ -1002,7 +1029,7 @@ export function initPlay(ctx) {
     current: () => ({ mode, kind: act.kind, id: act.def?.id || null, seed: act.seed ?? null, phase, screen }),
     // For scripts and checks.
     debug: { law, stick, keys, best, get act() { return act; }, get rings() { return rings; }, get L() { return L; }, get phase() { return phase; }, set phase(v) { phase = v; refreshButtons(); },
-      get landing() { return landing; }, get speed() { return speed; }, setSpeed, mainAction, again, pause, startFree, scoreLanding },
+      get landing() { return landing; }, get speed() { return speed; }, setSpeed, mainAction, again, pause, startFree, takeOff, scoreLanding },
   };
   window.spwPlay = api;
 

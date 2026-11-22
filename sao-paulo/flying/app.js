@@ -2573,6 +2573,7 @@ play = initPlay({
   state: () => s, jet: () => j, profile: () => P, region: () => REGION, dests: () => DESTS, audio: () => audio.ctx,
   spawn: playSpawn, restart, selectAircraft, setControl, controlPos, cycleCam, toggleSound,
   autoland: () => autoland, autolandStatus: () => alStatus, setAutoland, destination: playDestination, simRestore: playSimRestore,
+  flowOff: () => { while (ui.flow) cycleFlow(); },
 });
 
 $('loading').hidden = true;

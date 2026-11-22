@@ -46,7 +46,7 @@ export function makeLaw() {
   const st = {};
   const out = { pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: 0, trim: 0 };
   function reset(throttle = 0.5) {
-    Object.assign(st, { have: false, phi: 0, theta: 0, ias: 0, acc: 0, hdg: null, alt: null, rs: 1, thr: throttle, psi0: null, t: 0, phase: 0 });
+    Object.assign(st, { have: false, phi: 0, theta: 0, ias: 0, acc: 0, z: 0, hdg: null, alt: null, thr: throttle, psi: undefined, nose: undefined });
   }
   reset();
   // Rates by difference between steps (the state gives angles, not rates).
@@ -68,8 +68,9 @@ export function makeLaw() {
   // L: casualLimits(); path0: the path flown with the stick centred (deg; null: level
   // and hold the height), thrust: false leaves the throttle closed (a glide, a flare);
   // floor: the speed the climb gives way to (kt; with flaps out it is lower than L.floor);
-  // overGround: the path angle is the one over the ground (an approach: the wind must not move the touchdown).
-  function fly(s, dt, { x = 0, y = 0, vT, L, path0 = null, thrust = true, bank = L.bank, floor = L.floor, overGround = false }) {
+  // overGround: the path angle is the one over the ground (an approach: the wind must not move the touchdown);
+  // up: what full stick up adds to the path (deg; an approach asks for little, so a held key is a flare, not a zoom).
+  function fly(s, dt, { x = 0, y = 0, vT, L, path0 = null, thrust = true, bank = L.bank, floor = L.floor, overGround = false, up = L.up }) {
     const { phi, p, q, vs } = rates(s, dt);
     const ias = s[10], tas = Math.max(s[11] * KT, 15), qS = qScale(ias);
     const gamma = Math.asin(clamp(vs / (overGround ? Math.max(s[12] * KT, 15) : tas), -1, 1));
@@ -82,7 +83,7 @@ export function makeLaw() {
     const roll = clamp((2.4 * ePhi - 0.55 * p) * qS * L.rollK, -0.9, 0.9);
     // Pitch: a path angle from the stick; released, level off, then hold that height.
     let gCmd;
-    if (Math.abs(y) > 0.02) { st.alt = null; gCmd = (path0 ?? 0) * DEG + y * (y > 0 ? L.up : L.down) * DEG; }
+    if (Math.abs(y) > 0.02) { st.alt = null; gCmd = (path0 ?? 0) * DEG + y * (y > 0 ? up : L.down) * DEG; }
     else if (path0 !== null) { st.alt = null; gCmd = path0 * DEG; }
     else if (st.alt === null) { gCmd = 0; if (Math.abs(vs) < 0.8) st.alt = s[2]; }
     else gCmd = Math.asin(clamp(clamp(0.12 * (st.alt - s[2]), -3, 3) / tas, -1, 1));
@@ -118,7 +119,10 @@ export function makeLaw() {
     st.thr = Math.min(1, st.thr + 0.7 * dt);
     const fast = s[10] > 30;
     out.yaw = clamp((fast ? 0.05 : 0.09) * wrap180(hdg - clamp(0.4 * off, -8, 8) - s[9]) - (fast ? 0.02 : 0.03) * r, -0.6, 0.6);
-    out.pitch = s[10] >= vR ? clamp(0.07 * (nose - s[8]) - 0.6 * q, -0.1, 0.65) : 0;
+    // At vR the nose comes up at 3 deg/s to the climb attitude and is held there, through lift-off, until fly() takes over.
+    if (s[10] < vR && s[28]) st.nose = s[8];
+    else st.nose = Math.min(nose, (st.nose ?? s[8]) + 3 * dt);
+    out.pitch = s[10] >= vR || !s[28] ? unshape(clamp(0.12 * (st.nose - s[8]) - 0.8 * q, -0.2, 1)) : 0;
     out.roll = clamp(-0.03 * s[7], -0.3, 0.3);
     out.throttle = st.thr; out.brake = 0; out.trim = 0;
     return out;

@@ -49,7 +49,7 @@ export const CHALLENGES = [
     a: [1670, -1101], b: [-836, 552], band: [125, 205], w: 80,
     stars: [90, 65],
   },
-  { id: 'land-it', kind: 'landing', name: 'Land it', blurb: 'On final for the runway. Line it up, ease the nose up just before the wheels touch.', aircraft: 'c172', final: { km: 2.2 } },
+  { id: 'land-it', kind: 'landing', name: 'Land it', blurb: 'The runway is straight ahead. Line it up and touch down softly.', aircraft: 'c172', final: { km: 2.2 } },
   { id: 'crosswind', kind: 'landing', name: 'Crosswind', blurb: 'The same landing with the wind pushing you sideways.', aircraft: 'c172', final: { km: 2.2 }, wind: [13, -70] },
   { id: 'glide', kind: 'landing', name: 'Engine out', blurb: 'The engine has stopped. Glide it to the runway: there is only one try.', aircraft: 'c172', final: { km: 1.7, high: 140, side: 220 }, engine: false },
   { id: 'jet-landing', kind: 'landing', name: 'Land the jet', blurb: 'Twice the speed and ten times the weight. Same idea.', aircraft: 'phenom300', final: { km: 5 } },

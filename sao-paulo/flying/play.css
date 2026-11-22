@@ -19,7 +19,7 @@ body.p-over #pHud,body.p-over #pMark,body.p-over #pTip{display:none!important}
 body.p-task #labels{visibility:hidden}
 body.p-front #labels,body.p-front #pTop,body.p-front .top .row,body.p-front #osmCredit{visibility:hidden}
 #pGoal{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top));transform:translateX(-50%);z-index:3;display:flex;align-items:center;gap:10px;max-width:min(520px,calc(100% - 250px));
-  padding:8px 16px;border-radius:22px;background:rgba(10,17,28,.78);border:1px solid var(--line);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);font:600 14px/1.2 var(--body);white-space:nowrap;pointer-events:auto;cursor:default}
+  padding:8px 16px;border-radius:22px;background:rgba(10,17,28,.78);border:1px solid var(--line);font:600 14px/1.2 var(--body);white-space:nowrap;pointer-events:auto;cursor:default}
 #pGoal[hidden]{display:none}
 #pGoal b{font:800 20px/1 var(--display);letter-spacing:.03em;color:var(--hot);font-variant-numeric:tabular-nums}
 #pGoal span{overflow:hidden;text-overflow:ellipsis}
@@ -31,7 +31,7 @@ body.p-front #labels,body.p-front #pTop,body.p-front .top .row,body.p-front #osm
 #pNums i{font:600 13px var(--body);font-style:normal;color:var(--mute);margin-left:3px}
 #pAct{position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(22px + env(safe-area-inset-bottom));z-index:3;display:grid;gap:10px;justify-items:end}
 .pBtn{height:52px;min-width:52px;padding:0 18px;border-radius:26px;font:700 15px var(--body);color:#fff;background:rgba(10,17,28,.72);border:2px solid rgba(255,255,255,.45);
-  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:inline-flex;align-items:center;justify-content:center;gap:8px;touch-action:manipulation}
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;touch-action:manipulation}
 .pBtn:hover{background:rgba(10,17,28,.9)}
 .pBtn:active{transform:scale(.96)}
 .pBtn[hidden]{display:none}
@@ -67,7 +67,7 @@ body.casual #pMark.on{display:block}
 #pTip[hidden]{display:none}
 #pTip button{background:none;border:0;color:#52607a;font-size:16px;padding:4px 8px}
 
-/* ---- Welcome screen and cards ---- */
+/* ---- Welcome screen and cards ---- (no backdrop blur anywhere here: over a live 3D scene it costs a phone its frame rate) */
 .pOver{position:fixed;inset:0;z-index:7;display:grid;place-items:center;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
   background:linear-gradient(180deg,rgba(8,14,24,.72),rgba(8,14,24,.28) 38%,rgba(8,14,24,.5) 70%,rgba(8,14,24,.86))}
 .pOver[hidden]{display:none}
@@ -80,7 +80,7 @@ body.casual #pMark.on{display:block}
 .pSub{font:500 clamp(15px,2.4vw,19px)/1.35 var(--body);color:#e7ecf2;text-shadow:0 1px 6px rgba(0,0,0,.6);margin:-6px 0 4px;max-width:520px}
 .pCards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;width:100%}
 .pCardB{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;text-align:left;padding:18px 20px;border-radius:16px;border:2px solid rgba(255,255,255,.22);
-  background:rgba(12,20,34,.82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;min-height:92px;font:inherit;transition:transform .12s,border-color .12s,background .12s}
+  background:rgba(12,20,34,.9);color:#fff;min-height:92px;font:inherit;transition:transform .12s,border-color .12s,background .12s}
 .pCardB:hover{background:rgba(18,30,52,.92);border-color:#fff;transform:translateY(-2px)}
 .pCardB:active{transform:scale(.98)}
 .pCardB svg{grid-row:1 / span 2;width:44px;height:44px;stroke-width:1.7;color:var(--hot)}
@@ -129,7 +129,7 @@ body.casual #pMark.on{display:block}
 .pCh .kind{font:700 10px var(--body);letter-spacing:.1em;text-transform:uppercase;color:var(--hot)}
 /* The landing score after any touchdown: compact, out of the way, gone by itself. */
 #pLand{position:fixed;left:50%;top:calc(104px + env(safe-area-inset-top));transform:translateX(-50%);z-index:4;width:min(330px,calc(100% - 24px));padding:10px 14px 12px;border-radius:12px;
-  background:rgba(10,17,28,.9);border:1px solid var(--line);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:grid;gap:7px;cursor:pointer;box-shadow:0 10px 28px rgba(0,0,0,.4)}
+  background:rgba(10,17,28,.9);border:1px solid var(--line);display:grid;gap:7px;cursor:pointer;box-shadow:0 10px 28px rgba(0,0,0,.4)}
 #pLand[hidden]{display:none}
 #pLand header{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font:600 12px var(--body);color:var(--mute);text-transform:uppercase;letter-spacing:.08em}
 #pLand header b{font:900 30px/.9 var(--display);color:var(--hot);letter-spacing:0}
@@ -168,5 +168,5 @@ body.casual #pLand{top:calc(64px + env(safe-area-inset-top))}
 }
 @media (max-height:520px){
   .pTitle{font-size:40px}.pSub{display:none}.pCards{grid-template-columns:repeat(2,minmax(0,1fr))}.pCardB{min-height:60px;padding:10px 14px}
-  #pTip{bottom:calc(84px + env(safe-area-inset-bottom))}
+  #pTip{bottom:auto;top:calc(104px + env(safe-area-inset-top));font-size:14px;padding:7px 8px 7px 14px}
 }
