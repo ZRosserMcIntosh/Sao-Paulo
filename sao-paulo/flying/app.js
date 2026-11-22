@@ -23,6 +23,7 @@ import { buildGround } from './ground.js';
 import { buildCrash } from './crash.js';
 import { buildIce } from './ice.js';
 import { buildRain } from './rain.js';
+import { mountNet } from './net.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -1836,7 +1837,7 @@ function jetData() {
     assist: ap.on ? apText() : FMA[ui.assist] + (s[58] ? ' · UNDERSPD' : s[55] ? ' · ALT HDG HOLD' : ''), n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
     run: [j[13], j[21]], starting: [j[14], j[22]], fuelSw: [j[15], j[23]], n1cmd: [22 + 78 * j[58], 22 + 78 * j[59]],
     fuelKg: j[6], gear: j[1], spd: j[3], flaps: j[27], wow: j[29], park: s[49],
-    x: s[0], y: s[1], trueHdg: s[9], runway: RW, airport: AP.icao, points: LANDMARKS,
+    x: s[0], y: s[1], trueHdg: s[9], runway: RW, airport: AP.icao, points: LANDMARKS, traffic: net.traffic(),
     rangeNm: agl < 4000 ? 5 : agl < 15000 ? 10 : agl < 28000 ? 20 : 40,
     trend: iasAcc * 10, vs1g: j[32], vsTO: j[33], vsLDG: j[34], gw: j[35], fpa: j[36], drift: ((j[37] - s[9] + 540) % 360) - 180,
     windDir: s[59], windKt: s[60], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
@@ -1887,7 +1888,7 @@ function g1000Data() {
     ias: c[K.ias], alt: c[K.alt], baro: c[K.kollsman], vsi: c[K.vsi], pitch: c[K.aiPitch], roll: c[K.aiRoll], tumbled: c[K.aiTumbled] > 0.5,
     hdg: c[K.dg], bug: c[K.bug], ball: c[K.ball], turnRate: c[K.tcRate], tas: s[11], gs: s[12], oat: c[K.oat], trend: iasAcc * 6,
     wow: !!s[28], trueHdg: s[9], track: s[61], windDir: s[59], windKt: s[60], magVar: g[13], selAlt: ap.alt,
-    x: s[0], y: s[1], groundAt, runway: RW, airport: AP.icao, points: LANDMARKS,
+    x: s[0], y: s[1], groundAt, runway: RW, airport: AP.icao, points: LANDMARKS, traffic: net.traffic(),
     route: DEST ? A.route() : null, gps: DEST ? g.slice() : null, dest: DEST, destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
     nav: { valid: c[K.navValid] > 0.5, loc: c[K.loc] > 0.5, cdi: c[K.cdi], toFrom: c[K.toFrom], gsValid: c[K.gsValid] > 0.5, gs: c[K.gs],
       mhz: c[K.navAct], stby: c[K.navStb], obs: c[K.obs] },
@@ -2533,6 +2534,34 @@ async function selectAircraft(id) {
 }
 document.querySelectorAll('[data-aircraft]').forEach((b) => b.addEventListener('click', () => { selectAircraft(b.dataset.aircraft); b.blur(); }));
 
+// ---------- Fly together (net.js): other players in the same sky ----------
+// In the air at a spot net.js works out (beside a friend, going their way):
+// a start like the others, so R comes back to the friend.
+function netSpawn(spot) {
+  const st = { name: 'Fly together', sub: 'next to your friend', trim: true, go: () => {
+    const q = spot(), lo = P.jet ? 1.3 * Math.max(j[32], 80) : 65, hi = P.jet ? (j[25] || 260) - 10 : 150;
+    A.avd_reset_air(q.e, q.n, Math.max(q.u, groundAt(q.e, q.n) + 150) - ELEV, q.hdg, clamp(q.kias || (P.turboprop ? 180 : P.jet ? 220 : 100), lo, hi), 0);
+  } };
+  STARTS = [...startsFor(), st];
+  buildStarts();
+  restart(STARTS.length - 1);
+}
+const net = mountNet({ scene, camera, store, toast, MOBILE, PROFILES, fetchDef, buildAircraft, buildJet, groundAt, debug: /[?&]debug\b/.test(location.search),
+  profile: () => P, verticalSpeed: () => c[53], sunDir: () => SUN_DIR, spawn: netSpawn, closeMenus: () => togglePanel(false), sound: () => (ui.sound && !ui.paused ? ui.vol / 100 : 0), cockpit: () => ui.cam === 1 });
+// The host's weather basics reach whoever joins. (Time of day: the day/night
+// module adds its own the same way, net.world('tod', { get, apply }).)
+net.world('wx', {
+  get: () => ({ w: +$('wind').value, d: +$('windDir').value, t: +$('turb').value, v: +$('vis').value || 0, r: wxx.rain }),
+  apply: (o) => {
+    if (!o || typeof o !== 'object') return;
+    const num = (id, v) => { const e = $(id); if (Number.isFinite(v)) e.value = String(clamp(v, +e.min, +e.max)); };
+    const pick = (id, v) => { const e = $(id), ok = [...e.options].some((x) => x.value === String(v)); if (ok) e.value = String(v); return ok; };
+    num('wind', o.w); num('windDir', o.d); num('turb', o.t); pick('vis', o.v);
+    if (pick('rain', o.r)) wxx.rain = +$('rain').value;
+    applyWeather();
+  },
+});
+
 // ---------- Loop ----------
 buildIceSwitches();
 applyFront();
@@ -2675,6 +2704,7 @@ function frame() {
   }
   acGroup.updateMatrixWorld(true);
   updateCamera(dt);
+  net.update(dt, simDt, s, j, tp, P, ui.crashed);  // the other players' aircraft (and this one's state to them)
   weatherFx(simDt);
   if (showCity && ui.flow !== 2) city.update(s[0], s[1], Math.max(0, s[14] * 0.3048), scene.fog.far);
   {
@@ -2685,6 +2715,7 @@ function frame() {
   renderer.render(scene, camera);
   showCost(dt);
   drawLabels();
+  net.draw();  // the friends' name tags and edge arrows
   $('warn').classList.toggle('on', c[K.stall] > 0.5 && !ui.crashed);
   hud();
   panelT += dt; cabinT += dt; swT += dt;
@@ -2720,4 +2751,4 @@ function frame() {
 }
 requestAnimationFrame(frame);
 // For checks (?debug): the core, the drawn ground and the page's state.
-if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl, prompts: () => promptList(() => false) };
+if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl, prompts: () => promptList(() => false), net };

@@ -49,27 +49,29 @@ export function encodeState(o) {
 
 // A received array → a state, or null for anything that is not exactly a
 // well-formed message (wrong type or length, a non-integer, NaN, out of
-// range). Nothing a stranger sends gets past here unchecked.
-export function decodeState(a) {
-  if (!Array.isArray(a) || a.length !== N_FIELDS || a[0] !== PROTO) return null;
-  if (!inR(a[1], 1, LIM.t)) return null;
-  if (!inR(a[2], -LIM.pos, LIM.pos) || !inR(a[3], -LIM.pos, LIM.pos) || !inR(a[4], LIM.upMin, LIM.upMax)) return null;
-  for (let i = 5; i < 8; ++i) if (!inR(a[i], -32767, 32767)) return null;
-  for (let i = 8; i < 11; ++i) if (!inR(a[i], -LIM.vel, LIM.vel)) return null;
-  for (let i = 11; i < 14; ++i) if (!inR(a[i], -LIM.rate, LIM.rate)) return null;
-  if (!inR(a[14], 0, TYPES.length - 1) || !inR(a[15], 0, 255) || !inR(a[16], 0, 100) || !inR(a[17], -100, 900)) return null;
-  if (!inR(a[18], 0, 20000) || !inR(a[19], 0, 20000) || !inR(a[20], -900, 900)) return null;
-  for (let i = 21; i < 24; ++i) if (!inR(a[i], -100, 100)) return null;
-  if (!inR(a[24], 0, 100) || !isInt(a[25])) return null;
-  const x = a[5] / 32767, y = a[6] / 32767, z = a[7] / 32767, n2 = x * x + y * y + z * z;
+// range). Nothing a stranger sends gets past here unchecked. o: where the
+// state starts in the array (the sender's id comes first on the wire).
+export function decodeState(a, o = 0) {
+  if (!Array.isArray(a) || a.length !== N_FIELDS + o || a[o] !== PROTO) return null;
+  const g = (i) => a[i + o];
+  if (!inR(g(1), 1, LIM.t)) return null;
+  if (!inR(g(2), -LIM.pos, LIM.pos) || !inR(g(3), -LIM.pos, LIM.pos) || !inR(g(4), LIM.upMin, LIM.upMax)) return null;
+  for (let i = 5; i < 8; ++i) if (!inR(g(i), -32767, 32767)) return null;
+  for (let i = 8; i < 11; ++i) if (!inR(g(i), -LIM.vel, LIM.vel)) return null;
+  for (let i = 11; i < 14; ++i) if (!inR(g(i), -LIM.rate, LIM.rate)) return null;
+  if (!inR(g(14), 0, TYPES.length - 1) || !inR(g(15), 0, 255) || !inR(g(16), 0, 100) || !inR(g(17), -100, 900)) return null;
+  if (!inR(g(18), 0, 20000) || !inR(g(19), 0, 20000) || !inR(g(20), -900, 900)) return null;
+  for (let i = 21; i < 24; ++i) if (!inR(g(i), -100, 100)) return null;
+  if (!inR(g(24), 0, 100) || !isInt(g(25))) return null;
+  const x = g(5) / 32767, y = g(6) / 32767, z = g(7) / 32767, n2 = x * x + y * y + z * z;
   if (n2 > 1.001) return null;
   const q = [x, y, z, Math.sqrt(Math.max(0, 1 - n2))], k = 1 / Math.hypot(q[0], q[1], q[2], q[3]);
   q[0] *= k; q[1] *= k; q[2] *= k; q[3] *= k;
   return {
-    t: a[1], p: [a[2] / 100, a[3] / 100, a[4] / 100], q,
-    v: [a[8] / 100, a[9] / 100, a[10] / 100], w: [a[11] / 1000, a[12] / 1000, a[13] / 1000],
-    type: a[14], flags: a[15], gear: a[16] / 100, flap: a[17] / 10, e1: a[18], e2: a[19], aux: a[20] / 10,
-    ail: a[21] / 100, elev: a[22] / 100, rud: a[23] / 100, spd: a[24] / 100,
+    t: g(1), p: [g(2) / 100, g(3) / 100, g(4) / 100], q,
+    v: [g(8) / 100, g(9) / 100, g(10) / 100], w: [g(11) / 1000, g(12) / 1000, g(13) / 1000],
+    type: g(14), flags: g(15), gear: g(16) / 100, flap: g(17) / 10, e1: g(18), e2: g(19), aux: g(20) / 10,
+    ail: g(21) / 100, elev: g(22) / 100, rud: g(23) / 100, spd: g(24) / 100,
   };
 }
 
@@ -116,7 +118,7 @@ export const BUDGET = {
   hzMax: 12,        // updates a second at most, each player
   hzMin: 1,         // and at least, however full the room
   steadyHz: 2,      // flying straight (the others' extrapolation still holds): this often
-  parkedSec: 3,     // standing still on the ground: one update every so many seconds
+  parkedSec: 2,     // standing still on the ground: one update every so many seconds
   posErr: 0.75,     // m: send early once the others' extrapolation would be this far off
   angErr: 2.5,      // degrees, likewise
 };
@@ -190,7 +192,7 @@ export class Track {
     }
     // The clocks' offset: the smallest (arrival − sent) seen is the fastest
     // trip; it creeps up slowly so a drifting clock is followed.
-    this.off = Math.min(this.off + 0.005 * Math.min(1000, now - this.last), now - st.t);
+    this.off = Math.min(this.off + 0.001 * Math.min(1000, now - this.last), now - st.t);
     this.last = now; this.got++;
     b.push(st);
     if (b.length > MAX_BUF) b.shift();
