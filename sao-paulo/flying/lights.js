@@ -7,7 +7,7 @@
 // except the one landing light (a spot light on the player's own aircraft).
 //
 //   buildRunwayLights({ fogLayer })      the airports' lights: .group, .setFields(region), .setFar(region), .update(...)
-//   buildAircraftLights(model, o)        an aircraft's lights from a small flags value (LIGHT.*): .set(flags)
+//   buildAircraftLights(model)           an aircraft's lights from a small flags value (LIGHT.*, lightFlagsOf): .set(flags)
 //   buildLandingLight()                  the player's landing light: .attach(root, at), .set(level)
 //   tickLights(camera, renderer, scene, time, dark)   once a frame: the shared clock and scale
 import * as THREE from 'three';
@@ -15,6 +15,10 @@ import * as THREE from 'three';
 const DEG = Math.PI / 180;
 // An aircraft's lights, as bits (what the multiplayer link sends).
 export const LIGHT = { NAV: 1, BEACON: 2, STROBE: 4, LANDING: 8, TAXI: 16 };
+
+// The bits from a cockpit's switch positions ({ id: position }, the core's electrical.load.* switches).
+export const lightFlagsOf = (p) => (p['electrical.load.nav_lights'] ? LIGHT.NAV : 0) | (p['electrical.load.beacon'] ? LIGHT.BEACON : 0) | (p['electrical.load.strobes'] ? LIGHT.STROBE : 0)
+  | (p['electrical.load.landing_light'] ? LIGHT.LANDING : 0) | (p['electrical.load.taxi_light'] ? LIGHT.TAXI : 0);
 
 // Shared by every light material (by reference): uPx the pixels a metre covers at 1 m; uTime s; uDim the aircraft lights' daytime dimming.
 const SHARED = { uPx: { value: 800 }, uTime: { value: 0 }, uMin: { value: 2 }, uDim: { value: 1 }, fogNear: { value: 3000 }, fogFar: { value: 26000 }, fogLayer: { value: { x: -1e9, y: 0, z: 0.8, w: 0 } } };
@@ -121,15 +125,16 @@ const GLIDE = 3 * DEG, AIM = 295;  // the flight core's glide path: 3°, to a po
 // last 300), approach lights with a running flash before them (runway end
 // flashers on the short ones), and a PAPI on the left.
 function fieldLights(ap, material) {
-  const L = [];
-  let ce = 0, cn = 0;
+  const L = [], PAPI = [];
+  let ce = 0, cn = 0, reach = 0;
   for (const e of ap.ends) { ce += e.east + Math.sin(e.heading * DEG) * e.length / 2; cn += e.north + Math.cos(e.heading * DEG) * e.length / 2; }
   ce /= ap.ends.length; cn /= ap.ends.length;
   for (const e of ap.ends) {
     const h = e.heading * DEG, de = Math.sin(h), dn = Math.cos(h), re = dn, rn = -de, W = e.width, len = e.length, D = e.displaced || 0;
     const big = len >= 1500 && W >= 40;
+    reach = Math.max(reach, Math.hypot(e.east - ce, e.north - cn) + 500);
     // A light `x` m along from this end's paved start, `y` m right of the centreline, `up` m above the runway, seen by traffic landing this way.
-    const put = (x, y, up, c, size, kind = 1, phase = 0, gain = 1) => L.push(e.east + de * x + re * y - ce, up, -(e.north + dn * x + rn * y - cn), c[0], c[1], c[2], -de, 0.06, dn, size, kind, phase, gain);
+    const put = (x, y, up, c, size, kind = 1, phase = 0, gain = 1) => (kind === 2 ? PAPI : L).push(e.east + de * x + re * y - ce, up, -(e.north + dn * x + rn * y - cn), c[0], c[1], c[2], -de, 0.06, dn, size, kind, phase, gain);
     const nT = Math.max(6, Math.round(W / 3));
     for (let i = 0; i <= nT; ++i) put(D, (i / nT - 0.5) * W, 0.3, GREEN, 4.5);
     for (let i = 0; i <= 7; ++i) put(len, (i / 7 - 0.5) * W, 0.3, RED, 4.5);
@@ -151,10 +156,12 @@ function fieldLights(ap, material) {
     const aim = D + Math.min(AIM, 0.25 * len);
     for (let i = 0; i < 4; ++i) put(aim, -(W / 2 + 15 + 9 * i), 0.5, WHITE, 8, 2, GLIDE + (1.5 - i) * (1 / 3) * DEG, 1);
   }
-  const pts = pointsFrom(L, material);
-  pts.position.set(ce, ap.elevation, -cn);
-  pts.matrixAutoUpdate = false; pts.updateMatrix();
-  return pts;
+  // Two sets, so that by day only the PAPI's few points are drawn.
+  const field = new THREE.Group(), all = pointsFrom(L, material), papi = pointsFrom(PAPI, material);
+  field.add(all, papi);
+  field.position.set(ce, ap.elevation, -cn);
+  field.userData = { all, papi, reach };
+  return field;
 }
 export function buildRunwayLights({ fogLayer }) {
   SHARED.fogLayer.value = fogLayer;
@@ -163,16 +170,22 @@ export function buildRunwayLights({ fogLayer }) {
   group.add(near, far);
   const material = lightMaterial();
   const fill = (g, fields) => {
-    for (const p of [...g.children]) { p.geometry.dispose(); g.remove(p); }
+    for (const f of [...g.children]) { f.userData.all.geometry.dispose(); f.userData.papi.geometry.dispose(); g.remove(f); }
     for (const ap of fields) if (ap.ends.length) g.add(fieldLights(ap, material));
   };
   // dark 0..1 (the lights come on with the dusk); visibility m (they come on by day too when it closes in).
-  // The PAPI is lit by day as well.
-  function update(dark, visibility = 1e9) {
+  // The PAPI is lit by day as well. A field's lights are drawn while it is within their reach of the camera
+  // (through the haze: half as far again as the ground shows).
+  function update(camera, dark, visibility = 1e9) {
     const low = 1 - Math.min(1, Math.max(0, (visibility - 2500) / 5500));
-    const g = Math.max(dark, 0.9 * low);
+    const g = Math.max(dark, 0.9 * low), range = 1.5 * SHARED.fogFar.value, c = camera.position;
     material.uniforms.uGain.value = g;
     material.uniforms.uPapi.value = Math.max(0.8, g);
+    for (const set of group.children) for (const f of set.children) {
+      const d = Math.hypot(f.position.x - c.x, f.position.z - c.z) - f.userData.reach;
+      f.userData.all.visible = g > 0.01 && d < range;
+      f.userData.papi.visible = d < Math.min(range, 15000);
+    }
   }
   return { group, material, setFields: (fields) => fill(near, fields), setFar: (fields) => fill(far, fields), update };
 }

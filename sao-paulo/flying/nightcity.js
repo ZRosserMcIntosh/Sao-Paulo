@@ -15,7 +15,11 @@
 // a wall takes the average glow of its lit windows (no sparkle, no flicker).
 // The lower floors catch the street lamps' light.
 //
-// Both do nothing by day: one uniform (uNight, 0 by day) skips the lot.
+// By day neither is in the shaders at all: the night's part is compiled in
+// (a define, NIGHT_ON) only while the lights are on, so the day's programs
+// are the ones the page always had. (A uniform test would not do: some GPUs,
+// and every software renderer, run both sides of it.) The two variants of each
+// material are compiled once, the first dusk; three.js keeps both.
 import * as THREE from 'three';
 
 // A hash of a cell's number, 0..1 (no sine: it keeps its bits far from the origin).
@@ -31,6 +35,7 @@ const black = () => { const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 2
 // update(): call once a frame; it builds what the night needs the first time it is needed.
 export function nightGround({ ground, uniforms, renderer, map, base = './buildings/' }) {
   const material = ground.material;
+  if (!renderer.capabilities.isWebGL2) return { update() {}, uniforms: {}, tune: TUNE };  // (WebGL 1: the ground stays as it is; the runway lights still come on)
   const U = {
     uNight: uniforms.uNight, uGnd: TUNE.gnd, nightMap: { value: black() }, cityMap: { value: black() },
     cityBox: { value: new THREE.Vector4(0, 0, 1, 1) },  // scene x0, z0, 1 / width, 1 / depth of the tiles' grid
@@ -40,6 +45,7 @@ export function nightGround({ ground, uniforms, renderer, map, base = './buildin
     prev.call(material, sh, r);
     Object.assign(sh.uniforms, U);
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+#ifdef NIGHT_ON
 uniform float uNight;
 uniform vec4 uGnd;
 uniform sampler2D nightMap;
@@ -47,10 +53,11 @@ uniform sampler2D cityMap;
 uniform vec4 cityBox;
 ${HASH}
 // A lamp in about a third of the cells of side s (m), somewhere in its cell (no rows show): a round dot; x its brightness 0..1, y its own number 0..1.
-vec2 nightLamps( vec2 p, float s ) { vec2 c = p / s; float h = nightHash( floor( c ) ), k = fract( h * 37.0 ); vec2 f = fract( c ) - 0.3 - 0.4 * vec2( k, fract( h * 113.0 ) ); return vec2( step( 0.66, h ) * max( 0.0, 1.0 - 11.0 * dot( f, f ) ), k ); }`)
+vec2 nightLamps( vec2 p, float s ) { vec2 c = p / s; float h = nightHash( floor( c ) ), k = fract( h * 37.0 ); vec2 f = fract( c ) - 0.3 - 0.4 * vec2( k, fract( h * 113.0 ) ); return vec2( step( 0.66, h ) * max( 0.0, 1.0 - 11.0 * dot( f, f ) ), k ); }
+#endif`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-#ifdef USE_MAP
-if ( uNight > 0.0 ) {
+#if defined( USE_MAP ) && defined( NIGHT_ON )
+{
 	float inMap = step( mapBox.x, vGroundXZ.x ) * step( vGroundXZ.x, mapBox.z ) * step( mapBox.y, vGroundXZ.y ) * step( vGroundXZ.y, mapBox.w );
 	vec2 w2 = fwidth( vGroundXZ );
 	float mpp = max( w2.x, w2.y );  // metres across a pixel
@@ -112,7 +119,7 @@ if ( uNight > 0.0 ) {
     pass({ src: { value: raw.texture }, texel: { value: new THREE.Vector2() }, lod: { value: Math.max(0, Math.log2(120 / ((map[2] - map[0]) / w))) } },
       'void main(){ gl_FragColor = vec4( texture2D( src, vUv ).r * ( 1.0 - smoothstep( 0.34, 0.6, textureLod( src, vUv, lod ).r ) ), 0.0, 0.0, 1.0 ); }', out);
     raw.dispose();
-    out.texture.anisotropy = src.anisotropy;
+    out.texture.anisotropy = Math.min(4, src.anisotropy);  // (a glow: it need not be as sharp as the photo at a glancing angle)
     U.nightMap.value.dispose();
     U.nightMap.value = out.texture;
   }
@@ -134,16 +141,26 @@ if ( uNight > 0.0 ) {
       U.cityBox.value.set(i0 * T, -(j1 + 1) * T, 1 / (w * T), 1 / (h * T));
     }).catch(() => { /* no tiles: no glow beyond the photo */ });
   }
+  let on = false;
   function update() {
-    if (uniforms.uNight.value <= 0) return;
+    const want = uniforms.uNight.value > 0;
+    if (want !== on) { on = want; setNight(material, on); }
+    if (!on) return;
     if (!cityAsked) { cityAsked = true; loadCity(); }
     if (!lit && material.map && material.map.image) { lit = true; bakeStreets(material.map); }
   }
   return { update, uniforms: U, tune: TUNE };
 }
+// The night's part of a material's shader in (or out): its other compiled variant.
+function setNight(material, on) {
+  if (on) material.defines = { ...material.defines, NIGHT_ON: 1 };
+  else if (material.defines) delete material.defines.NIGHT_ON;
+  material.needsUpdate = true;
+}
 
 // `materials`: buildings.js's three facade materials (a house's, a block's, a tower's curtain wall).
-export function nightBuildings({ materials, uniforms }) {
+export function nightBuildings({ materials, uniforms, renderer }) {
+  if (!renderer.capabilities.isWebGL2) return { update() {} };
   // Per facade: the window's box in a bay (u0, v0, u1, v1), and [share of windows lit in the evening, their brightness,
   // the brightness of a light that stands for several windows (from afar), the share of them that are warm rather than white].
   const FACADES = [
@@ -159,19 +176,21 @@ export function nightBuildings({ materials, uniforms }) {
       prev.call(m, sh, r);
       Object.assign(sh.uniforms, U);
       // Walls stand upright (their normals level); roofs take no windows.
-      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vWall;')
-        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvWall = 1.0 - step( 0.5, abs( objectNormal.y ) );');
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n#ifdef NIGHT_ON\nvarying float vWall;\n#endif')
+        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n#ifdef NIGHT_ON\nvWall = 1.0 - step( 0.5, abs( objectNormal.y ) );\n#endif');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+#ifdef NIGHT_ON
 varying float vWall;
 uniform float uNight;
 uniform float uLate;
 uniform vec4 uWin;
 uniform vec4 winBox;
 uniform vec4 winLit;
-${HASH}`)
+${HASH}
+#endif`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-#ifdef USE_MAP
-if ( uNight > 0.0 ) {
+#if defined( USE_MAP ) && defined( NIGHT_ON )
+{
 	// One bay to a cell close by: its window, lit or dark. From afar, where bays (or floors) are under a
 	// pixel, 2, 4, 8... of them to a cell (each way by itself, two or three pixels across) and a round light
 	// in some: a far wall shows a few separate lights, not an even glow.
@@ -192,4 +211,7 @@ if ( uNight > 0.0 ) {
     m.customProgramCacheKey = () => 'night-buildings';
     m.needsUpdate = true;
   });
+  let on = false;
+  // Call once a frame: the windows' shader goes in with the dusk and out with the dawn.
+  return { update() { const want = uniforms.uNight.value > 0; if (want !== on) { on = want; for (const m of materials) setNight(m, on); } } };
 }

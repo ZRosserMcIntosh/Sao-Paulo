@@ -25,7 +25,7 @@ import { buildIce } from './ice.js';
 import { buildRain } from './rain.js';
 import { createDayNight } from './daynight.js';
 import { nightGround, nightBuildings } from './nightcity.js';
-import { buildRunwayLights, buildAircraftLights, buildLandingLight, tickLights, LIGHT } from './lights.js';
+import { buildRunwayLights, buildAircraftLights, buildLandingLight, tickLights, lightFlagsOf, LIGHT } from './lights.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -319,7 +319,7 @@ function buildTerrain() {
 const city = buildCity({ base: './buildings/', groundAt, mobile: MOBILE, maxAniso: renderer.capabilities.getMaxAnisotropy(),
   physics: { add: (i, j, bytes) => A.buildingsTile(i, j, bytes), drop: (i, j) => A.avd_buildings_drop(i, j) } });
 scene.add(city.group);
-nightBuildings({ materials: city.materials, uniforms: night.uniforms });  // lit windows after dark (nightcity.js)
+const nightWin = nightBuildings({ materials: city.materials, uniforms: night.uniforms, renderer });  // lit windows after dark (nightcity.js)
 // What an impact throws up: dust, smoke and pieces (crash.js).
 const crashFx = buildCrash({ groundAt: (x, z) => groundAt(x, -z) });
 scene.add(crashFx.group);
@@ -2562,9 +2562,7 @@ night.mountUi($('todUi'));
 // link can send the same value): lit while the bus has power.
 function lightFlags() {
   const p = sw.pos;
-  if (!p || !((P.jet ? j[45] : s[31]) > 10) || ui.crashed) return 0;
-  return (p['electrical.load.nav_lights'] ? LIGHT.NAV : 0) | (p['electrical.load.beacon'] ? LIGHT.BEACON : 0) | (p['electrical.load.strobes'] ? LIGHT.STROBE : 0)
-    | (p['electrical.load.landing_light'] ? LIGHT.LANDING : 0) | (p['electrical.load.taxi_light'] ? LIGHT.TAXI : 0);
+  return !p || !((P.jet ? j[45] : s[31]) > 10) || ui.crashed ? 0 : lightFlagsOf(p);
 }
 // Easy and Sport: when it gets dark the lights are switched on for the
 // player, through the cockpit's own switches (so the panel agrees and the
@@ -2608,17 +2606,19 @@ const rainMat = rainFx.group.children[0].material;
 function nightFrame(dt) {
   const studio = ui.flow === 2, dark = studio ? 0 : night.state.dark;
   night.frame(camera, wx, studio);
-  nightGnd.update();
   const bench = window.__fly?.BENCH;  // (?debug only: parts switched off to cost them)
   if (bench === 'nocity') night.uniforms.uNight.value = 0;
+  nightGnd.update(); nightWin.update();
+  skyDome.visible = !studio && bench !== 'nosky';
   tickLights(camera, renderer, scene, performance.now() / 1000, dark);
   // The runway lights: with the dusk, and by day when the visibility closes in.
   rwyLights.group.visible = !studio && bench !== 'nopoints';
-  rwyLights.update(night.state.city, Math.min(wx ? wx.visibility : 1e9, VIS[ui.vis] ? VIS[ui.vis][0] : 1e9));
+  rwyLights.update(camera, night.state.city, Math.min(wx ? wx.visibility : 1e9, VIS[ui.vis] ? VIS[ui.vis][0] : 1e9));
   const flags = lightFlags();
   aircraft.lights.set(flags);
-  // The landing light's beam: only where there is something for it to light.
-  landingLight.set(dark > 0.2 && s[14] < 2500 && bench !== 'nospot' ? (flags & LIGHT.LANDING ? 1 : flags & LIGHT.TAXI ? 0.5 : 0) : 0);
+  // The landing light's beam: only where there is something within its reach to light
+  // (a spot light costs every lit surface on screen a little while it is on).
+  landingLight.set(dark > 0.2 && s[14] < 500 && bench !== 'nospot' ? (flags & LIGHT.LANDING ? 1 : flags & LIGHT.TAXI ? 0.5 : 0) : 0);
   if (dark > 0.2 && !nightWarm) { nightWarm = true; landingLight.warm(renderer, scene, camera); }
   nightT += dt;
   if (nightT > 0.2) {

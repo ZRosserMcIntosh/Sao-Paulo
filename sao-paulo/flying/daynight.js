@@ -69,13 +69,14 @@ void main(){
   float y = max(d.y, 0.0);
   vec3 col = mix(haze, mix(low, zen, pow(y, 0.5)), smoothstep(0.0, 0.09, y));
   if (sunCol.r + glowCol.r > 0.0) {
-    float s = max(dot(d, sunDir), 0.0), s8 = s * s; s8 *= s8; s8 *= s8;
-    col += glowCol * (0.6 * s8 * exp(-4.0 * y) + 0.5 * pow(s8, 12.0)) + sunCol * smoothstep(0.99988, 0.99996, s);
+    float s = max(dot(d, sunDir), 0.0);
+    col += sunCol * smoothstep(0.99988, 0.99996, s);
+    if (glowCol.r > 0.0) { float s8 = s * s; s8 *= s8; s8 *= s8; col += glowCol * (0.6 * s8 * exp(-4.0 * y) + 0.5 * pow(s8, 12.0)); }
   }
   if (dith > 0.0) {
-    float m = max(dot(d, moonDir), 0.0);
-    col += moonCol * (smoothstep(0.99986, 0.99992, m) + 0.05 * pow(m, 900.0));
-    col += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * dith;  // (no bands in the dark gradient)
+    float m = dot(d, moonDir);
+    if (m > 0.995) col += moonCol * (smoothstep(0.99986, 0.99992, m) + 0.05 * pow(m, 900.0));
+    col += (fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5) * dith;  // (no bands in the dark gradient)
   }
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -116,7 +117,7 @@ export function createDayNight({ renderer, scene, sun, ambient, skyDome, SKY, SU
   skyDome.material = sky;
 
   // Stars: points on the dome, turning with the hours about the south celestial pole.
-  const NS = mobile ? 700 : 1400;
+  const NS = mobile ? 450 : 900;
   const stars = (() => {
     const pos = new Float32Array(NS * 3), mag = new Float32Array(NS);
     let seed = 7;
@@ -225,9 +226,9 @@ export function createDayNight({ renderer, scene, sun, ambient, skyDome, SKY, SU
   const onChange = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 
   // Once a frame, after the page's own weather has set its day's lights and
-  // sky: the hour's light on them. haze 0..1: how far rain, cloud or fog have
-  // closed the sky in (the sun, the moon and the stars go with it).
-  // studio: the wind tunnel's plain light (no time of day there).
+  // sky: the hour's light on them. wx: the core's weather (its visibility
+  // and the fog layer close the sky in: the sun, the moon and the stars go
+  // with it). studio: the wind tunnel's plain light (no time of day there).
   const DAY_SUN = srgb(LOOK[0][1]), WHITE = new THREE.Color(1, 1, 1);
   function frame(camera, wx, studio = false) {
     const u = sky.uniforms;
