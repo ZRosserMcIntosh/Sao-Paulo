@@ -194,7 +194,8 @@ scene.fog = new THREE.Fog(SKY, 3000, 26000);
 // inside the layer: the path's length times the fraction of it below the top
 // (height varies linearly along a ray). Inside, the world greys out at V; from
 // above, the ground fades under a white blanket. Uniform shared by reference:
-// x top (scene y, m), y extinction (1/m, 0 = no layer), z grey level.
+// x top (scene y, m), y extinction (1/m, 0 = no layer), z grey level, w its
+// warmth (0 by day; the city's lamps in the fog at night: daynight.js).
 const FOG = { x: -1e9, y: 0, z: 0.8, w: 0 };
 for (const k of Object.keys(THREE.ShaderLib)) { const u = THREE.ShaderLib[k].uniforms; if (u && u.fogColor) u.fogLayer = { value: FOG }; }
 THREE.ShaderChunk.fog_pars_vertex += '\n#ifdef USE_FOG\n\tvarying vec3 vFogWorld;\n#endif';
@@ -205,7 +206,7 @@ THREE.ShaderChunk.fog_fragment += `
 	if ( fogLayer.y > 0.0 ) {
 		float fLo = min( cameraPosition.y, vFogWorld.y ), fHi = max( cameraPosition.y, vFogWorld.y );
 		float fIn = fHi - fLo > 0.01 ? clamp( ( fogLayer.x - fLo ) / ( fHi - fLo ), 0.0, 1.0 ) : step( fLo, fogLayer.x );
-		gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( fogLayer.z ), 1.0 - exp( - fogLayer.y * distance( vFogWorld, cameraPosition ) * fIn ) );
+		gl_FragColor.rgb = mix( gl_FragColor.rgb, fogLayer.z * vec3( 1.0 + fogLayer.w, 1.0, 1.0 - fogLayer.w ), 1.0 - exp( - fogLayer.y * distance( vFogWorld, cameraPosition ) * fIn ) );
 	}
 #endif`;
 const camera = new THREE.PerspectiveCamera(60, 1, 0.12, 90000);
@@ -229,7 +230,7 @@ const skyDome = new THREE.Mesh(new THREE.SphereGeometry(80000, 32, 16), new THRE
 skyDome.renderOrder = -1; skyDome.frustumCulled = false;
 scene.add(skyDome);
 // The time of day (daynight.js): from here on SKY, SUN_DIR and the fog's grey
-// are the hour's (noon unless the player chose another), and the dome's shader knows the sun.
+// are the hour's (the afternoon it always was, unless the player chose another), and the dome's shader knows the sun.
 const night = createDayNight({ renderer, scene, sun, ambient, skyDome, SKY, SUN_DIR, FOG, store, mobile: MOBILE });
 
 // Reflection environment for the airframe paint (baked once).
@@ -2599,27 +2600,31 @@ function cabinLights(cab, dark) {
   for (const q of cab.nightParts) {
     if (q.panel !== undefined) q.m.emissiveIntensity = q.panel + dark * (glass ? 0.9 - q.panel : lit ? 0.5 : -0.14);
     else if (q.basic) q.m.color.setScalar(1 - dark * (lit ? 0.35 : 0.75));
-    else q.m.emissive.copy(q.tint).multiplyScalar(dark * (lit ? 0.085 : 0.03));
+    else q.m.emissive.copy(q.tint).multiplyScalar(dark * (lit ? 0.04 : 0.015));
   }
 }
 let nightT = 1, nightDark = -1, nightWarm = false;
+const rainMat = rainFx.group.children[0].material;
 function nightFrame(dt) {
   const studio = ui.flow === 2, dark = studio ? 0 : night.state.dark;
   night.frame(camera, wx, studio);
   nightGnd.update();
+  const bench = window.__fly?.BENCH;  // (?debug only: parts switched off to cost them)
+  if (bench === 'nocity') night.uniforms.uNight.value = 0;
   tickLights(camera, renderer, scene, performance.now() / 1000, dark);
   // The runway lights: with the dusk, and by day when the visibility closes in.
-  rwyLights.group.visible = !studio;
+  rwyLights.group.visible = !studio && bench !== 'nopoints';
   rwyLights.update(night.state.city, Math.min(wx ? wx.visibility : 1e9, VIS[ui.vis] ? VIS[ui.vis][0] : 1e9));
   const flags = lightFlags();
   aircraft.lights.set(flags);
   // The landing light's beam: only where there is something for it to light.
-  landingLight.set(dark > 0.2 && s[14] < 2500 ? (flags & LIGHT.LANDING ? 1 : flags & LIGHT.TAXI ? 0.5 : 0) : 0);
+  landingLight.set(dark > 0.2 && s[14] < 2500 && bench !== 'nospot' ? (flags & LIGHT.LANDING ? 1 : flags & LIGHT.TAXI ? 0.5 : 0) : 0);
   if (dark > 0.2 && !nightWarm) { nightWarm = true; landingLight.warm(renderer, scene, camera); }
   nightT += dt;
   if (nightT > 0.2) {
     nightT = 0;
     autoLights();
+    rainMat.color.setHex(0xc9d3de).multiplyScalar(1 - 0.62 * dark);  // rain catches less light after dark
     if (ui.cam === 1 || nightDark !== dark) { nightDark = dark; cabinLights(cabin, dark); }
   }
 }

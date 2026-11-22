@@ -33,7 +33,7 @@ void main() {
   vec3 toCam = cameraPosition - wp.xyz;
   float dist = max( length( toCam ), 0.01 );
   vec3 v = toCam / dist;
-  float kind = aParm.y, g = uGain * aParm.w;
+  float kind = aParm.y, g = uGain * aParm.w, size = aParm.x;
   vec3 col = aColor;
   float beam = smoothstep( -0.15, 0.15, dot( v, normalize( mat3( modelMatrix ) * ( aDir + vec3( 0.0, 1e-5, 0.0 ) ) ) ) );
   if ( kind > 0.5 && kind < 1.5 ) g *= beam;
@@ -52,13 +52,15 @@ void main() {
   if ( fogLayer.y > 0.0 ) {
     float lo = min( cameraPosition.y, wp.y ), hi = max( cameraPosition.y, wp.y );
     float inside = hi - lo > 0.01 ? clamp( ( fogLayer.x - lo ) / ( hi - lo ), 0.0, 1.0 ) : step( lo, fogLayer.x );
-    T *= exp( -0.45 * fogLayer.y * dist * inside );
+    float depth = fogLayer.y * dist * inside;
+    T *= exp( -0.25 * depth );
+    size *= 1.0 + min( depth, 1.5 );  // its halo in the fog
   }
   // The glow's size on screen: never under a couple of pixels (dimmer instead), never a ball in the face.
-  float px = aParm.x * uPx / dist, least = kind > 1.5 && kind < 2.5 ? 1.6 * uMin : uMin;
+  float px = size * uPx / dist, least = kind > 1.5 && kind < 2.5 ? 1.6 * uMin : uMin;
   float a = g * T * max( sqrt( min( 1.0, px / least ) ), 0.16 );
   vCol = vec4( col, min( a, 1.6 ) );
-  gl_PointSize = clamp( px, least, min( 44.0, 3.0 * uMin + 2.5 * aParm.x ) );
+  gl_PointSize = clamp( px, least, min( 44.0, 2.0 * uMin + 1.5 * size ) );
   gl_Position = projectionMatrix * viewMatrix * wp;
   #include <logdepthbuf_vertex>
   if ( a < 0.004 ) gl_Position = vec4( 2.0, 2.0, 2.0, 1.0 );  // off: not drawn
@@ -70,8 +72,8 @@ void main() {
   #include <logdepthbuf_fragment>
   float r = max( 0.0, 1.0 - length( gl_PointCoord - 0.5 ) * 2.0 );
   float a = min( 1.0, 4.0 * r * r * vCol.a );  // solid over the inner half, soft to the edge
-  // A white-hot core, the colour round it.
-  gl_FragColor = vec4( mix( vCol.rgb, vec3( 1.0 ), 0.5 * smoothstep( 0.6, 1.0, r * a ) ) * a, a * 0.9 );
+  // A hotter core, the colour round it.
+  gl_FragColor = vec4( mix( vCol.rgb, vec3( 1.0 ), 0.22 * smoothstep( 0.6, 1.0, r * a ) ) * a, a * 0.9 );
 }`;
 function lightMaterial(own) {
   return new THREE.ShaderMaterial({

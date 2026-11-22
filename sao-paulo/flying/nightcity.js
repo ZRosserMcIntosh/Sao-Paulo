@@ -23,7 +23,7 @@ const HASH = 'float nightHash( vec2 p ) { vec3 p3 = fract( vec3( p.xyx ) * 0.103
 // The look's numbers, as uniforms (shared by reference).
 // win: x the share of far lights against the near windows', y a far light's brightness, z the street lamps' light on the lower floors, w the windows' brightness.
 // gnd: x the glow's brightness, y the far lamps', z how much of the streets' mean glow stays under the far lamps, w the share of lamps that are white.
-export const TUNE = { win: { value: new THREE.Vector4(0.3, 0.75, 0.16, 1) }, gnd: { value: new THREE.Vector4(0.62, 0.85, 0.22, 0.4) } };
+export const TUNE = { win: { value: new THREE.Vector4(0.5, 0.85, 0.36, 1.05) }, gnd: { value: new THREE.Vector4(0.62, 0.85, 0.22, 0.4) } };
 const black = () => { const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); t.needsUpdate = true; return t; };
 
 // `ground`: ground.js's object (its material draped with the map photo).
@@ -46,8 +46,8 @@ uniform sampler2D nightMap;
 uniform sampler2D cityMap;
 uniform vec4 cityBox;
 ${HASH}
-// A lamp in about a third of the cells of side s (m): a round dot; x its brightness 0..1, y its own number 0..1.
-vec2 nightLamps( vec2 p, float s ) { vec2 c = p / s, f = fract( c ) - 0.5; float h = nightHash( floor( c ) ); return vec2( step( 0.66, h ) * max( 0.0, 1.0 - 5.0 * dot( f, f ) ), fract( h * 37.0 ) ); }`)
+// A lamp in about a third of the cells of side s (m), somewhere in its cell (no rows show): a round dot; x its brightness 0..1, y its own number 0..1.
+vec2 nightLamps( vec2 p, float s ) { vec2 c = p / s; float h = nightHash( floor( c ) ), k = fract( h * 37.0 ); vec2 f = fract( c ) - 0.3 - 0.4 * vec2( k, fract( h * 113.0 ) ); return vec2( step( 0.66, h ) * max( 0.0, 1.0 - 11.0 * dot( f, f ) ), k ); }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 #ifdef USE_MAP
 if ( uNight > 0.0 ) {
@@ -55,9 +55,8 @@ if ( uNight > 0.0 ) {
 	vec2 w2 = fwidth( vGroundXZ );
 	float mpp = max( w2.x, w2.y );  // metres across a pixel
 	float streets = texture2D( nightMap, vMapUv ).r;
-	// Beyond the photo: blocks of about 90 m, their streets bending a little, as full as the tiles there.
-	vec2 q = vGroundXZ * 0.011;
-	q += 0.35 * sin( q.yx * 0.23 );
+	// Beyond the photo: blocks of about 90 m (a grid turned 27° off north), as full as the tiles there.
+	vec2 q = mat2( 0.0098, 0.005, -0.005, 0.0098 ) * vGroundXZ;
 	vec2 fw = 0.011 * w2, g = abs( fract( q ) - 0.5 );
 	vec2 ln = smoothstep( 0.46 - fw, 0.46 + fw, g );
 	float grid = mix( max( ln.x, ln.y ), 0.15, clamp( 2.0 * max( fw.x, fw.y ), 0.0, 1.0 ) );
@@ -67,11 +66,11 @@ if ( uNight > 0.0 ) {
 	// blended as the distance grows), and only a little of the streets' mean glow under them.
 	float lit = mix( 0.5 * grid * city, streets, inMap );
 	float far = clamp( ( mpp - 2.5 ) / 5.0, 0.0, 1.0 );
-	float lvl = log2( max( 2.0 * mpp, 5.0 ) ), l0 = floor( lvl ), s0 = exp2( l0 );
+	float lvl = log2( max( 2.6 * mpp, 6.0 ) ), l0 = floor( lvl ), s0 = exp2( l0 );
 	vec2 la = nightLamps( vGroundXZ, s0 ), lb = nightLamps( vGroundXZ, 2.0 * s0 );
 	float lamps = mix( la.x, lb.x, lvl - l0 );
 	// Sodium orange and the newer white lamps: by district under the streets, lamp by lamp from afar.
-	vec3 lamp = mix( vec3( 1.0, 0.56, 0.2 ), vec3( 1.0, 0.82, 0.58 ), 0.5 + 0.5 * sin( vGroundXZ.x * 0.0013 + 2.0 * sin( vGroundXZ.y * 0.0017 ) ) );
+	vec3 lamp = mix( vec3( 1.0, 0.56, 0.2 ), vec3( 1.0, 0.82, 0.58 ), 0.5 + 0.5 * sin( dot( vGroundXZ, vec2( 0.0013, 0.0019 ) ) ) );
 	vec3 one = mix( lamp, vec3( 0.95, 0.97, 1.0 ), step( 1.0 - uGnd.w, mix( la.y, lb.y, step( 0.5, lvl - l0 ) ) ) );
 	totalEmissiveRadiance += uNight * uGnd.x * ( lit * ( 1.0 - ( 1.0 - uGnd.z ) * far ) * lamp + uGnd.y * far * min( 1.0, 6.0 * lit ) * lamps * one );
 }
@@ -186,6 +185,7 @@ if ( uNight > 0.0 ) {
 	// The street lamps on the lower floors.
 	vec3 street = uWin.z * exp( -0.35 * max( vMapUv.y, 0.0 ) ) * diffuseColor.rgb * vec3( 1.0, 0.66, 0.36 );
 	totalEmissiveRadiance += uNight * vWall * ( uWin.w * winLit.y * w * lampCol + street );
+	diffuseColor.rgb *= 1.0 - 0.4 * uNight;  // pale walls and roofs take the moonlight no brighter than the ground's photo
 }
 #endif`);
     };
