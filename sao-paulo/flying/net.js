@@ -622,7 +622,8 @@ export function mountNet(ctx) {
   const _f = new THREE.Vector3();
   function spotNear(r) {
     const o = r.pose, speed = Math.hypot(o.v[0], o.v[1]);
-    const moving = !(o.flags & F.ground) && speed > 18;
+    // (The speed sent is the one seen on the wall clock: a friend whose device runs the flight slowly is still flying.)
+    const moving = !(o.flags & (F.ground | F.crashed | F.frozen | F.away)) && speed > 1.5;
     // Their heading: along the track when moving, else where the nose points.
     _f.set(1, 0, 0).applyQuaternion(_q.set(o.q[0], o.q[1], o.q[2], o.q[3]));
     const hdg = moving ? Math.atan2(o.v[0], o.v[1]) : Math.atan2(_f.x, _f.y);
