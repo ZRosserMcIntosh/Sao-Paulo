@@ -4,6 +4,8 @@ body.casual #hud,body.casual #instr,body.casual #touch,body.casual #side,body.ca
 body.casual #prompt,body.casual #toast,body.casual #cockpitTip,body.casual .top .row{display:none!important}
 body.casual #osmCredit{opacity:.55}
 #bHome{background:var(--plate);border-color:#fff;color:#fff}
+#bHome svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px}
+#pTop button[hidden]{display:none}
 #pTop{display:none;gap:6px;align-items:center}
 body.casual #pTop{display:flex}
 #pTop button{min-width:40px;height:36px;padding:0 11px;border-radius:18px;font:600 13px var(--body);display:inline-flex;align-items:center;gap:6px;justify-content:center}

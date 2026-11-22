@@ -25,7 +25,7 @@ import {
 
 // Everything a player reads, in one place.
 const STR = {
-  button: 'Fly together',
+  button: 'Fly together', buttonShort: 'Friends',
   title: 'Fly together',
   intro: 'Fly the same sky as your friends. Send them a link: no account, nothing to install.',
   off: 'Flying together is not switched on yet. Check back soon.',
@@ -1034,7 +1034,7 @@ function mountUi(net, ctx, STR, { connect, leave, players, present }) {
   function refresh() {
     const n = players(), inRoom = !!net.room;
     const cls = net.status === 'open' ? '' : net.status === 'failed' ? 'bad' : 'wait';
-    btn.replaceChildren(...(inRoom ? [el('span', { class: `dot ${cls}` }), net.status === 'open' ? STR.chip(n) : net.status === 'failed' ? STR.button : STR.reconnecting.replace('…', '')] : [STR.button]));
+    btn.replaceChildren(...(inRoom ? [el('span', { class: `dot ${cls}` }), net.status === 'open' ? STR.chip(n) : net.status === 'failed' ? STR.button : STR.reconnecting.replace('…', '')] : [ctx.MOBILE ? STR.buttonShort : STR.button]));
     btn.setAttribute('aria-pressed', 'false');
     btn.title = inRoom && net.status === 'open' ? (n > 1 ? STR.flying(n) : STR.alone) : STR.title;
     if (!panel.hidden) {

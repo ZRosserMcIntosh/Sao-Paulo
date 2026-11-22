@@ -158,7 +158,7 @@ export function initPlay(ctx) {
     ${btn('pAgainB', '', ICON.again, `${T.again} (R)`)}</div>`);
   document.querySelector('.top').appendChild(top);
   // The simulator's own bar gets one more button: the way back to the front door.
-  const simHome = el(`<button id="bHome" title="${T.game}: the welcome screen">${T.home}</button>`);
+  const simHome = el(`<button id="bHome" title="${T.game}: the welcome screen" aria-label="${T.home}">${MOBILE ? ICON.home : T.home}</button>`);
   document.querySelector('.top .row').prepend(simHome);
   const hud = el(`<div id="pHud">
     <div id="pGoal" hidden><b></b><span></span><small></small></div>
