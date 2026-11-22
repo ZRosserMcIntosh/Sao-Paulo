@@ -411,7 +411,6 @@ export function mountNet(ctx) {
     sentSt.at = now; sentSt.flags = own.flags; sentSt.type = own.type; sentSt.gear = own.gear; sentSt.flap = own.flap; sentSt.e1 = own.e1; sentSt.spd = own.spd;
     for (let i = 0; i < 3; ++i) { sentSt.p[i] = own.p[i]; sentSt.v[i] = own.v[i] * rate; sentSt.w[i] = own.w[i] * rate; }
     for (let i = 0; i < 4; ++i) sentSt.q[i] = own.q[i];
-    if (net.recorder) net.recorder(a);
   }
 
   // ---- The others' states, in ----
@@ -433,7 +432,6 @@ export function mountNet(ctx) {
     const r = remoteFor(id);
     if (!r || r.sampler) { net.rejected++; return; }
     if (r.track.push(st, wallNow())) net.received++; else net.rejected++;
-    if (net.onstate) net.onstate(r, st);
   }
 
   // ---- Who is here (presence), the host and the room's settings ----
@@ -651,6 +649,35 @@ export function mountNet(ctx) {
     if (t > wantFly.until) { wantFly = null; if (!present().length) ctx.toast(STR.nobody, 4); }
   }
 
+  // ---- A ghost: a recorded flight (replay.js), drawn and flown to like another player ----
+  // rows: state arrays as recorded; it starts now, plays once, and fades out at its end.
+  net.playGhost = (rows, meta = {}) => {
+    net.stopGhost();
+    const states = [];
+    for (const row of rows) { const st = decodeState(row); if (st && (!states.length || st.t > states[states.length - 1].t)) states.push(st); }
+    if (states.length < 2) return false;
+    const r = new Remote('#ghost', net), tr = new Track(), t0 = states[0].t;
+    let next = 0, began = 0;
+    r.meta = { ...r.meta, name: cleanName(meta.name, STR.ghost), color: Number.isInteger(meta.color) && meta.color >= 0 && meta.color < COLORS.length ? meta.color : me.color };
+    r.seconds = (states[states.length - 1].t - t0) / 1000;
+    r.sampler = (now, pose) => {
+      if (!began) { began = now; tr.off = now - t0; }
+      while (next < states.length && states[next].t <= now - tr.off + 1500) { tr.buf.push(states[next++]); if (tr.buf.length > 24) tr.buf.shift(); }
+      r.played = (now - began) / 1000;
+      return tr.sample(now, 0, pose);
+    };
+    net.remotes.set(r.id, r);
+    net.ghost = r;
+    ui.refresh();
+    return true;
+  };
+  net.stopGhost = () => {
+    const r = net.ghost;
+    if (!r) return;
+    net.ghost = null; r.sampler = null; r.dispose(); net.remotes.delete(r.id);
+    ui.refresh();
+  };
+
   // ---- Each frame ----
   const order = [];
   // dt: wall seconds this frame; simDt: seconds of flight it advanced; s, j, tp: the core's state.
@@ -696,6 +723,7 @@ export function mountNet(ctx) {
       // A player the room no longer lists, silent: gone.
       if (!r.present && !r.sampler && (r.age === null || r.age > STALE_FADE[1])) dropRemote(r);
     }
+    if (net.ghost && net.ghost.age > STALE_FADE[1]) net.stopGhost();  // played out
     net.sound.update(own);
   };
   // Seen off-tab: tell the others this aircraft is parked in the sky for now.
@@ -940,6 +968,9 @@ function mountUi(net, ctx, STR, { connect, leave, players, present }) {
       if (!seen) go.disabled = true;
       rows.push(el('div', { class: 'net-row' }, dot(r.color), el('div', {}, el('b', { text: r.meta.name }), el('small', { text: `${TYPE_NAMES[TYPES[seen ? r.pose.type : r.meta.type]] || ''}${r.meta.host ? ` · ${STR.host}` : ''} · ${where}` })), go));
     }
+    const gh = net.ghost;
+    if (gh) rows.push(el('div', { class: 'net-row' }, dot(gh.color), el('div', {}, el('b', { text: gh.meta.name }), el('small', { text: gh.has ? km(gh.dist) : '' })),
+      el('button', { text: STR.flyTo, onclick: (e) => { net.flyTo(gh.id); e.currentTarget.blur(); if (ctx.MOBILE) close(); } })));
     listEl.replaceChildren(...rows);
   }
   const dot = (c) => { const i = el('i'); i.style.background = c; return i; };
@@ -970,6 +1001,7 @@ function mountUi(net, ctx, STR, { connect, leave, players, present }) {
       listEl = el('div', { class: 'net-list', id: 'netList' });
       kids.push(listEl, ...identity(null), el('div', { class: 'net-foot' }, el('button', { id: 'netLeave', text: STR.leave, onclick: () => { leave(); } })));
     }
+    if (net.panelExtra) kids.push(...net.panelExtra(el));  // (replay.js: the ghost's buttons)
     panel.replaceChildren(...kids);
     renderList();
   }

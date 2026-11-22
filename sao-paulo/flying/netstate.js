@@ -249,25 +249,32 @@ export class Track {
 export const newPose = () => ({ p: [0, 0, 0], q: [0, 0, 0, 1], v: [0, 0, 0], w: [0, 0, 0], type: 0, flags: 0, gear: 1, flap: 0, e1: 0, e2: 0, aux: 0, ail: 0, elev: 0, rud: 0, spd: 0, epoch: 0 });
 
 // ---- A flight, recorded: the same states, packed for a link or a file ---------------
-// (replay.js) Rows of the integers above, delta-coded column by column, then
-// deflated: a steady minute at 4 a second is about 2 kB.
+// (replay.js) Rows of the integers above as bytes: each field its change from
+// the row before (zigzag, base-128 varints; the first row's time left out),
+// which deflates well: a minute of flight is 2-4 kB as a link.
+export const MAX_ROWS = 4000;
 export function packRows(rows) {
-  const n = rows.length, out = new Int32Array(1 + n * (N_FIELDS - 1));
-  out[0] = n;
-  // Times as offsets from the first row (they do not fit 32 bits); the rest delta-coded.
-  for (let i = 0, k = 1; i < n; ++i) for (let c = 1; c < N_FIELDS; ++c, ++k) {
-    out[k] = i ? rows[i][c] - rows[i - 1][c] : c === 1 ? 0 : rows[0][c];
-  }
-  return out;
+  const out = [];
+  const put = (v) => { let z = v >= 0 ? v * 2 : -v * 2 - 1; while (z >= 128) { out.push((z % 128) | 128); z = Math.floor(z / 128); } out.push(z); };
+  put(rows.length);
+  for (let i = 0; i < rows.length; ++i) for (let c = 1; c < N_FIELDS; ++c) put(i ? rows[i][c] - rows[i - 1][c] : c === 1 ? 0 : rows[0][c]);
+  return Uint8Array.from(out);
 }
-export function unpackRows(ints, t0 = 1) {
-  const n = ints[0];
-  if (!isInt(n) || n < 0 || n > 20000 || ints.length !== 1 + n * (N_FIELDS - 1)) return null;
+// Bytes → rows (times from t0), or null if they are not that. Each row still
+// goes through decodeState before it is used.
+export function unpackRows(bytes, t0 = 1, at = 0) {
+  const get = () => {
+    let z = 0, m = 1;
+    for (let k = 0; k < 8; ++k) { if (at >= bytes.length) return NaN; const b = bytes[at++]; z += (b & 127) * m; m *= 128; if (b < 128) return z % 2 ? -(z + 1) / 2 : z / 2; }
+    return NaN;
+  };
+  const n = get();
+  if (!isInt(n) || n < 0 || n > MAX_ROWS) return null;
   const rows = [];
-  for (let i = 0, k = 1; i < n; ++i) {
+  for (let i = 0; i < n; ++i) {
     const r = new Array(N_FIELDS);
     r[0] = PROTO;
-    for (let c = 1; c < N_FIELDS; ++c, ++k) r[c] = ints[k] + (i ? rows[i - 1][c] : c === 1 ? t0 : 0);
+    for (let c = 1; c < N_FIELDS; ++c) { const v = get(); if (!isInt(v)) return null; r[c] = v + (i ? rows[i - 1][c] : c === 1 ? t0 : 0); }
     rows.push(r);
   }
   return rows;

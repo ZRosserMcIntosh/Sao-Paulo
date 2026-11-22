@@ -24,6 +24,7 @@ import { buildCrash } from './crash.js';
 import { buildIce } from './ice.js';
 import { buildRain } from './rain.js';
 import { mountNet } from './net.js';
+import { mountReplay } from './replay.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -2548,6 +2549,8 @@ function netSpawn(spot) {
 }
 const net = mountNet({ scene, camera, store, toast, MOBILE, PROFILES, fetchDef, buildAircraft, buildJet, groundAt, debug: /[?&]debug\b/.test(location.search),
   profile: () => P, verticalSpeed: () => c[53], frameStart: () => clock.oldTime, sunDir: () => SUN_DIR, spawn: netSpawn, closeMenus: () => togglePanel(false), sound: () => (ui.sound && !ui.paused ? ui.vol / 100 : 0), cockpit: () => ui.cam === 1 });
+// This flight recorded, and flown again beside its ghost (replay.js; its buttons are in the Fly together panel).
+const replay = mountReplay(net, { toast, MOBILE, startIndex: () => ui.start, restart });
 // The host's weather basics reach whoever joins. (Time of day: the day/night
 // module adds its own the same way, net.world('tod', { get, apply }).)
 net.world('wx', {
@@ -2751,4 +2754,4 @@ function frame() {
 }
 requestAnimationFrame(frame);
 // For checks (?debug): the core, the drawn ground and the page's state.
-if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl, prompts: () => promptList(() => false), net };
+if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl, prompts: () => promptList(() => false), net, replay };
