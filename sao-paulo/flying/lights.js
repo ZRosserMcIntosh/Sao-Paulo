@@ -210,7 +210,7 @@ export function buildAircraftLights(model) {
   const landing = (lm.landing || [[box.max.x - 0.2 * len, 0, box.min.z + 0.3 * (box.max.z - box.min.z)]]).map((v) => at(v));
   const L = [];
   const put = (p, c, size, kind, phase = 0, gain = 1, d = [0, 0, 0]) => L.push(p[0], p[1], p[2], c[0], c[1], c[2], d[0], d[1], d[2], size * k, kind, phase, gain);
-  put(left, NAV_RED, 0.9, 4); put(right, NAV_GREEN, 0.9, 4); put(tail, LAMP, 0.8, 4, 0, 0.8);
+  put(left, NAV_RED, 1.6, 4); put(right, NAV_GREEN, 1.6, 4); put(tail, LAMP, 1.3, 4, 0, 0.8);
   beacons.forEach((p, i) => put(p, NAV_RED, 1.8, 5, i * 0.5, 1.3));
   strobes.forEach((p) => put(p, [0.92, 0.96, 1], 2.6, 6, 0, 1.6));
   put(tail, [0.92, 0.96, 1], 2.2, 6, 0.5, 1.3);

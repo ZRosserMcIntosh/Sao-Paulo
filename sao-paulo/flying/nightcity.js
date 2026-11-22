@@ -67,14 +67,15 @@ vec2 nightLamps( vec2 p, float s ) { vec2 c = p / s; float h = nightHash( floor(
 	// From afar a street is thinner than a pixel: there the ground shows separate lamps, as many as the
 	// streets' share of it (cells two to four pixels across, two sizes blended as the distance grows), and
 	// only a little of the streets' mean glow under them.
+	float far = clamp( ( mpp - 2.5 ) / 5.0, 0.0, 1.0 );
 	float lit = texture2D( nightMap, vMapUv ).r;
 	if ( vGroundXZ.x < mapBox.x || vGroundXZ.x > mapBox.z || vGroundXZ.y < mapBox.y || vGroundXZ.y > mapBox.w ) {
 		vec2 fw = 0.011 * w2, g = abs( fract( mat2( 0.0098, 0.005, -0.005, 0.0098 ) * vGroundXZ ) - 0.5 );
 		vec2 ln = smoothstep( 0.46 - fw, 0.46 + fw, g );
+		// From afar the grid's mean, 0.14: the photo's streets' share, so the lamps go on as thick past its edge.
 		// (cityMap has no mipmaps: it may be read inside the branch.)
-		lit = 0.5 * mix( max( ln.x, ln.y ), 0.15, clamp( 2.0 * max( fw.x, fw.y ), 0.0, 1.0 ) ) * texture2D( cityMap, ( vGroundXZ - cityBox.xy ) * cityBox.zw ).r;
+		lit = mix( 0.5 * max( ln.x, ln.y ), 0.14, far ) * texture2D( cityMap, ( vGroundXZ - cityBox.xy ) * cityBox.zw ).r;
 	}
-	float far = clamp( ( mpp - 2.5 ) / 5.0, 0.0, 1.0 );
 	float lvl = log2( max( 2.6 * mpp, 6.0 ) ), l0 = floor( lvl ), s0 = exp2( l0 );
 	vec2 la = nightLamps( vGroundXZ, s0 ), lb = nightLamps( vGroundXZ, 2.0 * s0 );
 	float lamps = mix( la.x, lb.x, lvl - l0 );
@@ -99,7 +100,7 @@ vec2 nightLamps( vec2 p, float s ) { vec2 c = p / s; float h = nightHash( floor(
       const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
         uniforms, depthTest: false, depthWrite: false,
         vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-        fragmentShader: `uniform sampler2D src; uniform vec2 texel; uniform float lod; varying vec2 vUv;\n${body}`,
+        fragmentShader: `uniform sampler2D src; uniform vec2 texel; uniform float lod; uniform vec4 box; varying vec2 vUv;\n${HASH}\n${body}`,
       }));
       const scene = new THREE.Scene(); scene.add(quad);
       const keep = renderer.getRenderTarget();
@@ -109,16 +110,27 @@ vec2 nightLamps( vec2 p, float s ) { vec2 c = p / s; float h = nightHash( floor(
       quad.geometry.dispose(); quad.material.dispose();
     };
     const raw = target(), out = target();
-    pass({ src: { value: src }, texel: { value: new THREE.Vector2(0.5 / img.width, 0.5 / img.height) }, lod: { value: 0 } }, `
+    const box = { value: new THREE.Vector4(map[0], map[1], map[2] - map[0], map[3] - map[1]) };  // the photo's east, north, width, height (m)
+    pass({ src: { value: src }, texel: { value: new THREE.Vector2(0.5 / img.width, 0.5 / img.height) }, lod: { value: 0 }, box }, `
       float street( vec2 uv ) {
         vec3 c = texture2D( src, uv ).rgb;
         float lum = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) ), sat = max( c.r, max( c.g, c.b ) ) - min( c.r, min( c.g, c.b ) );
         float green = smoothstep( 0.0, 0.012, c.g - max( c.r, c.b ) );
+        // Where the photo has no tiles (its dark navy fill, 3.5 x 5.5 km east of Congonhas): the drawn grid of the
+        // ground beyond the photo, so the night has no hole there.
+        if ( lum < 0.0125 && c.b > 1.6 * c.r ) {
+          vec2 q = mat2( 0.0098, 0.005, -0.005, 0.0098 ) * vec2( box.x + uv.x * box.z, -( box.y + uv.y * box.w ) );
+          q += 0.35 * sin( q.yx * 0.37 + 1.3 );  // streets that bend, and one block side in five without one
+          vec2 g = abs( fract( q ) - 0.5 );
+          float lx = step( 0.46, g.x ) * step( 0.2, nightHash( vec2( floor( q.x + 0.5 ), floor( q.y ) ) ) );
+          float ly = step( 0.46, g.y ) * step( 0.2, nightHash( vec2( floor( q.x ), floor( q.y + 0.5 ) ) + 31.7 ) );
+          return 0.65 * max( lx, ly );
+        }
         return ( 1.0 - smoothstep( 0.07, 0.115, lum ) ) * smoothstep( 0.012, 0.03, lum ) * ( 1.0 - green ) * ( 1.0 - smoothstep( 0.02, 0.05, sat ) );
       }
       void main(){ gl_FragColor = vec4( 0.25 * ( street( vUv + texel * vec2( -1.0, -1.0 ) ) + street( vUv + texel * vec2( 1.0, -1.0 ) ) + street( vUv + texel * vec2( -1.0, 1.0 ) ) + street( vUv + texel ) ), 0.0, 0.0, 1.0 ); }`, raw);
     // (The mean over about 120 m: that level of the first pass's mipmaps.)
-    pass({ src: { value: raw.texture }, texel: { value: new THREE.Vector2() }, lod: { value: Math.max(0, Math.log2(120 / ((map[2] - map[0]) / w))) } },
+    pass({ src: { value: raw.texture }, texel: { value: new THREE.Vector2() }, lod: { value: Math.max(0, Math.log2(120 / ((map[2] - map[0]) / w))) }, box },
       'void main(){ gl_FragColor = vec4( texture2D( src, vUv ).r * ( 1.0 - smoothstep( 0.34, 0.6, textureLod( src, vUv, lod ).r ) ), 0.0, 0.0, 1.0 ); }', out);
     raw.dispose();
     out.texture.anisotropy = Math.min(4, src.anisotropy);  // (a glow: it need not be as sharp as the photo at a glancing angle)
