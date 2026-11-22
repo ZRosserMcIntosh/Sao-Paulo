@@ -23,6 +23,12 @@ import { buildGround } from './ground.js';
 import { buildCrash } from './crash.js';
 import { buildIce } from './ice.js';
 import { buildRain } from './rain.js';
+import { mountNet } from './net.js';
+import { mountReplay } from './replay.js';
+import { initPlay } from './play.js';
+import { createDayNight, TIMES } from './daynight.js';
+import { nightGround, nightBuildings } from './nightcity.js';
+import { buildRunwayLights, buildAircraftLights, buildLandingLight, tickLights, lightFlagsOf, LIGHT } from './lights.js';
 
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -46,7 +52,11 @@ const LANDMARKS = [
 const loadMsg = (t) => { $('loadMsg').textContent = t; };
 const toastEl = $('toast');
 let toastT = 0;
-function toast(msg, sec = 3.5) { toastEl.textContent = msg; toastEl.classList.add('on'); toastT = sec; }
+let play = null;  // the game layer (play.js), once the page is up; its hooks here are marked "Play:"
+function toast(msg, sec = 3.5) {
+  if (play?.hush(msg, sec)) return;  // Play: Casual shows no simulator messages
+  toastEl.textContent = msg; toastEl.classList.add('on'); toastT = sec;
+}
 
 // ---------- Aircraft ----------
 // Chase distance, camera target and pilot's eye in body FLU metres from each datum.
@@ -191,7 +201,8 @@ scene.fog = new THREE.Fog(SKY, 3000, 26000);
 // inside the layer: the path's length times the fraction of it below the top
 // (height varies linearly along a ray). Inside, the world greys out at V; from
 // above, the ground fades under a white blanket. Uniform shared by reference:
-// x top (scene y, m), y extinction (1/m, 0 = no layer), z grey level.
+// x top (scene y, m), y extinction (1/m, 0 = no layer), z grey level, w its
+// warmth (0 by day; the city's lamps in the fog at night: daynight.js).
 const FOG = { x: -1e9, y: 0, z: 0.8, w: 0 };
 for (const k of Object.keys(THREE.ShaderLib)) { const u = THREE.ShaderLib[k].uniforms; if (u && u.fogColor) u.fogLayer = { value: FOG }; }
 THREE.ShaderChunk.fog_pars_vertex += '\n#ifdef USE_FOG\n\tvarying vec3 vFogWorld;\n#endif';
@@ -202,7 +213,7 @@ THREE.ShaderChunk.fog_fragment += `
 	if ( fogLayer.y > 0.0 ) {
 		float fLo = min( cameraPosition.y, vFogWorld.y ), fHi = max( cameraPosition.y, vFogWorld.y );
 		float fIn = fHi - fLo > 0.01 ? clamp( ( fogLayer.x - fLo ) / ( fHi - fLo ), 0.0, 1.0 ) : step( fLo, fogLayer.x );
-		gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( fogLayer.z ), 1.0 - exp( - fogLayer.y * distance( vFogWorld, cameraPosition ) * fIn ) );
+		gl_FragColor.rgb = mix( gl_FragColor.rgb, fogLayer.z * vec3( 1.0 + fogLayer.w, 1.0, 1.0 - fogLayer.w ), 1.0 - exp( - fogLayer.y * distance( vFogWorld, cameraPosition ) * fIn ) );
 	}
 #endif`;
 const camera = new THREE.PerspectiveCamera(60, 1, 0.12, 90000);
@@ -225,6 +236,9 @@ const skyDome = new THREE.Mesh(new THREE.SphereGeometry(80000, 32, 16), new THRE
 }));
 skyDome.renderOrder = -1; skyDome.frustumCulled = false;
 scene.add(skyDome);
+// The time of day (daynight.js): from here on SKY, SUN_DIR and the fog's grey
+// are the hour's (the afternoon it always was, unless the player chose another), and the dome's shader knows the sun.
+const night = createDayNight({ renderer, scene, sun, ambient, skyDome, SKY, SUN_DIR, FOG, store, mobile: MOBILE });
 
 // Reflection environment for the airframe paint (baked once).
 {
@@ -276,6 +290,7 @@ function heightMesh(x0, y0, nx, ny, step, skip, mat, drop, ox = 0, oy = 0) {
 const TN = 104;  // km of terrain beyond the map on each side
 const ground = buildGround({ groundAt, bounds: [MX0 - TN * 1000, MY0 - TN * 1000, MX1 + TN * 1000, MY1 + TN * 1000], map: [MX0, MY0, MX1, MY1], fine: FINE });
 scene.add(ground.group);
+const nightGnd = nightGround({ ground, uniforms: night.uniforms, renderer, map: [MX0, MY0, MX1, MY1] });  // the streets' glow after dark (nightcity.js)
 // Where the city has buildings (buildings.js's tile index): the drawn ground
 // keeps above the core's there (see ground.js).
 fetch('./buildings/index.json').then((r) => r.json()).then((ix) => ground.setBuilt(Object.keys(ix.tiles || {}))).catch(() => { /* buildings everywhere */ });
@@ -311,6 +326,7 @@ function buildTerrain() {
 const city = buildCity({ base: './buildings/', groundAt, mobile: MOBILE, maxAniso: renderer.capabilities.getMaxAnisotropy(),
   physics: { add: (i, j, bytes) => A.buildingsTile(i, j, bytes), drop: (i, j) => A.avd_buildings_drop(i, j) } });
 scene.add(city.group);
+const nightWin = nightBuildings({ materials: city.materials, uniforms: night.uniforms, renderer });  // lit windows after dark (nightcity.js)
 // What an impact throws up: dust, smoke and pieces (crash.js).
 const crashFx = buildCrash({ groundAt: (x, z) => groundAt(x, -z) });
 scene.add(crashFx.group);
@@ -397,6 +413,10 @@ function drawField(i, parent) {
   parent.add(apron);
 }
 for (let i = 0; i < REGION_N; ++i) drawField(i, scene);
+// Every runway's lights (lights.js): edge, threshold, end, centreline, approach, PAPI.
+const rwyLights = buildRunwayLights({ fogLayer: FOG });
+scene.add(rwyLights.group);
+rwyLights.setFields(REGION.slice(0, REGION_N));
 // A destination beyond the region: its fields, redrawn when it changes.
 const farFields = new THREE.Group();
 scene.add(farFields);
@@ -409,6 +429,7 @@ function drawFarFields() {
   farFields.clear();
   runwayWet = -1;  // the new runways take the wetness on the next frame
   for (let i = REGION_N; i < REGION.length; ++i) drawField(i, farFields);
+  rwyLights.setFar(REGION.slice(REGION_N));
 }
 buildTerrain();
 ground.update(RW[0], RW[1], 50, 30000, Infinity);  // the ground around the field before the first frame
@@ -432,6 +453,7 @@ const qM = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -
 const qBody = new THREE.Quaternion();
 const rigs = {};
 let aircraft, cabin, eye;
+const landingLight = buildLandingLight();  // the player's own (lights.js): one spot light, on whichever aircraft is flown
 function useRig(p) {
   if (!rigs[p.id]) {
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
@@ -443,6 +465,7 @@ function useRig(p) {
     // The ice the core grows on the leading edges (ice.js).
     model.ice = buildIce(def);
     model.root.add(model.ice.root);
+    model.lights = buildAircraftLights(model);  // navigation lights, beacon, strobes, landing light (lights.js)
     const e = new THREE.Object3D();
     e.position.set(...p.eye);
     e.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0)));
@@ -452,6 +475,7 @@ function useRig(p) {
   }
   for (const [id, r] of Object.entries(rigs)) r.model.root.visible = id === p.id;
   ({ model: aircraft, cab: cabin, eye } = rigs[p.id]);
+  landingLight.attach(aircraft.root, aircraft.lights.landingAt);
   Object.assign(sun.shadow.camera, { left: -p.shadow, right: p.shadow, top: p.shadow, bottom: -p.shadow });
   sun.shadow.camera.updateProjectionMatrix();
 }
@@ -814,6 +838,7 @@ function restart(i = ui.start) {
   document.querySelectorAll('[data-fail], [data-feather]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
   resetPrompts();
   ui.crashed = false; parkHint = false;
+  autoLit.dark = autoLit.land = false;  // (the core's switches are reset: the night's lights are switched again)
   A.events();  // drop the reset's own events
   s = A.state().slice();  // the new spawn's state (the old one's 'on the ground, parking brake set' would release it)
   [...startsEl.children].forEach((b, k) => b.setAttribute('aria-pressed', String(k === i)));
@@ -1836,7 +1861,7 @@ function jetData() {
     assist: ap.on ? apText() : FMA[ui.assist] + (s[58] ? ' · UNDERSPD' : s[55] ? ' · ALT HDG HOLD' : ''), n1: [j[8], j[16]], n2: [j[9], j[17]], itt: [j[10], j[18]], ff: [j[11], j[19]], oil: [j[30], j[31]],
     run: [j[13], j[21]], starting: [j[14], j[22]], fuelSw: [j[15], j[23]], n1cmd: [22 + 78 * j[58], 22 + 78 * j[59]],
     fuelKg: j[6], gear: j[1], spd: j[3], flaps: j[27], wow: j[29], park: s[49],
-    x: s[0], y: s[1], trueHdg: s[9], runway: RW, airport: AP.icao, points: LANDMARKS,
+    x: s[0], y: s[1], trueHdg: s[9], runway: RW, airport: AP.icao, points: LANDMARKS, traffic: net.traffic(),
     rangeNm: agl < 4000 ? 5 : agl < 15000 ? 10 : agl < 28000 ? 20 : 40,
     trend: iasAcc * 10, vs1g: j[32], vsTO: j[33], vsLDG: j[34], gw: j[35], fpa: j[36], drift: ((j[37] - s[9] + 540) % 360) - 180,
     windDir: s[59], windKt: s[60], ra: j[40], sat: j[41], nz: j[42], aoa: j[43], gen: j[44], volts: j[45],
@@ -1887,7 +1912,7 @@ function g1000Data() {
     ias: c[K.ias], alt: c[K.alt], baro: c[K.kollsman], vsi: c[K.vsi], pitch: c[K.aiPitch], roll: c[K.aiRoll], tumbled: c[K.aiTumbled] > 0.5,
     hdg: c[K.dg], bug: c[K.bug], ball: c[K.ball], turnRate: c[K.tcRate], tas: s[11], gs: s[12], oat: c[K.oat], trend: iasAcc * 6,
     wow: !!s[28], trueHdg: s[9], track: s[61], windDir: s[59], windKt: s[60], magVar: g[13], selAlt: ap.alt,
-    x: s[0], y: s[1], groundAt, runway: RW, airport: AP.icao, points: LANDMARKS,
+    x: s[0], y: s[1], groundAt, runway: RW, airport: AP.icao, points: LANDMARKS, traffic: net.traffic(),
     route: DEST ? A.route() : null, gps: DEST ? g.slice() : null, dest: DEST, destRunway: DEST ? REGION[DEST.ai].ends[DEST.ri] : null,
     nav: { valid: c[K.navValid] > 0.5, loc: c[K.loc] > 0.5, cdi: c[K.cdi], toFrom: c[K.toFrom], gsValid: c[K.gsValid] > 0.5, gs: c[K.gs],
       mhz: c[K.navAct], stby: c[K.navStb], obs: c[K.obs] },
@@ -2166,7 +2191,7 @@ function showPrompt(pr) {
 function checkPrompts() {
   const now = performance.now(), dt = clamp((now - (PROMPT.at || now)) / 1000, 0, 1);
   PROMPT.at = now;
-  if (ui.assist === 2 || ui.crashed) { PROMPT.st.clear(); if (PROMPT.cur) showPrompt(null); return; }
+  if (ui.assist === 2 || ui.crashed || play?.casual) { PROMPT.st.clear(); if (PROMPT.cur) showPrompt(null); return; }  // (Play: none in Casual)
   // Since when (simulation time) the carburettor has been free of ice with the heat on.
   PROMPT.carbClear = icing?.carburettor && controlPos('engine1.carb_heat') && icing.carbIceG < 0.01 ? PROMPT.carbClear ?? s[42] : null;
   const st = PROMPT.st, list = promptList((id) => !!st.get(id)?.up);
@@ -2279,6 +2304,7 @@ function updateCamera(dt) {
   else { const f = VIEWS[gfx.view].fog; scene.fog.near = (2500 + agl * 3) * f; scene.fog.far = (22000 + agl * 12) * f; }
   updateFogLayer();
   weatherVisibility();
+  nightFrame(dt);  // the hour's light on what the weather set; the lights
 }
 
 // ---------- The weather, seen ----------
@@ -2335,6 +2361,7 @@ function atisText() {
 // [visibility (m, MOR; RVR for the fogs), top of the layer above the ground (m)].
 const VIS = [null, [5000, 1200], [1500, 300], [550, 200], [300, 150], [175, 120], [75, 100], [15, 100]];
 const FOG_GREY = new THREE.Color().setRGB(0.8, 0.8, 0.8), SKY_ZEN = skyDome.material.uniforms.zen.value.clone();
+night.bind({ SKY_ZEN, FOG_GREY, WX_GREY });  // the hour sets these too
 function updateFogLayer() {
   const p = VIS[ui.vis], u = skyDome.material.uniforms;
   if (!p || ui.flow === 2) {
@@ -2417,6 +2444,7 @@ function drawLabels() {
 function handleEvents() {
   const plain = [];  // this frame's other events, one toast between them
   for (const e of A.events()) {
+    play?.event(e);  // Play: the landing score, and why a Casual flight ended
     if (e.startsWith('Touchdown')) {
       const fpm = Math.abs(+(e.match(/(-?\d+) fpm/)?.[1] || 0));
       toast(fpm > 600 ? `Hard landing: ${fpm} fpm` : fpm > 300 ? `Touchdown: ${fpm} fpm, firm` : `Touchdown: ${fpm} fpm, smooth`);
@@ -2495,6 +2523,7 @@ function applyProfileUi() {
   $('plateSub').textContent = `Flight test bed · ${P.name}`;
   loadSheet = mountLoadSheet($('loadPanel'), { A, id: P.id, jet: P.jet, store, onApply: () => { restart(ui.start); toast('Restarted with the planned load.', 2); } });
   document.title = `Flight Test Bed · ${P.name}`;
+  play?.label();  // Play: the header's label and the title follow the mode
 }
 async function selectAircraft(id) {
   if (P.id === id) return;
@@ -2533,6 +2562,118 @@ async function selectAircraft(id) {
 }
 document.querySelectorAll('[data-aircraft]').forEach((b) => b.addEventListener('click', () => { selectAircraft(b.dataset.aircraft); b.blur(); }));
 
+// ---------- Fly together (net.js): other players in the same sky ----------
+// In the air at a spot net.js works out (beside a friend, going their way):
+// a start like the others, so R comes back to the friend.
+function netSpawn(spot) {
+  const kias = (q) => { const lo = P.jet ? 1.3 * Math.max(j[32], 80) : 65, hi = P.jet ? (j[25] || 260) - 10 : 150; return clamp(q.kias || (P.turboprop ? 180 : P.jet ? 220 : 100), lo, hi); };
+  // Play: in Casual the spawn is the game layer's own (its co-pilot starts afresh there).
+  if (play?.casual) { const q = spot(); play.flyAt({ ...q, kias: kias(q) }); return; }
+  const st = { name: 'Fly together', sub: 'next to your friend', trim: true, go: () => {
+    const q = spot();
+    A.avd_reset_air(q.e, q.n, Math.max(q.u, groundAt(q.e, q.n) + 150) - ELEV, q.hdg, kias(q), 0);
+  } };
+  STARTS = [...startsFor(), st];
+  buildStarts();
+  restart(STARTS.length - 1);
+}
+// (Play: Casual hides the simulator's toasts; a friend joining or leaving is said in its own note.)
+const netToast = (msg, sec) => (play?.casual ? play.note(msg, sec) : toast(msg, sec));
+const net = mountNet({ scene, camera, store, toast: netToast, MOBILE, PROFILES, fetchDef, buildAircraft, buildJet, groundAt, debug: /[?&]debug\b/.test(location.search),
+  profile: () => P, verticalSpeed: () => c[53], frameStart: () => clock.oldTime, sunDir: () => SUN_DIR, shadowStrength: () => 1 - night.state.dark, lights: buildAircraftLights, dark: () => night.state.dark, spawn: netSpawn, closeMenus: () => togglePanel(false), sound: () => (ui.sound && !ui.paused ? ui.vol / 100 : 0), cockpit: () => ui.cam === 1 });
+// This flight recorded, and flown again beside its ghost (replay.js; its buttons are in the Fly together panel).
+// (Play: a Casual flight's start is the game layer's, a challenge or the free flight, and so is flying it again.)
+const replay = mountReplay(net, { toast: netToast, MOBILE, startIndex: () => (play?.casual ? play.token() : ui.start),
+  restart: (k) => { if (play?.casual) play.resume(typeof k === 'string' ? k : play.token()); else restart(typeof k === 'number' ? k : ui.start); } });
+// The host's weather basics reach whoever joins. (Time of day: the day/night
+// module adds its own the same way, net.world('tod', { get, apply }).)
+net.world('wx', {
+  get: () => ({ w: +$('wind').value, d: +$('windDir').value, t: +$('turb').value, v: +$('vis').value || 0, r: wxx.rain }),
+  apply: (o) => {
+    if (!o || typeof o !== 'object') return;
+    const num = (id, v) => { const e = $(id); if (Number.isFinite(v)) e.value = String(clamp(v, +e.min, +e.max)); };
+    const pick = (id, v) => { const e = $(id), ok = [...e.options].some((x) => x.value === String(v)); if (ok) e.value = String(v); return ok; };
+    num('wind', o.w); num('windDir', o.d); num('turb', o.t); pick('vis', o.v);
+    if (pick('rain', o.r)) wxx.rain = +$('rain').value;
+    if (!play?.casual) applyWeather();  // (Casual flies in fair weather; the simulator's is applied when the player goes back to it)
+  },
+});
+// ---------- Night: the hour's light, the airports' and the aircraft's lights ----------
+// (daynight.js, nightcity.js, lights.js.) The time of day is one value,
+// timeOfDay.get() / .set(hours) / .onChange(fn) in daynight.js: the menu sets
+// it here; another module (a challenge, a shared flight) may set it too.
+night.mountUi($('todUi'));
+// The aircraft's lights from its own switches (LIGHT bits; the multiplayer
+// link can send the same value): lit while the bus has power.
+function lightFlags() {
+  const p = sw.pos;
+  return !p || !((P.jet ? j[45] : s[31]) > 10) || ui.crashed ? 0 : lightFlagsOf(p);
+}
+// Easy and Sport: when it gets dark the lights are switched on for the
+// player, through the cockpit's own switches (so the panel agrees and the
+// alternator carries them): navigation lights, beacon, strobes and panel
+// lights with the dusk; the landing light below 1,500 ft and on the ground.
+// Each is switched once as its moment comes, so a player who then moves a
+// switch keeps it; a restart (the core resets its switches: see restart)
+// starts over. In Simulation the switches are the pilot's alone.
+const AUTO_DARK = ['electrical.load.nav_lights', 'electrical.load.beacon', 'electrical.load.strobes', 'electrical.load.panel_lights'];
+const autoLit = { dark: false, land: false };
+function autoLights() {
+  if (ui.assist === 2 || ui.crashed || !((P.jet ? j[45] : s[31]) > 10)) return;
+  const dark = night.state.dark > 0.3, land = dark && (!!s[28] || s[14] < 1500);
+  if (dark !== autoLit.dark) { autoLit.dark = dark; for (const id of AUTO_DARK) setControl(id, dark ? 1 : 0); }
+  if (land !== autoLit.land) { autoLit.land = land; setControl('electrical.load.landing_light', land ? 1 : 0); }
+}
+// The flight deck after dark: the panel's own light (the glass displays glow
+// by themselves; the 172's dials want its panel lights), and a little of the
+// cabin's dome light on everything else so levers and switches can be found.
+function cabinLights(cab, dark) {
+  if (!cab.nightParts) {
+    cab.nightParts = [];
+    cab.root.traverse((o) => {
+      const m = o.material;
+      if (!m || m.transparent || cab.nightParts.some((q) => q.m === m)) return;
+      if (m.emissiveMap) cab.nightParts.push({ m, panel: m.emissiveIntensity });
+      else if (m.isMeshStandardMaterial) cab.nightParts.push({ m, tint: m.color.clone() });
+      else if (m.isMeshBasicMaterial && m.map) cab.nightParts.push({ m, basic: true });
+    });
+  }
+  const lit = sw.pos?.['electrical.load.panel_lights'] && (P.jet ? j[45] : s[31]) > 10 ? 1 : 0;
+  const glass = P.jet || ui.glass;
+  for (const q of cab.nightParts) {
+    if (q.panel !== undefined) q.m.emissiveIntensity = q.panel + dark * (glass ? 0.9 - q.panel : lit ? 0.5 : -0.14);
+    else if (q.basic) q.m.color.setScalar(1 - dark * (lit ? 0.35 : 0.75));
+    else { q.m.color.copy(q.tint).multiplyScalar(1 - 0.55 * dark); q.m.emissive.copy(q.tint).multiplyScalar(dark * (lit ? 0.02 : 0.008)); }  // (less of the sky's light reaches in)
+  }
+}
+let nightT = 1, nightDark = -1, nightWarm = false;
+const rainMat = rainFx.group.children[0].material;
+function nightFrame(dt) {
+  const studio = ui.flow === 2, dark = studio ? 0 : night.state.dark;
+  night.frame(camera, wx, studio);
+  const bench = window.__fly?.BENCH;  // (?debug only: parts switched off to cost them)
+  if (bench === 'nocity') night.uniforms.uNight.value = 0;
+  nightGnd.update(); nightWin.update();
+  skyDome.visible = !studio && bench !== 'nosky';
+  tickLights(camera, renderer, scene, performance.now() / 1000, dark);
+  // The runway lights: with the dusk, and by day when the visibility closes in.
+  rwyLights.group.visible = !studio && bench !== 'nopoints';
+  rwyLights.update(camera, night.state.city, Math.min(wx ? wx.visibility : 1e9, VIS[ui.vis] ? VIS[ui.vis][0] : 1e9));
+  const flags = lightFlags();
+  aircraft.lights.set(flags);
+  // The landing light's beam: only where there is something within its reach to light
+  // (a spot light costs every lit surface on screen a little while it is on).
+  landingLight.set(dark > 0.2 && s[14] < 500 && bench !== 'nospot' ? (flags & LIGHT.LANDING ? 1 : flags & LIGHT.TAXI ? 0.5 : 0) : 0);
+  if (dark > 0.2 && !nightWarm) { nightWarm = true; landingLight.warm(renderer, scene, camera); }
+  nightT += dt;
+  if (nightT > 0.2) {
+    nightT = 0;
+    autoLights();
+    rainMat.color.setHex(0xc9d3de).multiplyScalar(1 - 0.62 * dark);  // rain catches less light after dark
+    if (ui.cam === 1 || nightDark !== dark) { nightDark = dark; cabinLights(cabin, dark); }
+  }
+}
+
 // ---------- Loop ----------
 buildIceSwitches();
 applyFront();
@@ -2540,6 +2681,71 @@ applyProfileUi();
 setAssist(ui.assist);
 setLevel(ui.level, false);
 restart(0);
+
+// ---------- Play: the game layer (play.js) ----------
+// The welcome screen, Casual flying, the challenges and the landing score. It
+// reaches the page through this object and the hooks marked "Play:" (toast,
+// checkPrompts, handleEvents, applyProfileUi, frame); in the simulator modes
+// each of them steps aside.
+// A start of the game layer's own, through the same restart as every other.
+function playSpawn(st) { const own = STARTS; STARTS = [...own, st]; restart(STARTS.length - 1); STARTS = own; }
+// "Land for me": the destination for the autoland (runway end k of a region airport). The simulator's saved one is left alone.
+function playDestination(icao, k) {
+  const keep = store.get('dest', '');
+  chooseApproach({ icao }, k, false);
+  store.set('dest', keep);
+}
+// Back from Casual: the simulator's own hazard, front, terrain alerts and destination (its restart applies the rest).
+function playSimRestore() {
+  A.avd_set_wind_hazard(+$('hazard').value); applyFront();
+  if (A.tawsConfig) A.tawsConfig({ cls: -1, dhFt: tawsCfg.dhFt, inhibit: tawsCfg.inhibit });
+  if (store.get('dest', '')) restoreDestination(); else if (DEST) setDestination(-1, 0, false);
+  requestAnimationFrame(applyInstrSize);
+}
+play = initPlay({
+  THREE, A, scene, camera, canvas, store, MOBILE, input, ui, look, PROFILES, RW, AP, groundAt, regionN: REGION_N,
+  state: () => s, jet: () => j, profile: () => P, region: () => REGION, dests: () => DESTS, audio: () => audio.ctx,
+  spawn: playSpawn, restart, selectAircraft, setControl, controlPos, cycleCam, toggleSound,
+  autoland: () => autoland, autolandStatus: () => alStatus, setAutoland, destination: playDestination, simRestore: playSimRestore,
+  flowOff: () => { while (ui.flow) cycleFlow(); },
+});
+// Playing together: the welcome screen's "Fly with friends" card and Casual's Friends button open the room panel
+// (where live rooms are switched on); a finished challenge can be flown again beside its ghost; and a challenge
+// the room's host starts is offered to the others.
+if (net.available) play.setFriends(({ from }) => { if (from === 'home') { play.fly(); net.ui.open(); } else net.ui.toggle(); });
+play.setGhost(() => replay.flyMine());
+let sharedK = 0, offered = '', offeredAt = -1e9;
+play.on((ev) => { if (ev.type === 'start' && net.room && net.isHost) net.setShared({ c: ev.id, s: ev.seed ?? null, k: ++sharedK }); });
+// The host's time of day reaches whoever joins (theirs is kept for when they fly alone again).
+net.world('tod', {
+  get: () => ({ h: Math.round(night.state.hours * 100) / 100, l: night.state.live ? 1 : 0 }),
+  apply: (o) => { if (o && typeof o === 'object' && Number.isFinite(o.h) && o.h >= 0 && o.h <= 24) night.setTime(o.h, { live: !!o.l, save: false }); },
+});
+// Casual's time of day: one button round Day, Golden hour and Night (the simulator's Weather menu has every hour).
+{
+  const cycle = ['day', 'golden', 'night'].map((id) => TIMES.find((t) => t.id === id)), b = document.createElement('button');
+  const icons = [
+    '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.500v2.500M12 19v2.500M2.500 12h2.500M19 12h2.500M5.300 5.300l1.800 1.800M16.900 16.900l1.800 1.800M5.300 18.700l1.800-1.800M16.900 7.100l1.800-1.800"/></svg>',
+    '<svg viewBox="0 0 24 24"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 7v2.500M4.600 11.600l1.800 1.800M19.400 11.600l-1.800 1.800"/></svg>',
+    '<svg viewBox="0 0 24 24"><path d="M20 14.500A8 8 0 1 1 9.500 4a6.500 6.500 0 0 0 10.500 10.500z"/></svg>',
+  ];
+  const at = () => (night.state.dark > 0.5 ? 2 : night.state.elevation < 15 ? 1 : 0);
+  const show = () => { const k = at(); b.innerHTML = icons[k]; b.title = `Time of day: ${cycle[k].name}`; b.setAttribute('aria-label', b.title); };
+  b.id = 'pTodB';
+  b.addEventListener('click', () => { night.setTime(cycle[(at() + 1) % cycle.length].hours); b.blur(); });
+  night.onChange(show); show();
+  $('pSndB')?.before(b);
+}
+net.onShared((o, hostId) => {
+  // (What arrives is another browser's: only a challenge this page knows, and not more often than every few seconds.)
+  if (net.isHost || !o || typeof o !== 'object' || typeof o.c !== 'string') return;
+  const def = play.challenges.find((c) => c.id === o.c), key = `${o.c}:${Number(o.k) || 0}`, now = performance.now();
+  if (!def || key === offered || now - offeredAt < 8000) return;
+  offered = key; offeredAt = now;
+  const seed = Number.isFinite(Number(o.s)) && o.s !== null ? Number(o.s) : null;
+  play.offer(`${net.nameOf(hostId) || 'Your friend'} started “${def.name}”`, 'Join', () => play.startChallenge(def.id, { seed }));
+});
+
 $('loading').hidden = true;
 $('loading').style.display = 'none';
 const clock = new THREE.Clock();
@@ -2567,7 +2773,7 @@ function frame() {
   const S = SLOWS[ui.slow], running = !ui.paused && !ui.crashed;
   const simDt = running ? dt / S : 0;
   if (running) {
-    readInputs(dt);
+    if (!play?.inputs(dt)) readInputs(dt);  // Play: in Casual the co-pilot's laws read the player and fly the controls
     // Parking brake: Easy releases it for you when you open the throttle.
     if (s[49] && s[28] && input.throttle > 0.35) {
       if (ui.assist === 0) { setControl('brakes.parking', 0); toast('Parking brake released.', 2); }
@@ -2592,7 +2798,7 @@ function frame() {
     }
     A.avd_set_input(input.pitch, input.roll, input.yaw, input.throttle, input.mixture, input.brake, input.brake, input.trimRate, input.starter);
     if (input.levers) { A.setThrottle(0, input.levers[0]); A.setThrottle(1, input.levers[1]); }  // set_input rejoined them
-    A.avd_advance(simDt);
+    A.avd_advance(play?.subDt ?? simDt);  // (Play: Casual has flown the rest of a long frame in sub-steps)
     if (ap.on) {
       const st = A.autopilotStatus(), was = apStatus.apr || 0;
       if (st.apr === 4 && was !== 4) onMinimums(st);
@@ -2633,6 +2839,7 @@ function frame() {
   }
   lastIas = c[K.ias];
   handleEvents();
+  play?.update(dt);  // Play: challenges, the landing score, the Casual HUD
   // Airplane pose: datum position and body FLU → ENU attitude.
   acGroup.position.copy(enu(s[0], s[1], s[2]));
   // In slow motion the 240 Hz physics steps come seconds apart on screen:
@@ -2675,6 +2882,7 @@ function frame() {
   }
   acGroup.updateMatrixWorld(true);
   updateCamera(dt);
+  net.update(dt, simDt, s, j, tp, P, ui.crashed);  // the other players' aircraft (and this one's state to them)
   weatherFx(simDt);
   if (showCity && ui.flow !== 2) city.update(s[0], s[1], Math.max(0, s[14] * 0.3048), scene.fog.far);
   {
@@ -2685,6 +2893,7 @@ function frame() {
   renderer.render(scene, camera);
   showCost(dt);
   drawLabels();
+  net.draw();  // the friends' name tags and edge arrows
   $('warn').classList.toggle('on', c[K.stall] > 0.5 && !ui.crashed);
   hud();
   panelT += dt; cabinT += dt; swT += dt;
@@ -2720,4 +2929,5 @@ function frame() {
 }
 requestAnimationFrame(frame);
 // For checks (?debug): the core, the drawn ground and the page's state.
-if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl, prompts: () => promptList(() => false) };
+if (/[?&]debug\b/.test(location.search)) window.__fly = { A, ground, FINE, city, night, nightGnd, rwyLights, landingLight, renderer, scene, camera, get s() { return s; }, get j() { return j; }, get c() { return c; }, input, ui, ap, keys, get P() { return P; }, get autoland() { return autoland; }, get model() { return aircraft; }, look, restart, setControl, prompts: () => promptList(() => false), net, replay };
+if (window.__fly) Object.assign(window.__fly, { play });

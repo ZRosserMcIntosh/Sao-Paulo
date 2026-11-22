@@ -651,6 +651,16 @@ export function mapFeatures(ctx, put, u, rangeM, d, o = {}) {
     ctx.beginPath(); ctx.moveTo(px, py - u); ctx.lineTo(px + u, py); ctx.lineTo(px, py + u); ctx.lineTo(px - u, py); ctx.closePath(); ctx.stroke();
     text(ctx, name.toUpperCase().slice(0, 10), px + u * 1.8, py, u * 2.3, C.magenta, 'left');
   }
+  // The other players (net.js): [name, east, north, height above the own ship in ft, colour]:
+  // a filled diamond in the player's colour, the name, the height difference in hundreds of feet.
+  for (const [name, e, n, rel, col] of d.traffic || []) {
+    const [px, py, dist] = put(e, n);
+    if (dist > rangeM * 1.05) continue;
+    ctx.fillStyle = col; ctx.strokeStyle = C.black; ctx.lineWidth = Math.max(1, u * 0.3);
+    ctx.beginPath(); ctx.moveTo(px, py - u * 1.3); ctx.lineTo(px + u * 1.3, py); ctx.lineTo(px, py + u * 1.3); ctx.lineTo(px - u * 1.3, py); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const h = Math.round(rel / 100);
+    text(ctx, `${name.slice(0, 10)}${h ? ` ${h > 0 ? '+' : '−'}${String(Math.abs(h)).padStart(2, '0')}` : ''}`, px + u * 2, py, u * 2.3, col, 'left');
+  }
   return rwInfo;
 }
 

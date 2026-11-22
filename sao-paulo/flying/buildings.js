@@ -80,7 +80,7 @@ function makeGeometry(g, keepIndex) {
 // Distance from (x, y) to a square of side s at (x0, y0).
 const rectDist = (x, y, x0, y0, s) => Math.hypot(Math.max(x0 - x, 0, x - x0 - s), Math.max(y0 - y, 0, y - y0 - s));
 
-// { group, update(east, north, heightAgl, view), setOptions({ detail, skyline, shadows }), clearPhysics(), resyncPhysics(), ready, stats }.
+// { group, update(east, north, heightAgl, view), setOptions({ detail, skyline, shadows }), clearPhysics(), resyncPhysics(), ready, stats, materials }.
 // `groundAt(e, n)`: m MSL. `physics` ({ add(i, j, bytes), drop(i, j) }): the
 // tiles the aircraft could reach soon are handed to the flight core, whose
 // walls and roofs become solid.
@@ -340,5 +340,5 @@ export function buildCity({ base = './buildings/', groundAt, mobile = false, max
   }
   // The flight core was rebuilt (another aircraft loaded): it has no buildings; the next update hands them over again.
   function resyncPhysics() { solid.clear(); }
-  return { group, update, setOptions, options: opt, clearPhysics, resyncPhysics, ready, stats };
+  return { group, update, setOptions, options: opt, clearPhysics, resyncPhysics, ready, stats, materials: mats };
 }
