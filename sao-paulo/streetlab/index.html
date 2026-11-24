@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<base href="/sao-paulo/streetlab/">
+<title>Street Lab · Sem Destino</title>
+<meta name="description" content="Cars against people, signs, bollards and bike racks: Pedestrian Dynamics and Street Dynamics, the game's native C++ modules in WebAssembly, in slow motion, with the numbers a crash lab would read (throw distance, HIC, tibia acceleration, knee bending).">
+<meta property="og:title" content="Sem Destino · Street Lab">
+<meta property="og:description" content="Car vs. pedestrian, stop sign, bollard and bike rack, simulated in your browser and checked against real collision data.">
+<meta property="og:image" content="https://zrossermcintosh.com/sao-paulo/img/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"../driving/vendor/three.module.min.js"}}</script>
+<style>
+:root{
+  --bg:#0b111b; --panel:rgba(10,17,28,.86); --ink:#e7ecf2; --mute:#93a0b2; --line:rgba(255,255,255,.12);
+  --plate:#1d57c2; --plate-ink:#fff; --masp:#ec4a3c; --good:#36c483; --warn:#f0b43a; --bad:#ef5d4f; --hot:#ffd36b; --ice:#9fd6ff;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+button{font:600 12px var(--body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer;white-space:nowrap}
+button:hover{background:rgba(255,255,255,.13)}
+button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+select{font:600 12px var(--body);color:var(--ink);background:#141d2b;border:1px solid var(--line);border-radius:6px;padding:6px 8px;max-width:100%;width:100%}
+input[type=range]{width:100%;accent-color:var(--hot)}
+.panel{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:10px;padding:12px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.note{color:var(--mute);font-size:12px;margin:6px 0 0}
+.mono{font-family:var(--mono)}
+.top{position:fixed;left:12px;right:12px;top:12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;pointer-events:none;z-index:3}
+.top>*{pointer-events:auto}
+.top button{background:rgba(10,17,28,.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.top button[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+#look{display:inline-flex;gap:4px}
+#btn-help .sm{display:none}
+@media (max-width:560px){#btn-help .lg{display:none}#btn-help .sm{display:inline}}
+.plate{display:inline-flex;flex-direction:column;align-items:center;background:var(--plate);color:var(--plate-ink);border:2px solid var(--plate-ink);outline:1px solid var(--plate);border-radius:5px;padding:5px 12px;text-decoration:none}
+.plate b{font:900 20px/.95 var(--display);text-transform:uppercase;white-space:nowrap}
+.plate span{font:600 9px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;margin-top:3px}
+#lab{position:fixed;left:12px;top:66px;width:318px;max-height:calc(100% - 140px);overflow:auto;z-index:2;scrollbar-width:thin}
+#lab h2,#res h2{font:800 15px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#lab h2:first-child,#res h2:first-child{margin-top:0}
+#lab h2 small,#res h2 small{font:500 10.5px var(--mono);color:var(--mute);text-transform:none;letter-spacing:0}
+.slider{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-top:8px;font-size:12px;color:var(--mute)}
+.slider b{font:600 12px var(--mono);color:var(--ink);text-align:right}
+.slider input{grid-column:1/-1}
+.check{display:flex;gap:7px;align-items:center;font-size:12px;color:var(--ink);margin-top:8px}
+#hit{width:100%;margin-top:10px;padding:10px;font:800 16px var(--display);letter-spacing:.06em;text-transform:uppercase;background:var(--masp);border-color:var(--masp);color:#fff}
+#hit:hover{filter:brightness(1.1)}
+.presets{display:grid;grid-template-columns:1fr;gap:5px}
+.presets button{text-align:left;white-space:normal;line-height:1.3}
+.presets button small{display:block;color:var(--mute);font-weight:500}
+details{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+summary{cursor:pointer;font:800 13px var(--display);text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+#res{position:fixed;right:12px;top:66px;width:300px;max-height:calc(100% - 140px);overflow:auto;z-index:2;scrollbar-width:thin}
+#outcome{font:700 14px/1.35 var(--body);margin:0}
+#outcome.ok{color:var(--good)}#outcome.bad{color:var(--bad)}#outcome.warn{color:var(--warn)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;margin-top:8px}
+.kv span{color:var(--mute)}.kv b{font:600 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.kv b.good{color:var(--good)}.kv b.warn{color:var(--warn)}.kv b.bad{color:var(--bad)}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font:500 10.5px var(--mono);color:var(--mute);margin-top:4px}
+.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;vertical-align:middle;margin-right:4px}
+.band{position:relative;height:18px;margin-top:8px;border-radius:4px;background:rgba(255,255,255,.05)}
+.band .rng{position:absolute;top:0;bottom:0;background:rgba(54,196,131,.25);border-left:1px solid var(--good);border-right:1px solid var(--good)}
+.band .mark{position:absolute;top:-3px;bottom:-3px;width:3px;margin-left:-1px;background:var(--hot);border-radius:2px}
+.band small{position:absolute;top:2px;font:500 10px var(--mono);color:var(--mute)}
+canvas.chart{width:100%;height:120px;display:block;margin-top:6px;background:rgba(255,255,255,.03);border-radius:6px}
+#log{font:500 10.5px/1.45 var(--mono);color:#b9c4d3;max-height:180px;overflow:auto;white-space:pre-wrap;margin-top:6px;user-select:text;-webkit-user-select:text}
+#time{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:3;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100% - 24px)}
+#clock{font:600 13px var(--mono);min-width:130px;text-align:center;font-variant-numeric:tabular-nums}
+#clock small{display:block;font:500 10px var(--mono);color:var(--mute);letter-spacing:.06em}
+#banner{position:fixed;left:50%;top:70px;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:2;opacity:0;transition:opacity .35s;text-shadow:0 2px 10px rgba(0,0,0,.9)}
+#banner.on{opacity:1}
+#banner b{display:block;font:900 italic clamp(26px,4vw,44px)/1 var(--display);text-transform:uppercase}
+#banner small{display:block;font:600 12px var(--mono);color:#dfe6ef;margin-top:5px;letter-spacing:.06em}
+#toast{position:fixed;left:50%;top:120px;transform:translateX(-50%);font:600 13px var(--body);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;z-index:4;opacity:0;transition:opacity .3s;pointer-events:none;max-width:calc(100% - 24px);text-align:center}
+#toast.on{opacity:1}
+#loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg)}
+#loading .panel{max-width:440px;text-align:center}
+#loading h1{font:900 34px/1 var(--display);text-transform:uppercase;margin:0 0 8px}
+#help{position:fixed;inset:0;z-index:8;display:none;place-items:center;background:rgba(5,9,15,.72)}
+#help.on{display:grid}
+#help .panel{max-width:min(720px,calc(100% - 24px));max-height:calc(100% - 40px);overflow:auto;padding:18px 20px;user-select:text;-webkit-user-select:text}
+#help h2{font:900 26px/1 var(--display);text-transform:uppercase;margin:0 0 10px}
+#help h3{font:800 16px/1 var(--display);text-transform:uppercase;margin:16px 0 6px}
+#help p,#help li{font-size:13.5px;color:#d3dbe6}
+#help ul{padding-left:18px;margin:6px 0}
+#help a{color:var(--ice)}
+.tabs{display:none}
+@media (max-width:860px){
+  #lab,#res{left:8px;right:8px;width:auto;top:auto;bottom:calc(58px + env(safe-area-inset-bottom));max-height:38vh;border-radius:12px;padding:10px}
+  .tabs{display:flex;position:fixed;left:8px;right:8px;bottom:calc(58px + 38vh + 6px + env(safe-area-inset-bottom));gap:5px;z-index:3;justify-content:center}
+  #time{left:8px;right:8px;bottom:calc(6px + env(safe-area-inset-bottom));transform:none;width:auto;gap:5px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;padding:6px 8px!important;scrollbar-width:none}
+  #time button{padding:6px 7px;font-size:11.5px}
+  #clock{min-width:64px;font-size:11px}
+  #clock small{display:none}
+  #scale{flex-wrap:nowrap}
+  .top .hide-sm{display:none}
+  .top .plate b{font-size:16px}.top .plate span{font-size:8px}
+  .top button{padding:5px 7px;font-size:11.5px}
+  #banner{top:64px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="A São Paulo street: a car, a pedestrian crossing and street furniture"></canvas>
+
+<div class="top">
+  <a class="plate" href="../" title="Back to Sem Destino"><b>Street Lab</b><span>Sem Destino</span></a>
+  <div class="row">
+    <button id="cam-side" class="hide-sm" title="From the pavement, side on">Side</button>
+    <button id="cam-top" class="hide-sm" title="Overhead view">Above</button>
+    <button id="cam-follow" title="Follow the person or the object that was hit">Follow</button>
+    <button id="cam-chase" class="hide-sm" title="Behind the car">Chase</button>
+    <button id="btn-help" title="How it works"><span class="lg">How it works</span><span class="sm">?</span></button>
+  </div>
+</div>
+
+<div class="tabs" id="tabs"><button id="tab-lab" aria-pressed="true">Bench</button><button id="tab-res" aria-pressed="false">Results</button></div>
+
+<aside id="lab" class="panel" aria-label="Lab bench">
+  <h2>Scenarios <small>one click</small></h2>
+  <div class="presets" id="presets"></div>
+
+  <h2>The car</h2>
+  <label class="slider" style="display:block"><span>Vehicle</span>
+    <select id="vehicle"><option value="sedan" selected>Medium sedan · 1,300 kg</option><option value="hatch">Compact hatch · 1,100 kg</option><option value="suv">Mid-size SUV · 1,900 kg</option><option value="van">Flat-fronted van · 2,600 kg</option></select></label>
+  <div class="slider"><span>Speed at impact</span><b id="v-speed">40 km/h</b><input id="speed" type="range" min="10" max="90" step="5" value="40"></div>
+  <label class="check"><input type="checkbox" id="brake" checked> Brakes hard from the moment of impact (0.7 g)</label>
+
+  <h2>In the road</h2>
+  <label class="slider" style="display:block"><span>What the car meets</span>
+    <select id="target"><option value="person" selected>A person crossing</option><option value="object">Street furniture</option><option value="both">Street furniture, then a person behind it</option></select></label>
+  <div id="person-box">
+    <label class="slider" style="display:block"><span>Who</span>
+      <select id="who"><option value="man" selected>Adult man · 1.75 m, 75 kg</option><option value="woman">Adult woman · 1.62 m, 62 kg</option><option value="teen">Teenager · 1.50 m, 45 kg</option><option value="child">Child · 1.20 m, 23 kg</option></select></label>
+    <label class="slider" style="display:block"><span>Facing</span>
+      <select id="facing"><option value="left" selected>Crossing, car from their left</option><option value="right">Crossing, car from their right</option><option value="toward">Facing the car</option><option value="away">Back to the car</option></select></label>
+  </div>
+  <div id="object-box" hidden>
+    <label class="slider" style="display:block"><span>Object</span>
+      <select id="object"><option value="stop_sign_r1" selected>Stop sign (R-1, PARE)</option><option value="regulatory_r19">Speed-limit sign (R-19)</option><option value="warning_diamond">Warning sign</option><option value="street_name_double">Street-name plates (CET)</option><option value="sign_slip_base">Sign on a breakaway slip base</option><option value="bollard_cast_iron">Cast-iron bollards (frades)</option><option value="bollard_steel">Steel bollard, concrete filled</option><option value="bollard_concrete">Concrete bollard</option><option value="bike_rack_u">Bike rack (paraciclo)</option></select></label>
+  </div>
+  <div class="slider"><span>Where on the front (0 = centre)</span><b id="v-offset">centre</b><input id="offset" type="range" min="-0.9" max="0.9" step="0.1" value="0"></div>
+  <button id="hit">Drive</button>
+  <p class="note">Everything is simulated by the game's own C++ modules in WebAssembly, step for step; the page only draws it.</p>
+</aside>
+
+<aside id="res" class="panel" aria-label="Results">
+  <h2>Outcome <small id="hash" class="mono" title="Deterministic state hash"></small></h2>
+  <p id="outcome">Pick a scenario, or set up the car and press Drive.</p>
+  <div id="res-person" hidden>
+    <h2 style="margin-top:12px">The person <small id="who-label"></small></h2>
+    <div class="kv">
+      <span>Kinematics</span><b id="r-traj">–</b>
+      <span>Thrown</span><b id="r-throw">–</b>
+    </div>
+    <div class="band" id="band" title="Searle's bounds for the throw at this speed (green); the simulated throw (yellow)"><div class="rng" id="band-rng"></div><div class="mark" id="band-mark"></div><small id="band-lo"></small><small id="band-hi" style="right:4px"></small></div>
+    <p class="note">Green: Searle &amp; Searle (1983) for a launch at the car's speed, μ 0.66. Real crashes scatter ±30–40 % around it.</p>
+    <div class="kv">
+      <span>Head strike</span><b id="r-head">–</b>
+      <span>HIC15 on the car</span><b id="r-hicv">–</b>
+      <span>HIC15 on the ground</span><b id="r-hicg">–</b>
+      <span>Head peak</span><b id="r-headg">–</b>
+      <span>Upper tibia L / R</span><b id="r-tibia">–</b>
+      <span>Knee bending L / R</span><b id="r-knee">–</b>
+      <span>Ligaments torn</span><b id="r-torn">–</b>
+      <span>Carried on the car</span><b id="r-carry">–</b>
+      <span>Airborne</span><b id="r-air">–</b>
+      <span>Pelvis highest</span><b id="r-pelvis">–</b>
+    </div>
+  </div>
+  <div id="res-object" hidden>
+    <h2 style="margin-top:12px">The street furniture</h2>
+    <div class="kv" id="r-objects"></div>
+  </div>
+  <h2 style="margin-top:12px">The car</h2>
+  <div class="kv">
+    <span>Speed at impact</span><b id="r-impact">–</b>
+    <span>Speed lost to the hit</span><b id="r-dv">–</b>
+    <span>Peak deceleration</span><b id="r-decel">–</b>
+    <span>Front crushed</span><b id="r-crush">–</b>
+    <span>Stopped after</span><b id="r-stop">–</b>
+  </div>
+  <h2 style="margin-top:12px">Speeds <small>km/h</small></h2>
+  <canvas class="chart" id="chart-speed" width="560" height="240"></canvas>
+  <div class="legend"><span><i style="background:#9fd6ff"></i>car</span><span><i style="background:#ffd36b"></i>pelvis</span><span><i style="background:#ef5d4f"></i>head</span></div>
+  <h2 style="margin-top:10px">Events <small id="evcount">0</small></h2>
+  <div id="log" aria-live="polite"></div>
+  <h2 style="margin-top:10px">Engine <small>per 60 Hz step</small></h2>
+  <div class="kv">
+    <span>Pedestrian Dynamics</span><b id="s-ped">–</b>
+    <span>Street Dynamics</span><b id="s-street">–</b>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="btn-replay" title="Run the same crash again from the start and compare the state hash">Replay &amp; compare</button>
+  </div>
+</aside>
+
+<div id="time" class="panel" style="padding:8px 10px">
+  <div id="clock">0.00 s<small>SIM TIME</small></div>
+  <div class="row" id="scale">
+    <button data-scale="1" aria-pressed="false">1×</button>
+    <button data-scale="0.25" aria-pressed="true">¼×</button>
+    <button data-scale="0.1" aria-pressed="false">1/10×</button>
+  </div>
+  <button id="btn-pause">Pause</button>
+  <button id="btn-reset">Reset</button>
+</div>
+
+<div id="banner"><b id="banner-t"></b><small id="banner-s"></small></div>
+<div id="toast"></div>
+
+<div id="loading"><div class="panel"><h1>Street Lab</h1><p class="note" id="loadMsg">Loading the simulations (WebAssembly)…</p></div></div>
+
+<div id="help" role="dialog" aria-modal="true" aria-labelledby="help-title"><div class="panel">
+  <h2 id="help-title">How the Street Lab works</h2>
+  <p>Two of the game's native C++ modules run here, compiled to WebAssembly: <b>Pedestrian Dynamics</b> for people and <b>Street Dynamics</b> for signs, posts, bollards and bike racks. The page drives the car and draws what they compute. The same code gives the same results, bit for bit, in the Unity build ("Replay &amp; compare" shows the state hash).</p>
+  <h3>The person</h3>
+  <ul>
+    <li><b>The body.</b> Sixteen segments with the masses of de Leva's anthropometric tables and the lengths of Drillis and Contini, scaled to the height and weight you pick. The joints have the ranges of the standard clinical tables (hip 120° forward and 20° back, knee 0–140°…), and past them the ligaments tear.</li>
+    <li><b>The muscles.</b> Until the car arrives the person stands, holding the pose. A car striking faster than walking pace takes the muscles away, as it does in real collisions.</li>
+    <li><b>The car's front.</b> Bumper, bonnet edge, bonnet, cowl, windscreen, pillars and roof, each with its own stiffness. A sedan's bonnet edge is below an adult's centre of mass: the body wraps onto the bonnet. An SUV's or a van's front is not: the body is thrown ahead (forward projection). A child in front of a sedan is projected too.</li>
+    <li><b>The numbers</b> are the ones a crash lab reads: HIC15 for the head (above 1,000 is serious), upper-tibia acceleration and knee bending (the legform limits are 150 g and 15°), the throw distance against Searle's bounds, and the kinematics class (Ravani et al.).</li>
+  </ul>
+  <h3>The street furniture</h3>
+  <ul>
+    <li><b>The car</b> is the page's own simple rigid body: its mass, brakes and tyres, and a front that crushes past about 80 kN (stiffening as it goes). It takes back every impulse the person and the objects put on it.</li>
+    <li>A 2½" galvanised post folds where it is hit and the sign plate tears off its clamps; a cast-iron frade snaps; a concrete-filled steel bollard bends a little and stops the car; a sign on a breakaway slip base lets go and leaves a 5 cm stub. The posts' strengths come from their sections and the steel's yield, following EN 1993.</li>
+  </ul>
+  <h3>What it does not do yet</h3>
+  <p>The person does not step to catch their balance or brace with their arms; that comes next. Loose plates and posts do not hit the person; the car's front does not dent. Some figures are estimates: the modules' READMEs list every source and what is still being calibrated (sideways knee bending reads high; the van's flat front throws people too far).</p>
+  <p class="note">A game simulation, not a safety tool.</p>
+  <div class="row" style="margin-top:12px"><button id="help-close">Close</button></div>
+</div></div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

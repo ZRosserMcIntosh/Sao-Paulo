@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<base href="/sao-paulo/landmarks/">
+<title>100 landmarks: real vs in game · São Paulo World</title>
+<meta name="description" content="The 100 São Paulo buildings being modelled by hand, each shown as a real photo next to the same spot in the game.">
+<meta property="og:title" content="São Paulo World · 100 landmarks, real vs in game">
+<meta property="og:description" content="Each of the 100 hand-crafted landmarks: a real photo beside the in-game version.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://zrossermcintosh.com/sao-paulo/landmarks/">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='7' width='30' height='18' rx='3' fill='%230a3a8c' stroke='white' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='900' font-size='11' text-anchor='middle' fill='white'%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b111b; --paper:#111a27; --ink:#e7ecf2; --mute:#93a0b2; --line:#233044;
+  --plate:#1d57c2; --masp:#ec4a3c; --good:#36c483; --warn:#f0b43a; --hot:#ffd36b;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--body);margin:0;padding-top:env(safe-area-inset-top,0px)}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(14px,4vw,40px)}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:.95}
+h1{font-size:clamp(44px,7.5vw,88px);font-weight:900;text-transform:uppercase}
+h3{font-size:22px;font-weight:800;text-transform:uppercase;line-height:1.05}
+p{margin:0;max-width:66ch}
+a{color:#7fb0ff}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.mute{color:var(--mute)}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:14px;flex-wrap:wrap}
+.topbar nav{display:flex;flex-wrap:wrap;gap:8px 18px;font:600 13.5px var(--body)}
+.topbar nav a{color:var(--ink);text-decoration:none}.topbar nav a:hover{color:#7fb0ff}
+.brand{font:900 20px/1 var(--display);text-transform:uppercase;color:#fff;background:var(--plate);border:2px solid #fff;border-radius:6px;padding:6px 12px;text-decoration:none}
+header{padding-block:clamp(26px,5vw,52px) 22px}
+.lede{font-size:clamp(17px,1.6vw,19px);margin-top:18px}
+.bar{position:sticky;top:0;z-index:5;background:rgba(11,17,27,.94);backdrop-filter:blur(6px);border-block:1px solid var(--line);padding-block:10px}
+.bar .wrap{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center}
+.chip{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:99px;padding:6px 12px;font:600 12.5px var(--body);cursor:pointer}
+.chip small{color:var(--mute);font-weight:500;margin-left:5px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}.chip[aria-pressed="true"] small{color:#4a5566}
+select,input[type=search]{background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:500 13.5px var(--body)}
+input[type=search]{flex:1 1 180px;min-width:150px}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+.count{font:600 12px var(--mono);color:var(--mute);margin-left:auto}
+main{padding-block:22px 60px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,520px),1fr));gap:16px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.head{display:flex;gap:10px;align-items:flex-start}
+.num{font:800 30px/.9 var(--display);color:var(--mute);min-width:44px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tag{font:600 10.5px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--line);border-radius:99px;padding:4px 8px;color:var(--mute)}
+.tag.w{color:var(--hot);border-color:#6b5a2a}.tag.b{color:var(--good);border-color:#1f6b4b}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media (max-width:420px){.pair{grid-template-columns:1fr}}
+figure{margin:0;display:flex;flex-direction:column;gap:5px;min-width:0}
+.pane{position:relative;aspect-ratio:4/3;border-radius:8px;overflow:hidden;background:#151d28 center/cover no-repeat;border:1px solid var(--line);display:block}
+.pane img{width:100%;height:100%;object-fit:cover;display:block}
+.pane .lbl{position:absolute;left:6px;top:6px;font:700 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;background:rgba(0,0,0,.72);color:#fff;border-radius:4px;padding:4px 6px}
+.pane .none{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:14px;color:var(--mute);font:500 13px/1.4 var(--body)}
+.pane .pin{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 2px rgba(0,0,0,.6)}
+figcaption{font:500 11.5px/1.35 var(--body);color:var(--mute);overflow-wrap:anywhere}
+figcaption a{color:var(--mute)}
+.feat{font-size:14px;line-height:1.45}
+.feat b{font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mute);display:block;margin-bottom:4px}
+footer{border-top:1px solid var(--line);padding-block:22px 40px;color:var(--mute);font-size:13.5px}
+footer p{max-width:90ch}
+.empty{padding:40px 0;color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="wrap topbar">
+  <a class="brand" href="/sao-paulo/">Sem Destino</a>
+  <nav aria-label="Site"><a href="/sao-paulo/#explore">Map &amp; tiles</a><a href="/sao-paulo/#landmarks">Landmarks</a><a href="/sao-paulo/driving/">Drive</a><a href="/sao-paulo/ai/">How the AI thinks</a></nav>
+</div>
+<header><div class="wrap">
+  <div class="eyebrow">Landmarks · real vs in game</div>
+  <h1>100 buildings, by hand</h1>
+  <p class="lede">These are the 100 São Paulo buildings getting their own hand-made models, so each one is unmistakable. Every card puts a real photo beside the same spot in the game as it stands today. Most are still the automatic version; the ones marked hand-built already have their own model.</p>
+</div></header>
+<div class="bar"><div class="wrap">
+  <button class="chip" data-f="all" aria-pressed="true">All<small id="c-all"></small></button>
+  <button class="chip" data-f="w" aria-pressed="false">★ First wave<small id="c-w"></small></button>
+  <button class="chip" data-f="b" aria-pressed="false">Hand-built<small id="c-b"></small></button>
+  <select id="area" aria-label="Area"><option value="">All areas</option></select>
+  <input type="search" id="q" placeholder="Search a building" aria-label="Search a building">
+  <span class="count" id="count" aria-live="polite"></span>
+</div></div>
+<main><div class="wrap"><div class="grid" id="grid"></div><p class="empty" id="empty" hidden>No building matches.</p></div></main>
+<footer><div class="wrap">
+  <p>Real photos are by Wikimedia Commons contributors and are loaded from Wikimedia, not hosted here. Each photo links to its file page, which gives the author and licence. In-game images are top-down renders of the 500 m map tile, centred on the building.</p>
+  <p style="margin-top:8px">Solo game project.</p>
+</div></footer>
+<script>
+// local frame: EPSG:31983 (UTM 23S) minus the centre of tile T_p0_p0, same as the main map
+const UTM=(()=>{const a=6378137,f=1/298.257222101,e2=f*(2-f),ep2=e2/(1-e2),k0=.9996,L0=-45*Math.PI/180,FN=1e7,FE=5e5,R=Math.PI/180;
+ const M=p=>a*((1-e2/4-3*e2*e2/64-5*e2**3/256)*p-(3*e2/8+3*e2*e2/32+45*e2**3/1024)*Math.sin(2*p)+(15*e2*e2/256+45*e2**3/1024)*Math.sin(4*p)-(35*e2**3/3072)*Math.sin(6*p));
+ function fwd(lat,lon){const p=lat*R,l=lon*R,N=a/Math.sqrt(1-e2*Math.sin(p)**2),T=Math.tan(p)**2,C=ep2*Math.cos(p)**2,A=Math.cos(p)*(l-L0);
+  return [FE+k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T*T+72*C-58*ep2)*A**5/120),FN+k0*(M(p)+N*Math.tan(p)*(A*A/2+(5-T+9*C+4*C*C)*A**4/24+(61-58*T+T*T+600*C-330*ep2)*A**6/720))]}
+ const O=fwd(-23.561509,-46.655960);return {xy:(lat,lon)=>{const u=fwd(lat,lon);return [u[0]-O[0],u[1]-O[1]]}}})();
+const tname=(i,j)=>`T_${i<0?"m"+(-i):"p"+i}_${j<0?"m"+(-j):"p"+j}`;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const Z=3; // zoom into the tile render: a 500 m tile shows about 167 m
+function crop(x,y){const i=Math.round(x/500),j=Math.round(y/500),fx=(x-(i*500-250))/500,fy=((j*500+250)-y)/500,c=v=>Math.max(0,Math.min(100,(v*Z-.5)/(Z-1)*100));
+  return {tile:tname(i,j),css:`background-size:${Z*100}% ${Z*100}%;background-position:${c(fx)}% ${c(fy)}%`}}
+const filePage=f=>"https://commons.wikimedia.org/wiki/File:"+encodeURIComponent(f.replace(/ /g,"_"));
+const fileImg=(f,w)=>"https://commons.wikimedia.org/wiki/Special:FilePath/"+encodeURIComponent(f.replace(/ /g,"_"))+"?width="+w;
+let ITEMS=[],F="all";
+function card(e){
+  let real,game;
+  if(e.f){real=`<a class="pane" href="${filePage(e.f)}" target="_blank" rel="noopener" title="Opens the photo's page on Wikimedia Commons"><img loading="lazy" decoding="async" alt="Real photo of ${esc(e.n)}" src="${fileImg(e.f,640)}"><span class="lbl">Real</span></a><figcaption data-cred="${esc(e.f)}"><a href="${filePage(e.f)}" target="_blank" rel="noopener">Wikimedia Commons</a></figcaption>`}
+  else real=`<div class="pane"><span class="lbl">Real</span><div class="none">No free photo picked yet</div></div><figcaption>&nbsp;</figcaption>`;
+  if(e.g){game=`<a class="pane" href="../${e.g}" target="_blank" rel="noopener"><img loading="lazy" decoding="async" alt="In-game render of ${esc(e.n)}" src="../${e.g}"><span class="lbl">In game</span></a><figcaption>Render of the hand-built model</figcaption>`}
+  else if(e.lat!=null){const [x,y]=UTM.xy(e.lat,e.lon),c=crop(x,y);
+    game=`<a class="pane tilepane" data-tile="${c.tile}" style="${c.css}" href="../tiles/${c.tile}.jpg" target="_blank" rel="noopener" title="Opens the whole tile render"><span class="lbl">In game</span><span class="pin" aria-hidden="true"></span><div class="none" hidden>This tile is not on the site yet</div></a><figcaption>Top view, tile ${c.tile}${e.b?" · hand-built model":" · automatic version"}${e.ap?" · position approximate":""}</figcaption>`}
+  else game=`<div class="pane"><span class="lbl">In game</span><div class="none">Several sites; no single spot on the map</div></div><figcaption>&nbsp;</figcaption>`;
+  return `<article class="card"><div class="head"><div class="num">${e.id}</div><div><h3>${esc(e.n)}</h3><div class="tags"><span class="tag">${esc(e.area)}</span>${e.w?'<span class="tag w">★ first wave</span>':""}${e.b?'<span class="tag b">hand-built</span>':""}</div></div></div>
+  <div class="pair"><figure>${real}</figure><figure>${game}</figure></div>
+  <p class="feat"><b>What has to be right</b>${esc(e.feat)}</p></article>`}
+function draw(){const q=document.getElementById("q").value.trim().toLowerCase(),ar=document.getElementById("area").value;
+  const L=ITEMS.filter(e=>(F=="all"||e[F])&&(!ar||e.area==ar)&&(!q||(e.n+" "+e.feat+" "+e.area).toLowerCase().includes(q)));
+  const g=document.getElementById("grid");g.innerHTML=L.map(card).join("");document.getElementById("empty").hidden=L.length>0;document.getElementById("count").textContent=L.length+" of "+ITEMS.length;
+  g.querySelectorAll(".tilepane").forEach(p=>{const im=new Image();im.onload=()=>{p.style.backgroundImage=`url(../tiles/${p.dataset.tile}.jpg)`};im.onerror=()=>{p.querySelector(".none").hidden=false;p.querySelector(".pin").hidden=true;p.removeAttribute("href")};
+    if("IntersectionObserver" in window){const io=new IntersectionObserver(es=>{if(es.some(x=>x.isIntersecting)){im.src=`../tiles/${p.dataset.tile}.jpg`;io.disconnect()}},{rootMargin:"300px"});io.observe(p)}else im.src=`../tiles/${p.dataset.tile}.jpg`});
+  credits()}
+const CRED={};let credDone=false;
+function credits(){document.querySelectorAll("figcaption[data-cred]").forEach(c=>{const m=CRED[c.dataset.cred];if(m)c.innerHTML=`Photo: ${esc(m.by||"see file page")}${m.lic?" · "+esc(m.lic):""} · <a href="${filePage(c.dataset.cred)}" target="_blank" rel="noopener">Wikimedia Commons</a>`})}
+async function loadCredits(){if(credDone)return;credDone=true;const files=[...new Set(ITEMS.map(e=>e.f).filter(Boolean))];
+  for(let k=0;k<files.length;k+=40){try{const part=files.slice(k,k+40);
+    const j=await fetch("https://commons.wikimedia.org/w/api.php?format=json&origin=*&action=query&prop=imageinfo&iiprop=extmetadata&iiextmetadatafilter=Artist|LicenseShortName&titles="+encodeURIComponent(part.map(f=>"File:"+f).join("|"))).then(r=>r.json());
+    const back={};(j.query.normalized||[]).forEach(n=>back[n.to]=n.from);
+    Object.values(j.query.pages||{}).forEach(p=>{if(!p.imageinfo)return;const md=p.imageinfo[0].extmetadata||{},d=document.createElement("div");d.innerHTML=(md.Artist||{}).value||"";
+      const info={by:d.textContent.trim().replace(/\s+/g," ").slice(0,70),lic:(md.LicenseShortName||{}).value||""};[p.title,back[p.title]].filter(Boolean).forEach(t=>CRED[t.replace(/^File:/,"")]=info)});
+    credits()}catch(err){}}}
+fetch("top100.json").then(r=>r.json()).then(d=>{ITEMS=d.items;
+  const areas=[...new Set(ITEMS.map(e=>e.area))],sel=document.getElementById("area");areas.forEach(a=>{const o=document.createElement("option");o.value=a;o.textContent=a;sel.appendChild(o)});
+  document.getElementById("c-all").textContent=ITEMS.length;document.getElementById("c-w").textContent=ITEMS.filter(e=>e.w).length;document.getElementById("c-b").textContent=ITEMS.filter(e=>e.b).length;
+  const h=new URLSearchParams(location.search);if(["w","b"].includes(h.get("f")))F=h.get("f");
+  document.querySelectorAll(".chip").forEach(b=>{b.setAttribute("aria-pressed",String(b.dataset.f==F));b.addEventListener("click",()=>{F=b.dataset.f;document.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",String(x==b)));draw()})});
+  sel.addEventListener("change",draw);document.getElementById("q").addEventListener("input",draw);draw();loadCredits()});
+</script>
+</body>
+</html>

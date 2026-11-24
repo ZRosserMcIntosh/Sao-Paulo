@@ -32,7 +32,6 @@ const RIFLE_FOR = { fgmm_308_175: 'm24_sws', hornady_65cm_140: 'bolt_65cm', lapu
 const HANDGUNS = new Set(['pistol_9mm', 'glock_17', 'colt_1911', 'sw_686', 'fn_fiveseven']);
 const SMGS = new Set(['mp5a3', 'fn_p90', 'thompson_m1a1']);
 // Fully automatic: holding Space keeps firing at the gun's cyclic rate.
-const AUTOMATIC = new Set(['mp5a3', 'fn_p90', 'thompson_m1a1']);
 const gunClass = (cid = S.c) => (HANDGUNS.has(RIFLE_FOR[cid]) ? 'handgun' : SMGS.has(RIFLE_FOR[cid]) ? 'smg' : 'rifle');
 // The scopes. Any of them goes on any rifle; by default each rifle wears its
 // own (the Mosin the PU, the SVD the PSO-1, the rest a mil scope). The Soviet
@@ -220,9 +219,9 @@ const S = structuredClone(SCENARIOS[0].s);
 S.zero = 100;
 Object.assign(S, { spin: true, earth: true, solver: true, t0: 10, tgt: 'plate', glazing: 'windscreen', markers: store.get('markers', 'hits'), tracer: store.get('tracer', 'off'), tracerToImpact: store.get('tracerToImpact', true),
   scope: store.get('scope', 'own'), aim: store.get('aim', 'assist'), hint: store.get('hint', true), turret: { el: 0, wd: 0 }, hold: { up: 0, right: 0 },
-  unique: store.get('unique', true), seedNext: null, position: store.get('position', 'bench') });
+  unique: store.get('unique', true), seedNext: null, position: store.get('position', 'bench'), fireMode: store.get('fireMode', 0), hip: store.get('hip', false) });
 let metric = store.get('metric', true);
-let pendingSway = null;
+let pendingBore = null;   // a shared link's shot: the bore it left along
 // The duel (see the Duel section): null when shooting alone. Seat A is the
 // challenger at the range's origin, seat B the friend at the far end, facing
 // back down the same range; each draws the range from their own seat.
@@ -268,11 +267,11 @@ let autoFire = false;
   }
   if (Q.has('tr')) {
     const [c, burn] = Q.get('tr').split('.');
-    S.tracer = c in TRACER_COLOURS ? c : 'off';
+    S.tracer = c in TRACER_COLOURS || c === 'issued' ? c : 'off';
     S.tracerToImpact = burn !== 'real';
   }
   if (['bench', 'prone', 'sling', 'sitting', 'kneeling', 'standing'].includes(Q.get('ps'))) S.position = Q.get('ps');
-  if (Q.has('sw')) { const v = Q.get('sw').split(',').map(Number); if (v.length === 2 && v.every(Number.isFinite)) pendingSway = { up: v[0] / 1e7, right: v[1] / 1e7 }; }
+  if (Q.has('bo')) { const v = Q.get('bo').split(',').map(Number); if (v.length === 2 && v.every(Number.isFinite)) pendingBore = { el: v[0], az: v[1] }; }
   if (Q.has('hm')) S.markers = ['off', 'hits', 'all'].includes(Q.get('hm')) ? Q.get('hm') : 'hits';
   if (Q.get('tg') === 'dummy') { S.tgt = 'dummy'; S.glazing = (Q.get('gz') || 'windscreen').replace(/[^a-z0-9_]/g, ''); }
   autoFire = Q.has('fire');
@@ -300,16 +299,11 @@ function setup(forDope) {
   B.bd_powder(forDope && !S.solver ? 0 : powderK());
   B.bd_group(groupOf(S.c));
 }
-// Each round's draw: its own stream of a seed. A shared link replays its
-// shot's (seed, stream); in a duel both browsers use the shooter's.
+// Each round's draw: its own stream of a seed. The weapon takes them in
+// turn (the session's seed, or in a duel the duel's, both browsers using the
+// shooter's); a shared link replays its shot's (seed, stream).
 const sessionSeed = Number(crypto.getRandomValues(new Uint32Array(1))[0]) * 1024 + 1;
 let streamCount = 0;
-function nextSeed() {
-  if (!S.unique) return null;
-  if (S.seedNext) { const x = S.seedNext; S.seedNext = null; return x; }
-  if (duel) return { seed: duel.seed, stream: (duel.seat === 'A' ? 1 : 2) * 1e6 + duel.sent + 1 };
-  return { seed: sessionSeed, stream: ++streamCount };
-}
 // The chance that a round lands inside a centred w x h box, or a circle of
 // radius r, for normal spreads sh (across) and sv (vertical): perfect call.
 function erf(x) {  // Abramowitz and Stegun 7.1.26, to 1.5e-7
@@ -510,21 +504,21 @@ function retire(sh) {
   shots.splice(shots.indexOf(sh), 1);
 }
 function retireAll(keep = null) { for (const sh of [...shots]) if (sh !== keep) retire(sh); }
-function fire(tFire) {
-  const dope = solveDope();
+// A shot: the engine's weapon has fired it (event, at its bore and time, with
+// its round's own draw), or a shared link replays one exactly (el, az, t0 and
+// its seed). Flown to the end first, then shown.
+function fire(m) {
   station();
   setup(false);
   B.wind(S.az * DEG, trueLayers());
-  const e0 = B.bd_zero(ci(), zero(), sightHeight());
-  // The shot leaves where the wobble has the crosshair at that instant.
-  const sway = swayNow();
-  fixedSway = null;
-  const aim0 = shotHold(dope), aim = { up: aim0.up + sway.up, right: aim0.right + sway.right };
-  { const pr = projRaw(S.c), mom = pr.mass_gr * 6.479891e-5 * cat.cartridges[ci()].muzzleVelocity; lastShotWall = nowWall; lastShotKick = Math.min(0.03, 0.0012 * mom * positionOf().recoil); }
-  const el = e0 + aim.up, az = myAzDeg() * DEG + aim.right, o = enu(0, 0, 0);
-  const seed = Number.isFinite(e0) ? nextSeed() : null;
-  const id = !Number.isFinite(e0) ? 0 : seed ? B.bd_fire_round(ci(), o[0], o[1], o[2], az, el, tFire, seed.seed, seed.stream) : B.bd_fire(ci(), o[0], o[1], o[2], az, el, tFire);
-  const draw = id ? B.lastDraw() : null;
+  const { el, az, sway } = m, tFire = m.t0, o = enu(0, 0, 0);
+  const aim = shotHold(dope);
+  // Every round unique: its own draw (velocity, BC, the barrel's throw);
+  // otherwise every round the same, along the same bore.
+  const seed = S.unique ? m.seed : null;
+  const id = seed && m.event !== undefined ? B.bd_fire_shot(ci(), o[0], o[1], o[2], m.event)
+    : seed ? B.bd_fire_round(ci(), o[0], o[1], o[2], az, el, tFire, seed.seed, seed.stream) : B.bd_fire(ci(), o[0], o[1], o[2], az, el, tFire);
+  const draw = id && seed ? B.lastDraw() : null;
   if (!id) { toast('This load cannot reach the zero.'); return null; }
   // Fly to the target plane, then on to the ground.
   const t0 = tFire;
@@ -583,7 +577,7 @@ function fire(tFire) {
   mesh.visible = true;
   scene.add(mesh);
   shot = {
-    id, S: structuredClone(S), dope, aim, sway, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az, seed, draw, line,
+    id, S: structuredClone(S), dope, aim, sway, t0, tEnd, tTarget, tGround, tStop, hit, impact, air, sg, sgTarget, el, az, seed, draw, line, tracer: m.tracer ?? null,
     part: S.tgt === 'duel' && hit && atT ? figurePart(lof(atT.position).r - oppRight(), lof(atT.position).u) : null,
     round: B.round(), atTarget: atT, muzzleSpeed: Math.hypot(...B.stateAt(t0).velocity), glass,
     mesh, body: mesh.getObjectByName('body'), len: bullet.userData.length, done: false, doneWall: 0, left: false,
@@ -592,7 +586,12 @@ function fire(tFire) {
     bars: breakdown(t0),
   };
   shots.push(shot);
-  if (shots.length > 40) retire(shots[0]);  // a full 30-round magazine stays in the air
+  if (shots.length > 60) retire(shots[0]);  // a full P90 magazine stays in the air
+  // The breakdown's flights left the engine's air without the true wind:
+  // put it back for the flags and the next round.
+  station();
+  setup(false);
+  B.wind(S.az * DEG, trueLayers());
   return shot;
 }
 
@@ -1164,7 +1163,7 @@ function updateTracer(life, fov) {
   const col = TRACER_COLOURS[S.tracer];
   for (const sh of shots) {
     if (sh.tracerGroups) for (const g of sh.tracerGroups) g.visible = false;
-    if (S.tracer === 'off' || tNow < sh.t0) continue;
+    if (S.tracer === 'off' || tNow < sh.t0 || (S.tracer === 'issued' && !sh.tracer)) continue;
     const fade = sh.done ? Math.exp(-(nowWall - sh.doneWall) * 8) : 1;
     if (fade < 0.02) continue;
     const grp = tracerGroups(sh)[life ? 1 : 0], burn = S.tracerToImpact ? Infinity : tracerBurnout(projRaw(sh.S.c));
@@ -1182,7 +1181,7 @@ function updateTracer(life, fov) {
       if (k === 0 && life) sp.position.addScaledVector(v3(st.velocity).normalize(), -(sh.len * 0.5 + dia * 0.4));
       const f = 1 - k / TRACER_N;
       // A white-hot core at the head, the colour along the streak.
-      sp.material.color.setHex(col);
+      sp.material.color.setHex(S.tracer === 'issued' ? TRACER_COLOURS[sh.tracer] : col);
       if (k === 0) sp.material.color.lerp(new THREE.Color(0xffffff), life ? 0.35 : 0.12);
       sp.material.opacity = (k === 0 ? 1 : 0.45 * f * f) * fade;
       const sz = life ? dia * (k === 0 ? 2.4 : 1.8 * f) : screen * (k === 0 ? 0.022 : 0.012 * (0.4 + 0.6 * f));
@@ -1366,67 +1365,126 @@ function resetAim() {
 }
 // Where the scope looks (the crosshair, from the target's centre), and the
 // angles the shot leaves at (from the zero).
-// ---------- The shooter: position, wobble, breath, pulse, recoil ----------
-// Nobody holds a rifle still. The crosshair wanders over a wobble area set
-// by the position, rises and falls with the breath, and jumps with the
-// pulse; the shot leaves wherever it is at that instant. Figures (1 SD of
-// the wobble, the breath's swing and the pulse's kick, in MOA) are estimated
-// from marksmanship manuals' wobble areas: a benched rifle is nearly still,
-// a good prone shooter holds about 1 MOA, standing 6 to 10.
+// ---------- The shooter: the engine's shooter layer ----------
+// The gun in your hands is the engine's (Ballistic Dynamics' shooter layer,
+// ADR 0005): its fire modes and cyclic rate on the 1 ms clock, the magazine
+// and reloads, the recoil from the momentum of the bullet and its powder gas,
+// the hip cone, and the hold at the sight: the position's sway, the breath,
+// the pulse, and the breath held (Shift: it steadies the hold for about 6 s;
+// at 12 s you must breathe). The page asks it every frame and draws what it
+// says; each round it fires is flown by the core.
 const POSITIONS = {
-  bench: { name: 'Bench rest', sway: 0.06, breath: 0.25, pulse: 0.03, recoil: 0.5 },
-  prone: { name: 'Prone, bipod and rear bag', sway: 0.3, breath: 1.2, pulse: 0.12, recoil: 0.8 },
-  sling: { name: 'Prone, sling', sway: 0.7, breath: 2.5, pulse: 0.25, recoil: 1 },
-  sitting: { name: 'Sitting', sway: 1.8, breath: 3.5, pulse: 0.45, recoil: 1.2 },
-  kneeling: { name: 'Kneeling', sway: 3.0, breath: 5, pulse: 0.6, recoil: 1.4 },
-  standing: { name: 'Standing, offhand', sway: 6.5, breath: 7, pulse: 0.9, recoil: 1.8 },
+  bench: { name: 'Bench rest', stance: 'bench' },
+  prone: { name: 'Prone, bipod and rear bag', stance: 'prone_bipod' },
+  sling: { name: 'Prone, sling', stance: 'prone' },
+  sitting: { name: 'Sitting', stance: 'sitting' },
+  kneeling: { name: 'Kneeling', stance: 'kneeling' },
+  standing: { name: 'Standing, offhand', stance: 'standing' },
 };
 const positionOf = () => POSITIONS[duel ? 'prone' : S.position] ?? POSITIONS.bench;
-// Breath: in and out every 4 s. Holding it (Shift, or the button) settles
-// the rifle at the natural pause and steadies the wobble for about 6 s; held
-// longer the wobble grows as the oxygen runs down, and at 12 s you must
-// breathe. Air comes back at half the rate it was spent.
-const breath = { holding: false, held: 0, debt: 0, level: 0, phase: 0, lastT: 0, gasp: 0 };
-let fixedSway = null;      // a shared link's shot: the wobble it left with
-let lastShotWall = -1e9, lastShotKick = 0;
-function updateShooter(wall) {
-  const dt = Math.min(0.1, Math.max(0, wall - breath.lastT));
-  breath.lastT = wall;
-  const want = breath.holding && breath.gasp <= 0 && breath.held < 12;
-  if (want) { breath.held += dt; breath.debt = Math.min(12, breath.debt + dt); }
-  else {
-    if (breath.holding && breath.held >= 12) breath.gasp = 2.5;  // out of air
-    breath.held = 0;
-    breath.debt = Math.max(0, breath.debt - dt * 0.5);
-    breath.gasp = Math.max(0, breath.gasp - dt);
-    breath.phase += (dt / (breath.debt > 6 ? 2.2 : 4)) * 2 * Math.PI;  // breathing harder after a long hold
+const stanceIndex = () => Math.max(0, cat.stances.findIndex((x) => x.id === positionOf().stance));
+const stanceSway = (k) => raw.stances.find((x) => x.id === POSITIONS[k].stance)?.sway_moa ?? 0;
+const breath = { holding: false };
+const FIRE_MODE_NAMES = { semi: 'Semi-automatic', auto: 'Automatic', burst3: 'Three-round burst', manual: 'Bolt (one shot, work the bolt)' };
+// The weapon: e0 is the zero's bore elevation in the air of the moment.
+const W = { key: '', ok: false, t: 0, start: 0, steps: 0, e0: NaN, trigger: false, pending: 0, pressing: false, pressShots: 0, reload: false, state: null, modes: [], mag: 0, stance: -1, last: null, turn: 0 };
+function ensureWeapon(force = false) {
+  const ri = cat.rifles.findIndex((r) => r.id === RIFLE_FOR[S.c]);
+  const key = `${ri}|${ci()}|${duel ? duel.id + duel.seat : ''}`;
+  if (force || key !== W.key || tNow < W.t - 1e-9) {
+    // Its shots draw from the session's seed (in a duel, the duel's), on
+    // streams after the ones already used.
+    const seed = duel ? duel.seed : sessionSeed, base = duel ? (duel.seat === 'A' ? 1 : 2) * 1e6 + duel.sent : streamCount;
+    W.key = key;
+    W.stance = stanceIndex();
+    // It starts a second early, already at the sight (or the hip) and
+    // settled: the shooter is in position when the range's clock starts.
+    const start = tNow - 1;
+    W.ok = ri >= 0 && !!B.bd_weapon(ri, ci(), W.stance, seed, base, start);
+    if (W.ok) {
+      B.weaponInput({ ads: !S.hip }, 0, 0, S.fireMode ?? 0);
+      B.weaponAdvance(tNow);
+    }
+    W.start = start;
+    W.steps = Math.floor((tNow - start) / 0.001 + 1e-9);
+    W.t = tNow;
+    W.state = W.ok ? B.weaponState() : null;
+    W.pressing = false;
+    W.modes = cat.rifles[ri]?.fireModes ?? [];
+    W.mag = cat.rifles[ri]?.magazine ?? 0;
+    if (!(S.fireMode < W.modes.length)) S.fireMode = 0;
+    W.last = null;
+    syncFireModes();
   }
-  // The breath's swing eases out when held, and back in after.
-  breath.level += ((want ? 0 : 1) - breath.level) * Math.min(1, dt * (want ? 5 : 2.5));
+  if (W.ok && W.stance !== stanceIndex()) { W.stance = stanceIndex(); B.bd_weapon_stance(W.stance); }
+  return W.ok;
 }
-function swayNow(wall = nowWall) {
-  if (fixedSway) return fixedSway;
-  const P = positionOf(), t = wall;
-  // A wander of three slow sines an axis (RMS 1), a faster tremor on top.
-  const wx = (Math.sin(t * 1.93 + 1.1) + Math.sin(t * 3.17 + 4.2) * 0.7 + Math.sin(t * 6.4 + 2.2) * 0.35) / 0.93;
-  const wy = (Math.sin(t * 2.31 + 0.4) + Math.sin(t * 3.77 + 5.6) * 0.7 + Math.sin(t * 7.1 + 0.9) * 0.35) / 0.93;
-  // Steadier while the breath is held, worse once the air runs down.
-  const steady = (breath.holding && breath.held > 0 && breath.held < 12 ? 0.55 : 1) * (1 + Math.max(0, breath.debt - 6) * 0.45) * (breath.gasp > 0 ? 2 : 1);
-  const b = Math.sin(breath.phase) * P.breath * breath.level * (breath.debt > 6 ? 1.4 : 1);
-  // The pulse: 66 beats a minute at rest, a short kick up and a little left.
-  const beat = (t * (1.1 + breath.debt * 0.03)) % 1, kick = Math.exp(-beat * 9) * Math.sin(beat * 30);
-  return { up: (wy * P.sway * steady + b + kick * P.pulse) * MOA, right: (wx * P.sway * steady * 1.15 - kick * P.pulse * 0.4) * MOA };
+// The bore the shooter means: the zero, then the dope (or the turrets) and
+// the crosshair. The engine adds the kick, the hold and the hip cone.
+function intendedBore() {
+  const aim = dope ? shotHold(dope) : { up: 0, right: 0 };
+  return { el: W.e0 + aim.up, az: myAzDeg() * DEG + aim.right };
 }
-// Recoil, as the scope shows it: the muzzle jumps and settles (the look
-// only: the round has left). A third of a mil per kg m/s of the bullet's
-// momentum at the bench, more in less steady positions (estimated).
-function recoilNow(wall = nowWall) {
-  const t = wall - lastShotWall;
-  if (t < 0 || t > 1.5) return 0;
-  return lastShotKick * Math.exp(-t / 0.16) * Math.cos(t * 9);
+const dirOf = (el, az) => [Math.cos(el) * Math.sin(az), Math.cos(el) * Math.cos(az), Math.sin(el)];
+const wrapPi = (x) => Math.atan2(Math.sin(x), Math.cos(x));
+function shooterFrame() {
+  if (!ensureWeapon() || !Number.isFinite(W.e0)) { W.state = null; W.t = tNow; return; }
+  const b = intendedBore();
+  // Turning the view opens the hip cone (only from the hip).
+  if (W.last && nowWall > W.last.wall) W.turn = Math.hypot(b.el - W.last.el, wrapPi(b.az - W.last.az)) / (nowWall - W.last.wall);
+  W.last = { ...b, wall: nowWall };
+  B.bd_weapon_look(...dirOf(b.el, b.az));
+  // Presses wait their turn: each queued press holds the trigger until the
+  // action is ready and fires, then lets go (a semi-automatic or a bolt needs
+  // the release). In bullet time quick presses still leave at the gun's own
+  // pace. A reload request waits for the weapon's next 1 ms step.
+  const due = Math.floor((tNow - W.start) / 0.001 + 1e-9), stepped = due > W.steps;
+  const shotsNow = W.state?.shots ?? 0;
+  if (stepped && W.pending > 0) {
+    if (W.pressing && shotsNow > W.pressShots) { W.pending--; W.pressing = false; }
+    else if (!W.pressing) { W.pressing = true; W.pressShots = shotsNow; }
+  }
+  if (W.pending === 0) W.pressing = false;
+  B.weaponInput({ trigger: W.trigger || W.pressing, ads: !S.hip, reload: W.reload, holdBreath: breath.holding }, S.hip ? W.turn : 0, 0, S.fireMode ?? 0);
+  if (stepped) { W.reload = false; W.steps = due; }
+  for (const e of B.weaponAdvance(tNow)) weaponEvent(e, b);
+  W.t = tNow;
+  W.state = B.weaponState();
 }
+function weaponEvent(e, b) {
+  if (e.kind === 'dryFire') { click(); toast('Click: the magazine is empty. Reload: X'); W.pending = 0; W.pressing = false; return; }
+  if (e.kind === 'reloadStart') { toast('Reloading…'); return; }
+  if (e.kind === 'reloadEnd') { click(); return; }
+  if (duel && !duelMayFire()) return;
+  if (!duel) streamCount = Math.max(streamCount, e.stream);
+  const el = Math.asin(Math.max(-1, Math.min(1, e.direction[2]))), az = Math.atan2(e.direction[0], e.direction[1]);
+  const sh = fire({ el, az, t0: e.time, event: e.index, seed: { seed: e.seed, stream: e.stream }, tracer: e.tracer,
+    sway: { up: el - b.el, right: wrapPi(az - b.az) } });
+  if (sh) afterFire(sh);
+}
+function syncFireModes() {
+  const sel = $('fireMode');
+  if (!sel) return;
+  sel.innerHTML = '';
+  W.modes.forEach((m, i) => { const o = document.createElement('option'); o.value = String(i); o.textContent = FIRE_MODE_NAMES[m] ?? m; sel.appendChild(o); });
+  sel.value = String(S.fireMode ?? 0);
+  sel.disabled = W.modes.length < 2;
+}
+// Pressing and releasing the trigger (Space, or the Fire button).
+function pressTrigger() {
+  if (S.tgt === 'v8' && !G) { fireNow(); return; }
+  if (duel && !duelMayFire()) return;
+  if (dopeTimer) refresh();
+  W.trigger = true;
+  queuePress();  // a press shorter than a frame still fires
+}
+function queuePress() {
+  if (W.pending >= 8) { toast('Eight rounds are already waiting to go'); return; }
+  W.pending++;
+}
+function releaseTrigger() { W.trigger = false; }
 function sightHold() {
-  const sw = swayNow(), rc = recoilNow();
+  const st = W.state, sw = st ? { up: st.viewPitch, right: st.viewYaw } : { up: 0, right: 0 }, rc = 0;
   if (S.aim === 'manual') return { up: S.hold.up + sw.up + rc, right: S.hold.right + sw.right };
   if (!dope) return { up: sw.up + rc, right: sw.right };
   const p = plan(dope.hold);
@@ -1518,14 +1576,16 @@ function drawReticle(dope) {
   }
   if (line) rg.fillText(line, cx, cy + R0 + 20 * dpr);
   // The breath: a bar that empties while it is held (amber when the air runs down).
-  if (positionOf() !== POSITIONS.bench || breath.holding) {
-    const w0 = 120 * dpr, x0 = cx - w0 / 2, y0 = cy + R0 + 30 * dpr, left = Math.max(0, 1 - breath.debt / 12);
+  const ws = W.state;
+  if (ws && (positionOf() !== POSITIONS.bench || breath.holding)) {
+    const holding = breath.holding && ws.breathHeld > 0, gasp = ws.gasping, debt = ws.breathDebt;
+    const w0 = 120 * dpr, x0 = cx - w0 / 2, y0 = cy + R0 + 30 * dpr, left = Math.max(0, 1 - debt / 12);
     rg.fillStyle = 'rgba(255,255,255,0.18)'; rg.fillRect(x0, y0, w0, 4 * dpr);
-    rg.fillStyle = breath.gasp > 0 ? '#ef5d4f' : breath.debt > 6 ? '#f0b43a' : breath.holding ? '#36c483' : 'rgba(231,236,242,0.7)';
+    rg.fillStyle = gasp ? '#ef5d4f' : debt > 6 ? '#f0b43a' : holding ? '#36c483' : 'rgba(231,236,242,0.7)';
     rg.fillRect(x0, y0, w0 * left, 4 * dpr);
     rg.fillStyle = 'rgba(231,236,242,0.8)';
     rg.font = `600 ${10 * dpr}px "JetBrains Mono", monospace`;
-    rg.fillText(breath.gasp > 0 ? 'out of breath' : breath.holding ? 'holding your breath' : 'hold Shift to hold your breath', cx, y0 + 16 * dpr);
+    rg.fillText(gasp ? 'out of breath' : holding ? 'holding your breath' : 'hold Shift to hold your breath', cx, y0 + 16 * dpr);
   }
   rg.textAlign = 'start';
 }
@@ -1788,7 +1848,7 @@ function presetsUI() {
     const b = document.createElement('button');
     if (p.feature) b.className = 'feature';
     b.innerHTML = `${p.name}<small>${p.sub}</small>`;
-    b.onclick = () => { Object.assign(S, { tgt: 'plate', glazing: 'windscreen' }, structuredClone(p.s)); S.zero = p.s.zero ?? defaultZero(p.s.c); S.t0 = 10; resetAim(); syncUI(); changed(true); refresh(); tNow = S.t0; fireNow(); };
+    b.onclick = () => { Object.assign(S, { tgt: 'plate', glazing: 'windscreen' }, structuredClone(p.s)); S.zero = p.s.zero ?? defaultZero(p.s.c); S.t0 = 10; resetAim(); syncUI(); changed(true); refresh(); tNow = S.t0; ensureWeapon(true); fireNow(); };
     (p.short ? shortBox : box).appendChild(b);
   }
 }
@@ -1817,6 +1877,8 @@ function layersUI() {
   }
 }
 function syncUI() {
+  $('hip').checked = !!S.hip;
+  syncFireModes();
   const sel = $('cartridge');
   if (!sel.options.length)
     for (const c of cat.cartridges) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; sel.appendChild(o); }
@@ -1878,6 +1940,7 @@ function refresh() {
     station();
     setup(false);
     B.wind(S.az * DEG, trueLayers());
+    W.e0 = B.bd_zero(ci(), zero(), sightHeight());
     const a = B.air(0, 0, 0, 0);
     $('daInfo').textContent = `ρ ${a.density.toFixed(3)} kg/m³ · DA ${fmtAlt(a.densityAltitude)}`;
     const sg = S.spin ? B.bd_stability(ci()) : 0;
@@ -2059,15 +2122,6 @@ function tick() {
 function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2400); }
 function banner(a, b) { $('bTitle').textContent = a; $('bSub').textContent = b; $('banner').classList.add('on'); clearTimeout(banner.t); banner.t = setTimeout(() => $('banner').classList.remove('on'), 3200); }
 
-// The quickest a rifle shoots again (s of engine time): a bolt has to be
-// worked, a semi-automatic is ready as fast as the trigger. Estimated. A shot
-// asked for sooner waits its turn: in bullet time the rounds still leave the
-// muzzle at the rifle's true cadence.
-// The automatics fire at their cyclic rate (published: MP5 about 800 rounds a
-// minute, P90 about 900, Thompson M1A1 about 700); a revolver's double-action
-// pull is slower than a pistol's trigger (estimated).
-const RIFLE_CYCLE = { m24_sws: 1.2, bolt_65cm: 1.2, bolt_338lm: 1.4, m200_408: 1.6, m9130_pu: 1.3, m107_50bmg: 0.25, svd_pso1: 0.2, m16a2: 0.12, pistol_9mm: 0.12,
-  glock_17: 0.12, colt_1911: 0.15, sw_686: 0.3, fn_fiveseven: 0.12, mp5a3: 60 / 800, fn_p90: 60 / 900, thompson_m1a1: 60 / 700 };
 // A round arrives: the plate rings and swings, the glass breaks, the dust flies.
 function logGroup(sh) {
   if (sh.remote || !sh.impact) return;
@@ -2110,24 +2164,24 @@ function arrive(sh) {
   }
 }
 
+// A tap of the trigger (the Fire button, a scenario, a shared link): the
+// weapon fires on the next frame, when its action is ready.
 function fireNow() {
   if (S.tgt === 'v8' && !G) { toast('Loading the glass engine for the windscreen…'); $('outcome').className = ''; $('outcome').textContent = 'Loading the glass engine…'; $('watch').hidden = true; ensureGlass().then(() => fireNow()).catch((e) => toast('Glass engine: ' + e.message)); return; }
   if (duel && !duelMayFire()) return;
-  const cycle = RIFLE_CYCLE[RIFLE_FOR[S.c]] ?? 0.9;
-  const prev = shots.filter((x) => !x.remote).at(-1), t0 = Math.max(tNow, prev ? prev.t0 + cycle : tNow);
-  const queue = AUTOMATIC.has(RIFLE_FOR[S.c]) ? 30 : 8;
-  if (t0 - tNow > queue * cycle) { if (queue === 8) toast('Eight rounds are already waiting to go'); return; }
-  if (dopeTimer) refresh();  // settings still pending: apply them first
-  if (!fire(t0)) return;
-  if (duel) duelSent(shot);
-  if (t0 > tNow + 1e-6 && !AUTOMATIC.has(RIFLE_FOR[S.c])) toast(cycle > 0.5 ? 'Working the bolt…' : 'Next round');
+  if (dopeTimer) refresh();
+  queuePress();
+}
+// After a round leaves: the duel hears of it, the camera rides it, the results.
+function afterFire(sh) {
+  if (duel) duelSent(sh);
   if (auto && !duel) setCam('bullet');
   resultsUI();
   // The dashed path of the whole flight, for the scope and shooter views.
   const pts = [];
-  B.bd_select(shot.id);
-  for (let t = shot.t0; t <= shot.tStop; t += Math.max(0.002, (shot.tStop - shot.t0) / 400)) pts.push(v3(B.stateAt(t).position));
-  pts.push(v3(B.stateAt(shot.tStop).position));
+  B.bd_select(sh.id);
+  for (let t = sh.t0; t <= sh.tStop; t += Math.max(0.002, (sh.tStop - sh.t0) / 400)) pts.push(v3(B.stateAt(t).position));
+  pts.push(v3(B.stateAt(sh.tStop).position));
   pathGeo.setFromPoints(pts);
   path.computeLineDistances();
   path.visible = false;
@@ -2256,7 +2310,13 @@ $('fSpin').onchange = (e) => { S.spin = e.target.checked; changed(); };
 $('fEarth').onchange = (e) => { S.earth = e.target.checked; changed(); };
 $('fSolver').onchange = (e) => { S.solver = e.target.checked; changed(); };
 $('fUnique').onchange = (e) => { S.unique = e.target.checked; store.set('unique', S.unique); changed(); };
-$('fire').onclick = () => fireNow();
+// The Fire button is a trigger: held, an automatic keeps firing.
+$('fire').addEventListener('pointerdown', (e) => { e.preventDefault(); pressTrigger(); });
+for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) $('fire').addEventListener(ev, releaseTrigger);
+$('fire').onclick = (e) => { if (e.detail === 0) fireNow(); };  // from the keyboard
+$('fireMode').onchange = (e) => { S.fireMode = Number(e.target.value) || 0; store.set('fireMode', S.fireMode); };
+$('hip').onchange = (e) => { S.hip = e.target.checked; store.set('hip', S.hip); };
+$('bReload').onclick = () => { W.reload = true; };
 $('bReplay').onclick = () => { if (duel) { killcam(); return; } if (!shot) return; retireAll(shot); tNow = shot.t0; shot.done = false; shot.left = false; plate.rotation.x = 0; if (auto) setCam('bullet'); };
 $('bAuto').onclick = () => { auto = !auto; $('bAuto').setAttribute('aria-pressed', String(auto)); };
 $('bSound').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); $('bSound').setAttribute('aria-pressed', String(soundOn)); };
@@ -2283,7 +2343,7 @@ function shareUrl(sh, absolute = true) {
     q.set('ho', `${Math.round(X.hold.up * 1e6)},${Math.round(X.hold.right * 1e6)}`);
   }
   if (X.position && X.position !== 'bench') q.set('ps', X.position);
-  if (sh?.sway) q.set('sw', `${Math.round(sh.sway.up * 1e7)},${Math.round(sh.sway.right * 1e7)}`);
+  if (sh && Number.isFinite(sh.el)) q.set('bo', `${sh.el},${sh.az}`);
   return `${absolute ? location.origin : ''}/sao-paulo/ballistics/?${q}`;
 }
 $('bShare').onclick = async () => {
@@ -2309,19 +2369,21 @@ for (const [t, p] of Object.entries(tabs)) $(t).onclick = () => { for (const [u,
 $('tHide').onclick = () => { $('lab').hidden = $('res').hidden = true; $('tabs').classList.add('closed'); };
 if (window.innerWidth <= 860) $('res').hidden = true;
 window.addEventListener('keydown', (e) => { if (e.key === 'Shift') breath.holding = true; });
-window.addEventListener('keyup', (e) => { if (e.key === 'Shift') breath.holding = false; });
-window.addEventListener('blur', () => { breath.holding = false; });
+window.addEventListener('keyup', (e) => { if (e.key === 'Shift') breath.holding = false; if (e.code === 'Space') releaseTrigger(); });
+window.addEventListener('blur', () => { breath.holding = false; releaseTrigger(); });
 {
   const bb = $('bBreath');
   bb.addEventListener('pointerdown', (e) => { e.preventDefault(); breath.holding = true; bb.setAttribute('aria-pressed', 'true'); });
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) bb.addEventListener(ev, () => { breath.holding = false; bb.setAttribute('aria-pressed', 'false'); });
   const ps = $('position');
-  for (const [k, v] of Object.entries(POSITIONS)) { const o = document.createElement('option'); o.value = k; o.textContent = `${v.name} · wobble ${v.sway < 1 ? v.sway.toFixed(2) : v.sway.toFixed(1)} MOA`; ps.appendChild(o); }
+  for (const [k, v] of Object.entries(POSITIONS)) { const o = document.createElement('option'); o.value = k; const sw = stanceSway(k); o.textContent = `${v.name} · wobble ${sw < 1 ? sw.toFixed(2) : sw.toFixed(1)} MOA`; ps.appendChild(o); }
   ps.onchange = (e) => { S.position = e.target.value; store.set('position', S.position); };
 }
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat || AUTOMATIC.has(RIFLE_FOR[S.c])) fireNow(); }
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) pressTrigger(); }
+  else if (e.key === 'x' || e.key === 'X') W.reload = true;
+  else if ((e.key === 'g' || e.key === 'G') && W.modes.length > 1) { S.fireMode = ((S.fireMode ?? 0) + 1) % W.modes.length; store.set('fireMode', S.fireMode); syncFireModes(); toast(FIRE_MODE_NAMES[W.modes[S.fireMode]] ?? W.modes[S.fireMode]); }
   else if (e.key === 'c' || e.key === 'C') setCam(CAMS[(CAMS.findIndex((x) => x[0] === cam) + 1) % CAMS.length][0]);
   else if (e.key === 'b' || e.key === 'B') $('bAuto').click();
   else if (e.key === 'z' || e.key === 'Z') $('bReplay').click();
@@ -2435,7 +2497,13 @@ function frame(now) {
   const tEngine = tNow;
   updateFlags(tNow, wall);
   mirage.uniforms.t.value = wall;
-  updateShooter(wall);
+  shooterFrame();
+  // The gun: its fire mode and the rounds left.
+  {
+    const ws = W.state, el = $('ammo');
+    const txt = !ws ? '' : `${FIRE_MODE_NAMES[W.modes[S.fireMode ?? 0]]?.split(' ')[0] ?? ''} · ${ws.reloading ? '<span class="low">reloading</span>' : `<span class="${ws.magazine === 0 ? 'out' : ws.magazine <= Math.ceil(W.mag / 5) ? 'low' : ''}">${ws.magazine}</span> / ${W.mag}`}${S.hip ? ' · from the hip' : ''}`;
+    if (el.dataset.t !== txt) { el.dataset.t = txt; el.innerHTML = txt; }
+  }
   // Mirage: stronger in heat and still air, leaning with the crosswind at the target.
   {
     const pTarget = enu(S.dist * 0.7, 0, -BENCH + 0.5);
@@ -2670,7 +2738,7 @@ function duelWorld(id, base) {
 }
 function duelUrl(extra) {
   const q = new URLSearchParams(new URL(shareUrl(null)).search);
-  q.delete('fire'); q.delete('w'); q.delete('sw'); q.delete('ps'); q.delete('sd'); q.delete('sk'); q.delete('cw');
+  q.delete('fire'); q.delete('w'); q.delete('bo'); q.delete('ps'); q.delete('sd'); q.delete('sk'); q.delete('cw');
   if (duel?.hunt) { q.set('d', String(duel.base)); q.set('hunt', '1'); } q.delete('am'); q.delete('tu'); q.delete('ho'); q.delete('tr'); q.delete('sc');
   for (const [k, v] of Object.entries(extra)) q.set(k, v);
   return `${location.origin}/sao-paulo/ballistics/?${q}`;
@@ -3097,9 +3165,21 @@ if (Q.has('duel') && Q.has('answer')) {
   });
 } else if (Q.has('duel') && Q.has('mail')) openMail(Q.get('duel').replace(/[^0-9a-f]/g, '').slice(0, 24), Q.get('mail'), Q.get('hunt') === '1');
 else if (Q.has('duel')) acceptChallenge(Q.get('duel').replace(/[^0-9a-f]/g, '').slice(0, 24), Q.get('offer') || '', Q.get('net') || 'rtc');
-else if (autoFire) setTimeout(() => { fixedSway = pendingSway; tNow = S.t0; fireNow(); }, 300);  // at the shot's own instant: the same gusts
+else if (autoFire) setTimeout(() => {
+  // A shared shot: the same bore, the same instant (the same gusts) and the
+  // same round's draw, so the same flight. Older links: a fresh shot.
+  tNow = S.t0;
+  ensureWeapon(true);
+  if (pendingBore) {
+    if (dopeTimer) refresh();
+    const seed = S.seedNext;
+    S.seedNext = null;
+    const sh = fire({ el: pendingBore.el, az: pendingBore.az, t0: S.t0, seed, sway: { up: 0, right: 0 } });
+    if (sh) afterFire(sh);
+  } else fireNow();
+}, 300);
 duelUI();
 // The Glass engine (for the V8's windscreen) loads in the background.
 setTimeout(() => ensureGlass().catch(() => {}), 1500);
 // For the browser console: the engine and the current shot.
-window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, glint, sway: () => swayNow(), shareUrl, get duel() { return duel; }, challenge, killcam, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; } };
+window.ballisticsRange = { B, R, wakeRT, wakeGeo, shock, glint, sway: () => W.state, shareUrl, get duel() { return duel; }, challenge, killcam, get shot() { return shot; }, get G() { return G; }, get S() { return S; }, get dope() { return dope; }, shots, get tNow() { return tNow; }, get flags() { return flags; }, W };

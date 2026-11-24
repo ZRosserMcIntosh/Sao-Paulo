@@ -239,7 +239,9 @@ function addTile(B, list, ground, dx, dy, far = false) {
       const xy = b.rings[ri], n = xy.length / 2;
       if (n < 3) continue;
       const ccw = area(xy) > 0, outward = ri === 0 ? ccw : !ccw;
-      let run = 0;
+      // The bays are numbered from a start of the building's own (whole bays: the facade looks the same), so
+      // no two buildings light the same windows at night (nightcity.js picks them by bay number).
+      let run = 3 * Math.floor(hsh * 251);
       for (let i = 0; i < n; ++i) {
         const j = (i + 1) % n;
         let x1 = xy[2 * i], y1 = xy[2 * i + 1], x2 = xy[2 * j], y2 = xy[2 * j + 1];

@@ -1,0 +1,180 @@
+/* São Paulo World · flying game: the game layer (play.js): welcome screen, Casual HUD, challenges, landing score.
+   body.casual hides the simulator's instruments, readouts and menus (they stay as they are in the simulator modes). */
+body.casual #hud,body.casual #instr,body.casual #touch,body.casual #side,body.casual #flowLegend,body.casual #warn,body.casual #taws,
+body.casual #prompt,body.casual #toast,body.casual #cockpitTip,body.casual .top .row{display:none!important}
+body.casual #osmCredit{opacity:.55}
+#bHome{background:var(--plate);border-color:#fff;color:#fff}
+#bHome svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px}
+#pTop button[hidden]{display:none}
+#pTop{display:none;gap:6px;align-items:center}
+body.casual #pTop{display:flex}
+#pTop button{min-width:40px;height:36px;padding:0 11px;border-radius:18px;font:600 13px var(--body);display:inline-flex;align-items:center;gap:6px;justify-content:center}
+#pTop svg,.pBtn svg,.pCardB svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+#pTop button[aria-pressed="false"] .on,#pTop button[aria-pressed="true"] .off{display:none}
+#pTop button[aria-pressed="true"]{background:rgba(10,17,28,.72);color:var(--ink);border-color:var(--line)}
+
+/* ---- Casual HUD ---- */
+#pHud{display:none}
+body.casual #pHud{display:block}
+body.p-over #pHud,body.p-over #pMark,body.p-over #pTip{display:none!important}
+/* The welcome screen and the list have the whole page: no labels or bar buttons showing through. */
+body.p-task #labels{visibility:hidden}
+body.p-front #labels,body.p-front #pTop,body.p-front .top .row,body.p-front #osmCredit{visibility:hidden}
+#pGoal{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top));transform:translateX(-50%);z-index:3;display:flex;align-items:center;gap:10px;max-width:min(520px,calc(100% - 250px));
+  padding:8px 16px;border-radius:22px;background:rgba(10,17,28,.78);border:1px solid var(--line);font:600 14px/1.2 var(--body);white-space:nowrap;pointer-events:auto;cursor:default}
+#pGoal[hidden]{display:none}
+#pGoal b{font:800 20px/1 var(--display);letter-spacing:.03em;color:var(--hot);font-variant-numeric:tabular-nums}
+#pGoal span{overflow:hidden;text-overflow:ellipsis}
+#pGoal small{color:var(--mute);font-weight:500}
+#pNums{position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(16px + env(safe-area-inset-bottom));z-index:2;display:flex;gap:18px;pointer-events:none;
+  padding:10px 16px;border-radius:14px;background:rgba(10,17,28,.62);border:1px solid var(--line)}
+#pNums div{font:900 34px/.9 var(--display);font-variant-numeric:tabular-nums;min-width:74px}
+#pNums small{display:block;font:600 11px/1 var(--body);color:var(--mute);margin-top:5px;letter-spacing:.04em}
+#pNums i{font:600 13px var(--body);font-style:normal;color:var(--mute);margin-left:3px}
+#pAct{position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(22px + env(safe-area-inset-bottom));z-index:3;display:grid;gap:10px;justify-items:end}
+.pBtn{height:52px;min-width:52px;padding:0 18px;border-radius:26px;font:700 15px var(--body);color:#fff;background:rgba(10,17,28,.72);border:2px solid rgba(255,255,255,.45);
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;touch-action:manipulation}
+.pBtn:hover{background:rgba(10,17,28,.9)}
+.pBtn:active{transform:scale(.96)}
+.pBtn[hidden]{display:none}
+.pBtn.go{background:var(--plate);border-color:#fff}
+.pBtn.go:hover{background:#2866d8}
+.pBtn kbd{font:700 11px var(--mono);opacity:.7;border-color:rgba(255,255,255,.3)}
+#pSpd{display:flex;align-items:center;gap:8px}
+#pSpd .pBtn{padding:0;width:52px;font:800 26px/1 var(--display)}
+#pSpd .lvl{display:grid;gap:3px;justify-items:center;font:600 10px var(--body);color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);min-width:46px}
+#pSpd .pips{display:flex;gap:3px}
+#pSpd .pips i{width:11px;height:6px;border-radius:3px;background:rgba(255,255,255,.3)}
+#pSpd .pips i.on{background:var(--hot)}
+#pAlert{position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top));transform:translateX(-50%);z-index:3;font:900 24px/1 var(--display);letter-spacing:.05em;text-transform:uppercase;color:#fff;background:var(--bad);border-radius:8px;padding:7px 16px;pointer-events:none}
+#pAlert[hidden]{display:none}
+#pNote{position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top));transform:translate(-50%,-6px);z-index:3;font:700 16px/1.2 var(--body);color:#0a1830;background:var(--hot);border-radius:20px;padding:8px 18px;pointer-events:none;opacity:0;transition:opacity .25s,transform .25s;max-width:calc(100% - 28px);text-align:center}
+#pNote.on{opacity:1;transform:translate(-50%,0)}
+/* Where the goal is: a diamond over it, or an arrow at the screen's edge toward it. */
+#pMark{position:fixed;left:0;top:0;z-index:2;pointer-events:none;will-change:transform;display:none}
+body.casual #pMark.on{display:block}
+#pMark i{position:absolute;left:-13px;top:-13px;width:26px;height:26px;border:3px solid var(--hot);border-radius:4px;transform:rotate(45deg);box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+#pMark svg{position:absolute;left:-15px;top:-19px;width:30px;height:38px;display:none;fill:var(--hot);stroke:rgba(10,17,28,.7);stroke-width:1.5;stroke-linejoin:round;transform:rotate(var(--rot,0deg))}
+#pMark.edge i{display:none}
+#pMark.edge svg{display:block}
+#pMark b{position:absolute;left:50%;top:22px;transform:translateX(-50%);font:700 12px var(--body);color:#fff;background:rgba(10,17,28,.72);border-radius:9px;padding:1px 7px;white-space:nowrap}
+#pMark.edge b{top:-7px;left:var(--tx,24px);transform:translateX(var(--ts,0))}
+/* The thumb stick: it appears where the finger (or the mouse) lands. */
+#pStick{position:fixed;left:0;top:0;width:132px;height:132px;margin:-66px 0 0 -66px;border-radius:50%;border:2px solid rgba(255,255,255,.4);background:rgba(255,255,255,.07);z-index:2;pointer-events:none;opacity:0;transition:opacity .2s}
+#pStick.on{opacity:1}
+#pStick.rest{opacity:.42}
+#pStick i{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;background:rgba(255,255,255,.6)}
+#pTip{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:3;display:flex;align-items:center;gap:10px;max-width:calc(100% - 28px);
+  padding:10px 10px 10px 16px;border-radius:14px;background:rgba(255,255,255,.95);color:#0a1830;font:600 15px/1.3 var(--body);box-shadow:0 8px 24px rgba(0,0,0,.35)}
+#pTip[hidden]{display:none}
+#pTip button{background:none;border:0;color:#52607a;font-size:16px;padding:4px 8px}
+#pOffer{position:fixed;left:50%;top:calc(112px + env(safe-area-inset-top));transform:translateX(-50%);z-index:8;display:flex;align-items:center;gap:10px;width:max-content;max-width:calc(100% - 28px);
+  padding:10px 10px 10px 16px;border-radius:14px;background:rgba(255,255,255,.96);color:#0a1830;font:600 15px/1.3 var(--body);box-shadow:0 8px 24px rgba(0,0,0,.35)}
+#pOffer[hidden]{display:none}
+#pOffer .pBtn{height:40px;min-width:0;padding:0 16px;font-size:14px;border-width:1px}
+#pOffer button:last-child{background:none;border:0;color:#52607a;font-size:16px;padding:4px 8px}
+
+/* ---- Welcome screen and cards ---- (no backdrop blur anywhere here: over a live 3D scene it costs a phone its frame rate) */
+.pOver{position:fixed;inset:0;z-index:7;display:grid;place-items:center;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg,rgba(8,14,24,.72),rgba(8,14,24,.28) 38%,rgba(8,14,24,.5) 70%,rgba(8,14,24,.86))}
+.pOver[hidden]{display:none}
+.pOver.dim{background:rgba(8,14,24,.62)}
+.pOver.clear{background:none;pointer-events:none}
+.pOver.clear>*{pointer-events:auto}
+.pWrap{width:min(860px,100%);display:grid;gap:18px;justify-items:center;text-align:center}
+.pTitle{font:900 clamp(44px,9vw,88px)/.9 var(--display);text-transform:uppercase;letter-spacing:.01em;color:#fff;text-shadow:0 3px 18px rgba(0,0,0,.5);margin:0}
+.pTitle em{font-style:normal;color:var(--hot)}
+.pSub{font:500 clamp(15px,2.4vw,19px)/1.35 var(--body);color:#e7ecf2;text-shadow:0 1px 6px rgba(0,0,0,.6);margin:-6px 0 4px;max-width:520px}
+.pCards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;width:100%}
+.pCardB{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;text-align:left;padding:18px 20px;border-radius:16px;border:2px solid rgba(255,255,255,.22);
+  background:rgba(12,20,34,.9);color:#fff;min-height:92px;font:inherit;transition:transform .12s,border-color .12s,background .12s}
+.pCardB:hover{background:rgba(18,30,52,.92);border-color:#fff;transform:translateY(-2px)}
+.pCardB:active{transform:scale(.98)}
+.pCardB svg{grid-row:1 / span 2;width:44px;height:44px;stroke-width:1.7;color:var(--hot)}
+.pCardB b{font:800 26px/1 var(--display);text-transform:uppercase;letter-spacing:.02em;align-self:end}
+.pCardB span{font:500 14px/1.3 var(--body);color:#c6d0dd;align-self:start}
+.pCardB.main{background:var(--plate);border-color:#fff}
+.pCardB.main:hover{background:#2866d8}
+.pCardB.main svg{color:#fff}
+.pCardB.main span{color:#e3ecfb}
+.pCardB[disabled]{opacity:.55;cursor:default;transform:none}
+.pCardB[disabled]:hover{background:rgba(12,20,34,.82);border-color:rgba(255,255,255,.22)}
+.pCardB .soon{font:700 10px var(--body);letter-spacing:.1em;text-transform:uppercase;background:rgba(255,255,255,.18);border-radius:8px;padding:2px 7px;margin-left:8px;vertical-align:3px}
+.pRow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center}
+.pRow>span{font:600 13px var(--body);color:#c6d0dd;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+.pSeg{height:38px;padding:0 14px;border-radius:19px;font:600 13px var(--body);background:rgba(12,20,34,.78);border:1px solid rgba(255,255,255,.25)}
+.pSeg[aria-pressed="true"]{background:#fff;color:#0a1830;border-color:#fff}
+.pFoot{font:500 12px var(--body);color:#b7c2d0;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+.pFoot a{color:#fff}
+.pBox{width:min(460px,100%);padding:22px 22px 18px;border-radius:18px;background:rgba(12,20,34,.93);border:1px solid rgba(255,255,255,.2);box-shadow:0 18px 50px rgba(0,0,0,.5);text-align:center;display:grid;gap:12px;justify-items:center}
+.pBox h2{font:900 34px/1 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:0}
+.pBox p{margin:0;font:500 15px/1.4 var(--body);color:#d5dde8}
+.pBox .how{font-size:14px;color:#aebacb}
+.pBox .big{font:900 56px/.9 var(--display);font-variant-numeric:tabular-nums}
+.pBox .tag{font:700 11px var(--body);letter-spacing:.1em;text-transform:uppercase;color:#0a1830;background:var(--hot);border-radius:9px;padding:3px 9px}
+.pBox .tag[hidden]{display:none}
+.pStars{font-size:38px;line-height:1;letter-spacing:4px;color:rgba(255,255,255,.22)}
+.pStars b{color:var(--hot);font-weight:400}
+.pStars.sm{font-size:18px;letter-spacing:2px}
+.pBtns{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:4px}
+.pBtns .pBtn{height:46px;font-size:14px;padding:0 16px;border-width:1px}
+.pParts{width:100%;display:grid;gap:6px;text-align:left}
+.pParts div{display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:center;font:500 13px/1.3 var(--body);color:#d5dde8}
+.pParts i{height:8px;border-radius:4px;background:rgba(255,255,255,.14);position:relative;overflow:hidden}
+.pParts i::after{content:'';position:absolute;inset:0;width:var(--v,0%);border-radius:4px;background:var(--c,var(--good))}
+.pParts b{color:#fff;font-weight:600}
+/* The challenges, to pick from. */
+.pList{width:min(920px,100%);display:grid;gap:14px}
+.pList header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pList h2{font:900 40px/1 var(--display);text-transform:uppercase;margin:0;text-shadow:0 2px 10px rgba(0,0,0,.5)}
+.pGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.pCh{display:grid;gap:6px;text-align:left;padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.2);background:rgba(12,20,34,.9);color:#fff;font:inherit;align-content:start}
+.pCh:hover{border-color:#fff;background:rgba(18,30,52,.95)}
+.pCh b{font:800 22px/1 var(--display);text-transform:uppercase;letter-spacing:.02em}
+.pCh span{font:500 13px/1.35 var(--body);color:#c6d0dd}
+.pCh small{display:flex;justify-content:space-between;align-items:center;gap:8px;font:600 12px var(--body);color:#9fb0c6;margin-top:2px}
+.pCh .kind{font:700 10px var(--body);letter-spacing:.1em;text-transform:uppercase;color:var(--hot)}
+/* The landing score after any touchdown: compact, out of the way, gone by itself. */
+#pLand{position:fixed;left:50%;top:calc(104px + env(safe-area-inset-top));transform:translateX(-50%);z-index:4;width:min(330px,calc(100% - 24px));padding:10px 14px 12px;border-radius:12px;
+  background:rgba(10,17,28,.9);border:1px solid var(--line);display:grid;gap:7px;cursor:pointer;box-shadow:0 10px 28px rgba(0,0,0,.4)}
+#pLand[hidden]{display:none}
+#pLand header{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font:600 12px var(--body);color:var(--mute);text-transform:uppercase;letter-spacing:.08em}
+#pLand header b{font:900 30px/.9 var(--display);color:var(--hot);letter-spacing:0}
+#pLand ul{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+#pLand li{display:grid;grid-template-columns:8px 76px 1fr;gap:8px;align-items:baseline;font:500 12.5px/1.3 var(--body);color:var(--mute)}
+#pLand li::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--good);align-self:center}
+#pLand li.so::before{background:var(--warn)}#pLand li.bad::before{background:var(--bad)}
+#pLand li b{color:var(--ink);font-weight:600}
+body.casual #pLand{top:calc(64px + env(safe-area-inset-top))}
+/* In the simulator it keeps clear of an Easy prompt, and on a phone of the instrument strip along the top. */
+#prompt:not([hidden]) ~ #pLand{top:calc(250px + env(safe-area-inset-top))}
+@media (pointer:coarse){body:not(.casual) #pLand{top:calc(74px + var(--instr-h,96px) + env(safe-area-inset-top))}}
+@media (max-width:760px){
+  #pTop{gap:4px}
+  #pTop button{min-width:34px;height:34px;padding:0 7px;font-size:12px}
+  #pTop button span{display:none}
+  #pGoal{top:calc(56px + env(safe-area-inset-top));max-width:calc(100% - 24px);font-size:13px;padding:7px 13px}
+  #pGoal b{font-size:18px}
+  #pAlert,#pNote{top:calc(100px + env(safe-area-inset-top))}
+  body.casual #pLand{top:calc(100px + env(safe-area-inset-top))}
+  #pNums{padding:8px 12px;gap:12px;bottom:calc(40px + env(safe-area-inset-bottom))}
+  #pAct{bottom:calc(40px + env(safe-area-inset-bottom))}
+  #pNums div{font-size:27px;min-width:58px}
+  .pBtn{height:50px;font-size:14px;padding:0 15px}
+  .pCards{grid-template-columns:1fr;gap:10px}
+  .pCardB{min-height:72px;padding:13px 16px}
+  .pCardB svg{width:36px;height:36px}
+  .pCardB b{font-size:22px}
+  .pCardB span{font-size:13px}
+  .pWrap{gap:12px;padding-top:8px}
+  body.p-front .top{visibility:hidden}
+  .pList h2{font-size:30px}
+  .pBox{padding:18px 16px 14px}
+  .pBox h2{font-size:28px}
+  .pBox .big{font-size:46px}
+  #pTip{bottom:calc(150px + env(safe-area-inset-bottom));font-size:14px}
+}
+@media (max-height:520px){
+  .pTitle{font-size:40px}.pSub{display:none}.pCards{grid-template-columns:repeat(2,minmax(0,1fr))}.pCardB{min-height:60px;padding:10px 14px}
+  #pTip{bottom:auto;top:calc(104px + env(safe-area-inset-top));font-size:14px;padding:7px 8px 7px 14px}
+}
