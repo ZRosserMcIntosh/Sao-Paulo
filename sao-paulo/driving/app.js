@@ -26,6 +26,7 @@ import { TelemetryPanel, captureTelemetry, REC } from './telemetry.js';
 import { ReplayViewer } from './replay.js';
 import { WindTunnel } from './tunnel.js';
 import { GamePad, PadMenu, BTN, padName } from './gamepad.js';
+import { Traffic } from './traffic.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -46,8 +47,11 @@ const statePtr = M._ord_state() / 8;
 const S = (i) => M.HEAPF64[statePtr + i];
 const W = (w, i) => M.HEAPF64[statePtr + HEADER + PER_WHEEL * w + i];
 // Per site car id: 0-5 generic cars + Rosser V8, 6-8 two-wheelers, 9-13 real-car approximations
-// (engine indices 6-10: 911 Carrera S, 911 Carrera 4S, AMG S 63, S 600 Guard, F1 2026).
-const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55, 0, 0, 0, 0.50, 0.50, 0.54, 0.52, 0.30]; // full-lock road-wheel angle (rad)
+// (engine indices 6-10: 911 Carrera S, 911 Carrera 4S, AMG S 63, S 600 Guard, F1 2026), 14 the
+// Rosser V8 Manuale (engine index 11: six-speed gated manual).
+const MAXSTEER = [0.55, 0.60, 0.55, 0.55, 0.35, 0.55, 0, 0, 0, 0.50, 0.50, 0.54, 0.52, 0.30, 0.55]; // full-lock road-wheel angle (rad)
+// Cars with a gated manual: shifted by hand by default, and a metallic clunk on every change.
+const GATED_MANUAL = new Set([14]);
 const engineCar = (c) => (c >= 9 ? c - 3 : c);
 // Two-wheelers (vehicle 6 bicycle, 7 e-scooter, 8 motorcycle): their own state buffer.
 const bikePtr = M._ord_bike_state() / 8;
@@ -55,9 +59,9 @@ const B = (i) => M.HEAPF64[bikePtr + i];
 const BIKE_LOCK = [1.2, 0.9, 0.55];
 const BIKE_NAMES = ['Bicycle', 'E-scooter', 'Motorcycle'];
 const isBike = () => settings.car >= 6 && settings.car <= 8;
-const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000, 0, 0, 12500, 7500, 7500, 6500, 5800, 15000];
+const LIMITER = [7200, 6500, 6800, 8500, 12500, 9000, 0, 0, 12500, 7500, 7500, 6500, 5800, 15000, 9000];
 // Engine voice per car (audio/engines.js): each layout sounds like itself. Index 8 = motorcycle.
-const VOICE = ['refSports', 'refHatch', 'refSaloon', 'refHyper', 'refRace', 'stella', null, null, 'motorcycle', 'porsche911', 'porsche911', 'amgS63', 's600Guard', 'f1'];
+const VOICE = ['refSports', 'refHatch', 'refSaloon', 'refHyper', 'refRace', 'stella', null, null, 'motorcycle', 'porsche911', 'porsche911', 'amgS63', 's600Guard', 'f1', 'stella'];
 const setVoice = () => { try { audio.setVoice(VOICES[VOICE[settings.car]] || VOICES.stella); } catch { /* audio not built yet */ } };
 const G = 9.81;
 
@@ -92,7 +96,7 @@ async function deflateSetup(json) {
   let s = ''; for (const b of bin) s += String.fromCharCode(b);
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-if (SHARE?.car !== null && SHARE?.car !== undefined && SHARE.car >= 0 && SHARE.car <= 13) { store.set('car', SHARE.car); store.set('stellaPhysics', true); }
+if (SHARE?.car !== null && SHARE?.car !== undefined && SHARE.car >= 0 && SHARE.car <= 14) { store.set('car', SHARE.car); store.set('stellaPhysics', true); }
 if (SHARE?.setup && SHARE.car !== null) {
   try { store.set('setup' + SHARE.car, JSON.parse(await inflateSetup(SHARE.setup))); } catch (e) { console.warn('shared setup unreadable', e); }
 }
@@ -786,6 +790,7 @@ async function loadModel(buffer, name, announce = true, user = false) {
   }
   inner.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   model = { wrapper, rigs, hasWheels, turn };
+  setupBrakeGlow();
   applySeeThrough();
   setupLights(inner);
   setupPaint(inner);
@@ -1391,6 +1396,25 @@ for (const z of ZONES) {
   const b = document.createElement('button'); b.textContent = z.name; b.onclick = () => { placeAt(z); b.blur(); };
   $('zones').append(b);
 }
+// ---------- Traffic (city only): the site's traffic AI on the Paulista lane graph ----------
+const traffic = CITY ? new Traffic({ scene, M, toast }) : null;
+function setTraffic(level, say) {
+  if (!traffic) return;
+  store.set('traffic', level);
+  document.querySelectorAll('[data-traffic]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.traffic === level));
+  traffic.set(level).then(() => { if (say) toast(level === 'off' ? 'Traffic off' : `Traffic: ${level}`); }).catch((e) => { console.error(e); toast('The traffic could not be loaded'); });
+}
+$('trafficRow').hidden = !traffic; $('trafficNote').hidden = !traffic;
+document.querySelectorAll('[data-traffic]').forEach((b) => (b.onclick = (e) => { setTraffic(b.dataset.traffic, true); e.currentTarget.blur(); }));
+if (traffic) setTraffic(new URLSearchParams(location.search).get('traffic') || store.get('traffic', 'off'), false);
+window.__spwTrafficHit = (kmh) => {   // debugging: launch at the nearest moving traffic car from 30 m behind it
+  const c = traffic?.list?.filter((v) => v.kind === 'car' && v.v > 3).sort((a, b) => Math.hypot(a.x + traffic.ox - S(0), a.y + traffic.oy - S(1)) - Math.hypot(b.x + traffic.ox - S(0), b.y + traffic.oy - S(1)))[0];
+  if (!c) return null;
+  const x = c.x + traffic.ox - 14 * Math.cos(c.h), y = c.y + traffic.oy - 14 * Math.sin(c.h);
+  launch(x, y, c.h, kmh / 3.6); return [c.id, Math.round(c.v * 3.6)];
+};
+window.__spwTrafficCar = (id) => { const v = traffic?.world?.vehicles.find((u) => u.id === id); return v && [v.kind, v.body, +(v.x + traffic.ox).toFixed(1), +(v.y + traffic.oy).toFixed(1), +v.v.toFixed(1)]; };
+window.__spwTraffic = () => traffic?.list?.map((v) => [v.body || v.kind, Math.round(v.x + traffic.ox), Math.round(v.y + traffic.oy), v.kind === 'wreck' ? 1 : 0]) ?? null;
 for (const [w, label] of [['city', 'São Paulo · MASP'], ['track', 'Test track']]) {
   const b = $(w === 'city' ? 'wCity' : 'wTrack');
   b.setAttribute('aria-pressed', WORLD === w);
@@ -1473,13 +1497,38 @@ for (const [id, dir] of [['tUp', 1], ['tDown', -1]]) {
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
 }
 $('car').value = settings.car;
-$('car').onchange = (e) => { settings.car = +e.target.value; camInit = true; store.set('car', settings.car); store.set('stellaPhysics', true); createCar(); e.target.blur(); };
+$('car').onchange = (e) => {
+  settings.car = +e.target.value; camInit = true; store.set('car', settings.car); store.set('stellaPhysics', true); createCar(); e.target.blur();
+  // a gated manual is shifted by hand (G still hands it to the automatic)
+  if (GATED_MANUAL.has(settings.car) && settings.auto) { settings.auto = false; applyAids(); toast('Six-speed gated manual: E / Q (or + / −, RB / LB) to shift · G for automatic'); }
+};
 $('bReset').onclick = (e) => { placeAt(ZONES[0]); e.currentTarget.blur(); };
 $('bCam').onclick = (e) => { cycleCam(); e.currentTarget.blur(); };
 function togglePanel() {
   const side = $('side'); side.hidden = !side.hidden; $('bPanel').setAttribute('aria-expanded', !side.hidden); store.set('panel', !side.hidden);
 }
 $('bPanel').onclick = (e) => { togglePanel(); e.currentTarget.blur(); };
+// Settings tabs: Car, Damage, World, Tools, Controls (the last one is remembered).
+const TABS = [...document.querySelectorAll('#side [role=tab]')].map((b) => b.dataset.tab);
+function showTab(k) {
+  if (!TABS.includes(k)) k = TABS[0];
+  document.querySelectorAll('#side [role=tab]').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === k));
+  document.querySelectorAll('#side section.tab').forEach((sec) => (sec.hidden = sec.dataset.tab !== k));
+  store.set('tab', k); $('side').scrollTop = 0;
+  return k;
+}
+document.querySelectorAll('#side [role=tab]').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+showTab(store.get('tab', 'car'));
+// the test-track features (moose test, stunt park, crash lab) only exist on the test track
+if (WORLD !== 'track') for (const h of document.querySelectorAll('#side h2')) {
+  if (!/^(Moose test|Stunt park|Crash lab)$/.test(h.textContent)) continue;
+  for (let e = h; e && (e === h || e.tagName !== 'H2'); e = e.nextElementSibling) e.hidden = true;
+}
+function cycleTab(d) {
+  const cur = document.querySelector('#side [role=tab][aria-selected="true"]')?.dataset.tab;
+  const k = showTab(TABS[(TABS.indexOf(cur) + d + TABS.length) % TABS.length]);
+  return document.querySelector(`#side [role=tab][data-tab="${k}"]`);
+}
 if (store.get('panel', innerWidth > 900) === false) togglePanel();
 
 let toastTimer;
@@ -2340,6 +2389,7 @@ window.__spwCam = (cam, yaw, pitch, dist) => { settings.cam = cam; if (yaw !== u
 window.__spwDamage = (m) => { if (m) setDamage(m); let mx = 0; for (const mm of crumple.meshes) for (let i = 0; i < mm.offset.length; i += 3) mx = Math.max(mx, Math.hypot(mm.offset[i], mm.offset[i + 1], mm.offset[i + 2])); return { mode: settings.damage, dents: crumpleLog.length, rawMax: mx, cap: crumple.cap(), card: $('crash').classList.contains('on'), phys: realisticOn() ? Array.from(damageState().slice(0, 46)) : null, panel: !$('dmgPanel').hidden, panelText: $('dmgPanel').innerText, debris: DMG.debris.length, ...(() => { let f0 = -1e9, f = -1e9; for (const mm of crumple.meshes) for (let i = 0; i < mm.body.length; i += 3) { f0 = Math.max(f0, mm.body[i]); f = Math.max(f, mm.body[i] + mm.offset[i]); } return { meshFront0: f0, meshFront: f }; })() }; };
 window.__spwBody = () => crumple; // debugging: the deformable body meshes
 window.__spwCageN = () => cageNodes(); // debugging
+window.__spwBrakeT = (w) => Math.round(W(w, 17)); // debugging: brake disc surface temperature
 window.__spwLaunch = (kmh, back = 40) => { const z = ZONES.find((q) => q.name === "Crash barrier"); placeAt(z); M._ord_launch(M._ord_crash_barrier_x() - back, M._ord_crash_lane_y(), 0, kmh / 3.6, 0); }; // debugging
 window.__spwRewind = () => ({ hold: rewindHold, active: rewind.active, cursor: rewind.cursor, frames: rewind.frames.length, snaps: M._ord_snap_count() });
 window.__spwLab = (id) => runLabTest(LAB_TESTS.find((t) => t.id === id));
@@ -2411,7 +2461,8 @@ let frameNo = 0;
 function poseNow() {
   return { id: frameNo, x: S(0), y: S(1), z: S(2), qw: S(3), qx: S(4), qy: S(5), qz: S(6),
     wx: [W(0, 0), W(1, 0), W(2, 0), W(3, 0)], wy: [W(0, 1), W(1, 1), W(2, 1), W(3, 1)],
-    wz: [W(0, 2), W(1, 2), W(2, 2), W(3, 2)], steer: [W(0, 4), W(1, 4), W(2, 4), W(3, 4)], omega: [W(0, 5), W(1, 5), W(2, 5), W(3, 5)] };
+    wz: [W(0, 2), W(1, 2), W(2, 2), W(3, 2)], steer: [W(0, 4), W(1, 4), W(2, 4), W(3, 4)], omega: [W(0, 5), W(1, 5), W(2, 5), W(3, 5)],
+    bt: PER_WHEEL > 17 ? [W(0, 17), W(1, 17), W(2, 17), W(3, 17)] : null };
 }
 function drawPose(p, dt) {
   qIso.set(p.qx, p.qz, -p.qy, p.qw);
@@ -2427,6 +2478,59 @@ function drawPose(p, dt) {
     if (p.wx && restWheelXY[w]) { r.steer.position.x += p.wx[w] - restWheelXY[w][0]; r.steer.position.z -= p.wy[w] - restWheelXY[w][1]; }
     r.steer.rotation.y = p.steer[w];
     r.spin.rotation.z = -spinAngle[w];
+  }
+  if (glowTest || p.bt) brakeGlow(glowTest || p.bt);
+}
+// ---------- Brake discs glowing with their temperature ----------
+// The physics gives each disc's surface temperature (deg C). Steel and carbon-ceramic discs start
+// to glow a dull red at ~450-500 C, orange by ~750 C and yellow-orange near 1,000 C. The model's
+// own discs glow (meshes with a rotor/disc material, each wheel its own copy of the material);
+// a car without separate discs gets a glowing ring behind the spokes instead.
+const _glowCol = new THREE.Color();
+function glowColor(t) {
+  const k = Math.min(1, Math.max(0, (t - 430) / 570));     // 430 C: nothing; 1,000 C: full
+  if (k <= 0) return 0;
+  // dark red -> orange -> yellow-orange (a blackbody, roughly)
+  if (k < 0.5) _glowCol.setRGB(0.55 + 0.9 * k, 0.04 + 0.5 * k * k, 0.0);
+  else _glowCol.setRGB(1.0, 0.17 + 0.9 * (k - 0.5), 0.02 + 0.3 * (k - 0.5));
+  return k;
+}
+function setupBrakeGlow() {
+  if (!model) return;
+  const glow = [[], [], [], []];
+  for (let w = 0; w < 4; ++w) {
+    const r = model.rigs?.[w];
+    r?.spin.traverse((o) => {
+      if (!o.isMesh || Array.isArray(o.material) || !/rotor|disc|disk/i.test(o.material?.name || '')) return;
+      o.material = o.material.clone();
+      if (!o.material.emissive) return;
+      o.material.emissive.set(0); o.material.emissiveIntensity = 0;
+      glow[w].push({ mat: o.material });
+    });
+    if (glow[w].length) continue;
+    // no disc in the model: a ring at the wheel centre, just inboard, seen through the spokes
+    const rad = W(w, 3) || 0.33;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.42 * rad, 0.8 * rad, 40),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    ring.userData.noCrumple = true; ring.visible = false;
+    const zBody = -W(w, 1);                                   // car frame: z = -ISO y
+    if (r) { r.steer.add(ring); ring.position.set(0, 0, -Math.sign(zBody) * 0.07); }
+    else { model.wrapper.add(ring); ring.position.set(W(w, 0), W(w, 2), zBody - Math.sign(zBody) * 0.07); }
+    glow[w].push({ ring });
+  }
+  model.glow = glow;
+}
+let glowTest = null;                      // debug: fixed disc temperatures
+window.__spwGlowTest = (t) => { glowTest = t; };
+window.__spwGlow = () => model?.glow?.map((g) => g.map((x) => x.mat ? "mat:" + x.mat.emissiveIntensity.toFixed(2) : "ring:" + x.ring.visible + ":" + x.ring.material.opacity.toFixed(2)));
+function brakeGlow(bt) {
+  const glow = model?.glow; if (!glow) return;
+  for (let w = 0; w < 4; ++w) {
+    const k = glowColor(bt[w]);
+    for (const g of glow[w]) {
+      if (g.mat) { g.mat.emissive.copy(k > 0 ? _glowCol : _glowCol.setRGB(0, 0, 0)); g.mat.emissiveIntensity = k > 0 ? 0.6 + 3.4 * k : 0; }
+      else { g.ring.visible = k > 0; if (k > 0) { g.ring.material.color.copy(_glowCol); g.ring.material.opacity = Math.min(1, 0.35 + 1.2 * k); } }
+    }
   }
 }
 // Shadow car: the same inputs, another setup or model, from where you are now.
@@ -2479,6 +2583,7 @@ async function shareLink() {
 }
 window.__spwShare = shareLink;
 let rewindHold = false;
+const SHIFT_SND = { gear: null, pending: false };
 
 // The controller's buttons, once a frame, whatever is on screen (driving, a menu, the replay, the
 // tunnel); the sticks and triggers that drive the car are read in readInput.
@@ -2497,6 +2602,8 @@ function padFrame(dt) {
     const g = garage.panel && !garage.panel.hidden ? garage.panel : null;
     if (g && padMenu.scope !== g) padMenu.open(g);
     else if (!g && padMenu.scope !== $('side')) padMenu.open($('side'));
+    // LB / RB: the settings tabs
+    if (!g && (e(B.LB) || e(B.RB))) { const t = cycleTab(e(B.RB) ? 1 : -1); const i = padMenu.items().indexOf(t); padMenu.focus(Math.max(0, i)); }
     if (gpad.repeat(B.UP, dt)) padMenu.move(-1);
     if (gpad.repeat(B.DOWN, dt)) padMenu.move(1);
     if (gpad.repeat(B.LEFT, dt)) padMenu.adjust(-1);
@@ -2647,7 +2754,9 @@ function frameOnce(now, draw) {
   if (tunnel.on) inp = tunnel.drive(simDt, S, carRoot.position, M._ord_ground_height(S(0), S(1)));
   const snap = rewind.beforeFrame();
   M._ord_set_input(inp.steer, inp.throttle, inp.brake, inp.hand, inp.shiftUp ? 1 : 0, inp.shiftDown ? 1 : 0);
+  traffic?.beforeAdvance(simDt, S);
   M._ord_advance(simDt);
+  traffic?.afterAdvance(); traffic?.draw();
   ++frameNo;
   const pose = poseNow();
   VIEW.simTime += simDt;
@@ -2721,6 +2830,14 @@ function frameOnce(now, draw) {
     weather.update(simDt, camera.position, carRoot.position, Math.abs(S(7)), wheels, (k) => { try { audio.splash(k); } catch { /* audio not ready */ } });
   }
   try { audio.update({ dt, rpm: S(14), load: S(17), limiter: LIMITER[settings.car], gear: S(15), speed: S(7), tyre: tyreState(), interior: settings.cam === 2, rain: weather.rain, wet: weather.rain }); } catch (e) { console.warn('audio update', e); }
+  // gated manual: the lever leaving the gear (a light click), then the clunk as it goes into the
+  // next one through the open gate when the shift completes
+  if (GATED_MANUAL.has(settings.car)) {
+    const gear = S(15), shifting = S(24) > 0.5;
+    if (gear !== SHIFT_SND.gear && SHIFT_SND.gear !== null) { try { audio.shiftClunk(0, settings.cam === 2); } catch { /* audio not ready */ } SHIFT_SND.pending = true; }
+    if (SHIFT_SND.pending && !shifting) { try { audio.shiftClunk(1, settings.cam === 2); } catch { /* audio not ready */ } SHIFT_SND.pending = false; }
+    SHIFT_SND.gear = gear;
+  } else SHIFT_SND.gear = null;
   recordRow();
   const z = zoneAt(S(0), S(1));
   if (z !== currentZone) { currentZone = z; $('zone').textContent = z; $('zone').classList.toggle('on', !!z); }

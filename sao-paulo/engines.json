@@ -58,11 +58,12 @@
     {
       "page": "driving",
       "repo": "ZRosserMcIntosh/vehicle-dynamics",
-      "commit": "b3fcc3e2f498a51db595aa7d600b099d2004aa75",
-      "verified": "2026-11-18",
+      "commit": "341600dc14082b43fc6b4c03ad0f6cccfd70e90e",
+      "verified": "2026-11-24",
       "files": {
-        "driving/ord.wasm": "59e38e29ab9d2c7f0f34489708b99ed686084fb7e65c1c3c900a083aa135678e"
-      }
+        "driving/ord.wasm": "5e055fa5e39481c0c526efe47bd0280598383b4e5f07416bd4556a425855590d"
+      },
+      "note": "Vehicle-Dynamics #31 (Rosser Stella handling, Manuale, brake heat, traffic collisions), merged as 11499f9; rebuilt from its head 341600d with wasi-sdk 25 (web/build_wasi.sh) and matched byte for byte."
     },
     {
       "page": "golf/play",
