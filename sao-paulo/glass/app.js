@@ -3183,15 +3183,50 @@ function stackHandOff() {
 // { rig (whose pieces), frags, base (their poses when picked up, 12 floats
 // each), anchor (the carrier's position then, in that rig's pane frame),
 // delta (how far it has gone since), on: { rig, m } (the carrier) }.
+//
+// When the next pane wraps round the carrier too, the sheets it already
+// carries are squeezed inside it: each folds back round the object into a
+// tail no wider than its nose, over the distance it takes to travel the
+// sheet's own size, the earlier sheets inside the later ones ({ fold }: the
+// half-angle it folds to, from how far along, over how far; { layers }: how
+// many panes have wrapped it).
 let riders = [];
 function rigDepth(r) { return stackDepth[rigs.indexOf(r)] || 0; }
-// Rides on impactor h of rig rj from start point s0 (rj's pane frame): what has
-// been travelled so far is folded into the base poses.
+// Piece k of a rider as drawn now: position (rider's pane frame) and rotation (w, x, y, z).
+function riderPose(rd, k, out) {
+  const b = 12 * k;
+  let x = rd.base[b], y = rd.base[b + 1], z = rd.base[b + 2];
+  let qw = rd.base[b + 3], qx = rd.base[b + 4], qy = rd.base[b + 5], qz = rd.base[b + 6];
+  const f = rd.fold ? clamp((Math.hypot(...rd.delta) - rd.fold.from) / rd.fold.over, 0, 1) : 0;
+  if (f > 0) {
+    // Folded back round the carrier's line of flight to a cone of half-angle
+    // a: what lay at r from it now trails r cos a behind at r sin a out.
+    const dx = x - rd.anchor[0], dy = y - rd.anchor[1], r = Math.hypot(dx, dy);
+    const a = Math.PI / 2 - f * (Math.PI / 2 - rd.fold.alpha), sa = Math.sin(a);
+    if (r > 1e-6) {
+      x = rd.anchor[0] + dx * sa; y = rd.anchor[1] + dy * sa;
+      z -= rd.dir * r * Math.cos(a);
+      // Tilted back with it, about the line round the carrier through it.
+      const h = 0.5 * rd.dir * (Math.PI / 2 - a), sh = Math.sin(h), tx = -dy / r * sh, ty = dx / r * sh, tw = Math.cos(h);
+      [qw, qx, qy, qz] = [tw * qw - tx * qx - ty * qy, tw * qx + tx * qw + ty * qz, tw * qy + ty * qw - tx * qz, tw * qz + tx * qy - ty * qx];
+    }
+  }
+  out[0] = x + rd.delta[0]; out[1] = y + rd.delta[1]; out[2] = z + rd.delta[2];
+  out[3] = qw; out[4] = qx; out[5] = qy; out[6] = qz;
+  return out;
+}
+// Rides on impactor h of rig rj from start point s0 (rj's pane frame): how
+// it is drawn so far becomes its base.
 function reattach(rd, rj, h, s0) {
-  for (let k = 0; k < rd.frags.length; ++k)
-    for (let a = 0; a < 3; ++a) rd.base[12 * k + a] += rd.delta[a];
+  const p = [0, 0, 0, 0, 0, 0, 0];
+  for (let k = 0; k < rd.frags.length; ++k) {
+    riderPose(rd, k, p);
+    for (let a = 0; a < 7; ++a) rd.base[12 * k + a] = p[a];
+  }
   rd.anchor = [s0[0], s0[1], s0[2] + rigDepth(rj) - rigDepth(rd.rig)];
   rd.delta = [0, 0, 0];
+  rd.fold = null;
+  rd.layers ||= 0;
   rd.on = { rig: rj, m: h };
 }
 function updateRiders() {
@@ -3202,9 +3237,22 @@ function updateRiders() {
     const o = 20 * rd.on.m, im = G.impactors(c.P.nImp);
     const dz = rigDepth(c) - rigDepth(rd.rig);
     rd.delta = [im[o] - rd.anchor[0], im[o + 1] - rd.anchor[1], im[o + 2] + dz - rd.anchor[2]];
+    rd.dir = Math.sign(im[o + 5]) || rd.dir || 1;
+    if (!rd.fold && G.gls_carried_sheet(rd.on.m) >= 0) {
+      // This pane has wrapped round the carrier: in it, the sheet folds into a
+      // tail inside the new one, tighter for each pane that has wrapped it.
+      let reach = 0;
+      for (let k = 0; k < rd.frags.length; ++k)
+        reach = Math.max(reach, Math.hypot(rd.base[12 * k] - rd.anchor[0], rd.base[12 * k + 1] - rd.anchor[1]));
+      const nose = c.P.shotRadius?.[rd.on.m] || im[o + 13] || 0.05;
+      rd.layers += 1;
+      const fit = nose * Math.max(0.4, 1 - 0.2 * (rd.layers - 1));
+      rd.fold = { alpha: Math.asin(clamp(fit / Math.max(reach, 1e-3), 0.05, 1)), from: Math.hypot(...rd.delta), over: Math.max(reach, 0.05) };
+    }
   }
 }
 // This pane's poses with its riding sheets moved to where their carrier is.
+const pose7 = [0, 0, 0, 0, 0, 0, 0];
 function rideAlong(poses) {
   for (const rd of riders) {
     if (rd.rig.P !== P) continue;
@@ -3212,7 +3260,8 @@ function rideAlong(poses) {
       const q = 12 * rd.frags[k];
       if (q + 11 >= poses.length) continue;
       for (let a = 0; a < 12; ++a) poses[q + a] = rd.base[12 * k + a];
-      poses[q] += rd.delta[0]; poses[q + 1] += rd.delta[1]; poses[q + 2] += rd.delta[2];
+      riderPose(rd, k, pose7);
+      for (let a = 0; a < 7; ++a) poses[q + a] = pose7[a];
       poses[q + 7] = poses[q + 8] = poses[q + 9] = 0;
       poses[q + 10] = 1;   // moving with it, no extrapolation of its own
     }
@@ -3228,7 +3277,14 @@ function stackReadout() {
     const what = [];
     for (const h of r.hits) what.push(`${h.name} at ${fmtSpeed(h.speed)}`);
     if (r.shards) what.push(`${r.shards} shard${r.shards > 1 ? 's' : ''} (up to ${fmtSpeed(r.shardMax)})`);
-    const state = s[7] ? 'went through' : s[9] > 0.5 * r.P.W * r.P.H ? 'gone' : s[6] ? (s[12] ? `broken, ${s[12]} pieces loose` : 'cracked') : 'intact';
+    let state = s[7] ? 'went through' : s[9] > 0.5 * r.P.W * r.P.H ? 'gone' : s[6] ? (s[12] ? `broken, ${s[12]} pieces loose` : 'cracked') : 'intact';
+    // A laminate pulled from its frame: whole, round what hit it, or torn
+    // round it (an interlayer too weak to drag the rest of the window).
+    for (let m = 0; m < s[3]; ++m) {
+      const out = G.report(m).outcome, disc = out.match(/(?:tore through it|split round it).*?(\d+) cm disc/);
+      if (disc) { state = `torn round it: a ${disc[1]} cm disc went with it, the rest flew on by itself`; break; }
+      if (/Ripped the whole window/.test(out)) { state = 'ripped out whole, wrapped round it and went with it'; break; }
+    }
     return [`${k + 1}. ${g.name.replace(/,.*$/, '')}`, `${state}${what.length ? ' · hit by ' + what.join(', ') : ''}`];
   });
   useRig(rigs[0]);
