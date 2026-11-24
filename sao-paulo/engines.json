@@ -89,7 +89,7 @@
         "streetlab/pedestrian_body.json": "87beb658a000ec3b3f7cb70492cdeba0d759496323b85d763c2282c0db99d895",
         "streetlab/vehicle_profiles.json": "366bc7608510d21b26dcd0a22c26d8905d880705d74a4b92d8ef404bbbb2c655"
       },
-      "note": "Pedestrian Dynamics, on the feature/pedestrian-dynamics branch (not yet merged to main)."
+      "note": "Pedestrian Dynamics; the commit is on Destruction-Dynamics main since PR #9 (merged as ede7b3a)."
     },
     {
       "page": "streetlab",
@@ -102,7 +102,7 @@
         "streetlab/street.mjs": "517b9cfbb6e31e07266212518148f064a6aa3b237943dae94ea2e2231e34cd33",
         "streetlab/street_library.json": "5f4fe23b40d8551905f99490636d3f41f16129d84f67c8e5e9af1db4c8ce3808"
       },
-      "note": "Street Dynamics, on the feature/pedestrian-dynamics branch (not yet merged to main)."
+      "note": "Street Dynamics; the commit is on Destruction-Dynamics main since PR #9 (merged as ede7b3a)."
     }
   ]
 }
