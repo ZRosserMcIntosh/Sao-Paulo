@@ -265,8 +265,8 @@ event at 0.35× with cuts between an orbit, a low trackside shot, an overhead an
   step cost, speeds, AI state and counters.
 * `tests/pursuit.mjs [scenario] [seconds] [seed]` drives the player's car with an AI trooper and
   reports PITs, contacts and the end of the pursuit.
-* `tests/tyre-audio.mjs [out.wav]` drives the interceptor through a launch, a locked-wheel stop, a
-  handbrake drift and a burnout with every aid off and renders the tyre synth from the core's own
+* `tests/tyre-audio.mjs [out.wav]` drives the interceptor through a launch, a locked-wheel stop and a
+  handbrake drift with every aid off and renders the tyre synth from the core's own
   slip data to a WAV, for listening to changes.
 * The vehicle core's many-vehicle module has its own smoke test in Vehicle-Dynamics
   (`node web/gsp_smoke_test.mjs`: rest height, 0–100, 100–0 dry and wet, cornering, the deck,

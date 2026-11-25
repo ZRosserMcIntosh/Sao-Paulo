@@ -1,4 +1,4 @@
-// Drives the interceptor on the test pad (launch, locked-wheel stop, handbrake drift, burnout)
+// Drives the interceptor on the test pad (launch, locked-wheel stop, handbrake drift, pull away)
 // with every aid off, records each tyre's squeal inputs from the vehicle core 120 times a second,
 // and renders them through the tyre synth (engine-worklet.js) to a WAV.
 // Usage: node tests/tyre-audio.mjs [out.wav]
@@ -27,7 +27,7 @@ const script = (t) => {
   if (t < 9.6) return [0.9, 0.6, 0, 1];      // turn in with the handbrake
   if (t < 13) return [0.5 * Math.sin(t * 1.3) - 0.3, 0.85, 0, 0]; // hold a drift
   if (t < 15) return [0, 0, 1, 0];           // stop
-  if (t < 19) return [0, 1, 0.5, 0];         // brake-torque burnout
+  if (t < 19) return [0, 1, 0.5, 0];         // pull away against the brakes
   return [0, 0, 1, 0];
 };
 const T = 20, frames = [];
