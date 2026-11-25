@@ -59,7 +59,8 @@ export class CarAudio {
     for (let i = 0; i < d.length; ++i) d[i] = Math.random() * 2 - 1;
     const noise = () => { const s = ctx.createBufferSource(); s.buffer = nb; s.loop = true; s.start(); return s; };
 
-    this.tyre = new AudioWorkletNode(ctx, 'tyre-noise', { numberOfInputs: 0, outputChannelCount: [2] });
+    // per-tyre squeal (engine-worklet.js 'tyre-squeal'): stick-slip tone, mode hopping, chirps, hiss
+    this.tyre = new AudioWorkletNode(ctx, 'tyre-squeal', { numberOfInputs: 0, outputChannelCount: [2] });
     this.tyre.onprocessorerror = onError;
     this.tyreGain = ctx.createGain(); this.tyreGain.gain.value = 0.7;
     this.tyre.connect(this.tyreGain).connect(this.master);
@@ -227,7 +228,7 @@ export class CarAudio {
     const g = ctx.createGain(); g.gain.value = 0.4 + 0.6 * Math.min(1, k);
     src.connect(lp).connect(g).connect(this.master); src.start();
   }
-  // st: { dt, rpm, load, limiter, gear, speed (m/s), tyre: { squeal, scrub, pitch }, interior (bool) }
+  // st: { dt, rpm, load, limiter, gear, speed (m/s), tyre: { squeal, scrub, pitch, wheels: [{ s, v, h, r }] }, interior (bool) }
   update(st) {
     if (!this.ready || !this.ctx || this.ctx.state !== 'running') return;
     const t = this.ctx.currentTime;
@@ -241,11 +242,20 @@ export class CarAudio {
     const lim = ok(st.limiter, 1000, 20000); if (lim !== null) P.get('limiter').setValueAtTime(lim, t);
     set(P.get('interior'), st.interior ? 1 : 0, 0.08);
     const v = ok(Math.abs(st.speed), 0, 200) ?? 0;
+    // tyres: per tyre { s, v, h, r } from the physics (app.js tyreState), or the old aggregate
     const TP = this.tyre.parameters, ty = st.tyre || {};
-    set(TP.get('squeal'), ok(ty.squeal, 0, 1), 0.03);
-    set(TP.get('scrub'), ok(ty.scrub, 0, 1), 0.03);
-    set(TP.get('pitch'), ok(ty.pitch, 0, 1), 0.05);
-    set(TP.get('speed'), v, 0.05);
+    for (let k = 0; k < 4; ++k) {
+      const per = ty.wheels && ty.wheels[k];
+      const sq = per ? per.s : (ok(ty.squeal, 0, 1) ?? 0) * (k < 2 ? 0.8 : 1);
+      const sc = per ? per.h : ok(ty.scrub, 0, 1) ?? 0;
+      const vs = per ? per.v : 0.8 + 5 * (ok(ty.pitch, 0, 1) ?? 0) + Math.min(40, v) * 0.35 * sc;
+      set(TP.get('s' + k), ok(sq, 0, 1.5), 0.02);
+      set(TP.get('h' + k), ok(sc, 0, 1.5), 0.02);
+      set(TP.get('v' + k), ok(vs, 0, 60), 0.04);
+      set(TP.get('r' + k), ok(per ? per.r : 0.5, 0, 1), 0.05);
+    }
+    set(TP.get('wet'), ok(st.wet ?? 0, 0, 1), 0.2);
+    set(TP.get('interior'), st.interior ? 1 : 0, 0.08);
     this.tyreGain.gain.setTargetAtTime(st.interior ? 0.45 : 0.7, t, 0.1);
     this.windG.gain.setTargetAtTime(Math.min(1, (v / 70) ** 2) * (st.interior ? 0.15 : 0.35), t, 0.1);
     this.roadG.gain.setTargetAtTime(Math.min(1, v / 45) * (st.interior ? 0.4 : 0.3), t, 0.1);

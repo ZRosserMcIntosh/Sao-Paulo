@@ -105,6 +105,21 @@
       "source": "/sao-paulo/minefuck/:path*",
       "destination": "/sao-paulo/bloco/",
       "permanent": true
+    },
+    {
+      "source": "/gsp",
+      "destination": "/gsp/",
+      "permanent": true
+    },
+    {
+      "source": "/GSP",
+      "destination": "/gsp/",
+      "permanent": true
+    },
+    {
+      "source": "/GSP/",
+      "destination": "/gsp/",
+      "permanent": true
     }
   ],
   "headers": [
@@ -248,6 +263,24 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/gsp/engines/(.*\\.wasm)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/gsp/_next/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
         }
       ]
     }
