@@ -15,7 +15,7 @@ export type Role = 'player' | 'suspect' | 'police' | 'traffic';
 
 export interface Controls { steer: number; throttle: number; brake: number; handbrake: number; shiftUp: boolean; shiftDown: boolean; reverse?: boolean }
 
-export interface WheelView { x: number; y: number; z: number; steer: number; spin: number; radius: number; contact: boolean; slip: number; slipAngle: number; slipRatio: number; load: number; surface: number; compression: number; locked: boolean }
+export interface WheelView { x: number; y: number; z: number; steer: number; spin: number; omega: number; radius: number; contact: boolean; slip: number; slipAngle: number; slipRatio: number; load: number; surface: number; compression: number; locked: boolean }
 
 let nextId = 1;
 
@@ -219,14 +219,15 @@ export class Vehicle {
     for (let k = 0; k < nw; ++k) {
       const p = base + this.gsp.perWheel * k;
       let w = this.wheels[k];
-      if (!w) this.wheels.push((w = { x: 0, y: 0, z: 0, steer: 0, spin: 0, radius: 0.33, contact: false, slip: 0, slipAngle: 0, slipRatio: 0, load: 0, surface: 0, compression: 0, locked: false }));
+      if (!w) this.wheels.push((w = { x: 0, y: 0, z: 0, steer: 0, spin: 0, omega: 0, radius: 0.33, contact: false, slip: 0, slipAngle: 0, slipRatio: 0, load: 0, surface: 0, compression: 0, locked: false }));
       const pw = this.prevWheels[k];
       if (pw) { pw.x = w.x; pw.y = w.y; pw.z = w.z; pw.steer = w.steer; pw.spin = w.spin; }
       // ISO body (x, y, z) -> three body (x, z, -y)
       w.x = H[p + WHEEL.hx]; w.y = H[p + WHEEL.cz]; w.z = -H[p + WHEEL.hy];
       w.radius = H[p + WHEEL.radius];
       w.steer = -H[p + WHEEL.steer];
-      w.spin += H[p + WHEEL.omega] * dt;
+      w.omega = H[p + WHEEL.omega];
+      w.spin += w.omega * dt;
       w.contact = H[p + WHEEL.contact] > 0.5;
       w.slipRatio = H[p + WHEEL.slipRatio];
       w.slipAngle = H[p + WHEEL.slipAngle];

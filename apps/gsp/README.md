@@ -37,13 +37,26 @@ npm run typecheck
 
 After a deploy, stale hashed chunks in `gsp/_next/static` show up in `git status`; delete them.
 
-## Controls
+## Controls and menus
 
 W/↑ accelerate · S/↓ brake (hold at a standstill to reverse) · A/D steer · Space handbrake ·
 L emergency lights · H siren · G horn · C camera · R restart (same seed) · T slow motion ·
 F replay the last notable event · Y tow (back on the road) · U photo mode · Tab engineering lab ·
-Esc pause · N single step while paused. Gamepad: analog stick steering, RT/LT throttle/brake,
-X handbrake, Y camera, B lights, LB siren, Start pause, Back restart.
+Esc pause · N single step while paused · F1 or ? the controls sheet. Gamepad: analog stick
+steering, RT/LT throttle/brake, X handbrake, Y camera, B lights, LB siren, Start pause, Back restart.
+
+The interface is split by what you are doing, so nothing lives in two places:
+
+| Where | What is in it |
+|---|---|
+| **Main menu** | *Play* (scenario cards tagged Practice / Pursuit / Conditions / Chaos, details, seed, roll out) · *Settings* · *Controls* · *About* |
+| **Pause (Esc)** | Left: resume, restart, replay the last crash, one physics step, the lab, back to the scenario menu. Right: *Settings* and *Controls* tabs |
+| **Settings** (`ui/Settings.tsx`, same panel in both menus) | *Graphics*: quality preset, on-screen key hints · *Audio*: master volume and mute, a mix (engine, tyres, impacts, sirens, radio), dispatch voice · *Driving*: assists preset, steering sensitivity, mph or km/h · *Camera*: default camera, camera shake on impacts |
+| **Physics lab (Tab)** | Engineering only: telemetry, handling and physics sliders, the vehicle definition, save / load |
+| **HUD** | Pursuit status, the damage report, speedo; a short row of key hints (Settings → Graphics turns it off) |
+
+Settings are saved in the browser (`localStorage` `gsp.settings`) and applied when a scenario
+starts, including from a deep link.
 
 ## Architecture
 
@@ -153,12 +166,12 @@ a **hatch**, a **van**, and a yellow V8 **coupe**. All fictional.
   suspension compression, grip used, surface; the last contact impulses (N·s and Δv); damage
   zones, condition, steering pull, detached parts, repair estimate; physics step time (core /
   Rapier / AI), render fps, host-sync error.
-* **Handling**: driving preset (FUN / SPORT / SIM / DRIFT — the core's assist bundles; same
-  physics), drift assist; tyre grip ×, suspension stiffness ×, steering lock ×, collision
-  restitution, surface friction ×, core substeps; steering sensitivity; arcade assistance.
+* **Driving**: driving preset (FUN / SPORT / SIM / DRIFT — the core's assist bundles; same
+  physics), drift assist, steering sensitivity, arcade assistance (below).
+* **Physics**: tyre grip ×, suspension stiffness ×, steering lock ×, collision restitution, core
+  substeps, surface friction ×, and grip, wet grip loss and looseness per surface class.
 * **Vehicle**: the full definition above, per vehicle kind, with drivetrain selectors.
-* **Surfaces**: grip, wet grip loss and looseness per surface class.
-* **Config**: export / copy / import the whole configuration as JSON (`config.ts`, version 1).
+* **Save / Load**: export / copy / import the whole configuration as JSON (`config.ts`, version 1).
 * Pause, single step (1/120 s), slow motion (0.05–0.5×).
 
 ### Arcade assistance (separate from the simulation)
@@ -171,6 +184,34 @@ forces or impulses next to the physics, never instead of it:
 * **Stability**: player-only yaw damping toward the yaw rate the steering asks for.
 * **Arcade downforce**: player-only force ∝ v².
 * **AI trooper PIT eagerness**: how often and how tightly AI troopers line up a PIT.
+
+## Sound
+
+The engine and the tyres are the driving page's AudioWorklet (`sao-paulo/driving/audio/engine-worklet.js`,
+copied into `engines/` at build time); sirens, horn, impacts, glass and the dispatch radio are
+Web Audio in `sim/audio.ts`. Five buses (engine, tyres, impacts, sirens, radio) feed the master
+and are what Settings → Audio → Mix sets.
+
+**Tyres** (`tyre-squeal` processor). Each wheel is its own voice driven by the vehicle core, 120
+times a second (`tyreInputs` in `sim/audio.ts`):
+
+| Input | From the core | Meaning |
+|---|---|---|
+| `s` squeal | combined slip `max(|κ|, |α|/0.12)` through a bell that peaks just past the grip peak, × sliding speed, × load | how hard the tread is stick-slipping |
+| `v` sliding speed | `hypot(ωr − v, v·tan α)` (m/s) | sets the squeal's pitch and how fast it chirps |
+| `h` hiss | slip well past the peak (lock-ups, burnouts, big slides) × sliding speed | rubber scrubbing rather than singing |
+| `r` roughness | the surface class (concrete smooth, shoulder and county road rough) | grit and pitch jitter |
+
+Puddles and rain kill the squeal and turn it into a wet swish; grass, clay and gravel do not squeal.
+Per voice the synth makes a stick-slip tone (≈0.5–1.1 kHz, rising with sliding speed, with mode
+hops between a few close resonances, slow pitch wander and fast flutter) with stretched overtones
+that thin out as it gets harsher, a chirp gate that stutters near the grip limit and smooths out in
+a full slide, band-passed hiss, grit and a low roar for big slides. The four voices are panned and
+slightly detuned, then share a tyre-road "horn" boost around 1.7 kHz, a 190 Hz high-pass, an
+early ground reflection and, in the hood and driver cameras, a cabin low-pass. The nearest other
+car's tyres get their own quieter, panned node. Cost: ≈5 % of one core with four tyres sliding,
+≈0.3 % idle. The driving page (`/sao-paulo/driving`) uses the same synth with the same per-wheel
+inputs from its own vehicle.
 
 ## Surfaces and weather
 
@@ -224,6 +265,9 @@ event at 0.35× with cuts between an orbit, a low trackside shot, an overhead an
   step cost, speeds, AI state and counters.
 * `tests/pursuit.mjs [scenario] [seconds] [seed]` drives the player's car with an AI trooper and
   reports PITs, contacts and the end of the pursuit.
+* `tests/tyre-audio.mjs [out.wav]` drives the interceptor through a launch, a locked-wheel stop, a
+  handbrake drift and a burnout with every aid off and renders the tyre synth from the core's own
+  slip data to a WAV, for listening to changes.
 * The vehicle core's many-vehicle module has its own smoke test in Vehicle-Dynamics
   (`node web/gsp_smoke_test.mjs`: rest height, 0–100, 100–0 dry and wet, cornering, the deck,
   two cars, live rebuild), run in its CI.

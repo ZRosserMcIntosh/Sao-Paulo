@@ -70,6 +70,7 @@ export class Simulation {
   stepRequests = 0;
   weather: Weather = scenarioById('A').weather;
   camera: CameraMode = 'chase';
+  cameraShake = true;
   replayState: ReplayState = { active: false, event: null, t: 0, t0: 0, t1: 0, speed: 0.35, angle: 0 };
   telemetry: Telemetry = { stepMs: 0, aiMs: 0, rapierMs: 0, coreMs: 0, steps: 0, fps: 60, contacts: [] };
   showTelemetry = false;

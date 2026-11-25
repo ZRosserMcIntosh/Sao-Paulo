@@ -6,6 +6,41 @@ import type { Simulation, ImpactEvent } from './Simulation';
 import type { Vehicle } from './vehicle/Vehicle';
 import { SURF } from './world/terrain';
 
+// Per tyre, what the squeal synth needs (engine-worklet.js 'tyre-squeal'): how close the tyre is
+// to and past its grip peak, the sliding speed of its contact patch, how hard it is sliding, and
+// how rough the surface is. Loose surfaces don't squeal (the gravel noise covers them).
+const ROUGH: Record<number, number> = {
+  [SURF.ASPHALT]: 0.5, [SURF.SHOULDER]: 0.68, [SURF.CONCRETE]: 0.18, [SURF.PAD]: 0.28, [SURF.DECK]: 0.22, [SURF.COUNTY]: 0.62,
+};
+const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+export interface TyreInputs { s: number[]; v: number[]; h: number[]; r: number[]; loose: number }
+export function tyreInputs(veh: Vehicle, out: TyreInputs): TyreInputs {
+  out.loose = 0;
+  const speed = veh.speed;
+  for (let k = 0; k < 4; ++k) {
+    const w = veh.wheels[k];
+    out.s[k] = 0; out.v[k] = 0; out.h[k] = 0; out.r[k] = 0.5;
+    if (!w || !w.contact) continue;
+    const kappa = Math.abs(w.slipRatio), alpha = Math.abs(w.slipAngle);
+    const norm = Math.max(kappa / 0.12, alpha / 0.12);   // 1 = at the peak of the tyre curve
+    const vs = Math.hypot(w.omega * w.radius - speed, Math.tan(Math.min(1.4, alpha)) * Math.abs(speed));
+    const loadF = Math.max(0.4, Math.min(1.4, w.load / 4500));
+    const rough = ROUGH[w.surface];
+    if (rough === undefined) { if (w.surface !== SURF.PUDDLE) { out.loose += Math.min(1, norm); continue; } }
+    const puddle = w.surface === SURF.PUDDLE ? 1 : 0;
+    // squeal: from just below the peak, strongest at and a little past it, fading into a slide
+    const bell = smooth(0.72, 1.12, norm) * (norm < 2.6 ? 1 : Math.max(0.4, 1 - (norm - 2.6) / 4));
+    out.s[k] = bell * Math.min(1, vs / 1.4) * loadF * (1 - 0.85 * puddle);
+    // sliding hiss: well past the peak, a locked or spinning tyre
+    let h = smooth(1.6, 4.2, norm) * Math.min(1, vs / 4) * loadF;
+    if (w.locked) h = Math.max(h, Math.min(1, Math.abs(speed) / 10) * loadF);
+    out.h[k] = h * (1 - 0.4 * puddle);
+    out.v[k] = vs;
+    out.r[k] = rough ?? 0.5;
+  }
+  return out;
+}
+
 // Cross-plane naturally aspirated V8 (the interceptor): bank order L R L R R L R L gives each bank
 // uneven pulses, the muscle-car burble. Big bores and long pipes: low resonances. Design estimate.
 const HEMI = {
@@ -28,12 +63,18 @@ const HEMI = {
 };
 const SMALL = { ...HEMI, events: Array.from({ length: 6 }, (_, k) => [k / 6, k & 1]), res: [[110, 6, 0.014, 0.8], [360, 14, 0.007, 0.5], [800, 25, 0.004, 0.35], [1700, 60, 0.0025, 0.2]], comb: [0.008, 0.0003], crackle: 0.3, rasp: 0.2 };
 
+export interface AudioMix { engine: number; tyres: number; impacts: number; sirens: number; radio: number }
+
 export class GameAudio {
   ctx: AudioContext | null = null;
   master!: GainNode;
   private engine: AudioWorkletNode | null = null;
   private engine2: AudioWorkletNode | null = null;
   private tyres: AudioWorkletNode | null = null;
+  private tyres2: AudioWorkletNode | null = null; // the nearest other car's tyres
+  private tyres2Gain!: GainNode;
+  private tyres2Pan!: StereoPannerNode;
+  private ti: TyreInputs = { s: [0, 0, 0, 0], v: [0, 0, 0, 0], h: [0, 0, 0, 0], r: [0.5, 0.5, 0.5, 0.5], loose: 0 };
   private engineGain!: GainNode;
   private engine2Gain!: GainNode;
   private noise!: AudioBuffer;
@@ -48,6 +89,8 @@ export class GameAudio {
   private unsub: (() => void) | null = null;
   private failed = false;
   volume = 0.7;
+  mix: AudioMix = { engine: 1, tyres: 1, impacts: 1, sirens: 1, radio: 0.8 };
+  private bus = {} as Record<keyof AudioMix, GainNode>;
   voice = true;
 
   constructor(private readonly base: string) {}
@@ -62,6 +105,8 @@ export class GameAudio {
       this.master = ctx.createGain();
       this.master.gain.value = this.volume;
       this.master.connect(comp).connect(ctx.destination);
+      // mix buses (Settings > Audio)
+      for (const k of Object.keys(this.mix) as (keyof AudioMix)[]) { const g = ctx.createGain(); g.gain.value = this.mix[k]; g.connect(this.master); this.bus[k] = g; }
       // white noise buffer
       this.noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
       const d = this.noise.getChannelData(0);
@@ -70,7 +115,7 @@ export class GameAudio {
         const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
         const fl = ctx.createBiquadFilter(); fl.type = filterType; fl.frequency.value = f; fl.Q.value = q;
         const g = ctx.createGain(); g.gain.value = 0;
-        src.connect(fl).connect(g).connect(this.master); src.start();
+        src.connect(fl).connect(g).connect(this.bus.tyres); src.start();
         return { g, f: fl };
       };
       this.wind = loop('bandpass', 500, 0.6);
@@ -81,24 +126,24 @@ export class GameAudio {
         o1.type = 'sawtooth'; o2.type = 'square';
         const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 3200;
         const g = ctx.createGain(); g.gain.value = 0;
-        o1.connect(f); o2.connect(f); f.connect(g).connect(this.master);
+        o1.connect(f); o2.connect(f); f.connect(g).connect(this.bus.sirens);
         o1.start(); o2.start();
         this.siren = { o1, o2, g, f };
         const s1 = ctx.createOscillator(); s1.type = 'sawtooth';
         const g2 = ctx.createGain(); g2.gain.value = 0;
         const pan = ctx.createStereoPanner();
         const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200;
-        s1.connect(lp).connect(g2).connect(pan).connect(this.master); s1.start();
+        s1.connect(lp).connect(g2).connect(pan).connect(this.bus.sirens); s1.start();
         this.siren2 = { o1: s1, g: g2, pan };
       }
       {
         const g = ctx.createGain(); g.gain.value = 0;
         for (const fq of [392, 494]) { const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = fq; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1800; o.connect(f).connect(g); o.start(); }
-        g.connect(this.master);
+        g.connect(this.bus.sirens);
         this.horn = { g };
       }
-      this.engineGain = ctx.createGain(); this.engineGain.gain.value = 0.55; this.engineGain.connect(this.master);
-      this.engine2Gain = ctx.createGain(); this.engine2Gain.gain.value = 0; this.engine2Gain.connect(this.master);
+      this.engineGain = ctx.createGain(); this.engineGain.gain.value = 0.55; this.engineGain.connect(this.bus.engine);
+      this.engine2Gain = ctx.createGain(); this.engine2Gain.gain.value = 0; this.engine2Gain.connect(this.bus.engine);
       try {
         await ctx.audioWorklet.addModule(this.base + 'engine-worklet.js');
         this.engine = new AudioWorkletNode(ctx, 'v8-engine', { outputChannelCount: [2] });
@@ -107,9 +152,13 @@ export class GameAudio {
         this.engine2 = new AudioWorkletNode(ctx, 'v8-engine', { outputChannelCount: [2] });
         this.engine2.port.postMessage({ voice: SMALL });
         this.engine2.connect(this.engine2Gain);
-        this.tyres = new AudioWorkletNode(ctx, 'tyre-noise', { outputChannelCount: [2] });
-        const tg = ctx.createGain(); tg.gain.value = 0.5;
-        this.tyres.connect(tg).connect(this.master);
+        this.tyres = new AudioWorkletNode(ctx, 'tyre-squeal', { outputChannelCount: [2] });
+        const tg = ctx.createGain(); tg.gain.value = 0.55;
+        this.tyres.connect(tg).connect(this.bus.tyres);
+        this.tyres2 = new AudioWorkletNode(ctx, 'tyre-squeal', { outputChannelCount: [2] });
+        this.tyres2Gain = ctx.createGain(); this.tyres2Gain.gain.value = 0;
+        this.tyres2Pan = ctx.createStereoPanner();
+        this.tyres2.connect(this.tyres2Gain).connect(this.tyres2Pan).connect(this.bus.tyres);
       } catch (e) {
         console.warn('engine worklet unavailable', e);
       }
@@ -119,6 +168,12 @@ export class GameAudio {
       console.warn('audio unavailable', e);
       this.failed = true;
     }
+  }
+
+  setMix(m: AudioMix) {
+    this.mix = { ...m };
+    if (!this.ctx) return;
+    for (const k of Object.keys(m) as (keyof AudioMix)[]) this.bus[k]?.gain.setTargetAtTime(m[k], this.ctx.currentTime, 0.05);
   }
 
   setVolume(v: number, muted: boolean) {
@@ -138,7 +193,6 @@ export class GameAudio {
     if (!ctx || !p) return;
     const t = ctx.currentTime;
     const frozen = sim.paused || sim.replayState.active;
-    const slow = sim.slowmo ? 0.6 : 1;
     const interior = sim.camera === 'driver' || sim.camera === 'hood' ? 1 : 0;
     // engine
     this.P(this.engine, 'rpm', frozen ? 750 : p.rpm * (sim.slowmo ? 0.75 : 1));
@@ -157,22 +211,31 @@ export class GameAudio {
       this.P(this.engine2, 'limiter', near.cls.params.redlineRpm);
       this.engine2Gain.gain.setTargetAtTime(frozen ? 0 : 0.35 * Math.max(0, 1 - nd / 80) ** 2, t, 0.1);
     } else this.engine2Gain.gain.setTargetAtTime(0, t, 0.2);
-    // tyres: squeal from the combined slip of the loaded wheels on pavement, scrub on gravel
-    let squeal = 0, scrub = 0, loose = 0;
+    // tyres: per tyre, from the core's slip, load and surface (see tyreInputs)
     const spd = Math.hypot(p.v.x, p.v.z);
-    for (const w of p.wheels) {
-      if (!w.contact) continue;
-      const slip = Math.max(Math.abs(w.slipRatio) - 0.08, 0) * 2 + Math.max(Math.abs(w.slipAngle) - 0.07, 0) * 3.5;
-      const paved = w.surface === SURF.ASPHALT || w.surface === SURF.PAD || w.surface === SURF.SHOULDER || w.surface === SURF.CONCRETE || w.surface === SURF.DECK || w.surface === SURF.COUNTY;
-      if (paved) squeal += Math.min(1, slip) * (w.load / 5000);
-      else { scrub += Math.min(1, slip + 0.2); loose += 1; }
-    }
-    const wet = sim.weather.rain > 0.2;
-    this.P(this.tyres, 'squeal', frozen ? 0 : Math.min(1.5, squeal * (wet ? 0.25 : 0.8)) * slow);
-    this.P(this.tyres, 'scrub', frozen ? 0 : Math.min(1.5, scrub * 0.4 + (wet ? spd * 0.012 : 0)));
-    this.P(this.tyres, 'pitch', 0.9 + Math.min(0.5, spd * 0.006));
-    this.P(this.tyres, 'speed', spd);
-    this.gravel.g.gain.setTargetAtTime(frozen ? 0 : Math.min(0.4, (loose / 4) * spd * 0.03), t, 0.05);
+    const wet = Math.min(1, sim.weather.rain * 1.2);
+    const feed = (node: AudioWorkletNode | null, veh: Vehicle | null, inside: number) => {
+      if (!node) return 0;
+      const ti = veh ? tyreInputs(veh, this.ti) : null;
+      for (let k = 0; k < 4; ++k) {
+        this.P(node, 's' + k, frozen || !ti ? 0 : ti.s[k]);
+        this.P(node, 'h' + k, frozen || !ti ? 0 : ti.h[k]);
+        this.P(node, 'v' + k, ti ? ti.v[k] : 0);
+        this.P(node, 'r' + k, ti ? ti.r[k] : 0.5);
+      }
+      this.P(node, 'wet', wet);
+      this.P(node, 'interior', inside);
+      return ti ? ti.loose : 0;
+    };
+    const loose = feed(this.tyres, p, interior);
+    if (near && nd < 70) {
+      feed(this.tyres2, near, 0);
+      const dx = near.p.x - p.p.x, dz = near.p.z - p.p.z, d = Math.max(1, Math.hypot(dx, dz));
+      const fx = Math.cos(-p.heading()), fz = Math.sin(-p.heading());
+      this.tyres2Gain?.gain.setTargetAtTime(0.5 / (1 + d / 14), t, 0.05);
+      this.tyres2Pan?.pan.setTargetAtTime(Math.max(-1, Math.min(1, (dx * -fz + dz * fx) / d)), t, 0.05);
+    } else { feed(this.tyres2, null, 0); this.tyres2Gain?.gain.setTargetAtTime(0, t, 0.1); }
+    this.gravel.g.gain.setTargetAtTime(frozen ? 0 : Math.min(0.4, (0.25 + loose / 4) * (p.wheels.some((w) => w.contact && ROUGH[w.surface] === undefined && w.surface !== SURF.PUDDLE) ? 1 : 0) * spd * 0.03), t, 0.05);
     this.gravel.f.frequency.setTargetAtTime(900 + spd * 25, t, 0.1);
     // wind
     this.wind.g.gain.setTargetAtTime(frozen ? 0 : Math.min(0.32, (spd / 60) ** 2 * 0.35) * (interior ? 0.4 : 1), t, 0.1);
@@ -210,7 +273,7 @@ export class GameAudio {
     const g = ctx.createGain(); const t = ctx.currentTime;
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level * 0.3, t + 0.005); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
     o.frequency.exponentialRampToValueAtTime(45, t + 0.1);
-    o.connect(g).connect(this.master); o.start(t); o.stop(t + 0.15);
+    o.connect(g).connect(this.bus.engine); o.start(t); o.stop(t + 0.15);
   }
 
   impact(sim: Simulation, e: ImpactEvent) {
@@ -227,7 +290,7 @@ export class GameAudio {
       const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
-      src.connect(fl).connect(g).connect(this.master);
+      src.connect(fl).connect(g).connect(this.bus.impacts);
       src.start(t, Math.random()); src.stop(t + dur + 0.05);
     };
     if (e.kind === 'glass') {
@@ -235,7 +298,7 @@ export class GameAudio {
         const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 2500 + Math.random() * 5000;
         const g = ctx.createGain(); const t0 = t + Math.random() * 0.35;
         g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.08 * k, t0 + 0.002); g.gain.exponentialRampToValueAtTime(0.0005, t0 + 0.2);
-        o.connect(g).connect(this.master); o.start(t0); o.stop(t0 + 0.25);
+        o.connect(g).connect(this.bus.impacts); o.start(t0); o.stop(t0 + 0.25);
       }
       burst('highpass', 3000, 0.7, 0.4 * k, 0.4);
       return;
@@ -256,16 +319,16 @@ export class GameAudio {
       const src = ctx.createBufferSource(); src.buffer = this.noise;
       const fl = ctx.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = 2200; fl.Q.value = 1.5;
       const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.12, t + 0.01); g.gain.setValueAtTime(0.12, t + 0.18); g.gain.linearRampToValueAtTime(0, t + 0.22);
-      src.connect(fl).connect(g).connect(this.master); src.start(t); src.stop(t + 0.3);
+      src.connect(fl).connect(g).connect(this.bus.radio); src.start(t); src.stop(t + 0.3);
       const beep = ctx.createOscillator(); beep.frequency.value = 1300; const bg = ctx.createGain();
       bg.gain.setValueAtTime(0, t + 0.24); bg.gain.linearRampToValueAtTime(0.05, t + 0.25); bg.gain.setValueAtTime(0.05, t + 0.33); bg.gain.linearRampToValueAtTime(0, t + 0.34);
-      beep.connect(bg).connect(this.master); beep.start(t + 0.24); beep.stop(t + 0.4);
+      beep.connect(bg).connect(this.bus.radio); beep.start(t + 0.24); beep.stop(t + 0.4);
     }
-    if (this.voice && typeof speechSynthesis !== 'undefined' && this.volume > 0.05) {
+    if (this.voice && typeof speechSynthesis !== 'undefined' && this.volume * this.mix.radio > 0.05) {
       try {
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text.replace(/\*/g, ''));
-        u.rate = 1.12; u.pitch = 0.85; u.volume = Math.min(1, this.volume * 0.9);
+        u.rate = 1.12; u.pitch = 0.85; u.volume = Math.min(1, this.volume * this.mix.radio * 0.9);
         setTimeout(() => speechSynthesis.speak(u), 350);
       } catch { /* no voice */ }
     }

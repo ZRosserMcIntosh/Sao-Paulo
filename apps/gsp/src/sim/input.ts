@@ -1,7 +1,7 @@
 // Keyboard and gamepad. Produces the player's analog intent and edge-triggered actions.
 import { clamp } from './math';
 
-export type Action = 'lights' | 'siren' | 'camera' | 'reset' | 'slowmo' | 'replay' | 'telemetry' | 'pause' | 'step' | 'horn' | 'menu' | 'tow' | 'photo';
+export type Action = 'lights' | 'siren' | 'camera' | 'reset' | 'slowmo' | 'replay' | 'telemetry' | 'pause' | 'step' | 'horn' | 'menu' | 'tow' | 'photo' | 'help';
 
 export class Input {
   private keys = new Set<string>();
@@ -20,11 +20,11 @@ export class Input {
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     const k = e.code;
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab'].includes(k)) e.preventDefault();
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'F1'].includes(k)) e.preventDefault();
     if (e.repeat) return;
     this.keys.add(k);
     const map: Record<string, Action> = {
-      KeyL: 'lights', KeyH: 'siren', KeyC: 'camera', KeyR: 'reset', KeyT: 'slowmo', KeyF: 'replay', Tab: 'telemetry', Escape: 'pause', KeyP: 'pause', KeyN: 'step', KeyY: 'tow', KeyU: 'photo',
+      KeyL: 'lights', KeyH: 'siren', KeyC: 'camera', KeyR: 'reset', KeyT: 'slowmo', KeyF: 'replay', Tab: 'telemetry', Escape: 'pause', KeyP: 'pause', KeyN: 'step', KeyY: 'tow', KeyU: 'photo', F1: 'help', Slash: 'help',
     };
     const a = map[k];
     if (a) this.queue.push(a);

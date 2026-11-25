@@ -10,7 +10,10 @@ import { CATALOG, type VehicleKind } from '../sim/vehicle/catalog';
 import { SURFACE_NAMES } from '../sim/world/terrain';
 import { MPH } from '../sim/math';
 
-type Tab = 'telemetry' | 'handling' | 'vehicle' | 'surfaces' | 'config';
+type Tab = 'telemetry' | 'driving' | 'physics' | 'vehicle' | 'save';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'telemetry', label: 'Telemetry' }, { id: 'driving', label: 'Driving' }, { id: 'physics', label: 'Physics' }, { id: 'vehicle', label: 'Vehicle' }, { id: 'save', label: 'Save / Load' },
+];
 
 export function LabPanel({ sim, onClose }: { sim: Simulation; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('telemetry');
@@ -24,16 +27,16 @@ export function LabPanel({ sim, onClose }: { sim: Simulation; onClose: () => voi
         <button className="rounded px-2 text-white/60 hover:bg-white/10" onClick={onClose}>✕</button>
       </div>
       <div className="flex gap-1 border-b border-white/10 px-2 py-1">
-        {(['telemetry', 'handling', 'vehicle', 'surfaces', 'config'] as Tab[]).map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={`rounded px-2 py-1 capitalize ${tab === t ? 'bg-gsp-blue text-white' : 'text-white/60 hover:bg-white/10'}`}>{t}</button>
+        {TABS.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)} aria-pressed={tab === t.id} className={`rounded px-2 py-1 ${tab === t.id ? 'bg-gsp-blue text-white' : 'text-white/60 hover:bg-white/10'}`}>{t.label}</button>
         ))}
       </div>
       <div className="scroll-thin flex-1 overflow-y-auto p-3">
         {tab === 'telemetry' && <Telemetry sim={sim} />}
-        {tab === 'handling' && <Handling cfg={cfg} apply={apply} />}
+        {tab === 'driving' && <Driving cfg={cfg} apply={apply} />}
+        {tab === 'physics' && <Physics cfg={cfg} apply={apply} />}
         {tab === 'vehicle' && <VehicleEditor sim={sim} cfg={cfg} apply={apply} />}
-        {tab === 'surfaces' && <Surfaces cfg={cfg} apply={apply} />}
-        {tab === 'config' && <ConfigIO cfg={cfg} apply={apply} />}
+        {tab === 'save' && <ConfigIO cfg={cfg} apply={apply} />}
       </div>
     </div>
   );
@@ -119,7 +122,8 @@ function Telemetry({ sim }: { sim: Simulation }) {
   );
 }
 
-function Handling({ cfg, apply }: { cfg: LabConfig; apply: (c: LabConfig) => void }) {
+// The driver's side: assists, input, and the arcade aids (all player-facing)
+function Driving({ cfg, apply }: { cfg: LabConfig; apply: (c: LabConfig) => void }) {
   const set = (p: Partial<LabConfig>) => apply({ ...cfg, ...p });
   const arc = (p: Partial<LabConfig['arcade']>) => apply({ ...cfg, arcade: { ...cfg.arcade, ...p } });
   return (
@@ -132,14 +136,6 @@ function Handling({ cfg, apply }: { cfg: LabConfig; apply: (c: LabConfig) => voi
         </div>
         <Slider label="Drift assist" v={cfg.driftAssist} min={0} max={1} step={0.05} on={(v) => set({ driftAssist: v })} />
       </Section>
-      <Section title="Physics (all vehicles)">
-        <Slider label="Tyre grip ×" v={cfg.gripScale} min={0.4} max={1.8} step={0.01} on={(v) => set({ gripScale: v })} />
-        <Slider label="Suspension stiffness ×" v={cfg.suspensionScale} min={0.4} max={2.5} step={0.01} on={(v) => set({ suspensionScale: v })} />
-        <Slider label="Steering lock ×" v={cfg.steeringLockScale} min={0.6} max={1.5} step={0.01} on={(v) => set({ steeringLockScale: v })} />
-        <Slider label="Collision restitution" v={cfg.restitution} min={0} max={0.8} step={0.01} on={(v) => set({ restitution: v })} />
-        <Slider label="Surface friction ×" v={cfg.surfaceFriction} min={0.3} max={1.6} step={0.01} on={(v) => set({ surfaceFriction: v })} />
-        <Slider label="Core substeps per 1/120 s" v={cfg.substeps} min={1} max={8} step={1} on={(v) => set({ substeps: v })} />
-      </Section>
       <Section title="Input">
         <Slider label="Steering sensitivity" v={cfg.steeringSensitivity} min={0.3} max={2.5} step={0.05} on={(v) => set({ steeringSensitivity: v })} />
       </Section>
@@ -150,6 +146,33 @@ function Handling({ cfg, apply }: { cfg: LabConfig; apply: (c: LabConfig) => voi
         <Slider label="Arcade downforce (player)" v={cfg.arcade.downforce} min={0} max={1} step={0.05} on={(v) => arc({ downforce: v })} />
         <Slider label="AI trooper PIT eagerness" v={cfg.arcade.aiPolice} min={0} max={1} step={0.05} on={(v) => arc({ aiPolice: v })} />
         <div className="mt-1 text-[10.5px] text-white/50">With everything here at 0 the cars are the physics core alone: tyres, suspension, drivetrain, rigid-body contacts.</div>
+      </Section>
+    </div>
+  );
+}
+
+// The world's side: global physics scales, the solver, and every surface
+function Physics({ cfg, apply }: { cfg: LabConfig; apply: (c: LabConfig) => void }) {
+  const set = (p: Partial<LabConfig>) => apply({ ...cfg, ...p });
+  return (
+    <div className="space-y-3">
+      <Section title="Tyres and suspension (all vehicles)">
+        <Slider label="Tyre grip ×" v={cfg.gripScale} min={0.4} max={1.8} step={0.01} on={(v) => set({ gripScale: v })} />
+        <Slider label="Suspension stiffness ×" v={cfg.suspensionScale} min={0.4} max={2.5} step={0.01} on={(v) => set({ suspensionScale: v })} />
+        <Slider label="Steering lock ×" v={cfg.steeringLockScale} min={0.6} max={1.5} step={0.01} on={(v) => set({ steeringLockScale: v })} />
+      </Section>
+      <Section title="Contacts">
+        <Slider label="Collision restitution" v={cfg.restitution} min={0} max={0.8} step={0.01} on={(v) => set({ restitution: v })} />
+      </Section>
+      <Section title="Solver">
+        <Slider label="Core substeps per 1/120 s" v={cfg.substeps} min={1} max={8} step={1} on={(v) => set({ substeps: v })} />
+      </Section>
+      <Section title="Surfaces">
+        <Slider label="Surface friction × (every surface)" v={cfg.surfaceFriction} min={0.3} max={1.6} step={0.01} on={(v) => set({ surfaceFriction: v })} />
+        <details className="mt-1 rounded bg-white/5 p-2">
+          <summary className="cursor-pointer text-white/80">Per surface: grip, wet loss, looseness</summary>
+          <div className="mt-2"><Surfaces cfg={cfg} apply={apply} /></div>
+        </details>
       </Section>
     </div>
   );

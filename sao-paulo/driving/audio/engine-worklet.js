@@ -265,75 +265,220 @@ class EngineSynth {
   }
 }
 
-// Tyre noise, modelled on how real tyres sound rather than as a whistle:
-//  squeal - stick-slip of the tread near the grip peak excites a few lightly damped tread/carcass
-//           modes (~0.65-1.1 kHz plus overtones). They are driven by noise, so pitch and level
-//           wander naturally; the stick-slip itself shows up as irregular flutter. Two voices
-//           (left/right tyres) are detuned and panned so it isn't one pure tone.
-//  scrub  - a tyre sliding well past the peak (locked wheel, big drift, burnout): broadband rasp
-//           through the tread, with tread-block chatter that speeds up with sliding speed.
-// Parameters (k-rate): squeal 0..1, scrub 0..1, pitch 0..1 (how far past the peak), speed m/s.
-class TyreSynth {
-  constructor(sr, seed = 11) {
+// Tyre noise, from how tyres actually make it rather than as a whistle.
+//
+// Squeal is a friction-induced vibration: near the grip peak the tread at the trailing edge of
+// the contact patch sticks, is dragged, and slips, over and over (stick-slip), and each slip
+// rings the tread-block / belt modes. So, per tyre:
+//  - a tone whose fundamental sits around 0.5-1.1 kHz and rises with the sliding speed of the
+//    patch (stick-slip runs faster when the road drags the tread faster) and a little with load:
+//    a locked-wheel skid falls in pitch as the car slows, a drift howls steadily;
+//  - mode hopping: the vibration locks onto one of a few nearby modes and jumps between them
+//    (the warble of a real squeal), with fast and slow pitch jitter on top;
+//  - a stick-slip waveform (a slow ramp and a fast release): many overtones, slightly stretched
+//    (inharmonic) because the modes are not a string's;
+//  - chirping at the onset: just below the peak the squeal comes and goes in bursts; past it,
+//    it holds;
+//  - sliding hiss: rubber sliding on the texture of the road, broadband and brighter with speed,
+//    with grit (tread tearing on coarse asphalt) and a low roar for a locked or spinning tyre;
+//  - surface: smooth concrete squeals clearly, coarse asphalt mostly hisses, water kills the
+//    squeal (the film lubricates the stick-slip) and leaves a swish;
+//  - radiation: the wedge between the tyre and the road is a horn that lifts ~1-3 kHz, the road
+//    reflects (a short delayed copy), and very little comes out below ~200 Hz.
+// Four voices (one per tyre), panned by corner. Everything is noise-driven and seeded, so no two
+// squeals repeat. No samples.
+//
+// 'tyre-squeal' parameters (k-rate), per tyre k = 0 FL, 1 FR, 2 RL, 3 RR:
+//   s<k>  squeal drive 0..1 (how close to / past the grip peak, x load)
+//   v<k>  sliding speed of the contact patch, m/s
+//   h<k>  sliding hiss 0..1 (well past the peak, locked or spinning)
+//   r<k>  surface roughness 0..1 (0 polished concrete .. 1 coarse chip seal)
+// and wet 0..1, interior 0..1 (heard from the cabin).
+// 'tyre-noise' keeps the old interface (squeal, scrub, pitch, speed) on the same voices.
+
+class Biquad {
+  constructor() { this.b0 = 1; this.b1 = 0; this.b2 = 0; this.a1 = 0; this.a2 = 0; this.x1 = 0; this.x2 = 0; this.y1 = 0; this.y2 = 0; }
+  set(type, f, q, sr, gainDb = 0) {
+    const w = (2 * Math.PI * Math.min(f, sr * 0.45)) / sr, cs = Math.cos(w), sn = Math.sin(w), al = sn / (2 * q);
+    let b0, b1, b2, a0, a1, a2;
+    if (type === 'bp') { b0 = al; b1 = 0; b2 = -al; a0 = 1 + al; a1 = -2 * cs; a2 = 1 - al; }
+    else if (type === 'lp') { b0 = (1 - cs) / 2; b1 = 1 - cs; b2 = (1 - cs) / 2; a0 = 1 + al; a1 = -2 * cs; a2 = 1 - al; }
+    else if (type === 'hp') { b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = (1 + cs) / 2; a0 = 1 + al; a1 = -2 * cs; a2 = 1 - al; }
+    else { const A = Math.pow(10, gainDb / 40); b0 = 1 + al * A; b1 = -2 * cs; b2 = 1 - al * A; a0 = 1 + al / A; a1 = -2 * cs; a2 = 1 - al / A; } // peaking
+    this.b0 = b0 / a0; this.b1 = b1 / a0; this.b2 = b2 / a0; this.a1 = a1 / a0; this.a2 = a2 / a0;
+    return this;
+  }
+  run(x) {
+    const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
+    this.x2 = this.x1; this.x1 = x; this.y2 = this.y1; this.y1 = y;
+    return y;
+  }
+}
+
+const MODES = [1, 1, 1.07, 0.94, 1.15];  // the nearby modes a squeal hops between (ratios; the first, twice as likely)
+const NH = 6;                         // overtones of the stick-slip waveform
+// sine table (linear interpolation) for the overtones: the audio thread's budget is tight
+const SIN_N = 4096, SIN = new Float32Array(SIN_N + 1);
+for (let i = 0; i <= SIN_N; ++i) SIN[i] = Math.sin((2 * Math.PI * i) / SIN_N);
+function fsin(ph) { const x = ph * (SIN_N / 6.283185307179586), i = x | 0; return SIN[i] + (SIN[i + 1] - SIN[i]) * (x - i); }
+
+class TyreVoice {
+  constructor(sr, rand, pan, flavour) {
+    this.sr = sr; this.rand = rand; this.pan = pan; this.flavour = flavour;
+    this.ph = new Float64Array(NH);
+    this.amp = new Float64Array(NH);
+    this.stretch = new Float64Array(NH);
+    for (let k = 0; k < NH; ++k) this.stretch[k] = (k + 1) * (1 + 0.0045 * ((k + 1) * (k + 1) - 1));
+    for (let k = 0; k < NH; ++k) this.ph[k] = rand() * 2 * Math.PI;
+    this.freq = 600 * flavour; this.mode = 0; this.dwell = 0;
+    // random lines: a new random target every `period` s, approached with time constant `tau`
+    const line = (period, tau) => ({ v: 0, t: 0, timer: 0, period, k: 1 - Math.exp(-1 / (tau * sr)) });
+    this.wander = line(0.15, 0.05);   // slow pitch wander (~4-6 Hz)
+    this.flutter = line(0.014, 0.004); // fast pitch flutter (~40-70 Hz)
+    this.rough = line(0.02, 0.005);    // stick-slip amplitude roughness
+    this.gate = 0; this.env = 0;
+    this.S = 0; this.V = 0; this.H = 0; this.Rf = 0.5;
+    this.hissA = new Biquad(); this.hissB = new Biquad(); this.roar = new Biquad(); this.grit = new Biquad().set('bp', 2600, 3, sr);
+    this.gritE = 0;
+  }
+  step(l, lo, hi) {
+    if ((l.timer -= 1 / this.sr) <= 0) { l.timer = l.period * (0.5 + this.rand()); l.t = lo + (hi - lo) * this.rand(); }
+    l.v += (l.t - l.v) * l.k;
+    return l.v;
+  }
+  // Once per block (128 samples, ~2.7 ms): smooth the drives and precompute everything that
+  // changes slowly; the per-sample loop only ramps between blocks.
+  params(S, V, H, R, wet) {
+    const sr = this.sr;
+    this.tS = S * (1 - 0.95 * wet); this.tH = H; this.Rf = R; this.wet = wet;
+    const a = 0.11, av = 0.05;   // ~23 ms (drives), ~55 ms (sliding speed)
+    this.S0 = this.S; this.H0 = this.H;
+    this.S += (this.tS - this.S) * a; this.H += (this.tH - this.H) * a; this.V += (V - this.V) * av;
+    const Vc = Math.max(0, this.V);
+    this.hissA.set('bp', 900 + 160 * Math.min(Vc, 25), 0.8, sr);
+    this.hissB.set('bp', 3600 + 40 * Math.min(Vc, 25), 1.4, sr);
+    this.roar.set('lp', 220 + 12 * Math.min(Vc, 25), 0.7, sr);
+    const p = 2.1 - 0.5 * Math.min(1, Vc / 10);
+    for (let k = 0; k < NH; ++k) this.amp[k] = 1 / Math.pow(k + 1, p);
+    // per-block levels (the sample loop ramps from the last block's)
+    const tonal = (1 - 0.62 * R);
+    this.toneA0 = this.toneA ?? 0;
+    this.toneA = 0.42 * Math.pow(Math.max(0, this.S), 0.8) * tonal;
+    this.hissL0 = this.hissL ?? 0;
+    this.hissL = (this.H + 0.18 * this.S) * (0.45 + 0.55 * R) * Math.min(1, 0.25 + Vc / 6) * 0.32;
+    this.roarL0 = this.roarL ?? 0;
+    this.roarL = this.H * Math.min(1, Vc / 12) * 1.6 * (1 - 0.5 * wet);
+    this.swish = 0.6 * wet * (this.H + 0.5 * this.S);
+    this.gritRate = (Vc * 25 * R * (this.H + 0.3 * this.S)) / sr;
+    const pOn = Math.min(1, this.S * 1.6);
+    this.pOn = pOn;
+    this.offRate = (0.5 + 30 * (1 - pOn)) / sr; this.onRate = (3 + 45 * pOn) / sr;
+    this.base = (430 + 700 * (1 - Math.exp(-Vc / 5))) * this.flavour;
+    this.stable = Math.min(1, this.S * 1.4);
+    this.rough0 = 1 - 0.35 - 0.3 * R;
+    this.t = 0;
+  }
+  active() { return this.S > 2e-4 || this.H > 2e-4 || this.tS > 2e-4 || this.tH > 2e-4; }
+  sample() {
+    const sr = this.sr, rnd = this.rand;
+    const u = (this.t += 1 / 128) > 1 ? 1 : this.t;   // ramp across the block
+    let out = 0;
+    const toneA = this.toneA0 + (this.toneA - this.toneA0) * u;
+    if (toneA > 1e-5) {
+      // mode hopping: dwell on a mode for a random time, shorter when the squeal is unstable
+      if ((this.dwell -= 1 / sr) <= 0) {
+        this.dwell = -Math.log(1e-6 + rnd()) * (0.05 + 0.45 * this.stable);
+        if (rnd() < 0.75 - 0.45 * this.stable) this.mode = Math.floor(rnd() * MODES.length);
+        else if (rnd() < 0.5) this.mode = 0;
+      }
+      this.freq += (this.base * MODES[this.mode] - this.freq) * 0.0035;   // ~6 ms glide
+      // pitch jitter: a slow wander (+-2.5 %) and a fast flutter (+-0.8 %)
+      const f = this.freq * (1 + this.step(this.wander, -0.025, 0.025) + this.step(this.flutter, -0.008, 0.008));
+      // chirping: an on/off process whose on-share grows with the drive
+      if (this.gate) { if (rnd() < this.offRate) this.gate = 0; }
+      else if (rnd() < this.onRate) this.gate = 1;
+      this.env += ((this.gate ? 1 : 0.06 * this.pOn) - this.env) * (this.gate ? 0.012 : 0.0016);
+      // stick-slip roughness: a random amplitude flutter around 30-70 Hz, deeper on rough roads
+      const am = this.step(this.rough, this.rough0, 1);
+      // the stick-slip waveform: falling overtone amplitudes (per block), slightly stretched,
+      // with a little phase noise so the lines have width
+      let y = 0;
+      const w0 = (6.283185307179586 * f) / sr, jit = (rnd() - 0.5) * 0.08;
+      for (let k = 0; k < NH; ++k) {
+        const dw = w0 * this.stretch[k];
+        if (dw > 2.8) break;
+        let ph = this.ph[k] + dw + jit * (1 + 0.3 * k);
+        if (ph >= 6.283185307179586) ph -= 6.283185307179586; else if (ph < 0) ph += 6.283185307179586;
+        this.ph[k] = ph;
+        y += fsin(ph) * this.amp[k];
+      }
+      out += y * toneA * this.env * am;
+    }
+    const hl = this.hissL0 + (this.hissL - this.hissL0) * u, rl = this.roarL0 + (this.roarL - this.roarL0) * u;
+    if (hl > 1e-5 || rl > 1e-5) {
+      const n = rnd() * 2 - 1;
+      // sliding hiss: rubber sliding on the road's texture; coarser roads hiss more
+      let hiss = this.hissA.run(n) * 0.9 + this.hissB.run(n) * 0.5;
+      // grit: tread tearing on the aggregate, a sparse crackle with sliding speed
+      if (rnd() < this.gritRate) this.gritE = 0.5 + rnd();
+      if (this.gritE > 1e-3) { this.gritE *= 0.996; hiss += this.grit.run(n * this.gritE) * 1.4; }
+      out += hiss * hl;
+      // locked or spinning tyre: a low roar
+      if (rl > 1e-5) out += this.roar.run(n) * rl;
+      // on a wet road a slide is a swish of water instead
+      if (this.swish > 0) out += this.hissB.y1 * this.swish;
+    }
+    return out;
+  }
+}
+
+class TyreSquealSynth {
+  constructor(sr, seed = 23) {
     this.sr = sr;
     let s = seed >>> 0;
     this.rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
-    const mk = (f, tau, g) => ({ f, tau, g, y1: 0, y2: 0 });
-    this.voices = [0, 1].map((v) => ({
-      modes: [mk(800, 0.03, 1), mk(1600, 0.022, 0.45), mk(2400, 0.016, 0.2)],
-      detune: v ? 1.034 : 0.982, drift: 0, flut: 1, flutLp: 1, pan: v ? 0.75 : 0.25,
-    }));
-    this.scr = [mk(450, 0.0016, 1.1), mk(1200, 0.0011, 1), mk(2600, 0.0007, 0.6)];
-    this.sq = 0; this.sc = 0; this.chat = 0; this.chatAmp = 1; this.rum = 0; this.lpL = 0; this.lpR = 0;
-    this.scr.forEach((r) => this.tune(r));
+    // FL, FR, RL, RR: panned by side, each tyre a slightly different "instrument"
+    this.voices = [0.3, 0.7, 0.36, 0.64].map((pan, k) => {
+      const v = new TyreVoice(sr, this.rand, pan, [1.0, 1.045, 0.94, 0.985][k]);
+      v.gl = Math.cos((pan * Math.PI) / 2); v.gr = Math.sin((pan * Math.PI) / 2);
+      return v;
+    });
+    this.lpL = new Biquad(); this.lpR = new Biquad(); this.cab = -1;
+    // radiation, per channel: the tyre-road horn (~1-3 kHz lift), no rumble, the road's reflection
+    this.rad = [0, 1].map((c) => ({ horn: new Biquad().set('pk', 1700, 0.9, sr, 6), hp: new Biquad().set('hp', 190, 0.7, sr), d: new Float32Array(256), i: 0, lag: Math.round(sr * (0.0007 + 0.0003 * c)) }));
   }
-  tune(r) {
-    const rr = Math.exp(-1 / (r.tau * this.sr));
-    r.a1 = 2 * rr * Math.cos((2 * Math.PI * r.f) / this.sr); r.a2 = -rr * rr; r.norm = (1 - rr) * 2;
+  radiate(c, x) {
+    x = c.hp.run(c.horn.run(x));
+    c.d[c.i] = x;
+    const refl = c.d[(c.i - c.lag + 256) & 255];
+    c.i = (c.i + 1) & 255;
+    return x + 0.55 * refl;
   }
-  ring(r, x) { const y = r.a1 * r.y1 + r.a2 * r.y2 + x * r.norm; r.y2 = r.y1; r.y1 = y; return y * r.g; }
   render(L, R, n, p) {
-    const sr = this.sr, k = 1 - Math.exp(-1 / (0.04 * sr));
-    const base = 650 + 380 * Math.min(1, p.pitch) + 3.5 * Math.min(40, p.speed);
-    for (const v of this.voices) {
-      // slow random drift of the mode frequencies (+-4 %), retuned once per block
-      v.drift = Math.max(-0.04, Math.min(0.04, v.drift + (this.rand() - 0.5) * 0.004));
-      const f = base * v.detune * (1 + v.drift);
-      v.modes[0].f = f; v.modes[1].f = f * 2.01; v.modes[2].f = f * 2.97;
-      v.modes.forEach((m) => this.tune(m));
-    }
-    const chatRate = Math.min(260, 14 + p.speed * 8);
+    for (let k = 0; k < 4; ++k) this.voices[k].params(p.s[k], p.v[k], p.h[k], p.r[k], p.wet);
+    if (this.cab !== p.interior) { this.cab = p.interior; this.lpL.set('lp', 2200 + 9000 * (1 - p.interior), 0.7, this.sr); this.lpR.set('lp', 2200 + 9000 * (1 - p.interior), 0.7, this.sr); }
+    const g = 1 - 0.45 * p.interior;
+    const act = this.voices.filter((v) => v.active());
     for (let i = 0; i < n; ++i) {
-      this.sq += (p.squeal - this.sq) * k; this.sc += (p.scrub - this.sc) * k;
       let l = 0, r = 0;
-      if (this.sq > 1e-4) {
-        for (const v of this.voices) {
-          // stick-slip flutter: low-passed, rectified noise -> irregular 10-40 Hz level changes
-          v.flut += (Math.abs(this.rand() * 2 - 1) * 2 - v.flut) * 0.004;
-          v.flutLp += (v.flut - v.flutLp) * 0.02;
-          const w = this.rand() * 2 - 1;
-          let y = 0;
-          for (const m of v.modes) y += this.ring(m, w);
-          y *= 1.2 * (0.35 + 0.9 * v.flutLp) * this.sq;
-          l += y * (1 - v.pan); r += y * v.pan;
-        }
-      }
-      if (this.sc > 1e-4) {
-        // tread-block chatter with jittered rate
-        this.chat += (chatRate * (0.85 + 0.3 * this.rand())) / sr;
-        if (this.chat > 1) { this.chat -= 1; this.chatAmp = 0.5 + 0.7 * this.rand(); }
-        const env = this.chatAmp * (0.5 + 0.5 * Math.sin(2 * Math.PI * this.chat));
-        const w = this.rand() * 2 - 1;
-        let rasp = 0;
-        for (const q of this.scr) rasp += this.ring(q, w);
-        this.rum += (w - this.rum) * 0.015;
-        const y = (rasp * (0.45 + 0.55 * env) * 2.2 + this.rum * 1.4) * this.sc * 0.15;
-        l += y; r += y;
-      }
-      // soften the very top so it never turns into hiss
-      this.lpL += (l - this.lpL) * 0.55; this.lpR += (r - this.lpR) * 0.55;
-      L[i] = Math.tanh(this.lpL * 1.1); R[i] = Math.tanh(this.lpR * 1.1);
+      for (const v of act) { const y = v.sample(); l += y * v.gl; r += y * v.gr; }
+      l = this.radiate(this.rad[0], l); r = this.radiate(this.rad[1], r);
+      L[i] = Math.tanh(this.lpL.run(l) * 1.3 * g);
+      R[i] = Math.tanh(this.lpR.run(r) * 1.3 * g);
     }
+  }
+}
+
+// The old two-parameter interface (squeal, scrub, pitch 0..1 = how far past the peak, speed m/s)
+// mapped onto the same tyre voices: the squeal and scrub are split over the two front and two
+// rear voices, with a sliding speed estimated from how far past the peak the tyres are.
+class TyreSynth {
+  constructor(sr, seed = 11) { this.q = new TyreSquealSynth(sr, seed); this.p = { s: [0, 0, 0, 0], v: [0, 0, 0, 0], h: [0, 0, 0, 0], r: [0.5, 0.5, 0.5, 0.5], wet: 0, interior: 0 }; }
+  render(L, R, n, p) {
+    const sq = Math.min(1, p.squeal), sc = Math.min(1, p.scrub);
+    const V = 0.8 + 5 * Math.min(1, p.pitch) + Math.min(40, p.speed) * 0.35 * sc;
+    for (let k = 0; k < 4; ++k) { this.p.s[k] = sq * (k < 2 ? 0.8 : 1); this.p.v[k] = V * (k < 2 ? 0.9 : 1); this.p.h[k] = sc; }
+    this.q.render(L, R, n, this.p);
   }
 }
 
@@ -387,6 +532,26 @@ if (typeof registerProcessor !== 'undefined') {
     }
   });
 }
-if (typeof module !== 'undefined') module.exports = { EngineSynth, TyreSynth, DEFAULT_VOICE };
+if (typeof registerProcessor !== 'undefined') {
+  const names = [];
+  for (let k = 0; k < 4; ++k) names.push('s' + k, 'v' + k, 'h' + k, 'r' + k);
+  registerProcessor('tyre-squeal', class extends AudioWorkletProcessor {
+    static get parameterDescriptors() {
+      return [...names, 'wet', 'interior'].map((name) => ({ name, defaultValue: name[0] === 'r' ? 0.5 : 0, minValue: 0, maxValue: 200, automationRate: 'k-rate' }));
+    }
+    constructor() { super(); this.s = new TyreSquealSynth(sampleRate); this.p = { s: [0, 0, 0, 0], v: [0, 0, 0, 0], h: [0, 0, 0, 0], r: [0.5, 0.5, 0.5, 0.5], wet: 0, interior: 0 }; }
+    process(_in, outputs, P) {
+      const o = outputs[0], L = o[0], R = o[1] || o[0], p = this.p;
+      for (let k = 0; k < 4; ++k) {
+        p.s[k] = Math.min(1.5, fin(P['s' + k][0], 0)); p.v[k] = Math.min(60, fin(P['v' + k][0], 0));
+        p.h[k] = Math.min(1.5, fin(P['h' + k][0], 0)); p.r[k] = Math.min(1, fin(P['r' + k][0], 0.5));
+      }
+      p.wet = Math.min(1, fin(P.wet[0], 0)); p.interior = Math.min(1, fin(P.interior[0], 0));
+      safeRender(this, () => new TyreSquealSynth(sampleRate), L, R, p);
+      return true;
+    }
+  });
+}
+if (typeof module !== 'undefined') module.exports = { EngineSynth, TyreSynth, TyreSquealSynth, DEFAULT_VOICE };
 
 

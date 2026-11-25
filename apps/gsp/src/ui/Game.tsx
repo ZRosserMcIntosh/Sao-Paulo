@@ -14,6 +14,7 @@ import { LabPanel } from './LabPanel';
 import { Menu } from './Menu';
 import { Toasts } from './Toasts';
 import { PauseMenu } from './PauseMenu';
+import { ControlsOverlay } from './Controls';
 
 const BASE = (process.env.NEXT_PUBLIC_BASE_PATH ?? '') + '/engines/';
 
@@ -28,6 +29,7 @@ export default function Game() {
   const [line, setLine] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [labOpen, setLabOpen] = useState(false);
+  const [help, setHelp] = useState(false);
   const [paused, setPaused] = useState(false);
   const [photo, setPhoto] = useState(() => typeof location !== 'undefined' && new URLSearchParams(location.search).get('ui') === '0');
   const fps = useRef({ frames: 0, t: 0, value: 60 });
@@ -48,6 +50,7 @@ export default function Game() {
           if (a === 'pause') setPaused(sim.paused);
           if (a === 'menu') set({ phase: 'menu' });
           if (a === 'photo') setPhoto((x) => !x);
+          if (a === 'help') setHelp((x) => !x);
         });
         // optional deep link: ?scenario=C&seed=7
         const qs = new URLSearchParams(location.search);
@@ -55,6 +58,8 @@ export default function Game() {
         if (sc && SCENARIOS.some((s) => s.id === sc)) {
           const seed = Number(qs.get('seed')) || 1;
           sim.load(sc, seed);
+          const st = useGame.getState().settings;
+          sim.camera = st.camera; sim.cameraShake = st.shake;
           set({ phase: 'playing', progress: 1, scenario: sc, seed });
         } else {
           sim.load('A', 1);
@@ -81,9 +86,12 @@ export default function Game() {
     if (!sim) return;
     sim.paused = false;
     sim.load(id, seed);
+    const st = useGame.getState().settings;
+    sim.camera = st.camera;
+    sim.cameraShake = st.shake;
     set({ phase: 'playing', scenario: id, seed });
     const a = audioRef.current;
-    if (a) { await a.start(sim); const s = useGame.getState(); a.setVolume(s.volume, s.muted); a.voice = s.voice; }
+    if (a) { await a.start(sim); a.setVolume(st.volume, st.muted); a.setMix(st.mix); a.voice = st.voice; }
   }, [set]);
 
   const onFrame = useCallback((dt: number) => {
@@ -96,7 +104,7 @@ export default function Game() {
   }, []);
 
   // keep audio settings in sync
-  useEffect(() => useGame.subscribe((s) => { const a = audioRef.current; if (a) { a.setVolume(s.volume, s.muted); a.voice = s.voice; } }), []);
+  useEffect(() => useGame.subscribe((s) => { const a = audioRef.current; if (a) { a.setVolume(s.settings.volume, s.settings.muted); a.setMix(s.settings.mix); a.voice = s.settings.voice; } }), []);
   // the menu disables the driving keys
   useEffect(() => { const sim = simRef.current; if (sim) sim.input.enabled = phase === 'playing'; }, [phase]);
 
@@ -116,14 +124,14 @@ export default function Game() {
     <div className="fixed inset-0 select-none">
       {sim && (phase === 'playing' || phase === 'menu') && <GameScene sim={sim} quality={quality} onFrame={onFrame} />}
       {phase === 'loading' && <Loading progress={progress} message={message} line={LOADING_LINES[line]} />}
-      {sim && phase === 'menu' && <Menu onStart={start} />}
+      {sim && phase === 'menu' && <Menu sim={sim} onStart={start} />}
       {sim && phase === 'playing' && !photo && (
         <>
           <HudView sim={sim} />
           <Toasts />
           {labOpen && <LabPanel sim={sim} onClose={() => { sim.showTelemetry = false; setLabOpen(false); }} />}
-          {paused && !sim.replayState.active && <PauseMenu sim={sim} onResume={() => { sim.paused = false; setPaused(false); }} onMenu={() => { sim.paused = false; setPaused(false); set({ phase: 'menu' }); }} />}
-          <button className="absolute right-3 bottom-3 rounded bg-black/40 px-2 py-1 text-[11px] text-white/70 hover:bg-black/60" onClick={() => { sim.showTelemetry = !sim.showTelemetry; setLabOpen(sim.showTelemetry); }}>Lab (Tab)</button>
+          {paused && !sim.replayState.active && <PauseMenu sim={sim} onResume={() => { sim.paused = false; setPaused(false); }} onMenu={() => { sim.paused = false; setPaused(false); set({ phase: 'menu' }); }} onLab={() => { sim.showTelemetry = true; setLabOpen(true); sim.paused = false; setPaused(false); }} />}
+          {help && <ControlsOverlay onClose={() => setHelp(false)} />}
         </>
       )}
     </div>

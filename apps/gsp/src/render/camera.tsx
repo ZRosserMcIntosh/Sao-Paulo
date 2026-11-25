@@ -13,7 +13,7 @@ export function CameraRig({ sim }: { sim: Simulation }) {
   const st = useRef({ pos: new THREE.Vector3(), look: new THREE.Vector3(), vel: new THREE.Vector3(), init: true, shake: 0, fov: 60, mode: '' as string, trackside: new THREE.Vector3(), tsTimer: 0, yaw: 0, height: 2, lastY: 0 });
   const orbit = useRef({ yaw: 2.4, pitch: 0.28, dist: 9, drag: false, lx: 0, ly: 0 });
   const P = useMemo(() => new THREE.Vector3(), []), Q = useMemo(() => new THREE.Quaternion(), []);
-  useEffect(() => sim.onImpact((e) => { if (e.involvesPlayer) st.current.shake = Math.min(1, st.current.shake + e.strength * 0.9); }), [sim]);
+  useEffect(() => sim.onImpact((e) => { if (e.involvesPlayer && sim.cameraShake) st.current.shake = Math.min(1, st.current.shake + e.strength * 0.9); }), [sim]);
   useEffect(() => {
     const el = gl.domElement;
     const down = (e: PointerEvent) => { orbit.current.drag = true; orbit.current.lx = e.clientX; orbit.current.ly = e.clientY; };

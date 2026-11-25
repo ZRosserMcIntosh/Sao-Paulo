@@ -11,8 +11,12 @@ const PRESETS = ['FUN', 'SPORT', 'SIM', 'DRIFT'];
 export function HudView({ sim }: { sim: Simulation }) {
   const hud = useGame((s) => s.hud);
   const scenario = useGame((s) => s.scenario);
+  const units = useGame((s) => s.settings.units);
+  const hints = useGame((s) => s.settings.hints);
   if (!hud) return null;
-  const mph = hud.speed * MPH;
+  const kmh = units === 'kmh';
+  const spd = hud.speed * (kmh ? 3.6 : MPH);
+  const sp = (ms: number) => Math.round(ms * (kmh ? 3.6 : MPH));
   const rpmFrac = Math.min(1, hud.rpm / hud.redline);
   const c = hud.counters;
   return (
@@ -32,7 +36,7 @@ export function HudView({ sim }: { sim: Simulation }) {
             {hud.pursuit.suspects.map((s, i) => (
               <div key={i} className="mt-1 flex justify-between text-xs text-white/85">
                 <span>{s.name} <span className="text-white/50">({s.mode})</span></span>
-                <span className="tabular">{Math.round(s.dist)} m · {Math.round(s.speed * MPH)} mph</span>
+                <span className="tabular">{Math.round(s.dist)} m · {sp(s.speed)} {kmh ? 'km/h' : 'mph'}</span>
               </div>
             ))}
           </>
@@ -63,8 +67,8 @@ export function HudView({ sim }: { sim: Simulation }) {
       <div className="absolute bottom-4 right-24 w-60 rounded-xl bg-black/50 p-3 backdrop-blur-sm">
         <div className="flex items-end justify-between">
           <div>
-            <div className="tabular font-display text-5xl leading-none">{Math.round(mph)}</div>
-            <div className="text-[10px] uppercase tracking-widest text-white/60">mph · {Math.round(hud.speed * 3.6)} km/h</div>
+            <div className="tabular font-display text-5xl leading-none">{Math.round(spd)}</div>
+            <div className="text-[10px] uppercase tracking-widest text-white/60">{kmh ? 'km/h' : 'mph'}</div>
           </div>
           <div className="text-right">
             <div className="font-display text-3xl leading-none text-gsp-orange">{hud.gear === -1 ? 'R' : hud.gear === 0 ? 'N' : hud.gear}</div>
@@ -83,13 +87,16 @@ export function HudView({ sim }: { sim: Simulation }) {
           <div className="h-full bg-emerald-400" style={{ width: `${hud.health * 100}%` }} />
         </div>
       </div>
-      {/* controls */}
-      <div className="absolute bottom-3 left-3 max-w-md rounded-lg bg-black/35 px-3 py-2 text-[10.5px] leading-relaxed text-white/75">
-        <div><b>W/S</b> gas · brake/reverse &nbsp; <b>A/D</b> steer &nbsp; <b>Space</b> handbrake &nbsp; <b>L</b> lights &nbsp; <b>H</b> siren &nbsp; <b>G</b> horn</div>
-        <div><b>C</b> camera ({CAM[hud.camera]}) &nbsp; <b>T</b> slow-mo &nbsp; <b>F</b> replay &nbsp; <b>R</b> restart &nbsp; <b>Y</b> tow &nbsp; <b>Tab</b> lab &nbsp; <b>Esc</b> pause</div>
-        {hud.pad && <div className="text-emerald-300">Gamepad: RT/LT throttle/brake · stick steer · X handbrake · Y camera · B lights · LB siren</div>}
-        <div className="text-white/40">{Math.round(hud.fps)} fps · {sim.vehicles.length} vehicles on the core</div>
-      </div>
+      {/* hints: the essentials only; F1 has the full sheet */}
+      {hints && (
+        <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-1.5 text-[11px] text-white/80">
+          {[['F1', 'Controls'], ['Esc', 'Pause & settings'], ['Tab', 'Lab'], ['C', CAM[hud.camera]], ['F', 'Replay']].map(([k, v]) => (
+            <span key={k} className="rounded-md bg-black/45 px-2 py-1"><kbd className="mr-1 rounded bg-white/15 px-1 font-mono text-[10px]">{k}</kbd>{v}</span>
+          ))}
+          {hud.pad && <span className="rounded-md bg-emerald-600/50 px-2 py-1">🎮 Gamepad</span>}
+          <span className="rounded-md bg-black/30 px-2 py-1 text-white/45">{Math.round(hud.fps)} fps · {sim.vehicles.length} cars</span>
+        </div>
+      )}
     </div>
   );
 }

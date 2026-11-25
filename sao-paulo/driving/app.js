@@ -1508,7 +1508,7 @@ function togglePanel() {
   const side = $('side'); side.hidden = !side.hidden; $('bPanel').setAttribute('aria-expanded', !side.hidden); store.set('panel', !side.hidden);
 }
 $('bPanel').onclick = (e) => { togglePanel(); e.currentTarget.blur(); };
-// Settings tabs: Car, Damage, World, Tools, Controls (the last one is remembered).
+// Settings tabs: Car, Drive, Damage, World, Tests, Replay, Settings (the last one is remembered).
 const TABS = [...document.querySelectorAll('#side [role=tab]')].map((b) => b.dataset.tab);
 function showTab(k) {
   if (!TABS.includes(k)) k = TABS[0];
@@ -2310,23 +2310,32 @@ $('vol').value = Math.round(audio.volume * 100);
 $('vol').oninput = (e) => { audio.setVolume(+e.target.value / 100); store.set('volume', audio.volume); };
 setSound(audio.enabled);
 addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'm' && !e.repeat && !(e.target instanceof HTMLInputElement)) { setSound(!audio.enabled); toast(audio.enabled ? 'Sound on' : 'Sound off'); } });
-// Tyre noise from the physics: squeal near and just past the grip peak, scrub when a tyre is
-// sliding well past it or locked. Both need real sliding speed at the contact patch.
-const tyreSnd = { squeal: 0, scrub: 0, pitch: 0 };
+// Tyre noise from the physics, per tyre: squeal near and just past the grip peak, sliding hiss
+// when a tyre is well past it, locked or spinning, both from the real sliding speed at the contact
+// patch, and the surface (setts mostly hiss, paint squeals, soil and grass don't).
+const tyreSnd = { squeal: 0, scrub: 0, pitch: 0, wheels: [0, 1, 2, 3].map(() => ({ s: 0, v: 0, h: 0, r: 0.5 })) };
+const TYRE_ROUGH = { 4: 0.9, 5: 0.12, 9: 0.3, 12: 0.65 };  // surface id -> roughness (default 0.45)
 function tyreState() {
   let sq = 0, sc = 0, pitch = 0;
   const v = S(7);
   for (let w = 0; w < 4; ++w) {
+    const tw = tyreSnd.wheels[w];
+    tw.s = 0; tw.h = 0; tw.v = 0;
     if (!(W(w, 11) > 0)) continue;
     const kappa = Math.abs(W(w, 7)), alpha = Math.abs(W(w, 8));
     const norm = Math.max(kappa / 0.12, alpha / 0.12);
     const slipSpeed = Math.hypot(W(w, 5) * W(w, 3) - v, Math.tan(Math.min(1.4, alpha)) * Math.abs(v));
     const loadF = Math.max(0.4, Math.min(1.4, W(w, 6) / 4000));
-    const bell = Math.min(1, Math.max(0, (norm - 0.9) / 0.5)) * (norm < 2.5 ? 1 : Math.max(0.35, 1 - (norm - 2.5) / 3));
-    sq = Math.max(sq, bell * Math.min(1, slipSpeed / 2) * loadF);
-    let s = Math.min(1, Math.max(0, (norm - 1.8) / 2.5)) * Math.min(1, slipSpeed / 4) * loadF;
+    const surf = W(w, 15);
+    if (surf === 13) continue;  // soil, lawn: no squeal
+    const bell = Math.min(1, Math.max(0, (norm - 0.75) / 0.4)) * (norm < 2.6 ? 1 : Math.max(0.4, 1 - (norm - 2.6) / 4));
+    tw.s = bell * Math.min(1, slipSpeed / 1.4) * loadF * (surf === 8 ? 0.15 : 1);
+    let s = Math.min(1, Math.max(0, (norm - 1.6) / 2.6)) * Math.min(1, slipSpeed / 4) * loadF;
     if (W(w, 12) > 0) s = Math.max(s, Math.min(1, Math.abs(v) / 10) * loadF);
-    sc = Math.max(sc, s);
+    tw.h = s;
+    tw.v = slipSpeed;
+    tw.r = TYRE_ROUGH[surf] ?? 0.45;
+    sq = Math.max(sq, tw.s); sc = Math.max(sc, s);
     pitch = Math.max(pitch, Math.min(1, Math.max(0, (norm - 1) / 2)));
   }
   tyreSnd.squeal = Math.min(1, sq); tyreSnd.scrub = Math.min(1, sc); tyreSnd.pitch = pitch;
