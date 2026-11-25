@@ -103,6 +103,18 @@
         "streetlab/street_library.json": "5f4fe23b40d8551905f99490636d3f41f16129d84f67c8e5e9af1db4c8ce3808"
       },
       "note": "Street Dynamics; the commit is on Destruction-Dynamics main since PR #9 (merged as ede7b3a)."
+    },
+    {
+      "page": "gsp",
+      "repo": "ZRosserMcIntosh/vehicle-dynamics",
+      "path": "web/gsp_web.cpp",
+      "commit": "5ad57b00d8b9cb50733ca1e6de30ea913a687404",
+      "verified": "2026-11-25",
+      "files": {
+        "../gsp/engines/gsp.wasm": "9862e01330d06814e1d6e31fcb1935b72eb4f753b6e105c682f5ecb92da6cb11",
+        "../gsp/engines/gsp.mjs": "5e007278701441513c28ab040876f99ed3c2afb5209a5ccf597d51ee1f8ec803"
+      },
+      "note": "Georgia State Pursuit (/gsp, source apps/gsp): the many-vehicle host ABI over the unmodified OpenRoad Dynamics core, built with wasi-sdk 25 (web/build_gsp_wasi.sh). GSP also ships copies of the Glass Lab's glass.wasm + library.json and the Street Lab's street.wasm + street_library.json in gsp/engines (same files as the entries above)."
     }
   ]
 }
